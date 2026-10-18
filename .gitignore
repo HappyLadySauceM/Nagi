@@ -1,0 +1,17 @@
+# 构建产物
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# 本地配置（保留 example）
+configs/config.yaml
+
+# 测试与覆盖率
+coverage*
+*.prof
+
+# 编辑器
+.idea/
+.vscode/
