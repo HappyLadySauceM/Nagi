@@ -55,6 +55,13 @@ func (s *ServiceContext) StatusSnapshot() map[string]any {
 	if status.SelfIDKnown {
 		onebot["self_id"] = int64(status.SelfID)
 	}
+	if status.HeartbeatSeen {
+		onebot["heartbeat_seen"] = true
+		onebot["last_heartbeat"] = status.LastHeartbeatAt.Format(time.RFC3339)
+		if status.HeartbeatIntervalMillis > 0 {
+			onebot["heartbeat_interval_ms"] = status.HeartbeatIntervalMillis
+		}
+	}
 	snapshot["onebot"] = onebot
 	snapshot["handlers"] = s.Dispatcher.Names()
 	snapshot["handled_events"] = s.Dispatcher.HandledCount()

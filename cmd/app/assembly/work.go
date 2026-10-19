@@ -39,6 +39,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger) (*Runtime, error) {
 		HandshakeTimeout: handshakeTimeout,
 		ReconnectInitial: cfg.Onebot.Reconnect.Initial.D(),
 		ReconnectMax:     cfg.Onebot.Reconnect.Max.D(),
+		HeartbeatTimeout: cfg.Onebot.HeartbeatTimeout.D(),
 	}, logger)
 	client := obapp.NewClientService(transport, cfg.Onebot.CallTimeout.D(), logger)
 	transport.Attach(client, client)

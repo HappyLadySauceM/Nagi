@@ -38,6 +38,11 @@ type ClientService struct {
 	selfID  atomic.Int64
 	selfSet atomic.Bool
 
+	// Heartbeat visibility derived from meta_event frames.
+	// 由 meta_event 帧推导的心跳可见性。
+	lastHeartbeatAt   atomic.Int64 // unix nanos; 0 = unseen
+	heartbeatInterval atomic.Int64 // milliseconds
+
 	eventsMu     sync.RWMutex
 	eventsClosed bool
 
@@ -165,11 +170,17 @@ func (s *ClientService) HandleResponse(echo string, payload json.RawMessage) {
 }
 
 // HandleEvent implements EventSink.
-// HandleEvent 实现 EventSink：记录自身账号并发布事件。
+// HandleEvent 实现 EventSink：记录自身账号与最近心跳，并发布事件。
 func (s *ClientService) HandleEvent(event domain.Event) {
 	if event.SelfID != 0 {
 		s.selfID.Store(int64(event.SelfID))
 		s.selfSet.Store(true)
+	}
+	if event.IsHeartbeat() {
+		s.lastHeartbeatAt.Store(time.Now().UnixNano())
+		if interval := event.HeartbeatIntervalMillis(); interval > 0 {
+			s.heartbeatInterval.Store(interval)
+		}
 	}
 	s.eventsMu.RLock()
 	defer s.eventsMu.RUnlock()
@@ -206,7 +217,13 @@ func (s *ClientService) SelfID() (domain.BotID, bool) {
 // Status 实现 contracts.StatusReader。
 func (s *ClientService) Status() contracts.BotStatus {
 	id, known := s.SelfID()
-	return contracts.BotStatus{Connected: s.Connected(), SelfID: id, SelfIDKnown: known}
+	out := contracts.BotStatus{Connected: s.Connected(), SelfID: id, SelfIDKnown: known}
+	if nano := s.lastHeartbeatAt.Load(); nano != 0 {
+		out.HeartbeatSeen = true
+		out.LastHeartbeatAt = time.Unix(0, nano)
+		out.HeartbeatIntervalMillis = s.heartbeatInterval.Load()
+	}
+	return out
 }
 
 // Close stops accepting calls and tears down the transport and event stream.

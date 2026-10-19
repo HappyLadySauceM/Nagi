@@ -5,12 +5,13 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,6 +43,10 @@ type Options struct {
 	ReconnectInitial time.Duration
 	ReconnectMax     time.Duration
 	WriteTimeout     time.Duration
+	// HeartbeatTimeout closes the connection when no inbound frame arrives
+	// within the window; <= 0 disables the watchdog.
+	// HeartbeatTimeout 在窗口内没有入站帧时断开连接；<= 0 关闭看门狗。
+	HeartbeatTimeout time.Duration
 }
 
 // Transport implements application.Transport over gorilla/websocket.
@@ -179,16 +184,33 @@ func (t *Transport) dial(ctx context.Context) (*websocket.Conn, *http.Response, 
 
 func (t *Transport) readPump(ctx context.Context, conn *websocket.Conn) error {
 	conn.SetReadLimit(readLimit)
+	applyReadDeadline := func() {
+		if t.opts.HeartbeatTimeout > 0 {
+			_ = conn.SetReadDeadline(time.Now().Add(t.opts.HeartbeatTimeout))
+		}
+	}
+	applyReadDeadline()
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		_, data, err := conn.ReadMessage()
 		if err != nil {
+			if isTimeoutError(err) && t.opts.HeartbeatTimeout > 0 {
+				return fmt.Errorf("onebot: heartbeat timeout after %s: %w", t.opts.HeartbeatTimeout, err)
+			}
 			return err
 		}
+		applyReadDeadline()
 		t.routeFrame(data)
 	}
+}
+
+// isTimeoutError reports whether err is a network deadline timeout.
+// isTimeoutError 判断 err 是否为网络期限超时。
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // routeFrame demultiplexes frames: echo-bearing responses and protocol events.
@@ -256,14 +278,24 @@ func encodeFrame(action obdomain.Action, echo string) (map[string]any, error) {
 	return frame, nil
 }
 
+// encodeSegments converts segments to wire shape and restores embedded node
+// content arrays from their JSON text form.
+// encodeSegments 将消息段转换为线上形状，并把内嵌节点 content 由 JSON 文本还原为真实数组。
 func encodeSegments(segments []obdomain.Segment) []map[string]any {
-	out := make([]map[string]any, 0, len(segments))
-	for _, s := range segments {
-		data := make(map[string]any, len(s.Data))
-		for k, v := range s.Data {
-			data[k] = v
+	out := obdomain.WireSegments(segments)
+	for _, frame := range out {
+		data, ok := frame["data"].(map[string]any)
+		if !ok {
+			continue
 		}
-		out = append(out, map[string]any{"type": string(s.Type), "data": data})
+		raw, ok := data["content"].(string)
+		if !ok {
+			continue
+		}
+		var arr []any
+		if err := json.Unmarshal([]byte(raw), &arr); err == nil {
+			data["content"] = arr
+		}
 	}
 	return out
 }
@@ -286,11 +318,6 @@ type wireSender struct {
 	UserID   int64  `json:"user_id"`
 	Nickname string `json:"nickname"`
 	Card     string `json:"card"`
-}
-
-type wireSegment struct {
-	Type string         `json:"type"`
-	Data map[string]any `json:"data"`
 }
 
 // mapEvent maps the wire frame onto the pure domain event.
@@ -319,18 +346,15 @@ func mapEvent(data []byte) (obdomain.Event, error) {
 		}
 	}
 	if len(row.Message) > 0 {
-		var segments []wireSegment
-		if err := json.Unmarshal(row.Message, &segments); err == nil {
-			for _, seg := range segments {
-				event.Segments = append(event.Segments, obdomain.Segment{
-					Type: obdomain.SegmentType(seg.Type),
-					Data: stringifyMap(seg.Data),
-				})
-			}
+		if segments, err := obdomain.SegmentsFromWire(row.Message); err == nil {
+			event.Segments = segments
 		} else {
 			var text string
-			if err := json.Unmarshal(row.Message, &text); err == nil && event.RawMessage == "" {
-				event.RawMessage = text
+			if err := json.Unmarshal(row.Message, &text); err == nil {
+				if event.RawMessage == "" {
+					event.RawMessage = text
+				}
+				event.Segments = obdomain.ParseCQ(text)
 			}
 		}
 	}
@@ -347,30 +371,6 @@ func mapEvent(data []byte) (obdomain.Event, error) {
 		}
 	}
 	return event, nil
-}
-
-// stringifyMap coerces segment data values into strings without losing structure.
-// stringifyMap 将消息段数据值统一转换为字符串，复杂结构保留 JSON 文本。
-func stringifyMap(in map[string]any) map[string]string {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		switch val := v.(type) {
-		case string:
-			out[k] = val
-		case bool:
-			out[k] = strconv.FormatBool(val)
-		case float64:
-			out[k] = strconv.FormatFloat(val, 'f', -1, 64)
-		default:
-			if b, err := json.Marshal(val); err == nil {
-				out[k] = string(b)
-			}
-		}
-	}
-	return out
 }
 
 func sleep(ctx context.Context, d time.Duration) bool {

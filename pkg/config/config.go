@@ -50,10 +50,17 @@ type Reconnect struct {
 
 // Onebot 是 OneBot v11 连接配置域。
 type Onebot struct {
-	URL         string    `yaml:"url"`
-	AccessToken string    `yaml:"access-token"`
-	CallTimeout Duration  `yaml:"call-timeout"`
-	Reconnect   Reconnect `yaml:"reconnect"`
+	URL string `yaml:"url"`
+	// AccessToken 与 OneBot 实现保持一致；空表示不鉴权。
+	// AccessToken 与 OneBot 实现保持一致；空表示不鉴权。
+	AccessToken string `yaml:"access-token"`
+	// CallTimeout 是动作调用的响应超时。
+	// CallTimeout 是动作调用的响应超时。
+	CallTimeout Duration `yaml:"call-timeout"`
+	// HeartbeatTimeout 是心跳看门狗窗口；窗口内没有入站帧即断开重连，<= 0 关闭。
+	// HeartbeatTimeout 是心跳看门狗窗口；窗口内没有入站帧即断开重连，<= 0 关闭。
+	HeartbeatTimeout Duration  `yaml:"heartbeat-timeout"`
+	Reconnect        Reconnect `yaml:"reconnect"`
 }
 
 // Server 是管理 HTTP API 配置域。
@@ -85,9 +92,10 @@ type Config struct {
 func defaults() Config {
 	return Config{
 		Onebot: Onebot{
-			URL:         "ws://127.0.0.1:3001",
-			CallTimeout: Duration(10 * time.Second),
-			Reconnect:   Reconnect{Initial: Duration(time.Second), Max: Duration(30 * time.Second)},
+			URL:              "ws://127.0.0.1:3001",
+			CallTimeout:      Duration(10 * time.Second),
+			HeartbeatTimeout: Duration(60 * time.Second),
+			Reconnect:        Reconnect{Initial: Duration(time.Second), Max: Duration(30 * time.Second)},
 		},
 		Server: Server{Listen: "127.0.0.1:5080", Enabled: true},
 		Log:    Log{Level: "info"},

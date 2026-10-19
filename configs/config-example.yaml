@@ -8,6 +8,8 @@ onebot:
   access-token: ""
   # 动作调用（发送消息等）的响应超时
   call-timeout: 10s
+  # 心跳看门狗：窗口内没有任何入站帧即断开并重连；0 或负值关闭
+  heartbeat-timeout: 60s
   reconnect:
     # 断线重连退避：从 initial 指数增长到 max，带随机抖动
     initial: 1s
