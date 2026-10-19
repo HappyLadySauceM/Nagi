@@ -44,9 +44,12 @@ flowchart LR
 2. `cmd/app/initialize.go` 装载配置（优先级：默认值 → YAML → `QQBOT_*` 环境变量 → Flags）、
    初始化 slog JSON 日志，并经 `assembly.Assemble` 装配：
    - `onebot/infrastructure.Transport`：正向 WebSocket 拨号（`Authorization: Bearer <token>`）、
-     断线指数退避重连（1s → 30s 抖动）、单写互斥。
+     断线指数退避重连（1s → 30s 抖动）、单写互斥、心跳看门狗
+     （`onebot.heartbeat-timeout` 窗口内没有任何入站帧即断开重连，≤0 关闭）。
    - `onebot/application.ClientService`：帧解复用后的动作响应按 echo 匹配回调用方；
-     事件进入带缓冲通道并记录 self_id。
+     事件进入带缓冲通道并记录 self_id 与最近心跳；提供 OneBot v11 规范全集
+     （38 个标准动作）的类型化方法与响应解码，经 `contracts` 按能力分组发布
+     （Messenger / GroupAdmin / InfoReader / RequestApprover / Maintenance，聚合为 API）。
    - `bot/application.Dispatcher`：消费事件流，经纯策略 `bot/domain.Select` 匹配处理器，
      单个处理器 panic 被恢复，不影响连接。
    - `internal/echo`：示例业务上下文（`ping` → `pong`、`/echo <text>` 复读），
@@ -61,7 +64,14 @@ flowchart LR
 ## 可靠性约定
 
 - 写帧互斥（gorilla 不允许并发写），写超时与调用超时取较早者。
-- echo 匹配表带超时清理；动作调用受 `onebot.call-timeout` 与 ctx 双重约束。
+- 心跳看门狗：读期限按 `onebot.heartbeat-timeout` 刷新，窗口内没有入站帧即断开并
+  由既有退避重连接管；超时错误明确标记 heartbeat timeout；≤0 关闭。
+- echo 匹配表带超时清理；动作调用受 `onebot.call-timeout` 与 ctx 双重约束；
+  retcode=1（异步提交）时响应 data 为 null，类型化解码容错为零值。
+- 事件 `message` 字段兼容段数组与 CQ 字符串两种形式：数组走 `domain.SegmentsFromWire`
+  统一解码，字符串走 `domain.ParseCQ`（转义反转义、畸形降级为字面文本，永不失败）。
+- 合并转发节点（`domain.CustomNode`）的 content 以线上形状 JSON 文本内嵌，
+  发送时由 `encodeSegments` 还原为真实数组。
 - 事件通道有界（256），满时丢弃并告警，绝不阻塞读泵。
 - 日志只记录事件类型与 ID，不记录 token 与完整消息体。
 
@@ -69,7 +79,8 @@ flowchart LR
 
 见 `configs/config-example.yaml`。环境变量：`QQBOT_ONEBOT_URL`、`QQBOT_ONEBOT_ACCESS_TOKEN`、
 `QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`。Flags：`--config`、`--onebot-url`、`--onebot-token`、
-`--listen`、`--log-level`，优先级高于环境变量。
+`--listen`、`--log-level`，优先级高于环境变量。`onebot.heartbeat-timeout` 默认 60s，
+仅经 YAML 或默认值提供。
 
 ## 验证
 

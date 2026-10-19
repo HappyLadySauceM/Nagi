@@ -3,8 +3,9 @@
 以 `internal/echo` 为模板，按以下步骤新增 `internal/<name>`：
 
 1. **application**：定义用例服务。构造函数校验依赖（sender 非空、配置项非空）并
-   返回 error；依赖只声明 `onebot/contracts` 的 `Sender` 等端口，不 import 任何
-   infrastructure。
+   返回 error；依赖只声明 `onebot/contracts` 的最小能力端口（`Sender`、`Messenger`、
+   `GroupAdmin`、`InfoReader`、`RequestApprover` 等），不 import 任何 infrastructure，
+   也不依赖聚合接口 `API`。
 2. **infrastructure**：实现 `bot/contracts.Handler`（Name/Match/Handle）。Match
    只做廉价判断并保持可测试的纯函数性质；Handle 内部再精确解析文本并调用用例。
    适配器不持有连接或全局状态。

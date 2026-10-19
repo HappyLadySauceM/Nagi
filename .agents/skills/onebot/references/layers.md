@@ -12,6 +12,14 @@ domain、contracts、端口及其他上下文 contracts；infrastructure 实现�
 `pkg` 不导入 `internal` 或 `cmd`；跨上下文仅访问对方 contracts。例外：
 `onebot/domain` 是 OneBot v11 协议的“已发布语言”，业务上下文经 `onebot/contracts`
 引用协议值类型属于允许的例外；除此之外不得引用他上下文 domain 或 application 内部。
+`domain.WireSegments/SegmentsFromWire`（wire.go）是该已发布语言的统一线上编解码
+助手，infrastructure 与合并转发节点共用；不得在 domain 之外再造第二份段编解码。
+
+contracts 按能力分组发布：`Messenger`（含 Sender）、`GroupAdmin`、`InfoReader`、
+`RequestApprover`、`Maintenance`，聚合接口为 `API`；业务上下文按需依赖最小能力
+接口，不依赖聚合 `API` 除非确实需要全部能力。动作响应解码是 application 职责：
+`decodeJSON`（null 容错为零值，兼容 retcode=1 异步提交）与 `decodeMessagePayload`
+（段数组/CQ 字符串双形态）是唯一入口，不重复实现。
 
 ## 状态和接口
 
