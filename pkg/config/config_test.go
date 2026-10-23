@@ -86,6 +86,22 @@ func TestLoadRejectsListenWithoutHost(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsNonLoopbackWithoutAdminToken(t *testing.T) {
+	// 验证非回环监听且未配置 admin-token 时启动失败；配置 Token 后通过。
+	cfg, err := Load(Options{LookupEnv: func(string) (string, bool) { return "", false }})
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	cfg.Server.Listen = "0.0.0.0:5080"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for non-loopback listen without admin token")
+	}
+	cfg.Server.AdminToken = "secret"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate with token: %v", err)
+	}
+}
+
 func TestLoadRejectsMissingExplicitFile(t *testing.T) {
 	// 验证显式指定的配置文件缺失时报错。
 	if _, err := Load(Options{File: "does/not/exist.yaml"}); err == nil {

@@ -8,12 +8,18 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HappyLadySauceM/QQBot/cmd/app/assembly"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/options"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/router"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
+	"github.com/HappyLadySauceM/QQBot/migrations"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
+	"github.com/HappyLadySauceM/QQBot/pkg/db"
 	"github.com/HappyLadySauceM/QQBot/pkg/logging"
 	"github.com/HappyLadySauceM/QQBot/pkg/version"
 )
@@ -35,14 +41,43 @@ func Run(ctx context.Context, opts options.Options) error {
 		"listen", cfg.Server.Listen,
 		"echo_enabled", cfg.Echo.Enabled)
 
-	rt, err := assembly.Assemble(cfg, logger)
+	// Telemetry setup happens first so early spans are captured; its shutdown is
+	// deferred and never fails the app.
+	// 观测初始化先执行以捕获早期 span；其关闭被 defer 且不影响应用退出。
+	if cfg.Observability.Enabled {
+		telemetryShutdown, telemetryErr := observability.Setup(ctx, observability.Resolve(
+			cfg.Observability.BaseURLEnv, cfg.Observability.PublicKeyEnv,
+			cfg.Observability.SecretKeyEnv, cfg.Observability.IngestionVersion,
+			cfg.Observability.ExportRawContent, observability.ResolveEnv,
+		), logger)
+		if telemetryErr != nil {
+			return telemetryErr
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := telemetryShutdown(shutdownCtx); err != nil {
+				logger.Warn("telemetry shutdown failed", "error", err)
+			}
+		}()
+	}
+
+	pool, err := connectDatabase(ctx, cfg, logger)
 	if err != nil {
 		return err
 	}
-	svcCtx, err := svc.New(cfg, logger, rt.Onebot, rt.Dispatcher)
+	if pool != nil {
+		defer pool.Close()
+	}
+	rt, err := assembly.Assemble(cfg, logger, pool)
 	if err != nil {
 		return err
 	}
+	svcCtx, err := svc.New(cfg, logger, rt.Onebot, rt.Dispatcher, rt.Directory, rt.Scope, rt.Memory, rt.Audit)
+	if err != nil {
+		return err
+	}
+	svcCtx.Stats = rt.Stats
 
 	// runCtx isolates internal loops from the caller's signal context.
 	// runCtx 将内部循环与调用方的信号上下文隔离。
@@ -75,6 +110,19 @@ func Run(ctx context.Context, opts options.Options) error {
 		}
 	}()
 
+	// Worker is nil until the AI decision pipeline is wired.
+	// AI 决策流水线接入前 Worker 为 nil。
+	var workerDone chan struct{}
+	if rt.Worker != nil {
+		workerDone = make(chan struct{})
+		go func() {
+			defer close(workerDone)
+			if err := rt.Worker.Run(runCtx); err != nil {
+				logger.Error("conversation worker exited with error", "error", err)
+			}
+		}()
+	}
+
 	var runErr error
 	select {
 	case err := <-apiErrs:
@@ -90,6 +138,9 @@ func Run(ctx context.Context, opts options.Options) error {
 	_ = rt.Onebot.Close()
 	<-transportDone
 	<-dispatcherDone
+	if workerDone != nil {
+		<-workerDone
+	}
 	if cfg.Server.Enabled {
 		<-apiDone
 		select {
@@ -102,6 +153,29 @@ func Run(ctx context.Context, opts options.Options) error {
 	}
 	logger.Info("qqbot stopped")
 	return runErr
+}
+
+// connectDatabase opens the pool and applies migrations when a DSN is configured;
+// it returns nil when no DSN resolves, keeping the bot usable without a database.
+// connectDatabase 在配置了 DSN 时打开连接池并应用迁移；未解析出 DSN 时返回 nil，
+// 机器人可在无数据库的情况下继续运行。
+func connectDatabase(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*pgxpool.Pool, error) {
+	dsn := cfg.Database.EffectiveDSN(os.LookupEnv)
+	if dsn == "" {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	pool, err := db.Connect(ctx, dsn, cfg.Database.MaxConns)
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	logger.Info("database ready", "max_conns", cfg.Database.MaxConns)
+	return pool, nil
 }
 
 // bootstrap loads config and builds the logger, tolerating a missing default file.

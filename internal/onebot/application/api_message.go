@@ -18,6 +18,52 @@ func (s *ClientService) SendMessage(ctx context.Context, mt domain.MessageType, 
 	return s.do(ctx, action)
 }
 
+// SendPrivateMessageReceipt sends a private message and returns the platform
+// message id reported by the implementation; the id stays 0 when the response
+// carries none. Errors keep the contracts.ErrActionTimeout sentinel chain so
+// callers can classify unknown-outcome sends.
+// SendPrivateMessageReceipt 发送私聊消息并返回实现方回报的 platform message id；
+// 响应缺失该字段时返回 0。错误保留 contracts.ErrActionTimeout 哨兵链，
+// 供调用方识别结果未知的发送。
+func (s *ClientService) SendPrivateMessageReceipt(ctx context.Context, to domain.UserID, segments ...domain.Segment) (int64, error) {
+	action, err := domain.NewSendPrivateMessage(to, segments)
+	if err != nil {
+		return 0, err
+	}
+	payload, err := s.Call(ctx, action)
+	if err != nil {
+		return 0, err
+	}
+	return decodeMessageID(payload)
+}
+
+// SendGroupMessageReceipt sends a group message and returns the platform
+// message id; see SendPrivateMessageReceipt.
+// SendGroupMessageReceipt 发送群聊消息并返回 platform message id；参见 SendPrivateMessageReceipt。
+func (s *ClientService) SendGroupMessageReceipt(ctx context.Context, to domain.GroupID, segments ...domain.Segment) (int64, error) {
+	action, err := domain.NewSendGroupMessage(to, segments)
+	if err != nil {
+		return 0, err
+	}
+	payload, err := s.Call(ctx, action)
+	if err != nil {
+		return 0, err
+	}
+	return decodeMessageID(payload)
+}
+
+// decodeMessageID extracts data.message_id from a send response payload.
+// decodeMessageID 从发送响应载荷中提取 data.message_id。
+func decodeMessageID(payload json.RawMessage) (int64, error) {
+	var row struct {
+		MessageID int64 `json:"message_id"`
+	}
+	if err := decodeJSON(payload, &row); err != nil {
+		return 0, fmt.Errorf("onebot: decode message receipt: %w", err)
+	}
+	return row.MessageID, nil
+}
+
 // SendLike implements contracts.Messenger.
 // SendLike 实现 contracts.Messenger（send_like）。
 func (s *ClientService) SendLike(ctx context.Context, to domain.UserID, times int) error {

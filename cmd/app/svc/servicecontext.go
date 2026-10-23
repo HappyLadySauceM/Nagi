@@ -3,12 +3,17 @@
 package svc
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
+	auditcontracts "github.com/HappyLadySauceM/QQBot/internal/audit/contracts"
 	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
+	directoryapp "github.com/HappyLadySauceM/QQBot/internal/directory/application"
+	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
 	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
+	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
 	"github.com/HappyLadySauceM/QQBot/pkg/version"
 )
@@ -21,11 +26,29 @@ type ServiceContext struct {
 	StartedAt  time.Time
 	Onebot     *obapp.ClientService
 	Dispatcher *botapp.Dispatcher
+
+	// Directory, Scope, Memory and Audit are nil when the database is not configured.
+	// 未配置数据库时 Directory、Scope、Memory 与 Audit 为 nil。
+	Directory *directoryapp.Service
+	Scope     *scopeapp.Service
+	Memory    *memoryapp.Service
+	Audit     auditcontracts.Recorder
+	// Stats may be nil when the database is not configured.
+	// 未配置数据库时 Stats 可为 nil。
+	Stats StatsProvider
 }
 
-// New validates inputs and builds the context.
-// New 校验输入并构建依赖容器。
-func New(cfg *config.Config, logger *slog.Logger, onebot *obapp.ClientService, dispatcher *botapp.Dispatcher) (*ServiceContext, error) {
+// StatsProvider supplies aggregate counters for the metrics endpoint.
+// StatsProvider 为指标接口提供聚合计数。
+type StatsProvider interface {
+	Stats(ctx context.Context) (map[string]any, error)
+}
+
+// New validates inputs and builds the context; database-backed services may be nil.
+// New 校验输入并构建依赖容器；依赖数据库的服务可为 nil。
+func New(cfg *config.Config, logger *slog.Logger, onebot *obapp.ClientService, dispatcher *botapp.Dispatcher,
+	directory *directoryapp.Service, scope *scopeapp.Service, memory *memoryapp.Service, audit auditcontracts.Recorder,
+) (*ServiceContext, error) {
 	if cfg == nil || logger == nil || onebot == nil || dispatcher == nil {
 		return nil, fmt.Errorf("svc: dependencies required")
 	}
@@ -35,6 +58,10 @@ func New(cfg *config.Config, logger *slog.Logger, onebot *obapp.ClientService, d
 		StartedAt:  time.Now(),
 		Onebot:     onebot,
 		Dispatcher: dispatcher,
+		Directory:  directory,
+		Scope:      scope,
+		Memory:     memory,
+		Audit:      audit,
 	}, nil
 }
 

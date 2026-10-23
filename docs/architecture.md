@@ -78,10 +78,55 @@ flowchart LR
 ## 配置
 
 见 `configs/config-example.yaml`。环境变量：`QQBOT_ONEBOT_URL`、`QQBOT_ONEBOT_ACCESS_TOKEN`、
-`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`。Flags：`--config`、`--onebot-url`、`--onebot-token`、
-`--listen`、`--log-level`，优先级高于环境变量。`onebot.heartbeat-timeout` 默认 60s，
-仅经 YAML 或默认值提供。
+`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`、`QQBOT_DATABASE_DSN`、`QQBOT_SERVER_ADMIN_TOKEN`。
+Flags：`--config`、`--onebot-url`、`--onebot-token`、`--listen`、`--log-level`，优先级高于环境变量。
+`onebot.heartbeat-timeout` 默认 60s，仅经 YAML 或默认值提供。AI/Jev/Langfuse 的密钥一律经
+环境变量注入（`ai.api-key-env`、`intent.api-key-env`、`observability.*-env`），不写入配置文件。
+
+## 业务上下文（智能助手 MVP）
+
+- `internal/directory`：经 `onebot/contracts.InfoReader` 同步好友/群/成员（upsert + last_seen），
+  提供分页查询。
+- `internal/scope`：作用域策略（群/私聊）。默认拒绝（全部关闭），写穿缓存即时生效；
+  `scope/contracts.Authorizer` 是唯一授权入口。
+- `internal/conversation`：`AIIngress` Handler（`bot/contracts.Handler`）只做作用域检查与
+  事务入库（消息 + `message_jobs` 同事务、平台事件去重）即返回，绝不在 Dispatcher 内等待
+  LLM/Jev；有界 worker 以 `FOR UPDATE SKIP LOCKED` 原子认领任务（`processing` 状态），
+  按会话顺序、跨会话受控并发，重启恢复 processing 任务；出站回复经 `RecordOutgoing`
+  在单事务内回写并携带平台消息 ID。
+- `internal/intent`：确定性规则（策略/频率/指向闸门，最终否决权；冷却与小时限流读取
+  独立于聊天历史授权的发言元数据）→ Jev 语义判定（畸形或越界响应视为不可用，
+  降级为仅响应明确 @/引用）→ `ReplyPolicy` 输出 reply/silent/defer 与 reason_code，
+  落 `intent_decisions` 供评估。
+- `internal/agent`：OpenAI 兼容 `ChatModel`、上下文构建（系统提示 + 授权历史 + 记忆）、
+  输出净化（长度上限、@全体去除、出站链接关闭式拒绝）、发送前二次作用域复核、出站回写；
+  发送超时按 unknown 记录（结果未知不盲目重发），其余失败按 failed 记录。
+- `internal/memory`：长期记忆。候选 → 去重 → 管理员审批 → 激活；检索先按
+  `bot_id + visibility + owner_key + status` 过滤（bot_shared / group / private_user /
+  conversation），embedding 向量列留待选定模型后添加。
+- `internal/observability`：OTel 全局 tracer + 可选 Langfuse OTLP/HTTP 导出（Basic Auth、
+  v4 ingestion header、默认关闭、凭据缺失保持 no-op）；`GET /api/v1/metrics` 提供聚合计数。
+  span 不记录消息正文。
+
+### 管理 API（全部经 `{code,message,data}` 信封）
+
+- `POST /api/v1/directory/sync`、`GET /api/v1/accounts`
+- `GET /api/v1/contacts`、`GET /api/v1/groups`、`GET /api/v1/groups/{id}/members?refresh=`
+- `GET/PUT /api/v1/scopes(/{type}/{id})`
+- `GET/POST/PATCH/DELETE /api/v1/memories(/{id})`
+- `GET /api/v1/metrics`
+
+配置 `server.admin-token`（或 `QQBOT_SERVER_ADMIN_TOKEN`）后，以上接口需要
+`Authorization: Bearer <token>`；变更类请求写入 `admin_audit_logs`。数据库未配置时，
+依赖数据库的路由不注册，机器人仍以 OneBot + echo 模式运行。
+
+### 本地数据库
+
+`docker-compose.yml` 提供 `pgvector/pgvector:pg16`（`just db-up` / `just db-down`，主机端口
+5433）。`migrations/` 为版本化 SQL（含 up/down），启动时自动应用；集成测试以
+`QQBOT_TEST_DSN` 门控，未设置时自动跳过。
 
 ## 验证
 
 `just verify`（或依次运行 `go mod tidy && go vet ./... && go test ./... && go fmt ./...`）。
+并发相关改动追加 `go test -race ./...`；数据库部分以 `QQBOT_TEST_DSN` 启用集成测试。

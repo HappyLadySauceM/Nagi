@@ -67,6 +67,11 @@ type Onebot struct {
 type Server struct {
 	Listen  string `yaml:"listen"`
 	Enabled bool   `yaml:"enabled"`
+	// AdminToken 为管理 API 的 Bearer Token；为空时仅允许本机（回环）监听且不鉴权，
+	// 非回环监听必须显式配置 Token，否则启动失败。
+	// AdminToken is the management API bearer token; empty disables auth and is
+	// only accepted for loopback listeners, otherwise startup fails.
+	AdminToken string `yaml:"admin-token"`
 }
 
 // Log 是日志配置域。
@@ -80,12 +85,111 @@ type Echo struct {
 	Prefix  string `yaml:"prefix"`
 }
 
+// Database 是 PostgreSQL 连接配置域；未解析出 DSN 时数据库功能不启用。
+// Database is the PostgreSQL config domain; when no DSN resolves, database features stay off.
+type Database struct {
+	// DSN 是连接字符串；通常经 QQBOT_DATABASE_DSN 环境变量注入。
+	// DSN is the connection string, usually injected via the QQBOT_DATABASE_DSN env var.
+	DSN string `yaml:"dsn"`
+	// DSNEnv 引用一个持有连接字符串的环境变量名；DSN 非空时忽略。
+	// DSNEnv names an env var holding the connection string; ignored when DSN is set.
+	DSNEnv string `yaml:"dsn-env"`
+	// MaxConns 是连接池上限。
+	// MaxConns is the pool size limit.
+	MaxConns int32 `yaml:"max-conns"`
+}
+
+// EffectiveDSN 解析连接字符串：显式 dsn 优先，其次 dsn-env 引用的环境变量。
+// EffectiveDSN resolves the connection string: explicit DSN wins, then the env var named by DSNEnv.
+func (d Database) EffectiveDSN(lookup func(string) (string, bool)) string {
+	if strings.TrimSpace(d.DSN) != "" {
+		return strings.TrimSpace(d.DSN)
+	}
+	if d.DSNEnv != "" {
+		if v, ok := lookup(d.DSNEnv); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// Worker 是决策任务工作器配置域。
+// Worker is the decision-job worker config domain.
+type Worker struct {
+	// Concurrency 是跨会话的全局并发上限。
+	// Concurrency is the global cross-conversation concurrency bound.
+	Concurrency int `yaml:"concurrency"`
+	// MaxPendingJobs 是内存中待处理任务上限；超出部分留在数据库。
+	// MaxPendingJobs is the in-memory pending limit; excess stays in the database.
+	MaxPendingJobs int `yaml:"max-pending-jobs"`
+	// PollInterval 是任务轮询间隔。
+	// PollInterval is the job polling interval.
+	PollInterval Duration `yaml:"poll-interval"`
+	// CoalesceWindow 是连续消息的小窗合并时长。
+	// CoalesceWindow is the small merge window for consecutive messages.
+	CoalesceWindow Duration `yaml:"coalesce-window"`
+}
+
+// AI 是 LLM 生成配置域；密钥经 api-key-env 引用的环境变量注入。
+// AI is the LLM generation config domain; the key is injected via the env var named by api-key-env.
+type AI struct {
+	Enabled           bool     `yaml:"enabled"`
+	BaseURL           string   `yaml:"base-url"`
+	APIKeyEnv         string   `yaml:"api-key-env"`
+	Model             string   `yaml:"model"`
+	GenerationTimeout Duration `yaml:"generation-timeout"`
+	MaxOutputTokens   int      `yaml:"max-output-tokens"`
+}
+
+// Intent 是意图决策配置域。
+// Intent is the intent decision config domain.
+type Intent struct {
+	Enabled               bool     `yaml:"enabled"`
+	Provider              string   `yaml:"provider"`
+	Endpoint              string   `yaml:"endpoint"`
+	APIKeyEnv             string   `yaml:"api-key-env"`
+	Model                 string   `yaml:"model"`
+	BotName               string   `yaml:"bot-name"`
+	Timeout               Duration `yaml:"timeout"`
+	ActiveWindow          Duration `yaml:"active-window"`
+	ContinuationThreshold float64  `yaml:"continuation-threshold"`
+	InterjectionThreshold float64  `yaml:"interjection-threshold"`
+	AddressedOtherMax     float64  `yaml:"addressed-other-max"`
+	HistoryLimit          int      `yaml:"history-limit"`
+}
+
+// Observability 是 OpenTelemetry/Langfuse 观测配置域；凭据经环境变量注入。
+// Observability is the OpenTelemetry/Langfuse config domain; credentials come from env vars.
+type Observability struct {
+	// Enabled 为 false 时不初始化任何导出器，业务零开销。
+	// When Enabled is false no exporter is initialized; business runs at zero cost.
+	Enabled bool `yaml:"enabled"`
+	// BaseURLEnv 引用持有 Langfuse Base URL 的环境变量名。
+	// BaseURLEnv names the env var holding the Langfuse base URL.
+	BaseURLEnv string `yaml:"base-url-env"`
+	// PublicKeyEnv 与 SecretKeyEnv 引用 Langfuse 凭据环境变量名。
+	// PublicKeyEnv and SecretKeyEnv name the Langfuse credential env vars.
+	PublicKeyEnv string `yaml:"public-key-env"`
+	SecretKeyEnv string `yaml:"secret-key-env"`
+	// IngestionVersion 为 "4" 时携带 Langfuse v4 ingestion header。
+	// IngestionVersion "4" adds the Langfuse v4 ingestion header.
+	IngestionVersion string `yaml:"ingestion-version"`
+	// ExportRawContent 为 true 时才允许上传消息正文（默认脱敏）。
+	// ExportRawContent true allows raw message bodies (redacted by default).
+	ExportRawContent bool `yaml:"export-raw-content"`
+}
+
 // Config 是解析完成的运行时配置模型。
 type Config struct {
-	Onebot Onebot `yaml:"onebot"`
-	Server Server `yaml:"server"`
-	Log    Log    `yaml:"log"`
-	Echo   Echo   `yaml:"echo"`
+	Onebot        Onebot        `yaml:"onebot"`
+	Server        Server        `yaml:"server"`
+	Log           Log           `yaml:"log"`
+	Echo          Echo          `yaml:"echo"`
+	Database      Database      `yaml:"database"`
+	Worker        Worker        `yaml:"worker"`
+	AI            AI            `yaml:"ai"`
+	Intent        Intent        `yaml:"intent"`
+	Observability Observability `yaml:"observability"`
 }
 
 // defaults 返回内置默认值。
@@ -100,6 +204,37 @@ func defaults() Config {
 		Server: Server{Listen: "127.0.0.1:5080", Enabled: true},
 		Log:    Log{Level: "info"},
 		Echo:   Echo{Enabled: true, Prefix: "/echo"},
+		Database: Database{
+			DSNEnv:   "QQBOT_DATABASE_DSN",
+			MaxConns: 10,
+		},
+		Worker: Worker{
+			Concurrency:    4,
+			MaxPendingJobs: 1000,
+			PollInterval:   Duration(200 * time.Millisecond),
+			CoalesceWindow: Duration(time.Second),
+		},
+		AI: AI{
+			GenerationTimeout: Duration(25 * time.Second),
+			MaxOutputTokens:   400,
+		},
+		Intent: Intent{
+			Provider:              "jev",
+			Endpoint:              "https://api.typesafe.ai/v1/systemone",
+			APIKeyEnv:             "TYPESAFE_API_KEY",
+			Model:                 "jev-latest",
+			Timeout:               Duration(3 * time.Second),
+			ActiveWindow:          Duration(180 * time.Second),
+			ContinuationThreshold: 0.80,
+			InterjectionThreshold: 0.95,
+			AddressedOtherMax:     0.60,
+			HistoryLimit:          30,
+		},
+		Observability: Observability{
+			BaseURLEnv:   "LANGFUSE_BASE_URL",
+			PublicKeyEnv: "LANGFUSE_PUBLIC_KEY",
+			SecretKeyEnv: "LANGFUSE_SECRET_KEY",
+		},
 	}
 }
 
@@ -203,6 +338,9 @@ func (c *Config) Validate() error {
 		if err != nil || portNum <= 0 || portNum > 65535 {
 			return fmt.Errorf("config: server.listen 端口无效: %s", port)
 		}
+		if strings.TrimSpace(c.Server.AdminToken) == "" && !isLoopbackHost(host) {
+			return fmt.Errorf("config: server.listen 非本机监听（%s）时必须配置 server.admin-token", host)
+		}
 	}
 
 	if _, err := logging.ParseLevel(c.Log.Level); err != nil {
@@ -211,7 +349,57 @@ func (c *Config) Validate() error {
 	if c.Echo.Enabled && strings.TrimSpace(c.Echo.Prefix) == "" {
 		return fmt.Errorf("config: echo.enabled 时 echo.prefix 不能为空")
 	}
+	if c.Database.MaxConns <= 0 {
+		return fmt.Errorf("config: database.max-conns 必须为正数")
+	}
+	if c.Worker.Concurrency <= 0 {
+		return fmt.Errorf("config: worker.concurrency 必须为正数")
+	}
+	if c.Worker.MaxPendingJobs <= 0 {
+		return fmt.Errorf("config: worker.max-pending-jobs 必须为正数")
+	}
+	if c.Worker.PollInterval.D() <= 0 {
+		return fmt.Errorf("config: worker.poll-interval 必须为正数")
+	}
+	if c.Worker.CoalesceWindow.D() <= 0 {
+		return fmt.Errorf("config: worker.coalesce-window 必须为正数")
+	}
+	if c.AI.Enabled {
+		if strings.TrimSpace(c.AI.BaseURL) == "" {
+			return fmt.Errorf("config: ai.enabled 时 ai.base-url 不能为空")
+		}
+		if strings.TrimSpace(c.AI.Model) == "" {
+			return fmt.Errorf("config: ai.enabled 时 ai.model 不能为空")
+		}
+		if c.AI.GenerationTimeout.D() <= 0 || c.AI.MaxOutputTokens <= 0 {
+			return fmt.Errorf("config: ai 超时与输出上限必须为正数")
+		}
+	}
+	if c.Intent.Enabled {
+		if c.Intent.Provider != "jev" {
+			return fmt.Errorf("config: intent.provider 仅支持 jev")
+		}
+		if strings.TrimSpace(c.Intent.Endpoint) == "" || strings.TrimSpace(c.Intent.Model) == "" {
+			return fmt.Errorf("config: intent.enabled 时 endpoint 与 model 不能为空")
+		}
+		if c.Intent.Timeout.D() <= 0 {
+			return fmt.Errorf("config: intent.timeout 必须为正数")
+		}
+		if c.Intent.ContinuationThreshold <= 0 || c.Intent.ContinuationThreshold > 1 ||
+			c.Intent.InterjectionThreshold <= 0 || c.Intent.InterjectionThreshold > 1 ||
+			c.Intent.AddressedOtherMax <= 0 || c.Intent.AddressedOtherMax > 1 {
+			return fmt.Errorf("config: intent 阈值必须在 (0,1] 区间")
+		}
+	}
 	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func normalizeWSURL(raw string) (string, error) {

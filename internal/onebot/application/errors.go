@@ -3,6 +3,8 @@ package application
 import (
 	"errors"
 	"fmt"
+
+	"github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
 )
 
 // Sentinels for callers using errors.Is.
@@ -12,9 +14,10 @@ var (
 	// ErrNotConnected 表示当前没有可用连接。
 	ErrNotConnected = errors.New("onebot: connection not ready")
 
-	// ErrTimeout means no echo-matched response arrived before the deadline.
-	// ErrTimeout 表示在期限内未收到 echo 匹配的响应。
-	ErrTimeout = errors.New("onebot: action call timed out")
+	// ErrTimeout aliases the published contracts sentinel so both this package's
+	// callers and business contexts detect the same timeout condition.
+	// ErrTimeout 别名引用契约层哨兵，本包调用方与业务上下文识别同一种超时。
+	ErrTimeout = contracts.ErrActionTimeout
 
 	// ErrClosed means the client service has been closed.
 	// ErrClosed 表示客户端服务已关闭。

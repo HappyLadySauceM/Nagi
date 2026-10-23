@@ -1,0 +1,24 @@
+# Local development & integration-test database (postgres + pgvector). NOT for production.
+# 本地开发与集成测试数据库（postgres + pgvector），不用于生产部署。
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: qqbot-postgres
+    environment:
+      POSTGRES_USER: qqbot
+      POSTGRES_PASSWORD: qqbot-local
+      POSTGRES_DB: qqbot
+    ports:
+      # Use 5433 on the host to avoid clashing with a local default postgres.
+      # 主机侧使用 5433，避免与本机默认 postgres 冲突。
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - qqbot-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qqbot -d qqbot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  qqbot-pgdata:

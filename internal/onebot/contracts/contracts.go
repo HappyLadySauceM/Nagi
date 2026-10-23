@@ -5,10 +5,18 @@ package contracts
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 )
+
+// ErrActionTimeout reports that an action call timed out without an echo-matched
+// response. The real-world outcome (whether the message was delivered) is
+// unknown, so callers must not blindly retry sends.
+// ErrActionTimeout 表示动作调用在期限内未收到 echo 匹配的响应。
+// 实际结果（消息是否已发出）未知，调用方不得盲目重试发送。
+var ErrActionTimeout = errors.New("onebot: action response timed out")
 
 // Sender is the stable action-sending interface for business contexts.
 // Sender 是业务上下文发送 OneBot 动作的稳定接口。

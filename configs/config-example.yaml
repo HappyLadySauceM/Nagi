@@ -19,6 +19,9 @@ server:
   # 管理 HTTP API（/livez /readyz /api/v1/status）监听地址，默认仅监听本机
   listen: 127.0.0.1:5080
   enabled: true
+  # 管理 API 的 Bearer Token（QQBOT_SERVER_ADMIN_TOKEN 可覆盖）；
+  # 为空时不启用鉴权，仅适合默认的本机监听场景
+  admin-token: ""
 
 log:
   # debug | info | warn | error
@@ -28,3 +31,69 @@ echo:
   # 内置示例上下文：ping 回 pong、"<prefix> <text>" 复读
   enabled: true
   prefix: "/echo"
+
+database:
+  # PostgreSQL 连接。推荐经环境变量注入：export QQBOT_DATABASE_DSN=postgres://...
+  # 本地可用仓库 docker-compose.yml（just db-up），DSN 形如：
+  #   postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable
+  # 未解析出 DSN 时数据库相关功能（目录/作用域/会话/记忆/观测）不启用。
+  dsn: ""
+  # 也可用 dsn-env 引用一个持有连接字符串的环境变量名；dsn 非空时忽略
+  dsn-env: QQBOT_DATABASE_DSN
+  # 连接池上限
+  max-conns: 10
+
+worker:
+  # 决策任务工作器：跨会话全局并发上限
+  concurrency: 4
+  # 内存中待处理任务上限；超出部分保留在数据库
+  max-pending-jobs: 1000
+  # 任务轮询间隔
+  poll-interval: 200ms
+  # 连续消息的小窗合并时长（意图决策阶段使用）
+  coalesce-window: 1s
+
+ai:
+  # LLM 生成（OpenAI 兼容 chat/completions）。密钥经环境变量注入：
+  #   export QQBOT_LLM_API_KEY=...
+  enabled: false
+  base-url: "https://YOUR_LLM_ENDPOINT/v1"
+  api-key-env: QQBOT_LLM_API_KEY
+  model: "your-chat-model"
+  generation-timeout: 25s
+  max-output-tokens: 400
+
+intent:
+  # 意图决策（TypeSafe Jev / SystemOne）。密钥经环境变量注入：
+  #   export TYPESAFE_API_KEY=...
+  # Jev 不可用时降级为仅响应明确 @/引用，绝不自动插话。
+  enabled: false
+  provider: jev
+  endpoint: "https://api.typesafe.ai/v1/systemone"
+  api-key-env: TYPESAFE_API_KEY
+  model: "jev-latest"
+  # 机器人昵称，用于 Jev state
+  bot-name: ""
+  timeout: 3s
+  # 活跃会话窗口（续聊判定参考）
+  active-window: 180s
+  # 决策阈值：续聊 >= 0.80 且对他人 < 0.60 才续聊；插话 >= 0.95
+  continuation-threshold: 0.80
+  interjection-threshold: 0.95
+  addressed-other-max: 0.60
+  # 决策上下文读取的历史条数上限
+  history-limit: 30
+
+observability:
+  # Langfuse OTLP 追踪导出。凭据与地址经环境变量注入：
+  #   export LANGFUSE_BASE_URL=https://your-langfuse-host
+  #   export LANGFUSE_PUBLIC_KEY=... LANGFUSE_SECRET_KEY=...
+  # 自托管 Langfuse v4 填 ingestion-version: "4"。默认关闭；
+  # 凭据缺失或导出故障均不影响聊天主链路。
+  enabled: false
+  base-url-env: LANGFUSE_BASE_URL
+  public-key-env: LANGFUSE_PUBLIC_KEY
+  secret-key-env: LANGFUSE_SECRET_KEY
+  ingestion-version: "4"
+  # 仅在确有需要且获得授权时开启，开启后才会导出消息正文
+  export-raw-content: false

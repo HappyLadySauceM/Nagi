@@ -24,3 +24,13 @@ verify:
     go vet ./...
     go test ./...
     go fmt ./...
+
+# Start the local postgres+pgvector development database.
+# 启动本地 postgres+pgvector 开发数据库。
+db-up:
+    docker compose up -d --wait postgres
+
+# Stop the local development database.
+# 停止本地开发数据库。
+db-down:
+    docker compose down
