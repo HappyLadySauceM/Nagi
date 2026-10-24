@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 228 33% 98%;
+    --foreground: 224 44% 9%;
+    --surface: 0 0% 100%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 44% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 44% 9%;
+    --primary: 239 72% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 225 25% 95%;
+    --secondary-foreground: 224 30% 20%;
+    --muted: 225 25% 95%;
+    --muted-foreground: 218 14% 40%;
+    --accent: 234 60% 95%;
+    --accent-foreground: 239 60% 40%;
+    --destructive: 351 82% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 158 62% 30%;
+    --success-foreground: 0 0% 100%;
+    --warning: 32 92% 36%;
+    --warning-foreground: 0 0% 100%;
+    --border: 222 20% 88%;
+    --input: 222 20% 86%;
+    --ring: 239 72% 56%;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 224 25% 22%;
+    --sidebar-accent: 234 60% 96%;
+    --sidebar-border: 222 20% 90%;
+    --radius: 0.75rem;
+    --glow-primary: 0.1;
+    --glow-secondary: 0.06;
+  }
+
+  .dark {
+    --background: 223 24% 6%;
+    --foreground: 220 33% 97%;
+    --surface: 223 28% 10%;
+    --card: 223 23% 12%;
+    --card-foreground: 220 33% 97%;
+    --popover: 223 25% 11%;
+    --popover-foreground: 220 33% 97%;
+    --primary: 234 90% 74%;
+    --primary-foreground: 232 40% 12%;
+    --secondary: 223 20% 16%;
+    --secondary-foreground: 220 25% 92%;
+    --muted: 223 20% 16%;
+    --muted-foreground: 218 15% 65%;
+    --accent: 234 40% 20%;
+    --accent-foreground: 232 90% 88%;
+    --destructive: 351 94% 71%;
+    --destructive-foreground: 351 60% 12%;
+    --success: 158 64% 52%;
+    --success-foreground: 158 60% 8%;
+    --warning: 38 92% 58%;
+    --warning-foreground: 32 80% 10%;
+    --border: 220 18% 20%;
+    --input: 220 18% 22%;
+    --ring: 234 90% 74%;
+    --sidebar: 223 28% 8%;
+    --sidebar-foreground: 218 20% 88%;
+    --sidebar-accent: 234 40% 22%;
+    --sidebar-border: 220 18% 17%;
+    --glow-primary: 0.14;
+    --glow-secondary: 0.08;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background font-sans text-sm text-foreground antialiased;
+    background-image:
+      radial-gradient(
+        62rem 42rem at 10% -12%,
+        hsl(var(--primary) / var(--glow-primary)),
+        transparent 62%
+      ),
+      radial-gradient(
+        52rem 38rem at 96% 0%,
+        hsl(var(--primary) / var(--glow-secondary)),
+        transparent 66%
+      );
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    font-feature-settings: 'ss01' on;
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.28);
+    color: hsl(var(--foreground));
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.55);
+  }
+}
+
+@layer components {
+  .shine-border {
+    position: absolute;
+    inset: 0;
+    padding: 0;
+    border: var(--shine-width, 1px) solid transparent;
+    border-radius: inherit;
+    background: radial-gradient(
+        transparent,
+        transparent,
+        var(--shine-color, hsl(var(--primary))),
+        transparent,
+        transparent
+      )
+      border-box;
+    background-size: 300% 300%;
+    -webkit-mask:
+      linear-gradient(#fff 0 0) padding-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#fff 0 0) padding-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    animation: shine var(--shine-duration, 14s) infinite linear;
+  }
+
+  @keyframes shine {
+    0% {
+      background-position: 0% 0%;
+    }
+    50% {
+      background-position: 100% 100%;
+    }
+    100% {
+      background-position: 0% 0%;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shine-border {
+    animation: none;
+    opacity: 0.45;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
