@@ -517,12 +517,12 @@ qqbot.message
 
 ### P0：数据库 + 目录 + Scope（约 3–5 开发日）
 
-- [ ] P0-01 接入 `pgxpool`、数据库迁移与启动时连接检查；完成本地测试数据库。
-- [ ] P0-02 建立 `bot_accounts/contacts/qq_groups/group_members/scope_policies` 与索引。
-- [ ] P0-03 `directory` service 通过 `InfoReader` 同步好友、群，群成员按需刷新；断线返回明确错误；同步采用 upsert + last_seen，不直接全量硬删。
-- [ ] P0-04 `scope` service 实现权限优先级、默认拒绝、缓存失效/即时生效。
-- [ ] P0-05 管理 API 提供联系人/群列表、单项 scope 更新、查询；增加最小管理员认证、审计。
-- [ ] P0-06 添加单元/DB 集成测试、越权测试，运行仓库 `just verify`。
+- [x] P0-01 接入 `pgxpool`、数据库迁移与启动时连接检查；完成本地测试数据库。
+- [x] P0-02 建立 `bot_accounts/contacts/qq_groups/group_members/scope_policies` 与索引。
+- [x] P0-03 `directory` service 通过 `InfoReader` 同步好友、群，群成员按需刷新；断线返回明确错误；同步采用 upsert + last_seen，不直接全量硬删。
+- [x] P0-04 `scope` service 实现权限优先级、默认拒绝、缓存失效/即时生效。
+- [x] P0-05 管理 API 提供联系人/群列表、单项 scope 更新、查询；增加最小管理员认证、审计。
+- [x] P0-06 添加单元/DB 集成测试、越权测试，运行仓库 `just verify`。
 
 **验收**：能读取实际 QQ 好友和群列表；默认所有群/好友未开启 AI；启用/禁用某一项立即生效；未授权正文不会落库或发送给外部模型。
 
@@ -539,12 +539,12 @@ qqbot.message
 
 ### P2：Jev 规则 + LLM 回复（约 4–7 开发日）
 
-- [ ] P2-01 建 `intent` domain/application/contracts；制定 `ReplyPolicy` 决策原因码。
-- [ ] P2-02 基础硬规则：自身消息、群/私聊模式、@/引用、黑名单、速率、最后发送时间。
-- [ ] P2-03 Jev HTTP adapter，固定请求/响应结构、限时、错误分类、模型版本与用量记录。
-- [ ] P2-04 中文场景决策样本与阈值配置；加 `silent/defer/reply` 分支及降级测试。
-- [ ] P2-05 `agent` LLM adapter、Prompt 构建、上下文裁剪、文本回复、长度限制、发送前复核。
-- [ ] P2-06 在启用 AI 的测试群关闭 `echo.enabled`，避免重复响应；验收多群独立作用域。
+- [x] P2-01 建 `intent` domain/application/contracts；制定 `ReplyPolicy` 决策原因码。
+- [ ] P2-02 基础硬规则：自身消息、群/私聊模式、@/引用、黑名单、速率、最后发送时间。**（部分：黑名单未实现，其余已实现）**
+- [x] P2-03 Jev HTTP adapter，固定请求/响应结构、限时、错误分类、模型版本与用量记录。
+- [x] P2-04 中文场景决策样本与阈值配置；加 `silent/defer/reply` 分支及降级测试。
+- [x] P2-05 `agent` LLM adapter、Prompt 构建、上下文裁剪、文本回复、长度限制、发送前复核。
+- [ ] P2-06 在启用 AI 的测试群关闭 `echo.enabled`，避免重复响应；验收多群独立作用域。**（未强制：两者同开时仅在启动日志告警）**
 
 **验收**：@ 机器人可稳定回复；明确与他人对话时不插话；Jev 断线仍不乱说；相同消息的决策记录可复盘；群聊/私聊隔离。
 
@@ -560,8 +560,8 @@ qqbot.message
 
 ### P4：Langfuse 与离线评估（约 2–4 开发日）
 
-- [ ] P4-01 OTEL exporter、Langfuse 凭据、v4 ingestion header，敏感数据过滤。
-- [ ] P4-02 核心 pipeline span、决策与生成指标、失败分类。
+- [x] P4-01 OTEL exporter、Langfuse 凭据、v4 ingestion header，敏感数据过滤。
+- [x] P4-02 核心 pipeline span、决策与生成指标、失败分类。
 - [ ] P4-03 录入经授权脱敏的人工标注集，建立“误回复/漏回复”回归分析。
 - [ ] P4-04 比较规则版本/Jev 阈值/提示词版本，形成每周人工验收记录。
 

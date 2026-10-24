@@ -83,6 +83,10 @@ Flags：`--config`、`--onebot-url`、`--onebot-token`、`--listen`、`--log-lev
 `onebot.heartbeat-timeout` 默认 60s，仅经 YAML 或默认值提供。AI/Jev/Langfuse 的密钥一律经
 环境变量注入（`ai.api-key-env`、`intent.api-key-env`、`observability.*-env`），不写入配置文件。
 
+`ai.enabled=true` 要求 `intent.enabled=true`：AI 回复由意图决策流水线触发，只开生成不会发出任何
+消息，配置矛盾在启动阶段直接报错。`echo.enabled` 与 `ai.enabled` 同开时，同一会话可能被回两次，
+启动日志会给出 WARN 而不阻断启动。
+
 ## 业务上下文（智能助手 MVP）
 
 - `internal/directory`：经 `onebot/contracts.InfoReader` 同步好友/群/成员（upsert + last_seen），
@@ -120,11 +124,15 @@ Flags：`--config`、`--onebot-url`、`--onebot-token`、`--listen`、`--log-lev
 `Authorization: Bearer <token>`；变更类请求写入 `admin_audit_logs`。数据库未配置时，
 依赖数据库的路由不注册，机器人仍以 OneBot + echo 模式运行。
 
-### 本地数据库
+### 本地基础设施
 
-`docker-compose.yml` 提供 `pgvector/pgvector:pg16`（`just db-up` / `just db-down`，主机端口
-5433）。`migrations/` 为版本化 SQL（含 up/down），启动时自动应用；集成测试以
-`QQBOT_TEST_DSN` 门控，未设置时自动跳过。
+`docker compose up -d` 拉起一套完整本地依赖：`pgvector/pgvector:pg16`（主机端口 5433，库
+`qqbot`）、完整 Langfuse 自托管栈（web 端口 3010，ClickHouse/Redis/MinIO 仅内网）、以及一次性
+建库任务 `db-init`（幂等创建 `langfuse` 与 `qqbot_test`）。Justfile 不承担任何数据库操作。
+
+`migrations/` 为版本化 SQL，每个版本必须同时提供 up 与 down；进程启动连接成功后自动执行
+`db.Migrate` 并在日志输出本次应用的版本，失败即退出。集成测试以 `QQBOT_TEST_DSN` 门控，
+未设置时自动跳过；由于迁移往返测试会删表，该变量只能指向独立测试库 `qqbot_test`。
 
 ## 验证
 

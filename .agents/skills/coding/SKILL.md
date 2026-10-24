@@ -21,6 +21,9 @@ description: 在 QQBot 仓库开展编码、设计、缺陷修复、重构、代
   [测试约束](references/testing.md)。撤销后的必要验证也遵循该文件。
 - 新增、调整或审查代码注释（包括函数文档注释）时，读取
   [注释约束](references/comments.md)。
+- 涉及数据库 schema、迁移、SQL 或数据写入方式时，读取
+  [数据库与迁移约束](references/database.md)。
+- 执行 commit、push 或准备 PR 前，读取 [提交前清理](references/hygiene.md)。
 
 同一任务只需读取一次未发生变化的约束；任务内容变化时补读适用部分。
 不要将全部约束重复写入计划、注释或项目文档。

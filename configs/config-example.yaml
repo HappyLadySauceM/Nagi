@@ -29,13 +29,15 @@ log:
 
 echo:
   # 内置示例上下文：ping 回 pong、"<prefix> <text>" 复读
+  # 与 ai 同时开启时同一会话可能被 echo 和 AI 各回一次，启用 AI 前请先关闭本项
   enabled: true
   prefix: "/echo"
 
 database:
   # PostgreSQL 连接。推荐经环境变量注入：export QQBOT_DATABASE_DSN=postgres://...
-  # 本地可用仓库 docker-compose.yml（just db-up），DSN 形如：
+  # 本地基础设施由仓库 docker-compose.yml 提供（docker compose up -d），DSN 形如：
   #   postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable
+  # 进程启动时自动应用 migrations/ 下的版本化迁移，无需手工执行。
   # 未解析出 DSN 时数据库相关功能（目录/作用域/会话/记忆/观测）不启用。
   dsn: ""
   # 也可用 dsn-env 引用一个持有连接字符串的环境变量名；dsn 非空时忽略
@@ -50,8 +52,6 @@ worker:
   max-pending-jobs: 1000
   # 任务轮询间隔
   poll-interval: 200ms
-  # 连续消息的小窗合并时长（意图决策阶段使用）
-  coalesce-window: 1s
 
 ai:
   # LLM 生成（OpenAI 兼容 chat/completions）。密钥经环境变量注入：
@@ -75,8 +75,6 @@ intent:
   # 机器人昵称，用于 Jev state
   bot-name: ""
   timeout: 3s
-  # 活跃会话窗口（续聊判定参考）
-  active-window: 180s
   # 决策阈值：续聊 >= 0.80 且对他人 < 0.60 才续聊；插话 >= 0.95
   continuation-threshold: 0.80
   interjection-threshold: 0.95
@@ -86,9 +84,9 @@ intent:
 
 observability:
   # Langfuse OTLP 追踪导出。凭据与地址经环境变量注入：
-  #   export LANGFUSE_BASE_URL=https://your-langfuse-host
-  #   export LANGFUSE_PUBLIC_KEY=... LANGFUSE_SECRET_KEY=...
-  # 自托管 Langfuse v4 填 ingestion-version: "4"。默认关闭；
+  #   export LANGFUSE_BASE_URL=http://127.0.0.1:3010   # docker compose 起的自托管实例
+  #   export LANGFUSE_PUBLIC_KEY=pk-lf-qqbot-local LANGFUSE_SECRET_KEY=sk-lf-qqbot-local
+  # 自托管 Langfuse v4 保持 ingestion-version: "4"；其他版本留空。默认关闭；
   # 凭据缺失或导出故障均不影响聊天主链路。
   enabled: false
   base-url-env: LANGFUSE_BASE_URL
