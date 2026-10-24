@@ -67,6 +67,16 @@ SPA 回退到 `index.html`，但 `/api/` 的 404 不能被改写成 200 HTML。
 - `/api/v1/accounts` 只读 OneBot 连接，由 `system` handler 无条件注册，无数据库也可用；
   旧后端未注册该路由时，控制台回退到 `/api/v1/status` 并在界面标注来源。
 - `/readyz` 的 503 只表示 OneBot 未就绪，进程存活只看 `/livez`；网络失败不能显示成机器人离线。
+- `GET /api/v1/scopes/{type}/{id}` 对**已保存**策略返回空的 `ScopeType` 与 `ScopeID`（仓储只扫描值列），
+  适配器用路由参数兜底；`GET /api/v1/scopes` 的列表行带完整身份。
+- 策略列表可能包含历史不完整行（`ReplyMode` 为空、数值为 0、`ToolPolicy` 为 null），
+  适配器按后端 `WithDefaults` 语义补齐，而不是让整页失败。
+- 作用域 PUT 是整份覆盖且要求 `self_id` 已知：`409` 表示机器人账号未识别，需先连接 OneBot 并同步目录。
+- 群成员 `refresh=true` 在进程重启后会从 `bot_accounts` 恢复账号；若从未同步过任何账号则返回 `409`，
+  界面提示先执行「同步目录」。
+- 记忆创建遇到完全相同内容时返回 `duplicate:true` 且**不会**激活，即使请求带 `approve`。
+- 记忆 `PATCH` 只接受 `status=active`（审批）与 `deleted`（软删除）；`candidate`/`superseded` 返回 `400`，
+  状态校验发生在任何写入之前，不会出现「内容已改、状态未变」的半成品。
 
 ## 目录结构
 
