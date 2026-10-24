@@ -7,6 +7,10 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import { DashboardPage } from '../features/dashboard/dashboard-page'
+import {
+  parseGroupDetailSearch,
+  parsePageSearch,
+} from '../lib/search-params'
 import { AppShell } from './layout/app-shell'
 import { NotFoundPage, RootErrorComponent } from './pages/route-fallbacks'
 import { queryClient } from './query-client'
@@ -36,6 +40,36 @@ const accountsRoute = createRoute({
   ),
 })
 
+const contactsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contacts',
+  validateSearch: parsePageSearch,
+  component: lazyRouteComponent(
+    () => import('../features/directory/contacts-page'),
+    'ContactsPage',
+  ),
+})
+
+const groupsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/groups',
+  validateSearch: parsePageSearch,
+  component: lazyRouteComponent(
+    () => import('../features/directory/groups-page'),
+    'GroupsPage',
+  ),
+})
+
+const groupDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/groups/$groupId',
+  validateSearch: parseGroupDetailSearch,
+  component: lazyRouteComponent(
+    () => import('../features/directory/group-detail-page'),
+    'GroupDetailPage',
+  ),
+})
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -44,7 +78,14 @@ const indexRoute = createRoute({
   },
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, dashboardRoute, accountsRoute])
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  dashboardRoute,
+  accountsRoute,
+  contactsRoute,
+  groupsRoute,
+  groupDetailRoute,
+])
 
 export const router = createRouter({
   routeTree,

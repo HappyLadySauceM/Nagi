@@ -44,10 +44,12 @@ func (f *fakeInfo) GetGroupMemberList(context.Context, obdomain.GroupID) ([]obdo
 // fakeRepo records upsert calls.
 // fakeRepo 记录 upsert 调用。
 type fakeRepo struct {
-	account  []int64
-	contacts map[int64][]domain.Contact
-	groups   map[int64][]domain.Group
-	members  map[int64][]domain.GroupMember
+	account      []int64
+	storedBotID  int64
+	hasStoredBot bool
+	contacts     map[int64][]domain.Contact
+	groups       map[int64][]domain.Group
+	members      map[int64][]domain.GroupMember
 }
 
 func newFakeRepo() *fakeRepo {
@@ -82,6 +84,12 @@ func (f *fakeRepo) ListGroups(context.Context, domain.PageQuery) (domain.GroupPa
 }
 func (f *fakeRepo) ListGroupMembers(context.Context, int64, domain.PageQuery) (domain.MemberPage, error) {
 	return domain.MemberPage{}, nil
+}
+
+// LatestBotID returns the stored account used by restart recovery tests.
+// LatestBotID 返回重启恢复测试使用的存储账号。
+func (f *fakeRepo) LatestBotID(context.Context) (int64, bool, error) {
+	return f.storedBotID, f.hasStoredBot, nil
 }
 
 func newTestService(info *fakeInfo, repo *fakeRepo) *Service {
@@ -133,6 +141,29 @@ func TestSyncGroupMembersRequiresSyncedAccount(t *testing.T) {
 	_, err := svc.SyncGroupMembers(context.Background(), 7)
 	if err == nil || !strings.Contains(err.Error(), "not synced") {
 		t.Fatalf("expected not-synced error, got %v", err)
+	}
+}
+
+// TestSyncGroupMembersRecoversBotFromRepository verifies that a member refresh
+// works after a restart, when only the stored account row is left.
+// TestSyncGroupMembersRecoversBotFromRepository 验证进程重启后仅剩存储账号行时，
+// 成员刷新仍能恢复账号并写入成员。
+func TestSyncGroupMembersRecoversBotFromRepository(t *testing.T) {
+	info := &fakeInfo{members: []obdomain.GroupMemberInfo{{UserID: 5, Nickname: "丙"}}}
+	repo := newFakeRepo()
+	repo.storedBotID = 20000
+	repo.hasStoredBot = true
+	svc := newTestService(info, repo)
+
+	if _, err := svc.SyncGroupMembers(context.Background(), 7); err != nil {
+		t.Fatalf("sync members after restart: %v", err)
+	}
+	members := repo.members[7]
+	if len(members) != 1 || members[0].UserID != 5 {
+		t.Fatalf("members = %+v", members)
+	}
+	if len(repo.account) != 0 {
+		t.Fatalf("recovery must not upsert an account row: %v", repo.account)
 	}
 }
 

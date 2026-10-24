@@ -4,9 +4,13 @@ export type ApiErrorKind =
   | 'cancelled'
   | 'unauthorized'
   | 'not-found'
+  | 'conflict'
+  | 'invalid'
   | 'unavailable'
   | 'server'
   | 'contract'
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 /** Distinguishes an unregistered route from a missing resource. */
 export type ApiErrorDetail = 'unregistered' | 'missing'
@@ -39,7 +43,10 @@ export class ApiError extends Error {
   }
 }
 
-interface RequestOptions {
+export interface RequestOptions {
+  method?: HttpMethod
+  /** Serialised as JSON; `undefined` sends no body. */
+  body?: unknown
   timeoutMs?: number
   signal?: AbortSignal
 }
@@ -118,6 +125,14 @@ function buildHttpError(
 ): ApiError {
   const backendMessage = envelope?.message
 
+  if (status === 400) {
+    return new ApiError({
+      kind: 'invalid',
+      endpoint,
+      status,
+      message: backendMessage ?? '提交内容未通过后端校验',
+    })
+  }
   if (status === 401) {
     return new ApiError({
       kind: 'unauthorized',
@@ -146,6 +161,14 @@ function buildHttpError(
       detail: 'unregistered',
     })
   }
+  if (status === 409) {
+    return new ApiError({
+      kind: 'conflict',
+      endpoint,
+      status,
+      message: backendMessage ?? '当前状态不允许该操作',
+    })
+  }
   if (status === 503) {
     return new ApiError({
       kind: 'unavailable',
@@ -163,19 +186,23 @@ function buildHttpError(
 }
 
 /**
- * Performs one GET request against the same-origin management API and unwraps
- * the `{code,message,data}` envelope. Relative paths only: the browser never
- * talks to a third-party origin and never holds the admin token.
+ * Performs one request against the same-origin management API and unwraps the
+ * `{code,message,data}` envelope. Relative paths only: the browser never talks
+ * to a third-party origin and never holds the admin token.
  */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const signal = buildTimeoutSignal(timeoutMs, options.signal)
+  const hasBody = options.body !== undefined
 
   let response: Response
   try {
     response = await fetch(path, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
+      method: options.method ?? 'GET',
+      headers: hasBody
+        ? { Accept: 'application/json', 'Content-Type': 'application/json' }
+        : { Accept: 'application/json' },
+      body: hasBody ? JSON.stringify(options.body) : undefined,
       credentials: 'same-origin',
       cache: 'no-store',
       signal,

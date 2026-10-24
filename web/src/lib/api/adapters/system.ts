@@ -1,126 +1,22 @@
-import { ApiError } from '../client'
 import type {
   AccountsSnapshot,
   OnebotStatus,
   PingState,
   StatusSnapshot,
 } from '../contracts'
+import {
+  asRecord,
+  contractError,
+  readBoolean,
+  readNumber,
+  readOptionalBoolean,
+  readOptionalNumber,
+  readOptionalString,
+  readString,
+} from './guard'
 
 const STATUS_ENDPOINT = '/api/v1/status'
 const ACCOUNTS_ENDPOINT = '/api/v1/accounts'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function contractError(endpoint: string, detail: string): ApiError {
-  return new ApiError({
-    kind: 'contract',
-    endpoint,
-    message: '后端响应结构与前端契约不一致',
-    detail,
-  })
-}
-
-function asRecord(value: unknown, endpoint: string, label: string): Record<string, unknown> {
-  if (!isRecord(value)) {
-    throw contractError(endpoint, `${label} 不是对象`)
-  }
-  return value
-}
-
-function readBoolean(
-  record: Record<string, unknown>,
-  key: string,
-  endpoint: string,
-  fallback?: boolean,
-): boolean {
-  const value = record[key]
-  if (typeof value === 'boolean') {
-    return value
-  }
-  if (fallback !== undefined && value === undefined) {
-    return fallback
-  }
-  throw contractError(endpoint, `${key} 不是布尔值`)
-}
-
-function readNumber(
-  record: Record<string, unknown>,
-  key: string,
-  endpoint: string,
-  fallback?: number,
-): number {
-  const value = record[key]
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
-  }
-  if (fallback !== undefined && value === undefined) {
-    return fallback
-  }
-  throw contractError(endpoint, `${key} 不是有效数字`)
-}
-
-function readOptionalNumber(
-  record: Record<string, unknown>,
-  key: string,
-  endpoint: string,
-): number | undefined {
-  const value = record[key]
-  if (value === undefined || value === null) {
-    return undefined
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
-  }
-  throw contractError(endpoint, `${key} 不是有效数字`)
-}
-
-function readString(
-  record: Record<string, unknown>,
-  key: string,
-  endpoint: string,
-  fallback?: string,
-): string {
-  const value = record[key]
-  if (typeof value === 'string') {
-    return value
-  }
-  if (fallback !== undefined && value === undefined) {
-    return fallback
-  }
-  throw contractError(endpoint, `${key} 不是字符串`)
-}
-
-function readOptionalString(
-  record: Record<string, unknown>,
-  key: string,
-  endpoint: string,
-): string | undefined {
-  const value = record[key]
-  if (value === undefined || value === null || value === '') {
-    return undefined
-  }
-  if (typeof value === 'string') {
-    return value
-  }
-  throw contractError(endpoint, `${key} 不是字符串`)
-}
-
-function readOptionalBoolean(
-  record: Record<string, unknown>,
-  key: string,
-  endpoint: string,
-): boolean | undefined {
-  const value = record[key]
-  if (value === undefined || value === null) {
-    return undefined
-  }
-  if (typeof value === 'boolean') {
-    return value
-  }
-  throw contractError(endpoint, `${key} 不是布尔值`)
-}
 
 function toOnebotStatus(value: unknown): OnebotStatus {
   const record = asRecord(value, STATUS_ENDPOINT, 'onebot')

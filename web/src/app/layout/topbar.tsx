@@ -12,6 +12,22 @@ import { MobileNav } from './mobile-nav'
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': '概览',
   '/accounts': 'QQ 账号',
+  '/contacts': '联系人',
+  '/groups': '群聊',
+}
+
+function resolveTitle(pathname: string): string {
+  const exact = PAGE_TITLES[pathname]
+  if (exact) {
+    return exact
+  }
+  if (pathname.startsWith('/groups/')) {
+    return '群详情'
+  }
+  if (pathname.startsWith('/scopes/')) {
+    return '编辑策略'
+  }
+  return '控制台'
 }
 
 function accountsTone(error: unknown): { tone: StatusTone; label: string } {
@@ -33,7 +49,7 @@ export function Topbar() {
   const livez = useLivez()
   const account = useAccountSnapshot()
 
-  const title = PAGE_TITLES[pathname] ?? '控制台'
+  const title = resolveTitle(pathname)
 
   const processState: { tone: StatusTone; label: string } = livez.isSuccess
     ? { tone: 'ok', label: '进程在线' }

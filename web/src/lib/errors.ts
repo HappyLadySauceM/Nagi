@@ -70,6 +70,23 @@ export function describeError(error: unknown): ErrorPresentation {
           description: error.message,
           canRetry: false,
         }
+      case 'conflict':
+        return {
+          variant: 'error',
+          title: '后端拒绝该操作',
+          description:
+            error.endpoint.startsWith('/api/v1/scopes') || error.endpoint.startsWith('/api/v1/memories')
+              ? `${error.message}。保存作用域时出现该提示，通常表示机器人账号尚未识别，请先连接 OneBot 并同步目录。`
+              : error.message,
+          canRetry: false,
+        }
+      case 'invalid':
+        return {
+          variant: 'error',
+          title: '提交内容未通过校验',
+          description: `${error.message}。请检查必填项与取值范围后重试。`,
+          canRetry: false,
+        }
       case 'unavailable':
         return {
           variant: 'error',
@@ -122,6 +139,10 @@ export function shortErrorReason(error: unknown): string {
         return '需要配置 QQBOT_ADMIN_TOKEN'
       case 'not-found':
         return error.detail === 'unregistered' ? '数据库未配置' : '资源不存在'
+      case 'conflict':
+        return '后端拒绝该操作'
+      case 'invalid':
+        return '提交内容校验失败'
       case 'unavailable':
         return '依赖服务未就绪'
       case 'contract':

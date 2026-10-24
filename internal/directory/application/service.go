@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,6 +13,11 @@ import (
 	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 )
+
+// ErrBotNotSynced reports that no bot account is known yet, so member rows cannot
+// reference one. Callers should ask the operator to sync the directory first.
+// ErrBotNotSynced 表示尚无已知机器人账号，成员行无法关联；调用方应提示先同步目录。
+var ErrBotNotSynced = errors.New("directory: bot account not synced yet")
 
 // Repository persists and queries the local directory; implemented by infrastructure.
 // Repository 持久化并查询本地目录；由 infrastructure 实现。
@@ -23,6 +29,9 @@ type Repository interface {
 	ListContacts(ctx context.Context, q domain.PageQuery) (domain.ContactPage, error)
 	ListGroups(ctx context.Context, q domain.PageQuery) (domain.GroupPage, error)
 	ListGroupMembers(ctx context.Context, groupID int64, q domain.PageQuery) (domain.MemberPage, error)
+	// LatestBotID returns the last stored bot account, used after a restart.
+	// LatestBotID 返回最近存储的机器人账号，用于进程重启后的恢复。
+	LatestBotID(ctx context.Context) (int64, bool, error)
 }
 
 // Service provides directory sync and read-only queries over the last synced account.
@@ -105,11 +114,9 @@ func (s *Service) SyncGroupMembers(ctx context.Context, groupID int64) (domain.S
 	if groupID <= 0 {
 		return domain.SyncResult{}, fmt.Errorf("directory: group id must be positive")
 	}
-	s.mu.RLock()
-	botID := s.lastBotID
-	s.mu.RUnlock()
-	if botID == 0 {
-		return domain.SyncResult{}, fmt.Errorf("directory: bot account not synced yet")
+	botID, err := s.resolveBotID(ctx)
+	if err != nil {
+		return domain.SyncResult{}, err
 	}
 	members, err := s.info.GetGroupMemberList(ctx, obdomain.GroupID(groupID))
 	if err != nil {
@@ -130,6 +137,32 @@ func (s *Service) SyncGroupMembers(ctx context.Context, groupID int64) (domain.S
 	}
 	s.logger.Info("group members synced", "bot_id", botID, "group_id", groupID, "members", len(list))
 	return domain.SyncResult{BotID: botID, Members: len(list)}, nil
+}
+
+// resolveBotID returns the bot account to associate with member rows. The
+// in-memory value is preferred; after a restart it is recovered from the last
+// stored account, so an on-demand member refresh no longer depends on a sync
+// performed by the same process.
+// resolveBotID 返回成员行关联的机器人账号：优先内存值，进程重启后从最近存储的
+// 账号恢复，使按需刷新成员不再依赖同一进程内执行过的同步。
+func (s *Service) resolveBotID(ctx context.Context) (int64, error) {
+	s.mu.RLock()
+	botID := s.lastBotID
+	s.mu.RUnlock()
+	if botID != 0 {
+		return botID, nil
+	}
+	stored, found, err := s.repo.LatestBotID(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("directory: resolve bot account: %w", err)
+	}
+	if !found {
+		return 0, ErrBotNotSynced
+	}
+	s.mu.Lock()
+	s.lastBotID = stored
+	s.mu.Unlock()
+	return stored, nil
 }
 
 // Contacts returns one page of the friend directory.

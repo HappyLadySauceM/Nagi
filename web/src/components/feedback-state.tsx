@@ -8,6 +8,7 @@ import {
   ServerCrash,
   ShieldAlert,
 } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { describeError, type FeedbackVariant } from '../lib/errors'
 import { Button } from './ui/button'
 import { Skeleton } from './ui/skeleton'
@@ -28,6 +29,8 @@ interface FeedbackStateProps {
   description?: string
   error?: unknown
   onRetry?: () => void
+  /** Extra call to action, e.g. a primary "sync now" button on an empty list. */
+  action?: ReactNode
   compact?: boolean
   className?: string
 }
@@ -38,6 +41,7 @@ export function FeedbackState({
   description,
   error,
   onRetry,
+  action,
   compact = false,
   className,
 }: FeedbackStateProps) {
@@ -94,7 +98,8 @@ export function FeedbackState({
           {resolvedDescription}
         </p>
       ) : null}
-      {showRetry ? (
+      {action ? <div className="mt-1">{action}</div> : null}
+      {!action && showRetry ? (
         <Button variant="outline" size="sm" onClick={onRetry} className="mt-1">
           <RefreshCw aria-hidden />
           重试

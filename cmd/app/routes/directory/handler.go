@@ -4,12 +4,14 @@ package directory
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
+	directoryapp "github.com/HappyLadySauceM/QQBot/internal/directory/application"
 	"github.com/HappyLadySauceM/QQBot/internal/directory/domain"
 )
 
@@ -108,6 +110,13 @@ func (h *Handler) GroupMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := h.svcCtx.Directory.GroupMembers(ctx, groupID, pageQuery(r), refresh)
 	if err != nil {
+		// Refreshing needs a bot account to attach member rows to; without one the
+		// client must sync the directory first instead of retrying a 500.
+		// 刷新成员需要一个可关联的机器人账号；缺失时应提示先同步目录，而不是笼统 500。
+		if errors.Is(err, directoryapp.ErrBotNotSynced) {
+			common.WriteFailure(w, http.StatusConflict, "bot account not synced yet; run directory sync first")
+			return
+		}
 		common.WriteFailure(w, http.StatusInternalServerError, "list group members failed")
 		return
 	}

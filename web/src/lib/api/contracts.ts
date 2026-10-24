@@ -96,3 +96,122 @@ export const DECISION_LABELS: Record<string, string> = {
   silent: '不回复',
   defer: '延后判断',
 }
+
+/** One server-paged list; `page` and `limit` are the values actually displayed. */
+export interface PageResult<T> {
+  items: T[]
+  total: number
+  page: number
+  limit: number
+}
+
+export interface Contact {
+  userId: number
+  nickname: string
+  remark: string
+  lastSeenAt?: string
+}
+
+export interface Group {
+  groupId: number
+  name: string
+  memberCount: number
+  lastSeenAt?: string
+}
+
+export interface GroupMember {
+  groupId: number
+  userId: number
+  nickname: string
+  card: string
+  role: string
+  lastSeenAt?: string
+}
+
+export interface DirectorySyncResult {
+  botId: number
+  contacts: number
+  groups: number
+  members: number
+}
+
+export type ScopeType = 'group' | 'private'
+
+export type ReplyMode = 'mention_only' | 'intent_based' | 'always_reply' | 'observe_only'
+
+/** Form-shaped policy; `PUT` always writes every field. */
+export interface ScopeForm {
+  enabled: boolean
+  replyMode: ReplyMode
+  storeMessages: boolean
+  allowHistoryRead: boolean
+  allowMemoryWrite: boolean
+  toolPolicy: string[]
+  minReplyIntervalMs: number
+  maxRepliesPerHour: number
+  retentionDays: number
+}
+
+/** Effective policy of one scope, including the default-deny values. */
+export interface ScopePolicy extends ScopeForm {
+  scopeType: ScopeType
+  scopeId: number
+}
+
+export const SCOPE_TYPE_LABELS: Record<ScopeType, string> = {
+  group: '群聊',
+  private: '私聊',
+}
+
+export const REPLY_MODE_LABELS: Record<ReplyMode, string> = {
+  mention_only: '仅响应 @ 与引用',
+  intent_based: '由意图判定是否插话',
+  always_reply: '每条消息都回复',
+  observe_only: '只记录不回复',
+}
+
+export const REPLY_MODE_HINTS: Record<ReplyMode, string> = {
+  mention_only: '最可控：只有被 @ 或引用时才参与对话。',
+  intent_based: 'Jev 判断是否值得插话，未命中则不回复。',
+  always_reply: '对每条收到的消息都生成回复，注意限频与打扰。',
+  observe_only: '只写入消息与记忆，不主动发言。',
+}
+
+export type MemoryVisibility = 'bot_shared' | 'group' | 'private_user' | 'conversation'
+
+export type MemoryStatus = 'candidate' | 'active' | 'superseded' | 'deleted'
+
+export interface MemoryEntry {
+  id: string
+  botId: number
+  visibility: MemoryVisibility
+  ownerKey: string
+  content: string
+  sourceMessageId?: number
+  source?: string
+  confidence: number
+  status: MemoryStatus
+  approvedBy?: string
+  expiresAt?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface MemoryCreateResult {
+  id: string
+  duplicate: boolean
+}
+
+export const MEMORY_VISIBILITY_LABELS: Record<MemoryVisibility, string> = {
+  bot_shared: '全局共享',
+  group: '群级',
+  private_user: '个人',
+  conversation: '会话级',
+}
+
+export const MEMORY_VISIBILITY_HINTS: Record<MemoryVisibility, string> = {
+  bot_shared: '对该机器人下的所有会话可见，审批前请确认内容适合全局共享。',
+  group: '仅同一群内的会话可见，需要归属群号。',
+  private_user: '仅该好友的私聊可见，需要归属 QQ 号。',
+  conversation: '仅单个会话可见，需要会话归属标识。',
+}

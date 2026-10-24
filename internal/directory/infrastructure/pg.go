@@ -4,6 +4,7 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -37,6 +38,23 @@ func (r *Repo) UpsertBotAccount(ctx context.Context, botID int64, nickname strin
 		ON CONFLICT (bot_id) DO UPDATE SET nickname = EXCLUDED.nickname, status = 'online', last_seen_at = now()
 	`, botID, nickname)
 	return err
+}
+
+// LatestBotID returns the most recently seen bot account. It lets the service
+// recover the account identity after a restart, when the in-memory value is gone.
+// LatestBotID 返回最近活跃的机器人账号，用于进程重启后恢复账号身份。
+func (r *Repo) LatestBotID(ctx context.Context) (int64, bool, error) {
+	var botID int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT bot_id FROM bot_accounts ORDER BY last_seen_at DESC NULLS LAST LIMIT 1
+	`).Scan(&botID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("directory: latest bot account: %w", err)
+	}
+	return botID, true, nil
 }
 
 // UpsertContacts batch-upserts friend entries with last_seen refresh.
