@@ -75,49 +75,55 @@ func parseMigrations(fsys fs.FS) ([]migration, error) {
 const migrationLockKey int64 = 629378877
 
 // Migrate applies every pending migration in ascending order inside one locked
-// transaction, together with its schema_migrations bookkeeping rows.
-// Migrate 在单个持锁事务内按版本升序应用所有未执行的迁移，
-// 并写入 schema_migrations 记录。重复调用是安全的。
-func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) error {
+// transaction, together with its schema_migrations bookkeeping rows. It returns
+// the versions applied by this call; an up-to-date database returns an empty slice.
+// Migrate 在单个持锁事务内按版本升序应用所有未执行的迁移，并写入 schema_migrations
+// 记录；返回本次实际应用的版本，已是最新时返回空切片。重复调用是安全的。
+func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]int, error) {
 	migs, err := parseMigrations(fsys)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin migrate: %w", err)
+		return nil, fmt.Errorf("begin migrate: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockKey); err != nil {
-		return fmt.Errorf("acquire migration lock: %w", err)
+		return nil, fmt.Errorf("acquire migration lock: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version BIGINT PRIMARY KEY,
 		name TEXT NOT NULL,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`); err != nil {
-		return fmt.Errorf("ensure schema_migrations: %w", err)
+		return nil, fmt.Errorf("ensure schema_migrations: %w", err)
 	}
+	applied := make([]int, 0, len(migs))
 	for _, m := range migs {
-		var applied bool
+		var exists bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)`, m.Version,
-		).Scan(&applied); err != nil {
-			return fmt.Errorf("check migration %04d: %w", m.Version, err)
+		).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("check migration %04d: %w", m.Version, err)
 		}
-		if applied {
+		if exists {
 			continue
 		}
 		if _, err := tx.Exec(ctx, m.Up); err != nil {
-			return fmt.Errorf("apply migration %04d_%s: %w", m.Version, m.Name, err)
+			return nil, fmt.Errorf("apply migration %04d_%s: %w", m.Version, m.Name, err)
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, m.Version, m.Name,
 		); err != nil {
-			return fmt.Errorf("record migration %04d: %w", m.Version, err)
+			return nil, fmt.Errorf("record migration %04d: %w", m.Version, err)
 		}
+		applied = append(applied, m.Version)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return applied, nil
 }
 
 // Down reverses every applied migration in descending order, for local dev and test resets.

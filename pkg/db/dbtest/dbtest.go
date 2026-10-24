@@ -41,7 +41,7 @@ func Open(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("dbtest: connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+	if _, err := db.Migrate(ctx, pool, migrations.FS); err != nil {
 		t.Fatalf("dbtest: migrate: %v", err)
 	}
 	return pool

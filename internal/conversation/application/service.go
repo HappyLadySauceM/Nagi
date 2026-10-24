@@ -62,8 +62,11 @@ func (s *Service) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ing
 	if in.TargetID <= 0 || in.SenderID <= 0 {
 		return domain.IngestResult{}, fmt.Errorf("conversation: target and sender id must be positive")
 	}
-	if in.PlatformMessageID <= 0 {
-		return domain.IngestResult{}, fmt.Errorf("conversation: platform message id must be positive")
+	// OneBot v11 message ids are signed int32 hashes, so real messages are often
+	// negative; only zero is invalid (it means "no id").
+	// OneBot v11 的 message_id 是有符号 int32 哈希，真实消息常为负数，只有 0 表示没有 ID。
+	if in.PlatformMessageID == 0 {
+		return domain.IngestResult{}, fmt.Errorf("conversation: platform message id must be non-zero")
 	}
 	result, err := s.repo.Ingest(ctx, in)
 	if err != nil {

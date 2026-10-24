@@ -125,9 +125,6 @@ type Worker struct {
 	// PollInterval 是任务轮询间隔。
 	// PollInterval is the job polling interval.
 	PollInterval Duration `yaml:"poll-interval"`
-	// CoalesceWindow 是连续消息的小窗合并时长。
-	// CoalesceWindow is the small merge window for consecutive messages.
-	CoalesceWindow Duration `yaml:"coalesce-window"`
 }
 
 // AI 是 LLM 生成配置域；密钥经 api-key-env 引用的环境变量注入。
@@ -212,7 +209,6 @@ func defaults() Config {
 			Concurrency:    4,
 			MaxPendingJobs: 1000,
 			PollInterval:   Duration(200 * time.Millisecond),
-			CoalesceWindow: Duration(time.Second),
 		},
 		AI: AI{
 			GenerationTimeout: Duration(25 * time.Second),
@@ -361,10 +357,13 @@ func (c *Config) Validate() error {
 	if c.Worker.PollInterval.D() <= 0 {
 		return fmt.Errorf("config: worker.poll-interval 必须为正数")
 	}
-	if c.Worker.CoalesceWindow.D() <= 0 {
-		return fmt.Errorf("config: worker.coalesce-window 必须为正数")
-	}
 	if c.AI.Enabled {
+		// AI replies are dispatched by the intent worker, so generation alone
+		// never sends anything. Fail early instead of silently degrading.
+		// AI 回复由意图决策流水线触发；只开启生成不会发出任何消息，故直接报错而非静默降级。
+		if !c.Intent.Enabled {
+			return fmt.Errorf("config: ai.enabled 必须同时设置 intent.enabled=true，否则消息只入库不会回复")
+		}
 		if strings.TrimSpace(c.AI.BaseURL) == "" {
 			return fmt.Errorf("config: ai.enabled 时 ai.base-url 不能为空")
 		}

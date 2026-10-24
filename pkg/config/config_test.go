@@ -108,3 +108,46 @@ func TestLoadRejectsMissingExplicitFile(t *testing.T) {
 		t.Fatal("expected error for missing explicit file")
 	}
 }
+
+func TestLoadRejectsAIEnabledWithoutIntent(t *testing.T) {
+	// 验证只开 AI 不开意图流水线时启动失败，避免消息只入库不回复。
+	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  model: test-model\nintent:\n  enabled: false\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error for ai.enabled without intent.enabled")
+	}
+}
+
+func TestLoadAcceptsAIEnabledWithIntent(t *testing.T) {
+	// 验证 AI 与意图流水线同时开启时通过校验。
+	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  model: test-model\nintent:\n  enabled: true\n")
+	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.AI.Enabled || !cfg.Intent.Enabled {
+		t.Fatalf("unexpected flags: ai=%v intent=%v", cfg.AI.Enabled, cfg.Intent.Enabled)
+	}
+}
+
+func TestLoadToleratesRemovedLegacyKeys(t *testing.T) {
+	// 验证已删除的 coalesce-window / active-window 仍可出现在旧配置文件中而不报错。
+	file := writeTempConfig(t, "worker:\n  coalesce-window: 2s\nintent:\n  enabled: true\n  active-window: 180s\n")
+	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
+	if err != nil {
+		t.Fatalf("load with legacy keys: %v", err)
+	}
+	if !cfg.Intent.Enabled {
+		t.Fatal("legacy yaml should still apply overrides")
+	}
+}
+
+func writeTempConfig(t *testing.T, content string) string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return file
+}
+
+func noEnv(string) (string, bool) { return "", false }

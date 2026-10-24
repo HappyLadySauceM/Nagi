@@ -20,10 +20,13 @@ func TestMigrateAppliesAndReverses(t *testing.T) {
 	pool := dbtest.Open(t)
 	ctx := context.Background()
 
-	// Idempotent: a second Migrate on an already-migrated database must succeed.
-	// 幂等：对已迁移数据库再次执行 Migrate 必须成功。
-	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+	// Idempotent: a second Migrate on an already-migrated database must succeed
+	// and apply nothing.
+	// 幂等：对已迁移数据库再次执行 Migrate 必须成功且不应用任何版本。
+	if applied, err := db.Migrate(ctx, pool, migrations.FS); err != nil {
 		t.Fatalf("re-migrate should be idempotent: %v", err)
+	} else if len(applied) != 0 {
+		t.Fatalf("re-migrate should apply nothing, got %v", applied)
 	}
 	for _, table := range []string{
 		"bot_accounts", "contacts", "qq_groups", "group_members", "scope_policies", "admin_audit_logs",
@@ -55,7 +58,8 @@ func TestMigrateAppliesAndReverses(t *testing.T) {
 		}
 	}
 
-	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+	applied, err := db.Migrate(ctx, pool, migrations.FS)
+	if err != nil {
 		t.Fatalf("migrate again after down: %v", err)
 	}
 	var count int
@@ -72,5 +76,11 @@ func TestMigrateAppliesAndReverses(t *testing.T) {
 	}
 	if want := len(entries) / 2; count != want {
 		t.Fatalf("schema_migrations should record %d versions, got %d", want, count)
+	}
+	// After a full Down, the next Migrate must report every version as applied,
+	// which is what the startup log relies on.
+	// 完整 Down 之后的首次 Migrate 必须报告所有版本均已应用，启动日志依赖该返回值。
+	if len(applied) != count {
+		t.Fatalf("migrate after down should report %d applied versions, got %v", count, applied)
 	}
 }

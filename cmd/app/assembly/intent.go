@@ -165,12 +165,27 @@ func memoryFinderAdapt(memory *memoryapp.Service) agentapp.MemoryFinder {
 func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 ) (*conversationinfra.Worker, error) {
-	if pool == nil || !cfg.Intent.Enabled || scope == nil || conv == nil {
+	if pool == nil {
+		return nil, nil
+	}
+	if !cfg.Intent.Enabled {
+		// The ingress handler is registered whenever a database exists, so
+		// disabling the pipeline turns every stored message into an unconsumed job.
+		// 只要配置了数据库就会注册入站处理器，关闭流水线会让每条消息变成永不被消费的任务。
+		logger.Warn("intent pipeline disabled; messages are stored but jobs are never consumed",
+			"hint", "set intent.enabled=true to activate the decision worker")
+		return nil, nil
+	}
+	if scope == nil || conv == nil {
 		return nil, nil
 	}
 	jevKey := ""
 	if cfg.Intent.APIKeyEnv != "" {
 		jevKey = os.Getenv(cfg.Intent.APIKeyEnv)
+	}
+	if jevKey == "" {
+		logger.Warn("jev api key missing; semantic decisions degrade to explicit mentions only",
+			"api_key_env", cfg.Intent.APIKeyEnv)
 	}
 	jev, err := intentinfra.NewJevClient(intentinfra.JevConfig{
 		Endpoint: cfg.Intent.Endpoint,

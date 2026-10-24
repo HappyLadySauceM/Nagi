@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,7 +40,18 @@ func Run(ctx context.Context, opts options.Options) error {
 		"version", version.Version,
 		"config_file", opts.ConfigFile,
 		"listen", cfg.Server.Listen,
-		"echo_enabled", cfg.Echo.Enabled)
+		"echo_enabled", cfg.Echo.Enabled,
+		"ai_enabled", cfg.AI.Enabled,
+		"intent_enabled", cfg.Intent.Enabled,
+		"database_configured", cfg.Database.EffectiveDSN(os.LookupEnv) != "",
+		"admin_auth_enabled", strings.TrimSpace(cfg.Server.AdminToken) != "")
+	// Both contexts may answer the same conversation, so surface the risk loudly
+	// instead of relying on the operator remembering the docs.
+	// 两套上下文可能回应同一会话，因此显式告警，不依赖运维人员记住文档。
+	if cfg.Echo.Enabled && cfg.AI.Enabled {
+		logger.Warn("echo and ai are both enabled; one conversation may be answered twice",
+			"hint", "set echo.enabled=false when ai.enabled=true")
+	}
 
 	// Telemetry setup happens first so early spans are captured; its shutdown is
 	// deferred and never fails the app.
@@ -170,11 +182,18 @@ func connectDatabase(ctx context.Context, cfg *config.Config, logger *slog.Logge
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+	applied, err := db.Migrate(ctx, pool, migrations.FS)
+	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	logger.Info("database ready", "max_conns", cfg.Database.MaxConns)
+	// Automatic migration is the only schema entry point; log what this start
+	// actually applied so operators never have to guess.
+	// 启动自动迁移是唯一的 schema 入口；记录本次实际应用的版本，运维无需猜测。
+	logger.Info("database ready",
+		"max_conns", cfg.Database.MaxConns,
+		"migrations_applied", len(applied),
+		"migration_versions", applied)
 	return pool, nil
 }
 
