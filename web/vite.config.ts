@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiTarget = env.QQBOT_API_TARGET || 'http://127.0.0.1:5080'
   const adminToken = env.QQBOT_ADMIN_TOKEN || ''
+  const extraAllowedHosts = (env.QQBOT_DEV_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean)
 
   const apiProxy: ProxyOptions = {
     target: apiTarget,
@@ -42,7 +46,14 @@ export default defineConfig(({ mode }) => {
       host: '127.0.0.1',
       port: 5173,
       strictPort: true,
-      allowedHosts: true,
+      // Loopback names only. This dev server injects the admin token into
+      // proxied requests, so accepting arbitrary Host headers would hand that
+      // token to a DNS-rebinding page. Add hosts through
+      // QQBOT_DEV_ALLOWED_HOSTS only when a tunnel really needs them.
+      // 仅允许回环主机名。本开发服务器会向代理请求注入管理员令牌，
+      // 接受任意 Host 头会把令牌交给 DNS rebinding 页面。
+      // 仅在隧道确实需要时通过 QQBOT_DEV_ALLOWED_HOSTS 追加主机。
+      allowedHosts: ['localhost', ...extraAllowedHosts],
       proxy: {
         '/api': apiProxy,
         '/livez': apiProxy,
