@@ -5,7 +5,8 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../components/ui/card'
-import { FeedbackState, shortErrorReason } from '../../../components/feedback-state'
+import { FeedbackState } from '../../../components/feedback-state'
+import { shortErrorReason } from '../../../lib/errors'
 import { Skeleton } from '../../../components/ui/skeleton'
 import { formatCount } from '../../../lib/format'
 import { cn } from '../../../lib/utils'

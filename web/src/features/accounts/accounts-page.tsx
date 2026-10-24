@@ -21,32 +21,8 @@ import {
   UNAVAILABLE_TEXT,
 } from '../../lib/format'
 import { cn } from '../../lib/utils'
+import { InfoRow } from '../../components/info-row'
 import { useAccountSnapshot, useStatus } from '../system/queries'
-
-function InfoRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string
-  value: string
-  mono?: boolean
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-      <span
-        className={cn(
-          'truncate text-xs text-foreground',
-          mono && 'font-mono tabular-nums',
-        )}
-        title={value}
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
 
 export function AccountsPage() {
   const account = useAccountSnapshot()

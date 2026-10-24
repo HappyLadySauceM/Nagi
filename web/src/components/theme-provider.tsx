@@ -1,15 +1,7 @@
 import * as React from 'react'
-
-export type Theme = 'dark' | 'light'
+import { ThemeContext, type Theme } from './theme-context'
 
 const THEME_STORAGE_KEY = 'qqbot-theme'
-
-interface ThemeContextValue {
-  theme: Theme
-  setTheme: (theme: Theme) => void
-}
-
-const ThemeContext = React.createContext<ThemeContextValue | null>(null)
 
 function readInitialTheme(): Theme {
   if (typeof document === 'undefined') {
@@ -34,12 +26,4 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const value = React.useMemo(() => ({ theme, setTheme }), [theme, setTheme])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-}
-
-export function useTheme(): ThemeContextValue {
-  const context = React.useContext(ThemeContext)
-  if (!context) {
-    throw new Error('useTheme 必须在 ThemeProvider 内使用')
-  }
-  return context
 }

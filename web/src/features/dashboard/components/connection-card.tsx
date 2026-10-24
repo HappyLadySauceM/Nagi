@@ -7,6 +7,7 @@ import {
 } from '../../../components/ui/card'
 import { Badge } from '../../../components/ui/badge'
 import { FeedbackState } from '../../../components/feedback-state'
+import { InfoRow } from '../../../components/info-row'
 import { ShineBorder } from '../../../components/magicui/shine-border'
 import { StatusIndicator, type StatusTone } from '../../../components/status-indicator'
 import { Skeleton } from '../../../components/ui/skeleton'
@@ -69,24 +70,6 @@ function describeReadiness(readyz: {
     }
   }
   return { tone: 'error', label: '就绪检查失败', description: '未获得可用的就绪响应' }
-}
-
-function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-      <span
-        className={
-          mono
-            ? 'truncate font-mono text-xs text-foreground tabular-nums'
-            : 'truncate text-xs text-foreground'
-        }
-        title={value}
-      >
-        {value}
-      </span>
-    </div>
-  )
 }
 
 export function ConnectionCard() {
@@ -163,14 +146,14 @@ export function ConnectionCard() {
             live
           />
         </div>
-        <Row label="版本" value={snapshot?.version ?? UNAVAILABLE_TEXT} mono />
-        <Row label="运行时长" value={formatUptime(snapshot?.uptimeSeconds)} />
-        <Row
+        <InfoRow label="版本" value={snapshot?.version ?? UNAVAILABLE_TEXT} mono />
+        <InfoRow label="运行时长" value={formatUptime(snapshot?.uptimeSeconds)} />
+        <InfoRow
           label="机器人账号"
           value={selfId === undefined ? '尚未识别' : String(selfId)}
           mono
         />
-        <Row
+        <InfoRow
           label="最近心跳"
           value={heartbeat ? formatRelativeTime(heartbeat) : '未收到心跳'}
           mono={Boolean(heartbeat)}

@@ -63,7 +63,35 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: false,
-      chunkSizeWarningLimit: 900,
+      chunkSizeWarningLimit: 600,
+      rollupOptions: {
+        output: {
+          // Keep the framework, router/query and animation runtimes in stable
+          // long-lived chunks instead of one growing entry bundle.
+          // 把框架、路由/查询与动画运行时固定在稳定的长期缓存 chunk 中，
+          // 避免入口 bundle 持续膨胀。
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return undefined
+            }
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) {
+              return 'react-vendor'
+            }
+            if (id.includes('@tanstack')) {
+              return 'tanstack-vendor'
+            }
+            if (
+              id.includes('/motion/') ||
+              id.includes('motion-dom') ||
+              id.includes('motion-utils') ||
+              id.includes('framer-motion')
+            ) {
+              return 'motion-vendor'
+            }
+            return undefined
+          },
+        },
+      },
     },
   }
 })
