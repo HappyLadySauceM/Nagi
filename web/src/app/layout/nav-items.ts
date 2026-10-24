@@ -1,5 +1,6 @@
 import {
   Bot,
+  BrainCircuit,
   LayoutDashboard,
   ShieldCheck,
   Users,
@@ -37,6 +38,12 @@ export const NAV_ITEMS = [
     label: '作用域策略',
     hint: '已保存的授权配置',
     icon: ShieldCheck,
+  },
+  {
+    to: '/memories',
+    label: '长期记忆',
+    hint: '候选、审批与可见性',
+    icon: BrainCircuit,
   },
 ] as const
 

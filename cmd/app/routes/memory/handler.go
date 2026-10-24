@@ -132,8 +132,40 @@ type patchRequest struct {
 	Status     string  `json:"status"`
 }
 
-// Patch revises or re-statuses one memory.
-// Patch 修订或变更一条记忆的状态。
+// statusAction is the effect of the PATCH status field on one memory.
+// statusAction 表示 PATCH 的 status 字段对一条记忆产生的效果。
+type statusAction int
+
+const (
+	statusNone statusAction = iota
+	statusApprove
+	statusDelete
+)
+
+// parseStatusAction validates the requested transition. Only "" (keep the
+// current status), "active" (approve) and "deleted" (soft delete) are supported:
+// the management API cannot move a memory back to candidate or superseded, and
+// silently accepting those values would report success without any effect.
+// parseStatusAction 校验状态变更：只支持 ""（保持不变）、active（审批）与 deleted（软删除）。
+// 管理接口无法把记忆改回 candidate 或 superseded，静默接受会谎报成功。
+func parseStatusAction(status string) (statusAction, bool) {
+	switch status {
+	case "":
+		return statusNone, true
+	case "active":
+		return statusApprove, true
+	case "deleted":
+		return statusDelete, true
+	default:
+		return statusNone, false
+	}
+}
+
+// Patch revises one memory and optionally applies a status transition. The
+// status is validated before any write so an unsupported transition cannot
+// leave a half-applied edit behind.
+// Patch 修订一条记忆并可应用状态变更；状态在任何写入前先校验，
+// 避免不支持的变更留下「内容已改、状态未变」的半成品。
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
@@ -142,6 +174,11 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	var body patchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	action, ok := parseStatusAction(body.Status)
+	if !ok {
+		common.WriteFailure(w, http.StatusBadRequest, "unsupported status; use active or deleted")
 		return
 	}
 	var content string
@@ -156,21 +193,18 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "revise memory failed")
 		return
 	}
-	switch body.Status {
-	case "active":
+	switch action {
+	case statusApprove:
 		if err := h.svcCtx.Memory.Approve(r.Context(), id, middlewareActor(r)); err != nil {
 			common.WriteFailure(w, http.StatusInternalServerError, "approve memory failed")
 			return
 		}
-	case "deleted":
+	case statusDelete:
 		if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
 			common.WriteFailure(w, http.StatusInternalServerError, "delete memory failed")
 			return
 		}
-	case "", "candidate", "superseded":
-	default:
-		common.WriteFailure(w, http.StatusBadRequest, "invalid status")
-		return
+	case statusNone:
 	}
 	common.WriteSuccess(w, map[string]any{"id": id})
 }

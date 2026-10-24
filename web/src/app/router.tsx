@@ -9,6 +9,7 @@ import {
 import { DashboardPage } from '../features/dashboard/dashboard-page'
 import {
   parseGroupDetailSearch,
+  parseMemorySearch,
   parsePageSearch,
 } from '../lib/search-params'
 import { AppShell } from './layout/app-shell'
@@ -85,6 +86,16 @@ const scopeEditRoute = createRoute({
   ),
 })
 
+const memoriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/memories',
+  validateSearch: parseMemorySearch,
+  component: lazyRouteComponent(
+    () => import('../features/memories/memories-page'),
+    'MemoriesPage',
+  ),
+})
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -102,6 +113,7 @@ const routeTree = rootRoute.addChildren([
   groupDetailRoute,
   scopesRoute,
   scopeEditRoute,
+  memoriesRoute,
 ])
 
 export const router = createRouter({

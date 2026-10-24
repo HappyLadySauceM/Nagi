@@ -15,6 +15,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/contacts': '联系人',
   '/groups': '群聊',
   '/scopes': '作用域策略',
+  '/memories': '长期记忆',
 }
 
 function resolveTitle(pathname: string): string {
