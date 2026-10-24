@@ -96,3 +96,28 @@ export function sumCounts(rows: StatusCount[] | undefined): number | undefined {
   }
   return rows.reduce((total, row) => total + row.count, 0)
 }
+
+/**
+ * Sums memories while excluding soft-deleted rows, because the card reports
+ * what the bot can still recall. `excludedDeleted` lets the copy state the
+ * boundary instead of hiding the difference.
+ * 汇总记忆时排除已软删除的条目，因为卡片展示的是机器人仍可检索的知识。
+ * `excludedDeleted` 让说明文字可以写明统计边界，而不是隐藏差异。
+ */
+export function summarizeMemories(
+  rows: StatusCount[] | undefined,
+): { total: number; excludedDeleted: number } | undefined {
+  if (!rows) {
+    return undefined
+  }
+  let total = 0
+  let excludedDeleted = 0
+  for (const row of rows) {
+    if (row.key === 'deleted') {
+      excludedDeleted += row.count
+      continue
+    }
+    total += row.count
+  }
+  return { total, excludedDeleted }
+}

@@ -4,7 +4,7 @@ import { Skeleton } from '../../../components/ui/skeleton'
 import { NumberTicker } from '../../../components/magicui/number-ticker'
 import { AnimatedGroup } from '../../../components/motion-primitives/animated-group'
 import { UNAVAILABLE_TEXT, formatCount } from '../../../lib/format'
-import { sumCounts } from '../../../lib/api/adapters/metrics'
+import { sumCounts, summarizeMemories } from '../../../lib/api/adapters/metrics'
 import type { MetricsSnapshot } from '../../../lib/api/contracts'
 
 interface KpiCardProps {
@@ -53,9 +53,16 @@ export function KpiCards({ metrics, isLoading, isError }: KpiCardsProps) {
     ? metrics.intentDecisions24h.reduce((total, item) => total + item.count, 0)
     : undefined
   const jobsTotal = sumCounts(metrics?.messageJobs)
-  const memoriesTotal = sumCounts(metrics?.memories)
+  const memories = summarizeMemories(metrics?.memories)
   const pendingJobs = metrics?.messageJobs.find((row) => row.key === 'pending')?.count
   const activeMemories = metrics?.memories.find((row) => row.key === 'active')?.count
+
+  const memoriesHint =
+    memories === undefined
+      ? '按状态统计的条目'
+      : memories.excludedDeleted > 0
+        ? `已启用 ${formatCount(activeMemories)} 条 · 不含已删除 ${formatCount(memories.excludedDeleted)} 条`
+        : `已启用 ${formatCount(activeMemories)} 条`
 
   const resolve = (value: number | undefined) => (isError ? undefined : value)
 
@@ -91,10 +98,8 @@ export function KpiCards({ metrics, isLoading, isError }: KpiCardsProps) {
       />
       <KpiCard
         label="长期记忆"
-        hint={
-          activeMemories === undefined ? '按状态统计的条目' : `已启用 ${formatCount(activeMemories)} 条`
-        }
-        value={resolve(memoriesTotal)}
+        hint={memoriesHint}
+        value={resolve(memories?.total)}
         isLoading={isLoading}
         icon={Database}
       />

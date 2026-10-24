@@ -10,8 +10,66 @@ import { FeedbackState } from '../../../components/feedback-state'
 import { ShineBorder } from '../../../components/magicui/shine-border'
 import { StatusIndicator, type StatusTone } from '../../../components/status-indicator'
 import { Skeleton } from '../../../components/ui/skeleton'
+import { ApiError } from '../../../lib/api/client'
 import { formatDateTime, formatRelativeTime, formatUptime, UNAVAILABLE_TEXT } from '../../../lib/format'
-import { useAccounts, useReadyz, useStatus } from '../../system/queries'
+import { useAccountSnapshot, useReadyz, useStatus } from '../../system/queries'
+
+interface ReadinessView {
+  tone: StatusTone
+  label: string
+  description: string
+}
+
+/**
+ * Maps a failed probe to one concrete cause. The probe answers 503 only when
+ * OneBot is down, so any transport failure must not be reported as offline.
+ * 把探活失败映射到具体原因。只有 503 才表示 OneBot 未就绪，
+ * 传输层失败不能被描述成机器人离线。
+ */
+function describeReadiness(readyz: {
+  isSuccess: boolean
+  isLoading: boolean
+  error: unknown
+}): ReadinessView {
+  if (readyz.isSuccess) {
+    return {
+      tone: 'ok',
+      label: 'OneBot 就绪',
+      description: '进程在线，OneBot 连接已建立',
+    }
+  }
+  if (readyz.isLoading) {
+    return { tone: 'unknown', label: '检测就绪状态', description: '正在请求 /readyz' }
+  }
+  if (readyz.error instanceof ApiError) {
+    switch (readyz.error.kind) {
+      case 'unavailable':
+        return {
+          tone: 'warn',
+          label: 'OneBot 未就绪',
+          description: '进程仍在线，但 OneBot 连接尚未建立',
+        }
+      case 'unauthorized':
+        return {
+          tone: 'error',
+          label: '就绪检查未授权',
+          description: '请检查开发代理注入的管理员令牌',
+        }
+      case 'cancelled':
+        return { tone: 'unknown', label: '检测就绪状态', description: '上一次就绪检查已取消' }
+      case 'network':
+      case 'timeout':
+        return {
+          tone: 'error',
+          label: '后端不可达',
+          description: '无法访问 /readyz，进程状态未知',
+        }
+      default:
+        return { tone: 'error', label: '就绪检查失败', description: readyz.error.message }
+    }
+  }
+  return { tone: 'error', label: '就绪检查失败', description: '未获得可用的就绪响应' }
+}
 
 function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
@@ -33,10 +91,10 @@ function Row({ label, value, mono = false }: { label: string; value: string; mon
 
 export function ConnectionCard() {
   const status = useStatus()
-  const accounts = useAccounts()
+  const accountSnapshot = useAccountSnapshot()
   const readyz = useReadyz()
 
-  const isLoading = status.isLoading || accounts.isLoading
+  const isLoading = status.isLoading || accountSnapshot.isLoading
 
   if (isLoading) {
     return (
@@ -74,17 +132,11 @@ export function ConnectionCard() {
   }
 
   const snapshot = status.data
-  const account = accounts.data
+  const account = accountSnapshot.data
   const connected = account?.connected ?? snapshot?.onebot.connected ?? false
   const selfId = account?.botId ?? snapshot?.onebot.selfId
   const heartbeat = snapshot?.onebot.lastHeartbeat
-
-  const readyzTone: StatusTone = readyz.isSuccess ? 'ok' : readyz.isLoading ? 'unknown' : 'warn'
-  const readyzLabel = readyz.isSuccess
-    ? 'OneBot 就绪'
-    : readyz.isLoading
-      ? '检测就绪状态'
-      : 'OneBot 未就绪'
+  const readiness = describeReadiness(readyz)
 
   return (
     <Card className="h-full overflow-hidden">
@@ -93,7 +145,9 @@ export function ConnectionCard() {
         <div className="min-w-0">
           <CardTitle>连接与运行</CardTitle>
           <CardDescription className="mt-1">
-            数据来自 /api/v1/status、/api/v1/accounts 与 /readyz
+            {accountSnapshot.isFallback
+              ? '数据来自 /api/v1/status 与 /readyz（当前后端未注册 /api/v1/accounts）'
+              : '数据来自 /api/v1/status、/api/v1/accounts 与 /readyz'}
           </CardDescription>
         </div>
         <Badge variant={connected ? 'success' : 'warning'} className="shrink-0">
@@ -102,7 +156,12 @@ export function ConnectionCard() {
       </CardHeader>
       <CardContent className="pt-2">
         <div className="mb-3">
-          <StatusIndicator tone={readyzTone} label={readyzLabel} live />
+          <StatusIndicator
+            tone={readiness.tone}
+            label={readiness.label}
+            description={readiness.description}
+            live
+          />
         </div>
         <Row label="版本" value={snapshot?.version ?? UNAVAILABLE_TEXT} mono />
         <Row label="运行时长" value={formatUptime(snapshot?.uptimeSeconds)} />
@@ -122,9 +181,13 @@ export function ConnectionCard() {
           </p>
         ) : null}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Badge variant={account?.dbConfigured ? 'accent' : 'warning'}>
-            {account?.dbConfigured ? '数据库已配置' : '数据库未配置'}
-          </Badge>
+          {account?.dbConfigured === undefined ? (
+            <Badge variant="outline">数据库状态未知</Badge>
+          ) : account.dbConfigured ? (
+            <Badge variant="accent">数据库已配置</Badge>
+          ) : (
+            <Badge variant="warning">数据库未配置</Badge>
+          )}
           {snapshot?.echoEnabled ? <Badge variant="outline">echo 已开启</Badge> : null}
         </div>
       </CardContent>

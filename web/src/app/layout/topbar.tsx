@@ -6,7 +6,7 @@ import { StatusPill, type StatusTone } from '../../components/status-indicator'
 import { ThemeToggle } from '../../components/theme-toggle'
 import { ApiError } from '../../lib/api/client'
 import { cn } from '../../lib/utils'
-import { SYSTEM_QUERY_KEYS, useAccounts, useLivez } from '../../features/system/queries'
+import { SYSTEM_QUERY_KEYS, useAccountSnapshot, useLivez } from '../../features/system/queries'
 import { MobileNav } from './mobile-nav'
 
 const PAGE_TITLES: Record<string, string> = {
@@ -31,7 +31,7 @@ export function Topbar() {
   const queryClient = useQueryClient()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const livez = useLivez()
-  const accounts = useAccounts()
+  const account = useAccountSnapshot()
 
   const title = PAGE_TITLES[pathname] ?? '控制台'
 
@@ -41,36 +41,39 @@ export function Topbar() {
       ? { tone: 'error', label: '进程离线' }
       : { tone: 'unknown', label: '检测进程' }
 
-  const accountState = accounts.data
-    ? accounts.data.connected
-      ? { tone: 'ok' as StatusTone, label: 'OneBot 已连接' }
-      : { tone: 'warn' as StatusTone, label: 'OneBot 未连接' }
-    : accounts.isError
-      ? accountsTone(accounts.error)
-      : { tone: 'unknown' as StatusTone, label: '检测 OneBot' }
+  const accountState: { tone: StatusTone; label: string } = account.data
+    ? account.data.connected
+      ? { tone: 'ok', label: 'OneBot 已连接' }
+      : { tone: 'warn', label: 'OneBot 未连接' }
+    : account.isError
+      ? accountsTone(account.error)
+      : { tone: 'unknown', label: '检测 OneBot' }
 
-  const databaseState: { tone: StatusTone; label: string } = accounts.data
-    ? accounts.data.dbConfigured
-      ? { tone: 'ok', label: '数据库已配置' }
-      : { tone: 'warn', label: '数据库未配置' }
-    : accounts.isError
-      ? accountsTone(accounts.error)
-      : { tone: 'unknown', label: '检测数据库' }
+  const databaseState: { tone: StatusTone; label: string } =
+    account.data?.dbConfigured === undefined
+      ? account.isError
+        ? accountsTone(account.error)
+        : { tone: 'unknown', label: account.data ? '数据库状态未知' : '检测数据库' }
+      : account.data.dbConfigured
+        ? { tone: 'ok', label: '数据库已配置' }
+        : { tone: 'warn', label: '数据库未配置' }
 
   // Narrow screens show one summarised pill instead of three, still with text.
   const summaryState: { tone: StatusTone; label: string } = livez.isError
     ? { tone: 'error', label: '服务离线' }
-    : accounts.isError
-      ? accountsTone(accounts.error)
-      : !accounts.data
+    : account.isError
+      ? accountsTone(account.error)
+      : !account.data
         ? { tone: 'unknown', label: '状态检测中' }
-        : !accounts.data.connected
+        : !account.data.connected
           ? { tone: 'warn', label: 'OneBot 未连接' }
-          : !accounts.data.dbConfigured
+          : account.data.dbConfigured === false
             ? { tone: 'warn', label: '数据库未配置' }
-            : { tone: 'ok', label: '运行正常' }
+            : account.data.dbConfigured === undefined
+              ? { tone: 'unknown', label: '数据库状态未知' }
+              : { tone: 'ok', label: '运行正常' }
 
-  const isRefreshing = livez.isFetching || accounts.isFetching
+  const isRefreshing = livez.isFetching || account.isFetching
 
   const refreshAll = () => {
     for (const queryKey of SYSTEM_QUERY_KEYS) {

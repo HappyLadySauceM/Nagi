@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../client'
-import { toMetricsSnapshot, sumCounts } from '../adapters/metrics'
+import { toMetricsSnapshot, sumCounts, summarizeMemories } from '../adapters/metrics'
 import { toAccountsSnapshot, toPingState, toStatusSnapshot } from '../adapters/system'
 
 describe('toStatusSnapshot', () => {
@@ -126,5 +126,17 @@ describe('toMetricsSnapshot', () => {
 
   it('returns undefined sums when metrics are unavailable', () => {
     expect(sumCounts(undefined)).toBeUndefined()
+    expect(summarizeMemories(undefined)).toBeUndefined()
+  })
+
+  it('excludes deleted memories from the KPI total', () => {
+    const summary = summarizeMemories([
+      { key: 'candidate', count: 1 },
+      { key: 'active', count: 4 },
+      { key: 'superseded', count: 2 },
+      { key: 'deleted', count: 3 },
+    ])
+
+    expect(summary).toEqual({ total: 7, excludedDeleted: 3 })
   })
 })
