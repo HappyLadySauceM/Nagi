@@ -170,6 +170,13 @@ export function GroupsPage() {
                       >
                         成员
                       </Link>
+                      <Link
+                        to="/scopes/$type/$id"
+                        params={{ type: 'group', id: String(group.groupId) }}
+                        className="text-[11px] font-medium text-primary transition-colors hover:text-primary/80 hover:underline"
+                      >
+                        配置策略
+                      </Link>
                     </div>
                   </TableCell>
                 </TableRow>

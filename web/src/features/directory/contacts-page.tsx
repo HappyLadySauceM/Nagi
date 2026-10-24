@@ -1,4 +1,4 @@
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { RefreshCw, UserRoundSearch } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
@@ -130,6 +130,7 @@ export function ContactsPage() {
                 <TableHead className="text-right">QQ 号</TableHead>
                 <TableHead className="text-right">最近同步</TableHead>
                 <TableHead>策略状态</TableHead>
+                <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -158,6 +159,15 @@ export function ContactsPage() {
                   </TableCell>
                   <TableCell>
                     <ScopeStatusBadge policy={scopes.get(`private:${contact.userId}`)} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Link
+                      to="/scopes/$type/$id"
+                      params={{ type: 'private', id: String(contact.userId) }}
+                      className="text-[11px] font-medium text-primary transition-colors hover:text-primary/80 hover:underline"
+                    >
+                      配置策略
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))}

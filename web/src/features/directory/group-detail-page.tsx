@@ -119,6 +119,11 @@ export function GroupDetailPage() {
               />
               {refresh.isPending ? '刷新中…' : '刷新成员'}
             </Button>
+            <Button asChild size="sm">
+              <Link to="/scopes/$type/$id" params={{ type: 'group', id: groupId }}>
+                配置策略
+              </Link>
+            </Button>
           </div>
         }
       />

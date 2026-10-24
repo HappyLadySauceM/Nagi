@@ -46,6 +46,11 @@ func (r *Repo) Get(ctx context.Context, botID int64, scopeType domain.ScopeType,
 	if err != nil {
 		return domain.Policy{}, false, fmt.Errorf("scope: get policy: %w", err)
 	}
+	// scanPolicy only reads the value columns; the identity comes from the query
+	// arguments so callers never receive a policy without its scope.
+	// scanPolicy 只读取值列；身份来自查询参数，确保调用方拿到的策略始终带作用域身份。
+	p.ScopeType = scopeType
+	p.ScopeID = scopeID
 	return p, true, nil
 }
 

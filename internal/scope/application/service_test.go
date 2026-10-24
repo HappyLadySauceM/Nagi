@@ -66,6 +66,28 @@ func TestResolveDefaultsToDeny(t *testing.T) {
 	}
 }
 
+// TestResolveKeepsScopeIdentity verifies that a stored row without identity
+// columns still resolves to the requested scope type and id.
+// TestResolveKeepsScopeIdentity 验证缺少身份列的已存行解析后仍带请求的作用域类型与 ID。
+func TestResolveKeepsScopeIdentity(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	repo.stored[serviceCacheKeyForTest(1, domain.ScopeGroup, 42)] = domain.Policy{
+		Enabled: true, ReplyMode: domain.ModeMentionOnly,
+	}
+
+	policy, err := svc.Resolve(context.Background(), 1, domain.ScopeGroup, 42)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if policy.ScopeType != domain.ScopeGroup || policy.ScopeID != 42 {
+		t.Fatalf("identity = %q/%d, want group/42", policy.ScopeType, policy.ScopeID)
+	}
+}
+
 // TestUpsertTakesEffectImmediately verifies that after Upsert, Resolve returns
 // the new policy even when the repository no longer has it (cache hit).
 // TestUpsertTakesEffectImmediately 验证 Upsert 后即使仓库已无该行，

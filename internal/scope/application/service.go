@@ -72,6 +72,11 @@ func (s *Service) Resolve(ctx context.Context, botID int64, scopeType domain.Sco
 		stored = domain.Default(scopeType, scopeID)
 	}
 	effective := stored.WithDefaults()
+	// Stored rows may come from a scan that omits the identity columns; the
+	// resolved policy is always keyed by the requested scope.
+	// 已存行可能来自不扫描身份列的查询；生效策略始终以请求的作用域为标识。
+	effective.ScopeType = scopeType
+	effective.ScopeID = scopeID
 	s.mu.Lock()
 	s.cache[key] = cacheEntry{policy: effective, expiresAt: time.Now().Add(cacheTTL)}
 	s.mu.Unlock()

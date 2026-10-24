@@ -70,6 +70,21 @@ const groupDetailRoute = createRoute({
   ),
 })
 
+const scopesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/scopes',
+  component: lazyRouteComponent(() => import('../features/scopes/scopes-page'), 'ScopesPage'),
+})
+
+const scopeEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/scopes/$type/$id',
+  component: lazyRouteComponent(
+    () => import('../features/scopes/scope-edit-page'),
+    'ScopeEditPage',
+  ),
+})
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -85,6 +100,8 @@ const routeTree = rootRoute.addChildren([
   contactsRoute,
   groupsRoute,
   groupDetailRoute,
+  scopesRoute,
+  scopeEditRoute,
 ])
 
 export const router = createRouter({

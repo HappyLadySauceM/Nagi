@@ -14,6 +14,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/accounts': 'QQ 账号',
   '/contacts': '联系人',
   '/groups': '群聊',
+  '/scopes': '作用域策略',
 }
 
 function resolveTitle(pathname: string): string {

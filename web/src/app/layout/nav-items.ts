@@ -1,6 +1,7 @@
 import {
   Bot,
   LayoutDashboard,
+  ShieldCheck,
   Users,
   UsersRound,
 } from 'lucide-react'
@@ -30,6 +31,12 @@ export const NAV_ITEMS = [
     label: '群聊',
     hint: '群列表、成员与策略入口',
     icon: UsersRound,
+  },
+  {
+    to: '/scopes',
+    label: '作用域策略',
+    hint: '已保存的授权配置',
+    icon: ShieldCheck,
   },
 ] as const
 
