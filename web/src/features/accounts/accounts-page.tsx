@@ -21,7 +21,7 @@ import {
   UNAVAILABLE_TEXT,
 } from '../../lib/format'
 import { cn } from '../../lib/utils'
-import { useAccounts, useStatus } from '../system/queries'
+import { useAccountSnapshot, useStatus } from '../system/queries'
 
 function InfoRow({
   label,
@@ -49,14 +49,14 @@ function InfoRow({
 }
 
 export function AccountsPage() {
-  const accounts = useAccounts()
+  const account = useAccountSnapshot()
   const status = useStatus()
 
-  const botId = accounts.data?.botId ?? status.data?.onebot.selfId
-  const isRefreshing = accounts.isFetching || status.isFetching
+  const botId = account.data?.botId
+  const isRefreshing = account.isFetching || status.isFetching
 
   const refreshAll = () => {
-    void accounts.refetch()
+    account.refetch()
     void status.refetch()
   }
 
@@ -103,27 +103,29 @@ export function AccountsPage() {
             <div className="min-w-0">
               <CardTitle>账号与连接</CardTitle>
               <CardDescription className="mt-1">
-                来自 /api/v1/accounts 的连接快照
+                {account.data?.source === 'status'
+                  ? '当前后端未注册 /api/v1/accounts，已回退到运行时快照'
+                  : '来自 /api/v1/accounts 的连接快照'}
               </CardDescription>
             </div>
-            {accounts.data ? (
-              <Badge variant={accounts.data.connected ? 'success' : 'warning'}>
-                {accounts.data.connected ? 'OneBot 已连接' : 'OneBot 未连接'}
+            {account.data ? (
+              <Badge variant={account.data.connected ? 'success' : 'warning'}>
+                {account.data.connected ? 'OneBot 已连接' : 'OneBot 未连接'}
               </Badge>
             ) : null}
           </CardHeader>
           <CardContent className="pt-2">
-            {accounts.isLoading ? (
+            {account.isLoading ? (
               <div className="space-y-2.5">
                 {Array.from({ length: 3 }).map((_, index) => (
                   <Skeleton key={index} className="h-4 w-full" />
                 ))}
               </div>
-            ) : accounts.isError ? (
+            ) : account.isError ? (
               <FeedbackState
                 variant="error"
-                error={accounts.error}
-                onRetry={() => void accounts.refetch()}
+                error={account.error}
+                onRetry={account.refetch}
                 compact
               />
             ) : (
@@ -133,12 +135,18 @@ export function AccountsPage() {
                   value={botId === undefined ? '尚未识别（OneBot 未发送登录信息）' : String(botId)}
                   mono={botId !== undefined}
                 />
-                <InfoRow label="连接状态" value={accounts.data?.connected ? '已连接' : '未连接'} />
+                <InfoRow label="连接状态" value={account.data?.connected ? '已连接' : '未连接'} />
                 <InfoRow
                   label="数据库"
-                  value={accounts.data?.dbConfigured ? '已配置' : '未配置'}
+                  value={
+                    account.data?.dbConfigured === undefined
+                      ? '未知（当前来源无法判定）'
+                      : account.data.dbConfigured
+                        ? '已配置'
+                        : '未配置'
+                  }
                 />
-                {!accounts.data?.dbConfigured ? (
+                {account.data?.dbConfigured === false ? (
                   <p className="mt-3 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
                     数据库未配置时，目录、作用域与记忆路由不会注册；控制台只能展示连接状态。
                   </p>

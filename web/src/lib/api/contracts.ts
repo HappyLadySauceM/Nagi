@@ -36,6 +36,18 @@ export interface AccountsSnapshot {
   botId?: number
 }
 
+/**
+ * Connection facts merged from `/api/v1/accounts`, or from `/api/v1/status`
+ * when an older backend does not register the accounts route.
+ */
+export interface AccountSnapshot {
+  connected: boolean
+  botId?: number
+  /** Undefined when the source cannot tell, which is the `/status` fallback. */
+  dbConfigured?: boolean
+  source: 'accounts' | 'status'
+}
+
 export interface PingState {
   status: string
 }

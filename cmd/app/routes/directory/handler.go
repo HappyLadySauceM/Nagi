@@ -29,7 +29,6 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/directory/sync", h.Sync)
-	mux.HandleFunc("GET /api/v1/accounts", h.Accounts)
 	mux.HandleFunc("GET /api/v1/contacts", h.Contacts)
 	mux.HandleFunc("GET /api/v1/groups", h.Groups)
 	mux.HandleFunc("GET /api/v1/groups/{id}/members", h.GroupMembers)
@@ -59,20 +58,6 @@ func (h *Handler) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	common.WriteSuccess(w, result)
-}
-
-// Accounts reports the bot account and connection state.
-// Accounts 报告机器人账号与连接状态。
-func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
-	status := h.svcCtx.Onebot.Status()
-	account := map[string]any{
-		"connected":     status.Connected,
-		"db_configured": h.svcCtx.Directory != nil,
-	}
-	if status.SelfIDKnown {
-		account["bot_id"] = int64(status.SelfID)
-	}
-	common.WriteSuccess(w, account)
 }
 
 // Contacts returns one page of the friend directory.
