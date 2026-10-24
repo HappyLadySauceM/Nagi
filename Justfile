@@ -2,9 +2,14 @@
 # 默认任务执行完整验证。
 default: verify
 
+# Create configs/config.yaml from the example when absent.
+# 本地配置不存在时从示例复制一份。
+init-config:
+    test -f configs/config.yaml || cp configs/config-example.yaml configs/config.yaml
+
 # Run the bot locally against the given config file.
 # 本地运行机器人，可指定配置文件。
-run config="configs/config.yaml":
+run config="configs/config.yaml": init-config
     go run ./cmd --config {{config}}
 
 # Build the release binary into bin/.
@@ -24,13 +29,3 @@ verify:
     go vet ./...
     go test ./...
     go fmt ./...
-
-# Start the local postgres+pgvector development database.
-# 启动本地 postgres+pgvector 开发数据库。
-db-up:
-    docker compose up -d --wait postgres
-
-# Stop the local development database.
-# 停止本地开发数据库。
-db-down:
-    docker compose down

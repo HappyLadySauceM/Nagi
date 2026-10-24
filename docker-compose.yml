@@ -1,16 +1,53 @@
-# Local development & integration-test database (postgres + pgvector). NOT for production.
-# 本地开发与集成测试数据库（postgres + pgvector），不用于生产部署。
+# 本地开发基础设施：PostgreSQL(pgvector) + Langfuse 自托管全栈。
+# 只有 postgres 与 langfuse-web 暴露到本机回环；clickhouse / redis / minio 仅在 compose 内网互通。
+# 所有默认口令都是本地开发值，可通过同名环境变量覆盖。
+# Local development infrastructure: PostgreSQL(pgvector) plus the full self-hosted
+# Langfuse stack. Only postgres and langfuse-web bind to loopback; the rest stay internal.
+
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://qqbot:qqbot-local@postgres:5432/langfuse
+  NEXTAUTH_URL: http://localhost:3010
+  NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-qqbot-local-nextauth-secret}
+  SALT: ${LANGFUSE_SALT:-qqbot-local-salt}
+  # 必须为 64 位十六进制；更换后已加密数据无法解密
+  ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+  TELEMETRY_ENABLED: "false"
+  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${REDIS_PASSWORD:-qqbot-local-redis}
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  # MinIO 不映射到主机，媒体直传不可用；追踪与事件上报不受影响
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: qqbot-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: qqbot
       POSTGRES_PASSWORD: qqbot-local
       POSTGRES_DB: qqbot
     ports:
-      # Use 5433 on the host to avoid clashing with a local default postgres.
-      # 主机侧使用 5433，避免与本机默认 postgres 冲突。
+      # 主机侧使用 5433，避免与本机默认 postgres 冲突
       - "127.0.0.1:5433:5432"
     volumes:
       - qqbot-pgdata:/var/lib/postgresql/data
@@ -20,5 +57,116 @@ services:
       timeout: 3s
       retries: 20
 
+  # 现有数据卷不会重跑 docker-entrypoint-initdb.d，因此用一次性服务幂等建库。
+  db-init:
+    image: pgvector/pgvector:pg16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: qqbot-local
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        for db in langfuse qqbot_test; do
+          psql -h postgres -U qqbot -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 \
+            || createdb -h postgres -U qqbot "$$db";
+        done
+    restart: "no"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.12
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+      - langfuse-clickhouse-logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: >
+      --requirepass ${REDIS_PASSWORD:-qqbot-local-redis}
+      --maxmemory-policy noeviction
+    volumes:
+      - langfuse-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  minio:
+    image: cgr.dev/chainguard/minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+    volumes:
+      - langfuse-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  langfuse-worker:
+    image: docker.langfuse.com/langfuse/langfuse-worker:4
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment: *langfuse-env
+
+  langfuse-web:
+    image: docker.langfuse.com/langfuse/langfuse:4
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      # 3000 已被 SnowLuma 的 HTTP OneBot 占用
+      - "127.0.0.1:3010:3000"
+    environment:
+      <<: *langfuse-env
+      # 首次启动自动创建组织、项目与 API Key，本地开发免手工初始化
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-qqbot}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-QQBot Local}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-qqbot}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-QQBot}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-pk-lf-qqbot-local}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-sk-lf-qqbot-local}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@qqbot.local}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-qqbot-local-2026}
+
 volumes:
   qqbot-pgdata:
+  langfuse-clickhouse-data:
+  langfuse-clickhouse-logs:
+  langfuse-redis-data:
+  langfuse-minio-data:
