@@ -1,9 +1,9 @@
 # QQBot Web 管理后台详细实施计划 v1.0
 
 > **项目**：HappyLadySauceM/QQBot  
-> **代码基线**：`main`，`79e20914d80469174098ceae7862debd1e36c1db`（2026-10-24 核对）  
-> **计划位置**：`web/`（新增；截至上述提交，仓库内尚不存在该目录）  
-> **状态**：设计方案，尚未实施、未修改仓库、未执行测试  
+> **代码基线**：`main`（设计基线 `79e20914`，2026-10-24 核对）  
+> **计划位置**：`web/`（已创建并入库）  
+> **状态**：W0 + W1 已实现，`pnpm lint`、`pnpm test`、`pnpm build` 通过；W2–W4 待实施  
 > **目标风格**：AI Agent Control Center；简洁、现代、克制的科技感  
 > **主要参考**：[satnaing/shadcn-admin](https://github.com/satnaing/shadcn-admin)（MIT，[预览](https://shadcn-admin.netlify.app/)）；[Magic UI](https://magicui.design)；[Motion Primitives](https://motion-primitives.com)
 
@@ -18,17 +18,17 @@
 3. 以好友/群为粒度**查看并修改作用域策略**，默认拒绝；用户明确保存才写入。
 4. 浏览、创建、审批、编辑和删除长期记忆，明确展示共享边界。
 5. 对接现有 Go HTTP API，统一处理错误、加载、权限不足、断线与未启用数据库状态。
-6. 建立一致的现代深色视觉系统，可持续扩展“会话中心 / Jev 决策分析 / 运行追踪”。
+6. 建立一致的现代深色视觉系统，可持续扩展"会话中心 / Jev 决策分析 / 运行追踪"。
 
 **确定选型**：**Vite + React + TypeScript + Tailwind CSS + shadcn/ui + TanStack Router + TanStack Query**；以 `satnaing/shadcn-admin` 的布局、交互模式作为参考，择需复用组件（保留许可证），**不直接整体搬入其演示工程**，避免 Clerk、Demo 数据和无关依赖。
 
-**明确不做**：本期不重写 OneBot、数据库业务模型、消息工作器、Jev/LLM 逻辑，不自动添加插件系统/全局状态框架，不制作所有尚无 API 支持的“假功能”。
+**明确不做**：本期不重写 OneBot、数据库业务模型、消息工作器、Jev/LLM 逻辑，不自动添加插件系统/全局状态框架，不制作所有尚无 API 支持的"假功能"。
 
 ## 1. 基线与真实 API 清单
 
 ### 1.1 仓库实情
 
-当前服务主要包含 `cmd/app`（组合根、路由、中间件）、`internal/directory`（联系人/群）、`internal/scope`、`internal/conversation`、`internal/intent`（Jev）、`internal/agent`、`internal/memory`、`internal/observability`、`internal/onebot`，并使用 PostgreSQL。`cmd/app/middleware/auth.go` 提供静态 Bearer Token；`cmd/app/router/router.go` 在数据库服务未装配时**不注册**目录/作用域/记忆/指标路由。`README.md` 指出无数据库时只运行 echo 和状态接口。
+当前服务主要包含 `cmd/app`（组合根、路由、中间件）、`internal/directory`（联系人/群）、`internal/scope`、`internal/conversation`、`internal/intent`（Jev）、`internal/agent`、`internal/memory`、`internal/observability`、`internal/onebot`，并使用 PostgreSQL。`cmd/app/middleware/auth.go` 提供静态 Bearer Token；`cmd/app/router/router.go` 在数据库服务未装配时**不注册**目录/作用域/记忆/指标路由。`README.md` 指出无数据库时只运行 echo 和状态接口。账号快照 `GET /api/v1/accounts` 只读 OneBot 连接，已改由 `system` handler 无条件注册，不再受数据库门控。
 
 截至基线，**有实际可用的 API**：
 
@@ -39,7 +39,7 @@
 | 状态 | `GET /api/v1/status` | 连接、自身 QQ、运行时长、Handler | `routes/system` |
 | 指标 | `GET /api/v1/metrics` | 消息、任务、意图与记忆计数 | `routes/metrics` |
 | 同步 | `POST /api/v1/directory/sync` | 同步好友/群 | `routes/directory` |
-| 账号 | `GET /api/v1/accounts` | 当前机器人账号和连接状态 | `routes/directory` |
+| 账号 | `GET /api/v1/accounts` | 当前机器人账号和连接状态（无数据库也可用） | `routes/system` |
 | 好友 | `GET /api/v1/contacts?search=&page=&limit=` | 分页好友列表 | `routes/directory` |
 | 群聊 | `GET /api/v1/groups?search=&page=&limit=` | 分页群列表 | `routes/directory` |
 | 成员 | `GET /api/v1/groups/{id}/members?page=&limit=&refresh=true` | 群成员、强制刷新 | `routes/directory` |
@@ -59,9 +59,11 @@
 - **部分 Go domain DTO 没有 `json` tags，序列化字段为 PascalCase**，例如好友页 `Items/Total/Page/Limit`，联系人 `UserID/Nickname/Remark/LastSeenAt`，作用域读取 `ScopeType/ScopeID/Enabled/ReplyMode/...`，长期记忆模型 `ID/BotID/Visibility/...`。
 - **写入 API 的 JSON 使用 snake_case**，例如 `enabled`、`reply_mode`、`store_messages`。不要依赖自动驼峰猜测、直接把读 DTO 回传给 PUT。
 - `/api/v1/metrics` 返回字段名称为 `message_jobs`、`intent_decisions_24h`、`messages_24h`、`memories`；**它是聚合数据，不是时间序列**。
-- 列表的 `GET /api/v1/scopes` 只列已保存的策略；“所有可管理好友/群”应由联系人/群列表与策略详情合并展示。
-- `PUT /scopes/...` 当前要求已知 `self_id`，连接未就绪返回 `409`；前端禁用保存并解释“机器人账号尚未识别”。
+- 列表的 `GET /api/v1/scopes` 只列已保存的策略；"所有可管理好友/群"应由联系人/群列表与策略详情合并展示。
+- `PUT /scopes/...` 当前要求已知 `self_id`，连接未就绪返回 `409`；前端禁用保存并解释"机器人账号尚未识别"。
 - 数据库未配置时，一部分 API **返回 404（路由未注册）**，不是一定返回 503；区分模块不可用和真实资源不存在。
+- `GET /api/v1/scopes?type=<group|private>&id=<id>` 与路径式详情等价，可直接取单条生效策略，无需先拉全表。
+- `POST /api/v1/directory/sync` 服务端超时为 30 秒，失败返回 `502`；前端请求超时必须大于该值并禁止重复提交。
 
 **适配约定**：只在 `src/lib/api/adapters/` 做输入/输出归一化；展示层只使用统一的前端 `camelCase` DTO。未来后端添加 JSON tag 时，只修改适配器与对应契约测试。
 
@@ -73,7 +75,7 @@
 
 ### 2.2 本期必须完成（MVP）
 
-- 进入控制台，5 秒内区分“前端运行正常 / Go 不可达 / OneBot 未连接 / 数据库未配置”。
+- 进入控制台，5 秒内区分"前端运行正常 / Go 不可达 / OneBot 未连接 / 数据库未配置"。
 - 查看与搜索好友、群，点击查看群成员；同步按钮有状态、错误反馈和防重复提交。
 - 在好友或群列表中快捷进入作用域配置；开关、模式、记忆/历史权限、限频字段正确读写。
 - 安全管理长期记忆：候选、已启用、已取代、已删除状态清楚；审批共享记忆需额外确认。
@@ -124,7 +126,7 @@
 └─ 系统设置                /settings             [MVP仅只读]
 ```
 
-**注意**：暂不可用页面不出现在 MVP 正式导航，或明确标为“开发中”且不伪造操作，不创建大量占位页。
+**注意**：暂不可用页面不出现在 MVP 正式导航，或明确标为"开发中"且不伪造操作，不创建大量占位页。
 
 ### 3.4 页面详细定义
 
@@ -142,8 +144,8 @@
 
 ### 3.5 关键交互路径
 
-1. 首次进入：Dashboard → 连接卡提示状态 → 点击“同步目录” → 联系人/群出现真实结果。
-2. 启用群聊：群列表 → “配置作用域” → 读取生效默认（默认 disabled）→ 勾选 `enabled` → 选择 `mention_only` → 如需持久化勾选 `store_messages`、历史/记忆权限 → 确认变更 → 保存 → GET 重新查询确保成功。
+1. 首次进入：Dashboard → 连接卡提示状态 → 点击"同步目录" → 联系人/群出现真实结果。
+2. 启用群聊：群列表 → "配置作用域" → 读取生效默认（默认 disabled）→ 勾选 `enabled` → 选择 `mention_only` → 如需持久化勾选 `store_messages`、历史/记忆权限 → 确认变更 → 保存 → GET 重新查询确保成功。
 3. 记忆审批：记忆列表筛选 `candidate` → 查看内容、来源和可见性 → 确认审批 → PATCH `status: active` → 刷新列表；全局 `bot_shared` 须提示共享范围。
 
 ## 4. 前端技术架构
@@ -158,7 +160,7 @@
 | 服务端数据 | TanStack Query | 缓存、请求状态、失效刷新 |
 | 表格 | TanStack Table | 分页、搜索、列显示 |
 | 表单 | React Hook Form + Zod | 表单校验、差异检测 |
-| 图表 | Recharts | 真实聚合可视化 |
+| 图表 | CSS 分布条（Recharts 暂不引入） | 当前只有聚合计数，没有时间序列 |
 | 动效 | Motion Primitives（按需） | 克制微交互 |
 | 特效 | Magic UI（按需，限制范围） | 品牌质感 |
 | 提示 | Sonner | Toast 和错误反馈 |
@@ -311,6 +313,8 @@ server: {
 }
 ```
 
+**安全前提**：开发代理会向转发请求注入 `Authorization`，因此 `server.allowedHosts` **不得设为 `true`**（等于关闭 Host 校验，DNS rebinding 页面可借到管理员令牌）。默认只允许 `localhost` 与回环 IP；确需隧道域名时通过 `QQBOT_DEV_ALLOWED_HOSTS` 追加白名单。
+
 ### 5.2 远程访问：必须先加服务端管理会话
 
 如果后台将来通过域名访问，不能依赖浏览器保存静态 Bearer Token。建议建立**同源的 Go 管理会话**，前端接收 `HttpOnly; Secure; SameSite=Lax/Strict` Cookie：
@@ -336,10 +340,10 @@ server: {
 
 ### 6.1 目录页面
 
-- 首次无同步记录：展示“尚未同步”，提供 `POST /api/v1/directory/sync`；不要伪造好友。
+- 首次无同步记录：展示"尚未同步"，提供 `POST /api/v1/directory/sync`；不要伪造好友。
 - 联系人：URL `?search=&page=&limit=` 与请求保持一致；`GET /api/v1/contacts` 读取 `data.Items` 和 `data.Total`。
 - 群：群 `GroupID` 作路由参数；成员使用 `GET /api/v1/groups/{id}/members?refresh=true` 触发强制刷新。
-- 列表上的“作用域状态”不是由目录 API 自带，需按可接受并发调用作用域 GET，或取 `GET /scopes` 已保存策略索引，未知项以默认关闭展示。大列表避免对每一行独立发无界请求。
+- 列表上的"作用域状态"不是由目录 API 自带，需按可接受并发调用作用域 GET，或取 `GET /scopes` 已保存策略索引，未知项以默认关闭展示。大列表避免对每一行独立发无界请求。
 - 当前 `/accounts` 是**单个当前账号状态**，不是多账号数组。
 
 ### 6.2 作用域编辑
@@ -367,9 +371,12 @@ server: {
 - `visibility`：`bot_shared` / `group` / `private_user` / `conversation`；非 `bot_shared` 需要 `owner_key`，共享记忆不能带个人 owner。
 - `status`：`candidate` / `active` / `superseded` / `deleted`。
 - `POST` 实际接受：`bot_id`、`visibility`、`owner_key`、`content`、`source`、`confidence`、`approve`。
-- `PATCH` 实际接受：`content?`、`visibility?`、`owner_key?`、`status?`。区分“仅审批”与“修改字段”；状态变更先显示当前归属。
+- `PATCH` 实际接受：`content?`、`visibility?`、`owner_key?`、`status?`。区分"仅审批"与"修改字段"；状态变更先显示当前归属。
+- `PATCH` 会先无条件执行 `Revise`（`content`/`visibility` 为空时保持原值），再按 `status` 分派，两次读写成对但非原子；"仅审批"也会先重写一次记录。
+- `status` 传 `candidate` 或 `superseded` 会被接受但**不生效**，接口仍返回 200；UI 不提供这两个状态切换，避免假成功。
+- 把记忆改为 `bot_shared` 时必须在同一请求传 `owner_key: ""`，否则后端校验失败返回 400。
 - 对 `bot_shared` 明确提示将作为该机器人的共享记忆；审批时要求确认。
-- 删除的语义为从检索移除，不随意宣称“已从所有系统永久擦除”。
+- 删除的语义为从检索移除，不随意宣称"已从所有系统永久擦除"。
 - 记忆详情含 `Source` 与 `SourceMessageID` 时只显示经当前 API 允许的来源；不自行追溯未授权的聊天内容。
 
 ### 6.4 指标
@@ -378,7 +385,7 @@ server: {
 
 - 可做 4 张 KPI 卡 + Job 状态横条图 + 意图原因分布图。
 - **不可做真实按小时折线趋势、回复准确率、延迟 P95、Token 成本**，除非新增时间桶/观测数据 API。
-- 卡片数值 0 必须表示真实 0，不能用 `—` 混同；请求失败时显示“不可获取”，不显示虚构默认值。
+- 卡片数值 0 必须表示真实 0，不能用 `—` 混同；请求失败时显示"不可获取"，不显示虚构默认值。
 
 ## 7. 分阶段开发计划与任务拆分
 
@@ -394,25 +401,27 @@ server: {
 
 时间仅为规模估计，不是交付承诺，联调受 QQ 登录、SnowLuma、数据库等外部条件影响。
 
+**当前进展**：W0、W1 已入库并通过 `pnpm lint`、`pnpm test`、`pnpm build`；W2–W6 未开始。
+
 ### W0：工程搭建与基础 UI（依赖：无）
 
 **任务**：
-- [ ] 创建 `web/` Vite React TS 项目，选择 pnpm 并提交锁文件。
-- [ ] 初始化 shadcn/ui、Tailwind、TanStack Router、TanStack Query。
-- [ ] 从参考模板择需移植 Sidebar/AppShell/命令搜索；剔除 Clerk、Demo 数据、无关页面。
-- [ ] 建立浅色/深色 Token（默认深色）与可访问的状态控件。
-- [ ] 建立 `apiClient`：信封解包、状态码、异常、取消请求；实现必要 DTO adapters。
-- [ ] 加 dev proxy；设置 404/503/断线通用界面；`web/README.md` 只写可执行命令。
+- [x] 创建 `web/` Vite React TS 项目，选择 pnpm 并提交锁文件。
+- [x] 初始化 shadcn/ui、Tailwind、TanStack Router、TanStack Query。
+- [x] 从参考模板择需移植 Sidebar/AppShell；剔除 Clerk、Demo 数据、无关页面（命令面板留待后续）。
+- [x] 建立浅色/深色 Token（默认深色）与可访问的状态控件。
+- [x] 建立 `apiClient`：信封解包、状态码、异常、取消请求；实现必要 DTO adapters。
+- [x] 加 dev proxy；设置 404/503/断线通用界面；`web/README.md` 只写可执行命令。
 
-**验收**：`pnpm install --frozen-lockfile`、`pnpm build`、`pnpm lint` 通过；浏览器访问首页时不请求任何硬编码第三方域名或 Demo API；运行环境断线能显示错误界面。
+**验收**：`pnpm install --frozen-lockfile`、`pnpm lint`、`pnpm test`、`pnpm build` 已本地通过；页面不请求任何硬编码第三方域名或 Demo API；断线、接口未注册与未授权各有独立错误界面。
 
 ### W1：Dashboard / 账号 / 指标（依赖 W0）
 
 **任务**：
-- [ ] 请求 `/livez`、`/readyz`、`/api/v1/status`、`/api/v1/accounts`、`/api/v1/metrics`。
-- [ ] 实现状态卡、24h 消息、Job 状态、决策分布、记忆计数。
-- [ ] 仅在页面可见时以 10–30 秒合理频率刷新；手动刷新和上次更新时间。
-- [ ] 断线、DB 不可用、没有数据三态清楚分离。
+- [x] 请求 `/livez`、`/readyz`、`/api/v1/status`、`/api/v1/accounts`、`/api/v1/metrics`。
+- [x] 实现状态卡、24h 消息、Job 状态、决策分布、记忆计数。
+- [x] 仅在页面可见时以 10–30 秒合理频率刷新；手动刷新和上次更新时间。
+- [x] 断线、DB 不可用、没有数据三态清楚分离。
 
 **验收**：模拟 OneBot 断线返回 503，页面只标 OneBot 离线，不误判整个 Go 进程宕机；真实 0 显示为 0。
 
@@ -478,7 +487,7 @@ server: {
 
 - 首轮提交原则上只修改 `web/`，必要的根目录 .gitignore 变更需说明理由；**不触碰** `internal/onebot`、`internal/intent`、`internal/agent`、`internal/conversation`、`migrations`、`docker-compose.yml`。
 - 不修改现有 `AGENTS.md` / `.agents/skills` 来放行无关重构；若后续设计真正要求调整 Go 管理 API，单开 PR 说明接口变更和测试。
-- 不自动生成大批无用文件、Demo 页面/假数据、无引用组件或暂时不可用的“插件系统”。
+- 不自动生成大批无用文件、Demo 页面/假数据、无引用组件或暂时不可用的"插件系统"。
 - 遵守仓库 `AGENTS.md`、coding/OneBot skills 的最小修改范围；凡改 Go 文件需跑仓库指定 `just verify`，涉及并发则按需 `go test -race`。
 
 ### 8.2 前端质量标准
@@ -494,7 +503,7 @@ server: {
 | 用例 | 预期 |
 |---|---|
 | `/readyz` 503、`/livez` 200 | 提示 OneBot 未连接，后台仍在线 |
-| DB 未配置导致 `/contacts` 404 | 提示模块未启用或未配置，不显示“无联系人” |
+| DB 未配置导致 `/contacts` 404 | 提示模块未启用或未配置，不显示"无联系人" |
 | `GET contacts` 使用 `Items/Total` | 页面适配成功并分页正确 |
 | `GET scopes` 返回 PascalCase | 策略状态适配正确 |
 | `PUT scopes` 发送 snake_case 完整请求 | 其他权限不被清零 |
@@ -539,7 +548,7 @@ server: {
 - [ ] 深色/浅色、移动端布局、键盘/Reduced Motion 可用。
 - [ ] 不把 Admin Token、Jev Key、LLM Key、Langfuse Secret 放进前端 bundle / 本地存储。
 - [ ] 测试、构建、联调记录齐全，未改动无关 Go 业务代码。
-- [ ] 未支持的“会话浏览、Jev 明细、远程登录”被明确记录为后续任务，而非宣称已实现。
+- [ ] 未支持的"会话浏览、Jev 明细、远程登录"被明确记录为后续任务，而非宣称已实现。
 
 ## 11. 参考与溯源
 
