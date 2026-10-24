@@ -47,6 +47,13 @@ export function describeError(error: unknown): ErrorPresentation {
           description: '后端未在预期时间内响应，可稍后重试；若目录同步耗时较长属正常现象。',
           canRetry: true,
         }
+      case 'cancelled':
+        return {
+          variant: 'error',
+          title: '请求已取消',
+          description: '请求在完成前被取消，未影响服务端数据。',
+          canRetry: false,
+        }
       case 'unauthorized':
         return {
           variant: 'unauthorized',
@@ -114,6 +121,8 @@ export function shortErrorReason(error: unknown): string {
         return '无法连接后端'
       case 'timeout':
         return '请求超时'
+      case 'cancelled':
+        return '请求已取消'
       case 'unauthorized':
         return '需要配置 QQBOT_ADMIN_TOKEN'
       case 'not-found':
@@ -174,7 +183,8 @@ export function FeedbackState({
     presentation?.title ??
     (variant === 'empty' ? '暂无数据' : '加载失败')
   const resolvedDescription = description ?? presentation?.description
-  const showRetry = onRetry !== undefined && variant !== 'empty'
+  const showRetry =
+    onRetry !== undefined && variant !== 'empty' && presentation?.canRetry !== false
 
   return (
     <div

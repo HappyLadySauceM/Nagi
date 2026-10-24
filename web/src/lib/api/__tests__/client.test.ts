@@ -92,7 +92,7 @@ describe('apiRequest', () => {
     expect(error.kind).toBe('network')
   })
 
-  it('classifies an aborted request as a timeout', async () => {
+  it('classifies a timed-out request as a timeout', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockRejectedValue(new DOMException('The operation timed out', 'TimeoutError')),
@@ -101,6 +101,17 @@ describe('apiRequest', () => {
     const error = await expectApiError(apiRequest('/api/v1/metrics'))
 
     expect(error.kind).toBe('timeout')
+  })
+
+  it('keeps a user cancellation distinct from a timeout', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new DOMException('The user aborted a request', 'AbortError')),
+    )
+
+    const error = await expectApiError(apiRequest('/api/v1/metrics'))
+
+    expect(error.kind).toBe('cancelled')
   })
 
   it('rejects a 200 response that is not a JSON envelope', async () => {

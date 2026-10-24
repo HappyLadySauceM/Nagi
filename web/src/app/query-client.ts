@@ -15,7 +15,10 @@ export const queryClient = new QueryClient({
       retry: (failureCount, error) => {
         if (
           error instanceof ApiError &&
-          (error.kind === 'unauthorized' || error.kind === 'not-found' || error.kind === 'contract')
+          (error.kind === 'unauthorized' ||
+            error.kind === 'not-found' ||
+            error.kind === 'contract' ||
+            error.kind === 'cancelled')
         ) {
           return false
         }

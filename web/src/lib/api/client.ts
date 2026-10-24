@@ -1,6 +1,7 @@
 export type ApiErrorKind =
   | 'network'
   | 'timeout'
+  | 'cancelled'
   | 'unauthorized'
   | 'not-found'
   | 'unavailable'
@@ -85,11 +86,21 @@ function buildTimeoutSignal(timeoutMs: number, external?: AbortSignal): AbortSig
 
 function translateTransportError(error: unknown, endpoint: string): ApiError {
   const name = error instanceof Error ? error.name : ''
-  if (name === 'TimeoutError' || name === 'AbortError') {
+  if (name === 'TimeoutError') {
     return new ApiError({
       kind: 'timeout',
       endpoint,
       message: '请求超时，后端未在预期时间内响应',
+    })
+  }
+  // TanStack Query aborts the signal when a view unmounts, and an aborted
+  // request is not a timeout.
+  // TanStack Query 会在视图卸载时中止请求，被中止不等于超时。
+  if (name === 'AbortError') {
+    return new ApiError({
+      kind: 'cancelled',
+      endpoint,
+      message: '请求已取消',
     })
   }
   console.error(error)
