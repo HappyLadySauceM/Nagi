@@ -41,8 +41,8 @@ flowchart LR
 ## 运行链路
 
 1. `cmd/main.go` 以 `signal.NotifyContext` 捕获 SIGINT/SIGTERM，只负责退出码。
-2. `cmd/app/initialize.go` 装载配置（优先级：默认值 → YAML → `QQBOT_*` 环境变量 → Flags）、
-   初始化 slog JSON 日志，并经 `assembly.Assemble` 装配：
+2. `cmd/app/initialize.go` 装载配置（优先级：默认值 → YAML → 通用环境变量覆盖 → Flags）、
+   初始化 slog JSON 日志，并经 `assembly.Assemble` 为每个 `onebot.endpoints[]` 端点装配一套运行时：
    - `onebot/infrastructure.Transport`：正向 WebSocket 拨号（`Authorization: Bearer <token>`）、
      断线指数退避重连（1s → 30s 抖动）、单写互斥、心跳看门狗
      （`onebot.heartbeat-timeout` 窗口内没有任何入站帧即断开重连，≤0 关闭）。
@@ -50,14 +50,18 @@ flowchart LR
      事件进入带缓冲通道并记录 self_id 与最近心跳；提供 OneBot v11 规范全集
      （38 个标准动作）的类型化方法与响应解码，经 `contracts` 按能力分组发布
      （Messenger / GroupAdmin / InfoReader / RequestApprover / Maintenance，聚合为 API）。
-   - `bot/application.Dispatcher`：消费事件流，经纯策略 `bot/domain.Select` 匹配处理器，
-     单个处理器 panic 被恢复，不影响连接。
+     每条连接的身份首次写入后不可改写：后续 `self_id` 不一致的事件会被丢弃并告警。
+   - `bot/application.Dispatcher`：消费本连接的事件流，经纯策略 `bot/domain.Select` 匹配处理器，
+     并把本连接账号作为 `botID` 传给 `Handle`；单个处理器 panic 被恢复，不影响连接。
+   - `cmd/app/svc.Accounts`：账号注册表，按 `bot_id` 路由发送与查询，提供唯一账号时的默认规则。
+   - `initialize.go` 的 `identifyAccount`：连接就绪后调用 `get_login_info` 绑定身份；
+     与 `expect-qq` 不一致时拒绝该端点（`rejected`），不进入业务流水线。
    - `internal/echo`：示例业务上下文（`ping` → `pong`、`/echo <text>` 复读），
      演示新增上下文的标准路径。
 3. 管理 HTTP API（默认 `127.0.0.1:5080`，仅监听本机）：
    - `GET /livez`：进程存活，不检查外部依赖。
    - `GET /readyz`：OneBot 连接就绪返回 200，否则 503。
-   - `GET /api/v1/status`：版本、运行时长、连接状态、self_id、处理器列表与计数。
+   - `GET /api/v1/status`：版本、运行时长、处理器列表与事件计数（连接状态见 `/api/v1/accounts`）。
    - 响应统一 `{code,message,data}` 信封，`code` 与 HTTP 状态码一致。
 4. 退出顺序：WS 关闭 → HTTP 优雅停机 → 等待在途协程结束。
 
@@ -77,11 +81,14 @@ flowchart LR
 
 ## 配置
 
-见 `configs/config-example.yaml`。环境变量：`QQBOT_ONEBOT_URL`、`QQBOT_ONEBOT_ACCESS_TOKEN`、
-`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`、`QQBOT_DATABASE_DSN`、`QQBOT_SERVER_ADMIN_TOKEN`。
-Flags：`--config`、`--onebot-url`、`--onebot-token`、`--listen`、`--log-level`，优先级高于环境变量。
-`onebot.heartbeat-timeout` 默认 60s，仅经 YAML 或默认值提供。AI/Jev/Langfuse 的密钥一律经
-环境变量注入（`ai.api-key-env`、`intent.api-key-env`、`observability.*-env`），不写入配置文件。
+见 `configs/config-example.yaml`。端点列表 `onebot.endpoints[]`（`url`、`access-token`、
+可选 `expect-qq`）是唯一的连接配置形态；未显式配置时使用默认端点
+`ws://127.0.0.1:3001`，显式配置为空列表会在启动时报错。
+端点 token、`database.dsn`、`ai.api-key`、`intent.api-key` 与 `observability.{base-url,public-key,secret-key}`
+都直接写在配置文件中；提交仓库的示例文件只含占位符，真实值只存在于 gitignored 的 `configs/config.yaml`。
+通用运行时覆盖：`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`，以及 `--config`、`--listen`、
+`--log-level` Flags，优先级高于 YAML。
+`onebot.heartbeat-timeout` 默认 60s，仅经 YAML 或默认值提供。
 
 `ai.enabled=true` 要求 `intent.enabled=true`：AI 回复由意图决策流水线触发，只开生成不会发出任何
 消息，配置矛盾在启动阶段直接报错。`echo.enabled` 与 `ai.enabled` 同开时，同一会话可能被回两次，
@@ -89,8 +96,8 @@ Flags：`--config`、`--onebot-url`、`--onebot-token`、`--listen`、`--log-lev
 
 ## 业务上下文（智能助手 MVP）
 
-- `internal/directory`：经 `onebot/contracts.InfoReader` 同步好友/群/成员（upsert + last_seen），
-  提供分页查询。
+- `internal/directory`：经账号注册表按 `bot_id` 取对应 `InfoReader` 同步好友/群/成员
+  （upsert + last_seen），所有同步与查询都显式携带 `bot_id`，不存在“最近同步账号”兜底。
 - `internal/scope`：作用域策略（群/私聊）。默认拒绝（全部关闭），写穿缓存即时生效；
   `scope/contracts.Authorizer` 是唯一授权入口。
 - `internal/conversation`：`AIIngress` Handler（`bot/contracts.Handler`）只做作用域检查与
@@ -120,7 +127,7 @@ Flags：`--config`、`--onebot-url`、`--onebot-token`、`--listen`、`--log-lev
 - `GET/POST/PATCH/DELETE /api/v1/memories(/{id})`
 - `GET /api/v1/metrics`
 
-配置 `server.admin-token`（或 `QQBOT_SERVER_ADMIN_TOKEN`）后，以上接口需要
+配置 `server.admin-token` 后，以上接口需要
 `Authorization: Bearer <token>`；变更类请求写入 `admin_audit_logs`。数据库未配置时，
 依赖数据库的路由不注册，机器人仍以 OneBot + echo 模式运行。
 
