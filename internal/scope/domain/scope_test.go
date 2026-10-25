@@ -2,7 +2,10 @@
 // 作用域策略领域模型的测试。
 package domain
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // TestDefaultPolicyDeniesEverything verifies that Default disables participation,
 // uses mention_only and leaves storage and memory off.
@@ -46,5 +49,40 @@ func TestPolicyValidateRejectsInvalidValues(t *testing.T) {
 	valid := Policy{ScopeType: ScopeGroup, ScopeID: 1, ReplyMode: ModeAlwaysReply}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid policy rejected: %v", err)
+	}
+}
+
+// TestPolicyValidateToolPermissions verifies that override keys must be
+// namespaced lowercase identifiers and that the map size is bounded.
+// TestPolicyValidateToolPermissions 验证覆盖键必须是带命名空间的小写标识，
+// 且映射大小受限。
+func TestPolicyValidateToolPermissions(t *testing.T) {
+	base := func(overrides map[string]bool) Policy {
+		return Policy{ScopeType: ScopeGroup, ScopeID: 1, ReplyMode: ModeMentionOnly, ToolPermissions: overrides}
+	}
+	if err := base(map[string]bool{"qq.group.read": false, "qq.message.write": true}).Validate(); err != nil {
+		t.Fatalf("valid overrides rejected: %v", err)
+	}
+	for name, overrides := range map[string]map[string]bool{
+		"uppercase":    {"QQ.Group.Read": true},
+		"no namespace": {"current_time": true},
+		"empty":        {"": true},
+	} {
+		if err := base(overrides).Validate(); err == nil {
+			t.Fatalf("%s: expected validation error", name)
+		}
+	}
+	tooMany := make(map[string]bool, maxToolPermissions+1)
+	for i := 0; i <= maxToolPermissions; i++ {
+		tooMany[fmt.Sprintf("test.permission%d", i)] = true
+	}
+	if err := base(tooMany).Validate(); err == nil {
+		t.Fatal("too many overrides: expected validation error")
+	}
+	// WithDefaults must not drop administrator overrides.
+	// WithDefaults 不得丢弃管理员的覆盖项。
+	p := base(map[string]bool{"qq.group.read": false}).WithDefaults()
+	if granted, ok := p.ToolPermissions["qq.group.read"]; !ok || granted {
+		t.Fatalf("WithDefaults changed overrides: %+v", p.ToolPermissions)
 	}
 }

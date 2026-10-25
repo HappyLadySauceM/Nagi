@@ -151,6 +151,9 @@ type Agent struct {
 	// MaxSteps 限制 ReAct 循环轮数，防止工具调用死循环。
 	// MaxSteps bounds the ReAct loop so tool calls cannot spin forever.
 	MaxSteps int `yaml:"max-steps"`
+	// MaxToolCalls 限制单次运行的累计工具调用次数。
+	// MaxToolCalls bounds the tool calls of one run.
+	MaxToolCalls int `yaml:"max-tool-calls"`
 	// MaxRunDuration 是单次运行的总时长上限（含模型与工具调用）。
 	// MaxRunDuration bounds one run including model and tool calls.
 	MaxRunDuration Duration `yaml:"max-run-duration"`
@@ -162,6 +165,15 @@ type Tools struct {
 	// Enabled 列出启用的提供方 ID（如 builtin.time）；为空时不暴露任何工具。
 	// Enabled lists provider IDs (e.g. builtin.time); empty exposes no tools.
 	Enabled []string `yaml:"enabled"`
+	// PermissionDefaults 按权限标识覆盖描述符兜底；未列出的权限保持兜底规则
+	// （只读允许、其余拒绝），作用域覆盖的优先级更高。
+	// PermissionDefaults overrides the descriptor fallback per permission;
+	// unlisted permissions keep the fallback rule (read-only allowed, others
+	// denied), and scope overrides take precedence.
+	PermissionDefaults map[string]bool `yaml:"permission-defaults"`
+	// AllowSideEffects 为 true 时才可能暴露非只读工具；默认 false。
+	// AllowSideEffects exposes non read-only tools at all; false keeps them hidden.
+	AllowSideEffects bool `yaml:"allow-side-effects"`
 	// Timeout 限制单次工具调用，默认 5s。
 	// Timeout bounds one tool call; defaults to 5s.
 	Timeout Duration `yaml:"timeout"`
@@ -186,8 +198,11 @@ type Observability struct {
 	// IngestionVersion 为 "4" 时携带 Langfuse v4 ingestion header。
 	// IngestionVersion "4" adds the Langfuse v4 ingestion header.
 	IngestionVersion string `yaml:"ingestion-version"`
-	// ExportRawContent 为 true 时才允许上传消息正文（默认脱敏）。
-	// ExportRawContent true allows raw message bodies (redacted by default).
+	// ExportRawContent 控制是否上传消息正文；默认开启，关闭后 span 结构保留、
+	// 正文替换为脱敏标记。
+	// ExportRawContent controls whether message bodies are exported; it is on by
+	// default, and disabling it keeps the span shape while replacing content
+	// with a redaction marker.
 	ExportRawContent bool `yaml:"export-raw-content"`
 	// UserIDSecret 是生成发送者与账号假名的 HMAC 密钥；为空时不导出用户维度。
 	// UserIDSecret keys the HMAC pseudonyms of senders and accounts; empty omits
@@ -244,11 +259,15 @@ func defaults() Config {
 		},
 		Agent: Agent{
 			MaxSteps:       6,
+			MaxToolCalls:   5,
 			MaxRunDuration: Duration(30 * time.Second),
 		},
 		Tools: Tools{
 			Timeout:        Duration(5 * time.Second),
 			MaxResultBytes: 8192,
+		},
+		Observability: Observability{
+			ExportRawContent: true,
 		},
 		Intent: Intent{
 			Provider:              "jev",
@@ -408,6 +427,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Agent.MaxSteps <= 0 {
 		return fmt.Errorf("config: agent.max-steps 必须为正数")
+	}
+	if c.Agent.MaxToolCalls <= 0 {
+		return fmt.Errorf("config: agent.max-tool-calls 必须为正数")
 	}
 	if c.Agent.MaxRunDuration.D() <= 0 {
 		return fmt.Errorf("config: agent.max-run-duration 必须为正数")

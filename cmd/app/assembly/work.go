@@ -87,6 +87,9 @@ type Runtime struct {
 	// CloseTools releases registered tool providers; nil when none are wired.
 	// CloseTools 释放已注册的工具提供方；未接入时为 nil。
 	CloseTools func(context.Context) error
+	// Tools is the startup tool registry; nil when AI generation is disabled.
+	// Tools 是启动时的工具注册表；AI 生成关闭时为 nil。
+	Tools *pluginsapp.Registry
 }
 
 // Assemble wires one connection per configured endpoint, registers the shared
@@ -197,8 +200,21 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 					return nil, registerErr
 				}
 			}
+			// An enabled id that no provider matched is always a typo; failing
+			// fast beats starting with silently missing capabilities.
+			// 已启用但没有任何提供方匹配的 ID 一定是拼写错误；
+			// 直接启动失败胜过带着静默缺失的能力运行。
+			if unknown := toolRegistry.Unknown(); len(unknown) > 0 {
+				_ = toolRegistry.Close(context.Background())
+				return nil, fmt.Errorf("tools.enabled contains unknown providers %v; known providers: %v",
+					unknown, toolRegistry.Known())
+			}
+			rt.Tools = toolRegistry
 			rt.CloseTools = toolRegistry.Close
-			logger.Info("tools registered", "count", len(toolRegistry.Snapshot()), "enabled", cfg.Tools.Enabled)
+			logger.Info("tools registered",
+				"count", len(toolRegistry.Snapshot()),
+				"providers", len(toolRegistry.Manifests()),
+				"enabled", cfg.Tools.Enabled)
 			toolsResolver = buildToolsResolver(cfg, toolRegistry)
 		}
 		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, toolsResolver)

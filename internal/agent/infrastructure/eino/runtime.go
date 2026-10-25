@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
@@ -53,15 +54,27 @@ type Config struct {
 	Handlers []callbacks.Handler
 }
 
+// maxCachedModels bounds the per-token-budget model cache. A request may set
+// its own output budget, and building a model is cheap but not free.
+// maxCachedModels 限制按输出预算缓存的模型数量。请求可以指定自己的输出预算，
+// 构建模型代价不高但也不为零。
+const maxCachedModels = 4
+
 // Runtime implements contracts.Runtime on top of Eino ADK.
 // Runtime 基于 Eino ADK 实现 contracts.Runtime。
 type Runtime struct {
-	// model is the generic Eino chat model; tests inject a fake through
-	// newRuntimeWithModel without touching the network.
-	// model 是 Eino 的通用聊天模型；测试通过 newRuntimeWithModel 注入假模型，
-	// 不触碰网络。
+	// model is the default chat model built from Config.MaxOutputTokens.
+	// model 是按 Config.MaxOutputTokens 构建的默认聊天模型。
 	model model.BaseModel[*einoschema.Message]
-	cfg   Config
+	// builder creates a model for another output budget; nil when a test
+	// injected the model directly, in which case the default model is reused.
+	// builder 按其他输出预算创建模型；测试直接注入模型时为 nil，
+	// 此时始终复用默认模型。
+	builder func(ctx context.Context, maxTokens int) (model.BaseModel[*einoschema.Message], error)
+	cfg     Config
+
+	mu     sync.RWMutex
+	models map[int]model.BaseModel[*einoschema.Message]
 }
 
 // newRuntimeWithModel wires a runtime around an existing model; it exists so
@@ -91,18 +104,51 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.MaxOutputTokens <= 0 {
 		cfg.MaxOutputTokens = 400
 	}
-	maxTokens := cfg.MaxOutputTokens
-	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-		BaseURL:   cfg.BaseURL,
-		APIKey:    cfg.APIKey,
-		Model:     cfg.Model,
-		Timeout:   cfg.HTTPTimeout,
-		MaxTokens: &maxTokens,
-	})
+	builder := func(ctx context.Context, maxTokens int) (model.BaseModel[*einoschema.Message], error) {
+		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
+			BaseURL:   cfg.BaseURL,
+			APIKey:    cfg.APIKey,
+			Model:     cfg.Model,
+			Timeout:   cfg.HTTPTimeout,
+			MaxTokens: &maxTokens,
+		})
+	}
+	chatModel, err := builder(ctx, cfg.MaxOutputTokens)
 	if err != nil {
 		return nil, fmt.Errorf("agent: build eino chat model: %w", err)
 	}
-	return &Runtime{model: chatModel, cfg: cfg}, nil
+	return &Runtime{
+		model:   chatModel,
+		builder: builder,
+		cfg:     cfg,
+		models:  make(map[int]model.BaseModel[*einoschema.Message]),
+	}, nil
+}
+
+// modelFor resolves the chat model of one run. A zero or default budget reuses
+// the shared model; other budgets are built once and cached.
+// modelFor 解析单次运行的聊天模型。零值或默认预算复用共享模型；
+// 其他预算只构建一次并缓存。
+func (r *Runtime) modelFor(ctx context.Context, maxTokens int) (model.BaseModel[*einoschema.Message], error) {
+	if maxTokens <= 0 || maxTokens == r.cfg.MaxOutputTokens || r.builder == nil {
+		return r.model, nil
+	}
+	r.mu.RLock()
+	cached, ok := r.models[maxTokens]
+	r.mu.RUnlock()
+	if ok {
+		return cached, nil
+	}
+	built, err := r.builder(ctx, maxTokens)
+	if err != nil {
+		return nil, fmt.Errorf("agent: build eino chat model for %d tokens: %w", maxTokens, err)
+	}
+	r.mu.Lock()
+	if len(r.models) < maxCachedModels {
+		r.models[maxTokens] = built
+	}
+	r.mu.Unlock()
+	return built, nil
 }
 
 // Run executes one reply. The event iterator is always drained to its terminal
@@ -120,19 +166,25 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	chatModel, err := r.modelFor(runCtx, req.MaxOutputTokens)
+	if err != nil {
+		return contracts.Result{}, err
+	}
 	steps := req.MaxSteps
 	if steps <= 0 {
 		steps = r.cfg.MaxSteps
 	}
 	toolsConfig := adk.ToolsConfig{}
+	exposed := 0
 	if r.cfg.Tools != nil {
 		if snapshot := r.cfg.Tools(runCtx, req); len(snapshot) > 0 {
 			toolsConfig.ToolsNodeConfig.Tools = snapshot
+			exposed = len(snapshot)
 		}
 	}
 	agent, err := adk.NewChatModelAgent(runCtx, &adk.ChatModelAgentConfig{
 		Name:          agentName,
-		Model:         r.model,
+		Model:         chatModel,
 		ToolsConfig:   toolsConfig,
 		MaxIterations: steps,
 	})
@@ -147,7 +199,7 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	}
 	iterator := runner.Run(runCtx, toSchemaMessages(req.Messages), opts...)
 
-	result := contracts.Result{Model: r.cfg.Model}
+	result := contracts.Result{Model: r.cfg.Model, ToolsExposed: exposed}
 	answered := false
 	for {
 		event, ok := iterator.Next()

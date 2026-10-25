@@ -5,6 +5,7 @@ package assembly
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/eino/callbacks"
@@ -107,49 +108,80 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(
 		if len(snapshot) == 0 {
 			return nil
 		}
-		permissions := make(map[string]bool, len(snapshot))
-		for _, registered := range snapshot {
-			if registered.Descriptor.Permission != "" {
-				permissions[registered.Descriptor.Permission] = true
-			}
-		}
+		// The granted set comes from the scope policy, never from the snapshot
+		// itself: deriving it from the tools would make the guard self-approving.
+		// 授予集合来自作用域策略，绝不来自工具快照本身：
+		// 由工具推导会让守卫变成自证。
+		granted := pluginsapp.ResolvePermissions(snapshot, cfg.Tools.PermissionDefaults, req.PermissionOverrides)
 		scope := pluginsapp.Scope{
-			BotID:          req.BotID,
-			ConversationID: req.ConversationID,
-			Kind:           req.Kind,
-			TargetID:       req.TargetID,
-			SenderID:       req.SenderID,
-			Permissions:    permissions,
+			BotID:            req.BotID,
+			ConversationID:   req.ConversationID,
+			Kind:             req.Kind,
+			TargetID:         req.TargetID,
+			SenderID:         req.SenderID,
+			Permissions:      granted,
+			AllowSideEffects: cfg.Tools.AllowSideEffects,
+			Record: func(run pluginscontracts.ToolRun) {
+				if req.OnToolRun == nil {
+					return
+				}
+				req.OnToolRun(agentcontracts.ToolRun{
+					ToolID:   run.ToolID,
+					Status:   run.Status,
+					Duration: run.Duration,
+					Bytes:    run.Bytes,
+				})
+			},
 			Timeout:        cfg.Tools.Timeout.D(),
 			MaxResultBytes: cfg.Tools.MaxResultBytes,
 		}
+		// The budget is per run and shared by every tool the model may call.
+		// 调用预算按单次运行计算，并由模型可调用的全部工具共享。
+		var calls atomic.Int64
+		budget := int64(cfg.Agent.MaxToolCalls)
 		wrapped := make([]pluginscontracts.RegisteredTool, 0, len(snapshot))
 		for _, registered := range snapshot {
-			registered.Invoke = pluginsapp.Guard(scope, registered.Descriptor, registered.Invoke)
+			// Revoked tools never reach the model, so it cannot even request them.
+			// 已撤销的工具不会到达模型，模型连请求它的机会都没有。
+			if !pluginsapp.Allowed(registered.Descriptor, granted, cfg.Tools.AllowSideEffects) {
+				continue
+			}
+			guarded := pluginsapp.Guard(scope, registered.Descriptor, registered.Invoke)
+			registered.Invoke = func(ctx context.Context, argumentsInJSON string) (string, error) {
+				if budget > 0 && calls.Add(1) > budget {
+					return "error: 工具调用次数已达上限，请直接回答", nil
+				}
+				return guarded(ctx, argumentsInJSON)
+			}
 			wrapped = append(wrapped, registered)
+		}
+		if len(wrapped) == 0 {
+			return nil
 		}
 		return einoTools.ToBaseTools(wrapped)
 	}
 }
 
-// buildLangfuseCallback wires the Eino callback when telemetry and raw content
-// export are both enabled; the callback exports model messages, so it follows
-// the same privacy gate as the business spans.
-// buildLangfuseCallback 在遥测与正文导出同时开启时接入 Eino 回调；
-// 回调会导出模型消息，因此沿用与业务 span 相同的隐私门控。
+// buildLangfuseCallback wires the Eino callback whenever telemetry is enabled.
+// Model and tool spans are part of the trace even when content export is off:
+// in that case the callback redacts values instead of disappearing.
+// buildLangfuseCallback 在遥测开启时接入 Eino 回调。
+// 即使正文导出关闭，模型与工具 span 仍属于 trace：此时回调脱敏取值，
+// 而不是整体消失。
 func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sdktrace.TracerProvider) *langfusecb.CallbackHandler {
 	if provider == nil || !cfg.AI.Enabled || !cfg.Observability.Enabled {
 		return nil
 	}
 	if !cfg.Observability.ExportRawContent {
-		logger.Info("eino langfuse callback disabled: export-raw-content=false")
-		return nil
+		logger.Info("eino langfuse callback redacts model and tool content",
+			"hint", "set observability.export-raw-content=true to export prompts and replies")
 	}
 	handler, err := einoinfra.NewLangfuseHandler(context.Background(), provider, einoinfra.LangfuseConfig{
-		BaseURL:     cfg.Observability.BaseURL,
-		PublicKey:   cfg.Observability.PublicKey,
-		SecretKey:   cfg.Observability.SecretKey,
-		Environment: cfg.Observability.Environment,
+		BaseURL:       cfg.Observability.BaseURL,
+		PublicKey:     cfg.Observability.PublicKey,
+		SecretKey:     cfg.Observability.SecretKey,
+		Environment:   cfg.Observability.Environment,
+		RedactContent: !cfg.Observability.ExportRawContent,
 	})
 	if err != nil {
 		logger.Warn("eino langfuse callback disabled", "error", err)

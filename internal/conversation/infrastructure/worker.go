@@ -185,6 +185,18 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		attribute.String("qqbot.scope_type", string(job.Kind)),
 		attribute.Bool("qqbot.legacy_task", job.TraceParent == ""),
 	)
+	// The queued message is the worker's input; body export follows the
+	// content gate, so a redacted deployment still shows ids and timing.
+	// 队列中的消息是工作器的输入；正文导出遵循开关，
+	// 因此脱敏部署仍能看到 ID 与耗时。
+	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+		"job_id":          job.ID,
+		"message_id":      job.MessageID,
+		"conversation_id": job.ConversationID,
+		"scope_type":      string(job.Kind),
+		"legacy_task":     job.TraceParent == "",
+		"text":            job.Message.Text,
+	})
 	identity := w.opts.Identity.For(job.BotID, job.Message.SenderID, job.TargetID)
 	identity.SessionID = job.ConversationID
 	observability.SetIdentity(span, identity)
@@ -203,9 +215,15 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 	if err := w.processor.Process(jobCtx, job); err != nil {
 		w.logger.Warn("job processed with failure", "job_id", job.ID, "error", err)
 		span.RecordError(err)
+		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+			"status": "failed",
+		})
 		w.finish(jobCtx, job.ID, "failed", "process_error")
 		return
 	}
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"status": "done",
+	})
 	w.finish(jobCtx, job.ID, "done", "")
 }
 
@@ -219,6 +237,10 @@ func (w *Worker) finish(ctx context.Context, jobID int64, status, code string) {
 	if code != "" {
 		span.SetAttributes(attribute.String("qqbot.error_code", code))
 	}
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"status":     status,
+		"error_code": code,
+	})
 	var err error
 	if status == "done" {
 		err = w.repo.CompleteJob(ctx, jobID)

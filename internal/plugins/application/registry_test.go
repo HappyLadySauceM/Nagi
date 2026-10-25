@@ -164,3 +164,41 @@ func TestRegistryPropagatesProviderError(t *testing.T) {
 		t.Fatal("failed provider must be closed")
 	}
 }
+
+// TestRegistryReportsUnknownProviders verifies a typo in the enable list is
+// reported instead of silently exposing nothing, and that tools carry their
+// provider id.
+// TestRegistryReportsUnknownProviders 验证启用列表中的拼写错误会被报告，
+// 而不是静默地不暴露任何工具；同时验证工具带上提供方 ID。
+func TestRegistryReportsUnknownProviders(t *testing.T) {
+	registry := NewRegistry([]string{"builtin.time", "builtin.tim"})
+	if err := registry.Register(context.Background(), &fakeProvider{
+		manifest: contracts.Manifest{ID: "builtin.time"},
+		tools:    []contracts.RegisteredTool{tool("system.current_time")},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := registry.Register(context.Background(), &fakeProvider{
+		manifest: contracts.Manifest{ID: "builtin.qq"},
+		tools:    []contracts.RegisteredTool{tool("qq.get_group_info")},
+	}); err != nil {
+		t.Fatalf("register disabled provider: %v", err)
+	}
+
+	unknown := registry.Unknown()
+	if len(unknown) != 1 || unknown[0] != "builtin.tim" {
+		t.Fatalf("unknown = %v", unknown)
+	}
+	known := registry.Known()
+	if len(known) != 2 || known[0] != "builtin.qq" || known[1] != "builtin.time" {
+		t.Fatalf("known = %v", known)
+	}
+	manifests := registry.Manifests()
+	if len(manifests) != 1 || manifests[0].ID != "builtin.time" {
+		t.Fatalf("manifests = %+v", manifests)
+	}
+	snapshot := registry.Snapshot()
+	if len(snapshot) != 1 || snapshot[0].ProviderID != "builtin.time" {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}

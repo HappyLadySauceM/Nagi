@@ -4,6 +4,7 @@ package domain
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -60,6 +61,13 @@ type Policy struct {
 	MinReplyIntervalMS int
 	MaxRepliesPerHour  int
 	RetentionDays      int
+
+	// ToolPermissions holds explicit overrides of tool permission grants for
+	// this scope. A missing key means "use the configured default", so changing
+	// the default baseline never rewrites stored rows.
+	// ToolPermissions 保存该作用域的工具权限显式覆盖。缺少键表示"使用配置默认"，
+	// 因此调整默认基线不会重写已存行。
+	ToolPermissions map[string]bool
 }
 
 // Default returns the safe default policy for a scope: everything off.
@@ -109,6 +117,40 @@ func (p Policy) Validate() error {
 	}
 	if p.MinReplyIntervalMS < 0 || p.MaxRepliesPerHour < 0 || p.RetentionDays < 0 {
 		return fmt.Errorf("scope: policy numbers must not be negative")
+	}
+	if err := validateToolPermissions(p.ToolPermissions); err != nil {
+		return err
+	}
+	return nil
+}
+
+// maxToolPermissions bounds one policy override map; the set of permissions is
+// small, so a larger map only signals bad input.
+// maxToolPermissions 限制单个策略的覆盖项数量；权限集合本身很小，
+// 超出上限只说明输入异常。
+const maxToolPermissions = 32
+
+// maxPermissionKeyLen bounds one permission identifier.
+// maxPermissionKeyLen 限制单个权限标识的长度。
+const maxPermissionKeyLen = 64
+
+// permissionKeyPattern accepts namespaced permission identifiers such as
+// qq.group.read. Stored keys are matched against registered tools; this only
+// rejects malformed input so the domain stays free of plugin dependencies.
+// permissionKeyPattern 接受 qq.group.read 这类带命名空间的权限标识。
+// 已存键会与注册工具比对；这里只拒绝畸形输入，使领域层不依赖插件包。
+var permissionKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
+
+// validateToolPermissions checks the override key shape and count.
+// validateToolPermissions 校验覆盖键的形状与数量。
+func validateToolPermissions(overrides map[string]bool) error {
+	if len(overrides) > maxToolPermissions {
+		return fmt.Errorf("scope: too many tool permission overrides (%d)", len(overrides))
+	}
+	for key := range overrides {
+		if len(key) > maxPermissionKeyLen || !permissionKeyPattern.MatchString(key) {
+			return fmt.Errorf("scope: invalid tool permission %q", key)
+		}
 	}
 	return nil
 }

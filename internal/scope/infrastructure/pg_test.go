@@ -33,6 +33,7 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	if err := repo.Upsert(ctx, botID, domain.Policy{
 		ScopeType: domain.ScopeGroup, ScopeID: groupID,
 		Enabled: true, ReplyMode: domain.ModeIntentBased, StoreMessages: true,
+		ToolPermissions: map[string]bool{"qq.group.read": false, "qq.message.write": true},
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -43,6 +44,13 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	}
 	if !stored.Enabled || stored.ReplyMode != domain.ModeIntentBased || !stored.StoreMessages {
 		t.Fatalf("stored policy = %+v", stored)
+	}
+	// Overrides must survive the JSONB round trip; dropping a false entry would
+	// silently re-grant a permission the administrator revoked.
+	// 覆盖项必须经过 JSONB 往返后仍然存在；丢掉 false 条目会悄悄恢复管理员已撤销的权限。
+	if len(stored.ToolPermissions) != 2 || stored.ToolPermissions["qq.group.read"] ||
+		!stored.ToolPermissions["qq.message.write"] {
+		t.Fatalf("stored tool permissions = %+v", stored.ToolPermissions)
 	}
 	if _, found, err := repo.Get(ctx, botID, domain.ScopeGroup, 404); err != nil || found {
 		t.Fatalf("missing scope: found=%v err=%v", found, err)
@@ -68,6 +76,9 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	}
 	if !listed.Enabled || listed.ReplyMode != domain.ModeIntentBased || !listed.StoreMessages {
 		t.Fatalf("listed policy lost its values: %+v", *listed)
+	}
+	if len(listed.ToolPermissions) != 2 {
+		t.Fatalf("listed policy lost its tool permissions: %+v", listed.ToolPermissions)
 	}
 
 	// Deleting must report the affected row and remove it from later reads.

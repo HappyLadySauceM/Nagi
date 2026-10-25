@@ -77,6 +77,13 @@ func Run(ctx context.Context, opts options.Options) error {
 			return telemetryErr
 		}
 		tracerProvider = telemetry.Provider
+		// Raw content is exported by default; the warning makes the resulting
+		// access-control requirement explicit at every start.
+		// 正文默认导出；该告警在每次启动时明确随之而来的访问控制要求。
+		if cfg.Observability.ExportRawContent {
+			logger.Warn("observability exports raw message content; restrict Langfuse access accordingly",
+				"hint", "set observability.export-raw-content=false to redact content")
+		}
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -126,6 +133,7 @@ func Run(ctx context.Context, opts options.Options) error {
 		return err
 	}
 	svcCtx.Stats = rt.Stats
+	svcCtx.Tools = rt.Tools
 
 	// runCtx isolates internal loops from the caller's signal context.
 	// runCtx 将内部循环与调用方的信号上下文隔离。

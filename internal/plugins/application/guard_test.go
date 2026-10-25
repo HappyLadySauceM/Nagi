@@ -49,6 +49,41 @@ func TestGuardAllowsGrantedTool(t *testing.T) {
 	}
 }
 
+// TestGuardReportsToolRun verifies every terminal outcome reaches the run
+// recorder, including denials that never execute the tool.
+// TestGuardReportsToolRun 验证每种终态都会上报给运行记录器，
+// 包括未执行工具本身的拒绝路径。
+func TestGuardReportsToolRun(t *testing.T) {
+	var runs []contracts.ToolRun
+	scope := testScope()
+	scope.Record = func(run contracts.ToolRun) { runs = append(runs, run) }
+
+	allowed := Guard(scope, readOnly("qq.get_group_info", "qq.group.read"),
+		func(context.Context, string) (string, error) { return "ok", nil })
+	if _, err := allowed(context.Background(), "{}"); err != nil {
+		t.Fatalf("allowed invoke: %v", err)
+	}
+
+	denied := Guard(scope, readOnly("qq.get_group_info", "qq.admin"),
+		func(context.Context, string) (string, error) {
+			t.Fatal("denied tool must not execute")
+			return "", nil
+		})
+	if _, err := denied(context.Background(), "{}"); err != nil {
+		t.Fatalf("denied invoke: %v", err)
+	}
+
+	if len(runs) != 2 {
+		t.Fatalf("reported runs = %+v", runs)
+	}
+	if runs[0].ToolID != "qq.get_group_info" || runs[0].Status != StatusOK {
+		t.Fatalf("first run = %+v", runs[0])
+	}
+	if runs[1].Status != StatusDenied {
+		t.Fatalf("denied run = %+v", runs[1])
+	}
+}
+
 // TestGuardDeniesMissingPermission verifies authorization happens before the
 // tool runs.
 // TestGuardDeniesMissingPermission 验证授权先于工具执行。

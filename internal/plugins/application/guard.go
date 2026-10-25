@@ -6,6 +6,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
 )
 
@@ -37,9 +39,19 @@ type Scope struct {
 	Kind           string
 	TargetID       int64
 	SenderID       int64
-	// Permissions is the granted permission set of this run.
-	// Permissions 是本次运行已授予的权限集合。
-	Permissions    map[string]bool
+	// Permissions is the granted permission set of this run, resolved from the
+	// scope policy; it is never derived from the tool snapshot itself.
+	// Permissions 是本次运行已授予的权限集合，来自作用域策略，
+	// 绝不由工具快照自行推导。
+	Permissions map[string]bool
+	// AllowSideEffects keeps tools with side effects hidden unless the process
+	// explicitly enables them.
+	// AllowSideEffects 在进程显式开启前持续隐藏带副作用的工具。
+	AllowSideEffects bool
+	// Record receives the terminal state of every tool execution; nil disables
+	// reporting.
+	// Record 接收每次工具执行的终态；nil 表示不上报。
+	Record         contracts.RunRecorder
 	Timeout        time.Duration
 	MaxResultBytes int
 }
@@ -69,12 +81,23 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		ctx, span := tracer().Start(ctx, "qqbot.tool")
 		defer span.End()
 		span.SetAttributes(attribute.String("qqbot.tool_id", descriptor.ID))
+		// Arguments stay metadata: they are JSON and bounded by the model's own
+		// tool-call budget, and the content gate decides whether they are shown.
+		// 参数属于元数据：本身是 JSON 且受模型的调用预算约束，
+		// 是否可见由正文开关决定。
+		observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+			"tool":      descriptor.ID,
+			"arguments": toolArguments(argumentsInJSON),
+		})
+		started := time.Now()
 
-		if !descriptor.ReadOnly {
-			return finish(span, StatusDenied, 0, "error: tool is not available for this conversation")
+		if !descriptor.ReadOnly && !scope.AllowSideEffects {
+			return finish(span, scope, descriptor, started, StatusDenied, 0,
+				"error: tool is not available for this conversation")
 		}
 		if descriptor.Permission != "" && !scope.Permissions[descriptor.Permission] {
-			return finish(span, StatusDenied, 0, "error: permission denied for "+descriptor.ID)
+			return finish(span, scope, descriptor, started, StatusDenied, 0,
+				"error: permission denied for "+descriptor.ID)
 		}
 		timeout := scope.Timeout
 		if timeout <= 0 {
@@ -86,7 +109,6 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		// 工具读取同一份作用域来绑定账号与目标；它不会进入提示词。
 		runCtx = WithScope(runCtx, scope)
 
-		started := time.Now()
 		result, err := invoke(runCtx, argumentsInJSON)
 		span.SetAttributes(attribute.Int64("qqbot.tool_duration_ms", time.Since(started).Milliseconds()))
 		if err != nil {
@@ -95,12 +117,14 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 				status = StatusTimeout
 			}
 			span.RecordError(err)
-			return finish(span, status, 0, fmt.Sprintf("error: tool %s failed", descriptor.ID))
+			return finish(span, scope, descriptor, started, status, 0,
+				fmt.Sprintf("error: tool %s failed", descriptor.ID))
 		}
 		if scope.MaxResultBytes > 0 && len(result) > scope.MaxResultBytes {
-			return finish(span, StatusTooLarge, len(result), "error: tool result too large")
+			return finish(span, scope, descriptor, started, StatusTooLarge, len(result),
+				"error: tool result too large")
 		}
-		return finish(span, StatusOK, len(result), result)
+		return finish(span, scope, descriptor, started, StatusOK, len(result), result)
 	}
 }
 
@@ -110,12 +134,39 @@ func tracer() trace.Tracer {
 	return otel.Tracer("github.com/HappyLadySauceM/QQBot/internal/plugins")
 }
 
-// finish records the terminal status and returns the text shown to the model.
-// finish 记录终态并返回给模型看的文本。
-func finish(span trace.Span, status string, bytes int, text string) (string, error) {
+// toolArguments embeds valid JSON arguments as a document instead of an escaped
+// string, so the trace shows the same structure the tool received.
+// toolArguments 把合法 JSON 参数作为文档嵌入而不是转义字符串，
+// 使 trace 展示的结构与工具收到的完全一致。
+func toolArguments(raw string) any {
+	if json.Valid([]byte(raw)) {
+		return json.RawMessage(raw)
+	}
+	return raw
+}
+
+// finish records the terminal status, reports the run summary and returns the
+// text shown to the model.
+// finish 记录终态、上报运行摘要，并返回给模型看的文本。
+func finish(span trace.Span, scope Scope, descriptor contracts.ToolDescriptor, started time.Time,
+	status string, bytes int, text string,
+) (string, error) {
 	span.SetAttributes(
 		attribute.String("qqbot.tool_status", status),
 		attribute.Int("qqbot.tool_bytes", bytes),
 	)
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"status": status,
+		"bytes":  bytes,
+		"result": text,
+	})
+	if scope.Record != nil {
+		scope.Record(contracts.ToolRun{
+			ToolID:   descriptor.ID,
+			Status:   status,
+			Duration: time.Since(started),
+			Bytes:    bytes,
+		})
+	}
 	return text, nil
 }

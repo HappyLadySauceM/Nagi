@@ -31,12 +31,20 @@ type Request struct {
 	// current message; the runtime must not add business context of its own.
 	// Messages 已包含系统提示、授权历史与当前消息；运行时不自行补充业务上下文。
 	Messages []Message
+	// PermissionOverrides carries the scope policy overrides of tool
+	// permissions; the tool resolver merges them with the configured baseline.
+	// PermissionOverrides 携带作用域策略中的工具权限覆盖；
+	// 工具解析器把它与配置基线合并。
+	PermissionOverrides map[string]bool
 	// MaxOutputTokens, MaxSteps and Timeout bound one run; zero falls back to
 	// the configured defaults.
 	// MaxOutputTokens、MaxSteps 与 Timeout 限定单次运行；零值使用配置默认。
 	MaxOutputTokens int
 	MaxSteps        int
 	Timeout         time.Duration
+	// OnToolRun receives one completed tool run; nil disables reporting.
+	// OnToolRun 接收一次已完成的工具运行；nil 表示不上报。
+	OnToolRun func(ToolRun)
 }
 
 // ToolRun summarizes one tool execution for tracing and logs.
@@ -56,6 +64,9 @@ type Result struct {
 	InputUsage  int64
 	OutputUsage int64
 	ToolRuns    []ToolRun
+	// ToolsExposed is how many tools the model could choose from in this run.
+	// ToolsExposed 是本次运行中模型可选择的工具数量。
+	ToolsExposed int
 }
 
 // Runtime generates one reply; implementations must honor ctx cancellation and

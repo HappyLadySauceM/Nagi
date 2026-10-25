@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 	scopecontracts "github.com/HappyLadySauceM/QQBot/internal/scope/contracts"
 	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
 
@@ -146,6 +147,14 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	ctx, span := tracer().Start(ctx, "qqbot.intent.load_context")
 	defer span.End()
 	span.SetAttributes(attribute.Bool("qqbot.history_allowed", policy.AllowHistoryRead))
+	// History bodies stay out of the payload: they can be dozens of messages,
+	// and the count is enough to explain the decision.
+	// 历史正文不进入载荷：它可能包含几十条消息，条数已足以解释决策。
+	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+		"conversation_id": task.ConversationID,
+		"history_limit":   d.historyLimit,
+		"history_allowed": policy.AllowHistoryRead,
+	})
 
 	var history []domain.Message
 	if policy.AllowHistoryRead && d.history != nil {
@@ -176,6 +185,11 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 		attribute.Int("qqbot.context_count", len(history)),
 		attribute.Bool("qqbot.activity_known", activity.Known),
 	)
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"context_count":  len(history),
+		"activity_known": activity.Known,
+		"history_read":   policy.AllowHistoryRead,
+	})
 	return history, activity, nil
 }
 
@@ -193,6 +207,12 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) domain.RuleRe
 	if rule.ReasonCode != "" {
 		span.SetAttributes(attribute.String("qqbot.rule_reason_code", rule.ReasonCode))
 	}
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"blocked":       rule.Blocked,
+		"explicit":      rule.Explicit,
+		"need_semantic": rule.NeedSemantic,
+		"reason_code":   rule.ReasonCode,
+	})
 	return rule
 }
 
@@ -208,6 +228,14 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.S
 		attribute.String("qqbot.provider", d.provider),
 		attribute.String("qqbot.model", d.model),
 	)
+	// The classified message is the semantic decider's input; body export obeys
+	// the content gate.
+	// 被分类的消息是语义判定的输入；正文导出遵循内容开关。
+	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+		"provider": d.provider,
+		"model":    d.model,
+		"text":     in.Task.Message.Text,
+	})
 	start := time.Now()
 	answer, err := d.semantic.Decide(ctx, in)
 	latency := time.Since(start).Milliseconds()
@@ -217,6 +245,10 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.S
 		// 语义不可用降级为仅规则决策，绝不臆测。
 		span.RecordError(err)
 		span.SetAttributes(attribute.Bool("qqbot.jev_degraded", true))
+		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+			"degraded":   true,
+			"latency_ms": latency,
+		})
 		d.logger.Warn("semantic decision unavailable", "error", err, "job_id", in.Task.JobID)
 		return domain.SemanticAnswer{}, latency
 	}
@@ -227,6 +259,14 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.S
 		attribute.Float64("qqbot.jev.addressed_to_other", answer.AddressedToOther),
 		attribute.Float64("qqbot.jev.appropriate_to_join", answer.AppropriateToJoin),
 	)
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"intent_category":      answer.IntentCategory,
+		"directed_to_bot":      answer.DirectedToBot,
+		"continues_bot_thread": answer.ContinuesBotThread,
+		"addressed_to_other":   answer.AddressedToOther,
+		"appropriate_to_join":  answer.AppropriateToJoin,
+		"latency_ms":           latency,
+	})
 	return answer, latency
 }
 
@@ -248,6 +288,13 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 		attribute.String("qqbot.model", d.model),
 		attribute.Int64("qqbot.latency_ms", latency),
 	)
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"decision":           string(decision.Decision),
+		"reason_code":        decision.ReasonCode,
+		"rule_blocked":       rule.Blocked,
+		"rule_explicit":      rule.Explicit,
+		"semantic_available": semantic.Available,
+	})
 	return decision
 }
 

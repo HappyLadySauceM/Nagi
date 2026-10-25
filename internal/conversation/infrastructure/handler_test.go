@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
@@ -145,6 +146,55 @@ func TestIngressDropsUnauthorizedContent(t *testing.T) {
 	}
 	if len(ingest.inputs) != 0 {
 		t.Fatalf("unauthorized content must not be ingested: %+v", ingest.inputs)
+	}
+}
+
+// TestIngressObservationOmitsBodyBeforeConsent verifies that enabling raw
+// content export never puts the message body on the ingress span: consent is
+// only granted after the scope gate, so an unauthorized conversation must not
+// reach the trace.
+// TestIngressObservationOmitsBodyBeforeConsent 验证开启正文导出后入站 span 仍不携带
+// 消息正文：同意只在作用域判定通过后成立，未授权会话不得进入 trace。
+func TestIngressObservationOmitsBodyBeforeConsent(t *testing.T) {
+	recorder := recordingProvider(t)
+	// Setup is the only exported path that flips the content switch; it stays a
+	// global, so the test restores the default when it ends.
+	// Setup 是唯一可切换正文导出的公开入口；它是全局状态，测试结束后恢复默认。
+	telemetry, err := observability.Setup(context.Background(),
+		observability.Config{ExportRawContent: true}, discardLogger())
+	if err != nil {
+		t.Fatalf("setup observability: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = observability.Setup(context.Background(), observability.Config{}, discardLogger())
+		_ = telemetry.Shutdown(context.Background())
+	})
+
+	auth := &fakeAuthorizer{policies: map[string]scopedomain.Policy{
+		scopedomainScopeKey(100, "group", 700): {Enabled: true, StoreMessages: true},
+	}}
+	ingest := &fakeIngestor{}
+	h := newTestIngress(t, auth, ingest)
+
+	if err := h.Handle(context.Background(), 100, groupEvent(200, 100)); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if len(ingest.inputs) != 1 {
+		t.Fatalf("expected one ingest, got %d", len(ingest.inputs))
+	}
+
+	for _, span := range recorder.Ended() {
+		if span.Name() != "qqbot.message.process" {
+			continue
+		}
+		for _, kv := range span.Attributes() {
+			if string(kv.Key) != "langfuse.observation.input" {
+				continue
+			}
+			if strings.Contains(kv.Value.AsString(), "你好") {
+				t.Fatalf("ingress observation leaked the message body: %s", kv.Value.AsString())
+			}
+		}
 	}
 }
 

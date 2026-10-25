@@ -6,6 +6,7 @@ package contracts
 
 import (
 	"context"
+	"time"
 )
 
 // Manifest identifies one provider and groups the tools it exposes.
@@ -37,9 +38,27 @@ type InvokeFunc func(ctx context.Context, argumentsInJSON string) (string, error
 // RegisteredTool is one tool ready to be exposed to the model.
 // RegisteredTool 是可供模型调用的单个工具。
 type RegisteredTool struct {
+	// ProviderID is the manifest id of the provider that supplied the tool; the
+	// registry fills it so callers can group tools by provider.
+	// ProviderID 是提供该工具的提供方清单 ID；由注册表填充，
+	// 调用方可以据此按提供方归组。
+	ProviderID string
 	Descriptor ToolDescriptor
 	Invoke     InvokeFunc
 }
+
+// ToolRun summarizes one tool execution for tracing and logs.
+// ToolRun 汇总一次工具执行，供追踪与日志使用。
+type ToolRun struct {
+	ToolID   string
+	Status   string
+	Duration time.Duration
+	Bytes    int
+}
+
+// RunRecorder receives the terminal state of every tool execution in one run.
+// RunRecorder 接收单次运行中每次工具执行的终态。
+type RunRecorder func(ToolRun)
 
 // ToolProvider contributes tools at startup and owns their lifecycle.
 // ToolProvider 在启动时提供工具，并负责其生命周期。

@@ -64,14 +64,30 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	ctx, span := tracer().Start(ctx, "qqbot.message.process")
 	defer span.End()
 	span.SetAttributes(attribute.Bool("in_group", event.InGroup()))
+	// Listener-side identity only: the message body is excluded until the scope
+	// grants storage consent, so an unauthorized conversation never reaches the
+	// trace. The authorized body is recorded by the worker instead.
+	// 载荷只含监听侧标识：在作用域同意存储之前不包含消息正文，
+	// 未授权会话因此不会进入 trace；已授权正文由工作器记录。
+	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+		"message_id": int64(event.MessageID),
+		"in_group":   event.InGroup(),
+		"segments":   len(event.Segments),
+	})
 
 	botID := int64(bot)
 	if botID <= 0 {
+		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+			"dropped": "missing_account",
+		})
 		return nil
 	}
 	if int64(event.Sender.ID) == botID {
 		// Ignore the bot's own outgoing messages echoed back as events.
 		// 忽略以事件形式回传的机器人自身消息。
+		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+			"dropped": "own_message",
+		})
 		return nil
 	}
 
@@ -107,11 +123,19 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		attribute.Bool("qqbot.scope_enabled", policy.Enabled),
 		attribute.Bool("qqbot.scope_store_messages", policy.StoreMessages),
 	)
+	observability.RecordObservation(scopeSpan, "langfuse.observation.output", map[string]any{
+		"enabled":        policy.Enabled,
+		"store_messages": policy.StoreMessages,
+		"reply_mode":     string(policy.ReplyMode),
+	})
 	scopeSpan.End()
 	if !policy.Enabled || !policy.StoreMessages {
 		// Default deny: scopes without explicit enablement and storage consent
 		// never persist or process message content.
 		// 默认拒绝：未显式开启并同意存储的作用域，绝不持久化或处理消息内容。
+		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+			"dropped": "scope_disabled",
+		})
 		return nil
 	}
 
@@ -147,6 +171,11 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		attribute.Int64("qqbot.job_id", result.JobID),
 		attribute.Bool("qqbot.duplicate", result.Duplicate),
 	)
+	observability.RecordObservation(persistSpan, "langfuse.observation.output", map[string]any{
+		"message_id": result.MessageID,
+		"job_id":     result.JobID,
+		"duplicate":  result.Duplicate,
+	})
 	persistSpan.End()
 
 	// Session and message ids are only known after the row exists; attributes
@@ -159,6 +188,13 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		attribute.Int64("qqbot.message_id", result.MessageID),
 		attribute.Int64("qqbot.job_id", result.JobID),
 	)
+	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+		"stored":          true,
+		"conversation_id": result.ConversationID,
+		"message_id":      result.MessageID,
+		"job_id":          result.JobID,
+		"duplicate":       result.Duplicate,
+	})
 	identity.SessionID = result.ConversationID
 	observability.SetIdentity(span, identity)
 	return nil

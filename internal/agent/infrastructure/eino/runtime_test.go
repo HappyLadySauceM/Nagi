@@ -131,6 +131,45 @@ func TestRuntimeHonorsTimeout(t *testing.T) {
 	}
 }
 
+// TestModelForReusesDefaultAndCachesBudgets verifies that a per-request output
+// budget selects a dedicated model while the default budget reuses the shared
+// one, and that repeated budgets are built only once.
+// TestModelForReusesDefaultAndCachesBudgets 验证按请求输出预算选择专用模型，
+// 默认预算复用共享模型，且相同预算只构建一次。
+func TestModelForReusesDefaultAndCachesBudgets(t *testing.T) {
+	shared := &fakeModel{}
+	dedicated := &fakeModel{}
+	builds := 0
+	r := &Runtime{
+		model: shared,
+		builder: func(context.Context, int) (model.BaseModel[*schema.Message], error) {
+			builds++
+			return dedicated, nil
+		},
+		cfg:    Config{MaxOutputTokens: 100},
+		models: make(map[int]model.BaseModel[*schema.Message]),
+	}
+	ctx := context.Background()
+
+	for _, budget := range []int{0, 100} {
+		got, err := r.modelFor(ctx, budget)
+		if err != nil || got != model.BaseModel[*schema.Message](shared) {
+			t.Fatalf("budget %d must reuse the default model (err=%v)", budget, err)
+		}
+	}
+	first, err := r.modelFor(ctx, 64)
+	if err != nil {
+		t.Fatalf("model for 64 tokens: %v", err)
+	}
+	second, err := r.modelFor(ctx, 64)
+	if err != nil {
+		t.Fatalf("second model for 64 tokens: %v", err)
+	}
+	if builds != 1 || first != second || first != model.BaseModel[*schema.Message](dedicated) {
+		t.Fatalf("budget cache: builds=%d same=%v", builds, first == second)
+	}
+}
+
 // TestToSchemaMessagesMapsRoles verifies role mapping and unknown-role fallback.
 // TestToSchemaMessagesMapsRoles 验证角色映射与未知角色回退。
 func TestToSchemaMessagesMapsRoles(t *testing.T) {

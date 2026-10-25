@@ -4,6 +4,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -29,7 +30,7 @@ func NewRepo(pool *pgxpool.Pool) (*Repo, error) {
 }
 
 const policyColumns = `enabled, reply_mode, store_messages, allow_memory_write, allow_history_read,
-	min_reply_interval_ms, max_replies_per_hour, retention_days`
+	min_reply_interval_ms, max_replies_per_hour, retention_days, tool_permissions`
 
 // Get loads one stored policy; found is false when the scope has no row.
 // Get 读取单条已存储策略；作用域无行时 found 为 false。
@@ -93,33 +94,78 @@ type rowScanner func(dest ...any) error
 func scanPolicy(scan rowScanner) (domain.Policy, error) {
 	var p domain.Policy
 	var replyMode string
+	var rawPermissions []byte
 	dest := []any{&p.Enabled, &replyMode, &p.StoreMessages, &p.AllowMemoryWrite, &p.AllowHistoryRead,
-		&p.MinReplyIntervalMS, &p.MaxRepliesPerHour, &p.RetentionDays}
+		&p.MinReplyIntervalMS, &p.MaxRepliesPerHour, &p.RetentionDays, &rawPermissions}
 	if err := scan(dest...); err != nil {
 		return domain.Policy{}, err
 	}
+	permissions, err := decodeToolPermissions(rawPermissions)
+	if err != nil {
+		return domain.Policy{}, err
+	}
 	p.ReplyMode = domain.ReplyMode(replyMode)
+	p.ToolPermissions = permissions
 	return p, nil
+}
+
+// decodeToolPermissions converts the stored JSONB overrides; an empty object
+// normalises to nil so callers can distinguish "no overrides" from explicit ones.
+// decodeToolPermissions 把已存 JSONB 覆盖项转换为映射；空对象归一化为 nil，
+// 使调用方能区分"无覆盖"与显式覆盖。
+func decodeToolPermissions(raw []byte) (map[string]bool, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var overrides map[string]bool
+	if err := json.Unmarshal(raw, &overrides); err != nil {
+		return nil, fmt.Errorf("scope: decode tool permissions: %w", err)
+	}
+	if len(overrides) == 0 {
+		return nil, nil
+	}
+	return overrides, nil
+}
+
+// encodeToolPermissions renders the overrides as JSONB, always emitting an
+// object so the column default and the write path stay interchangeable.
+// encodeToolPermissions 把覆盖项渲染为 JSONB，始终输出对象，
+// 使列默认值与写入路径可以互换。
+func encodeToolPermissions(overrides map[string]bool) ([]byte, error) {
+	if len(overrides) == 0 {
+		return []byte("{}"), nil
+	}
+	encoded, err := json.Marshal(overrides)
+	if err != nil {
+		return nil, fmt.Errorf("scope: encode tool permissions: %w", err)
+	}
+	return encoded, nil
 }
 
 // Upsert stores one policy row.
 // Upsert 存储一条策略行。
 func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) error {
-	_, err := r.pool.Exec(ctx, `
+	permissions, err := encodeToolPermissions(policy.ToolPermissions)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `
 		INSERT INTO scope_policies
 			(bot_id, scope_type, scope_id, enabled, reply_mode, store_messages, allow_memory_write,
-			 allow_history_read, min_reply_interval_ms, max_replies_per_hour, retention_days, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+			 allow_history_read, min_reply_interval_ms, max_replies_per_hour, retention_days,
+			 tool_permissions, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
 		ON CONFLICT (bot_id, scope_type, scope_id) DO UPDATE SET
 			enabled = EXCLUDED.enabled, reply_mode = EXCLUDED.reply_mode,
 			store_messages = EXCLUDED.store_messages, allow_memory_write = EXCLUDED.allow_memory_write,
 			allow_history_read = EXCLUDED.allow_history_read,
 			min_reply_interval_ms = EXCLUDED.min_reply_interval_ms,
 			max_replies_per_hour = EXCLUDED.max_replies_per_hour,
-			retention_days = EXCLUDED.retention_days, updated_at = now()
+			retention_days = EXCLUDED.retention_days,
+			tool_permissions = EXCLUDED.tool_permissions, updated_at = now()
 	`, botID, string(policy.ScopeType), policy.ScopeID, policy.Enabled, string(policy.ReplyMode),
 		policy.StoreMessages, policy.AllowMemoryWrite, policy.AllowHistoryRead,
-		policy.MinReplyIntervalMS, policy.MaxRepliesPerHour, policy.RetentionDays)
+		policy.MinReplyIntervalMS, policy.MaxRepliesPerHour, policy.RetentionDays, permissions)
 	if err != nil {
 		return fmt.Errorf("scope: upsert policy: %w", err)
 	}

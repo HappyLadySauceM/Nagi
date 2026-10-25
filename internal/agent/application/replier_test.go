@@ -32,10 +32,12 @@ func replierLogger() *slog.Logger {
 // fakeRuntime returns canned text and records the request.
 // fakeRuntime 返回预置文本并记录请求。
 type fakeRuntime struct {
-	req   agentcontracts.Request
-	text  string
-	err   error
-	calls int
+	req          agentcontracts.Request
+	text         string
+	err          error
+	calls        int
+	toolsExposed int
+	toolRuns     []agentcontracts.ToolRun
 }
 
 func (f *fakeRuntime) Run(_ context.Context, req agentcontracts.Request) (agentcontracts.Result, error) {
@@ -44,7 +46,10 @@ func (f *fakeRuntime) Run(_ context.Context, req agentcontracts.Request) (agentc
 	if f.err != nil {
 		return agentcontracts.Result{}, f.err
 	}
-	return agentcontracts.Result{Text: f.text, Model: "test-model", OutputUsage: 5}, nil
+	return agentcontracts.Result{
+		Text: f.text, Model: "test-model", OutputUsage: 5,
+		ToolsExposed: f.toolsExposed, ToolRuns: f.toolRuns,
+	}, nil
 }
 
 // fakeSender records outgoing sends and reports a canned message id.
@@ -144,7 +149,8 @@ func groupTaskForAgent() intentdomain.Task {
 func enabledGroupPolicy() map[string]scopedomain.Policy {
 	return map[string]scopedomain.Policy{
 		scopeKey(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700,
-			Enabled: true, ReplyMode: scopedomain.ModeIntentBased},
+			Enabled: true, ReplyMode: scopedomain.ModeIntentBased,
+			ToolPermissions: map[string]bool{"qq.group.read": false}},
 	}
 }
 
@@ -166,6 +172,12 @@ func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 	}
 	if fake.calls != 1 {
 		t.Fatalf("model calls = %d", fake.calls)
+	}
+	// Scope overrides must reach the runtime; dropping them would silently
+	// restore a permission the administrator revoked.
+	// 作用域覆盖必须传给运行时；丢失会悄悄恢复管理员已撤销的权限。
+	if granted, ok := fake.req.PermissionOverrides["qq.group.read"]; !ok || granted {
+		t.Fatalf("permission overrides = %+v", fake.req.PermissionOverrides)
 	}
 	// Roles: system + history user + history assistant + current user.
 	// 角色：system + 历史用户 + 历史助手 + 当前用户。
@@ -397,15 +409,18 @@ func TestTraceMessagesJSONIsBoundedAndValid(t *testing.T) {
 	if !truncated {
 		t.Fatal("dropping or clipping messages must mark the payload as truncated")
 	}
-	if utf8.RuneCountInString(payload) >= 8192 {
-		t.Fatalf("payload too large: %d runes", utf8.RuneCountInString(payload))
+	// Chinese text costs three bytes per rune, so the rune budget alone would
+	// overflow the exporter cap and replace the whole prompt with a marker.
+	// 中文每字三字节，只看字数会超出导出上限，令整份 prompt 被替换成标记。
+	if len(payload) > maxTracePayloadBytes {
+		t.Fatalf("payload too large: %d bytes", len(payload))
 	}
 	var decoded []agentdomain.ChatMessage
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatalf("payload must stay valid JSON: %v", err)
 	}
-	if len(decoded) != maxTraceMessages {
-		t.Fatalf("messages = %d, want %d", len(decoded), maxTraceMessages)
+	if len(decoded) >= maxTraceMessages || len(decoded) < 2 {
+		t.Fatalf("messages = %d, want a bounded set that keeps system and the newest turn", len(decoded))
 	}
 	if decoded[0].Role != "system" {
 		t.Fatalf("system prompt must be kept first: %+v", decoded[0])
@@ -432,7 +447,10 @@ func TestReplierAttributesGenerationMetadata(t *testing.T) {
 		_ = provider.Shutdown(context.Background())
 	})
 
-	r := newReplier(t, &fakeRuntime{text: "回复内容"}, &fakeSender{msgID: 1}, &fakeRecorder{}, enabledGroupPolicy())
+	r := newReplier(t, &fakeRuntime{
+		text: "回复内容", toolsExposed: 2,
+		toolRuns: []agentcontracts.ToolRun{{ToolID: "system.current_time", Status: "ok"}},
+	}, &fakeSender{msgID: 1}, &fakeRecorder{}, enabledGroupPolicy())
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -454,6 +472,9 @@ func TestReplierAttributesGenerationMetadata(t *testing.T) {
 	}
 	if attrs["qqbot.usage.output"] != "5" {
 		t.Fatalf("output usage = %q", attrs["qqbot.usage.output"])
+	}
+	if attrs["qqbot.agent.tools_exposed"] != "2" || attrs["qqbot.agent.tool_calls"] != "1" {
+		t.Fatalf("tool attributes = %q/%q", attrs["qqbot.agent.tools_exposed"], attrs["qqbot.agent.tool_calls"])
 	}
 	if _, ok := attrs["langfuse.observation.model.name"]; ok {
 		t.Fatal("the run span must not carry a model attribute that infers a generation")

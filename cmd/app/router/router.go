@@ -12,6 +12,7 @@ import (
 	metricsroutes "github.com/HappyLadySauceM/QQBot/cmd/app/routes/metrics"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/routes/scope"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/routes/system"
+	toolsroutes "github.com/HappyLadySauceM/QQBot/cmd/app/routes/tools"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
 )
 
@@ -33,6 +34,9 @@ func New(svcCtx *svc.ServiceContext, logger *slog.Logger) http.Handler {
 	}
 	if svcCtx.Stats != nil {
 		metricsroutes.NewHandler(svcCtx).Register(mux)
+	}
+	if svcCtx.Tools != nil {
+		toolsroutes.NewHandler(svcCtx).Register(mux)
 	}
 	return middleware.Chain(mux,
 		middleware.SecurityHeaders,

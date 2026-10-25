@@ -6,6 +6,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
@@ -19,6 +20,7 @@ type Registry struct {
 	enabled    map[string]bool
 	registered map[string]bool
 	providers  []contracts.ToolProvider
+	manifests  []contracts.Manifest
 	tools      []contracts.RegisteredTool
 	byID       map[string]contracts.RegisteredTool
 }
@@ -55,6 +57,11 @@ func (r *Registry) Register(ctx context.Context, provider contracts.ToolProvider
 	if r.registered[manifest.ID] {
 		return fmt.Errorf("plugins: duplicate provider %q", manifest.ID)
 	}
+	// Record every supplied provider, including disabled ones, so callers can
+	// tell "configured but disabled" from "configured but unknown".
+	// 记录所有已提供的提供方（含未启用的），使调用方能区分
+	// "已配置但未启用"与"已配置但不存在"。
+	r.registered[manifest.ID] = true
 	if !r.enabled[manifest.ID] {
 		// A disabled provider is never opened, so there is nothing to close.
 		// 未启用的提供方不会被打开，因此无需关闭。
@@ -76,8 +83,9 @@ func (r *Registry) Register(ctx context.Context, provider contracts.ToolProvider
 		}
 	}
 	r.providers = append(r.providers, provider)
-	r.registered[manifest.ID] = true
+	r.manifests = append(r.manifests, manifest)
 	for _, candidate := range tools {
+		candidate.ProviderID = manifest.ID
 		r.tools = append(r.tools, candidate)
 		r.byID[candidate.Descriptor.ID] = candidate
 	}
@@ -108,6 +116,54 @@ func (r *Registry) Snapshot() []contracts.RegisteredTool {
 	return out
 }
 
+// Enabled returns the configured provider ids in sorted order, whether or not
+// they exist in the binary.
+// Enabled 按排序返回配置的提供方 ID，无论它是否存在于二进制中。
+func (r *Registry) Enabled() []string {
+	out := make([]string, 0, len(r.enabled))
+	for id := range r.enabled {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Known returns every supplied provider id in sorted order, including disabled
+// ones, so startup errors can list valid alternatives.
+// Known 按排序返回所有已提供的提供方 ID（含未启用的），
+// 供启动错误列出可选值。
+func (r *Registry) Known() []string {
+	out := make([]string, 0, len(r.registered))
+	for id := range r.registered {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Manifests returns the manifests of providers that were actually registered.
+// Manifests 返回实际注册成功的提供方清单。
+func (r *Registry) Manifests() []contracts.Manifest {
+	out := make([]contracts.Manifest, len(r.manifests))
+	copy(out, r.manifests)
+	return out
+}
+
+// Unknown returns enabled provider ids that no supplied provider matched; a
+// typo in tools.enabled would otherwise silently expose nothing.
+// Unknown 返回已启用但没有任何提供方匹配的 ID；
+// 否则 tools.enabled 中的拼写错误会静默地不暴露任何工具。
+func (r *Registry) Unknown() []string {
+	out := make([]string, 0)
+	for id := range r.enabled {
+		if !r.registered[id] {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Close releases providers in reverse registration order.
 // Close 按注册的逆序释放提供方。
 func (r *Registry) Close(ctx context.Context) error {
@@ -118,6 +174,7 @@ func (r *Registry) Close(ctx context.Context) error {
 		}
 	}
 	r.providers = nil
+	r.manifests = nil
 	r.tools = nil
 	r.byID = make(map[string]contracts.RegisteredTool)
 	return firstErr

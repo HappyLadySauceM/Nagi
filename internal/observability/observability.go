@@ -7,6 +7,7 @@ package observability
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,14 +41,22 @@ type Config struct {
 	Environment string
 }
 
-// exportRawContent gates span attributes that carry message bodies. It is off
-// unless the operator sets observability.export-raw-content.
-// exportRawContent 控制 span 是否携带消息正文；仅当显式开启时才记录。
+// exportRawContent gates span attributes that carry message bodies. It follows
+// observability.export-raw-content, which is enabled by default.
+// exportRawContent 控制 span 是否携带消息正文，跟随 observability.export-raw-content，
+// 该开关默认开启。
 var exportRawContent atomic.Bool
 
 // maxContentRunes bounds one exported body so a long reply cannot bloat a trace.
 // maxContentRunes 限制单段导出正文长度，避免超长回复撑大 trace。
 const maxContentRunes = 8192
+
+// MaxObservationBytes bounds one structured input/output payload. Callers that
+// build JSON themselves should stay below it so the payload is not replaced by
+// a truncation marker.
+// MaxObservationBytes 限制单份结构化输入/输出载荷的大小。自行构造 JSON 的调用方
+// 应保持在此预算内，避免载荷被整体替换为截断标记。
+const MaxObservationBytes = 8192
 
 // ContentEnabled reports whether raw bodies may be exported, letting callers
 // skip building a payload that would be discarded.
@@ -64,6 +73,38 @@ func RecordContent(span trace.Span, key, value string) {
 		value = string([]rune(value)[:maxContentRunes]) + "…(truncated)"
 	}
 	span.SetAttributes(attribute.String(key, value))
+}
+
+// RecordObservation attaches a Langfuse-renderable input or output payload to
+// one span. Langfuse only shows content from langfuse.observation.input and
+// langfuse.observation.output, so without this a span looks empty even though
+// it carries structured attributes.
+// RecordObservation 为单个 span 写入 Langfuse 可渲染的输入或输出。
+// Langfuse 只展示 langfuse.observation.input 与 output，缺失时即使 span 带有
+// 结构化属性，详情页仍然为空。
+func RecordObservation(span trace.Span, key string, value any) {
+	if span == nil || !span.IsRecording() {
+		return
+	}
+	if !exportRawContent.Load() {
+		span.SetAttributes(attribute.String(key, `{"redacted":true}`))
+		return
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		// An unrenderable payload must never break the span; the marker keeps
+		// the document valid JSON.
+		// 无法渲染的载荷绝不能破坏 span；标记保证文档仍是合法 JSON。
+		span.SetAttributes(attribute.String(key, `{"unserializable":true}`))
+		return
+	}
+	if len(payload) > MaxObservationBytes {
+		// Truncating JSON would produce an invalid document; replace it with a
+		// marker that still tells the reader how much was dropped.
+		// 截断 JSON 会产生非法文档；改为写入仍能说明丢弃大小的标记。
+		payload = []byte(fmt.Sprintf(`{"truncated":true,"bytes":%d}`, len(payload)))
+	}
+	span.SetAttributes(attribute.String(key, string(payload)))
 }
 
 // ShutdownFunc flushes and shuts down the telemetry pipeline.

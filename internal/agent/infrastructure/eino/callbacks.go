@@ -24,7 +24,16 @@ type LangfuseConfig struct {
 	SecretKey   string
 	Environment string
 	Timeout     time.Duration
+	// RedactContent replaces every exported string value with a marker; used
+	// when raw content export is disabled so spans keep their shape and metrics.
+	// RedactContent 把每个导出的字符串值替换为标记；正文导出关闭时使用，
+	// 使 span 仍保留结构与指标。
+	RedactContent bool
 }
+
+// redactedValue is the placeholder written instead of redacted content.
+// redactedValue 是替代被隐藏正文的占位值。
+const redactedValue = `{"redacted":true}`
 
 // NewLangfuseHandler builds the callback on top of the shared provider. It
 // returns nil when telemetry is unavailable so the reply path keeps working.
@@ -41,7 +50,7 @@ func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, 
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	handler, err := langfusecb.NewHandler(ctx, &langfusecb.Config{
+	callbackCfg := &langfusecb.Config{
 		Host:        cfg.BaseURL,
 		PublicKey:   cfg.PublicKey,
 		SecretKey:   cfg.SecretKey,
@@ -49,11 +58,20 @@ func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, 
 		Environment: cfg.Environment,
 		Version:     version.Version,
 		Timeout:     timeout,
+		// Eino's own ReAct/Init/Lambda wrappers add no information for an
+		// operator; collapsing them keeps agent -> model/tool readable.
+		// Eino 自身的 ReAct/Init/Lambda 包装对运维没有信息量；
+		// 收敛后整棵树保持 agent -> 模型/工具 可读。
+		CollapseAgentInternalSpans: true,
 		// The callback must never create its own exporter: two pipelines would
 		// duplicate every model span.
 		// 回调绝不自建导出器：两条管线会让每个模型 span 重复上报。
 		TracerProvider: provider,
-	})
+	}
+	if cfg.RedactContent {
+		callbackCfg.MaskFunc = func(string) string { return redactedValue }
+	}
+	handler, err := langfusecb.NewHandler(ctx, callbackCfg)
 	if err != nil {
 		return nil, fmt.Errorf("agent: build langfuse callback: %w", err)
 	}

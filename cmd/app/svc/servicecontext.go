@@ -15,6 +15,7 @@ import (
 	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
 	directoryapp "github.com/HappyLadySauceM/QQBot/internal/directory/application"
 	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
+	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
 	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
 	"github.com/HappyLadySauceM/QQBot/pkg/version"
@@ -42,6 +43,26 @@ type ServiceContext struct {
 	// Stats may be nil when the database is not configured.
 	// 未配置数据库时 Stats 可为 nil。
 	Stats StatsProvider
+	// Tools is the startup tool registry; nil when AI generation is disabled.
+	// Tools 是启动时的工具注册表；AI 生成关闭时为 nil。
+	Tools *pluginsapp.Registry
+}
+
+// KnownToolPermissions returns the permission identifiers declared by the
+// registered tools; callers reject overrides for anything outside this set.
+// KnownToolPermissions 返回已注册工具声明的权限标识；
+// 调用方据此拒绝集合之外的覆盖项。
+func (s *ServiceContext) KnownToolPermissions() map[string]bool {
+	if s.Tools == nil {
+		return nil
+	}
+	known := make(map[string]bool)
+	for _, registered := range s.Tools.Snapshot() {
+		if permission := registered.Descriptor.Permission; permission != "" {
+			known[permission] = true
+		}
+	}
+	return known
 }
 
 // StatsProvider supplies aggregate counters for the metrics endpoint.
