@@ -5,6 +5,9 @@
 *.test
 *.out
 
+# 本地进程与日志（scripts/dev-env.sh）
+/.run/
+
 # 本地配置（保留 example）
 configs/config.yaml
 

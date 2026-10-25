@@ -188,6 +188,26 @@ BotID 与当前会话群，模型无法传入任意群号）。工具调用在�
 数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace，
 仅在 `observability.export-raw-content=true` 时启用（否则会导出模型消息正文）。
 
+## 本地开发环境
+
+`scripts/dev-env.sh` 封装本地 compose 的初始化、状态与清理（也可用 `just` 调用）：
+
+| 命令 | 作用 |
+| --- | --- |
+| `just dev-init` | `docker compose up -d` 并等待 PostgreSQL 就绪；`configs/config.yaml` 缺失时从示例生成，写入随机 `user-id-secret`、`environment: local`，并开启正文与原始 QQ 导出（仅限本地） |
+| `just run` | 后台启动后端与前端（compose 未启动时先拉起）；PID 与日志写入 `.run/` |
+| `just exit` | 停止 `just run` 启动的后端与前端（也可用 `scripts/dev-env.sh stop`） |
+| `just dev-status` | 查看业务表行数、任务状态、ClickHouse 追踪计数与运行中的进程 |
+| `just dev-clean` | 清理开发数据；默认 dry-run，只打印计划 |
+
+`just dev-clean --yes` 会清空 `messages`、`message_jobs`、`conversations`、`intent_decisions`、`memories`、
+`admin_audit_logs`，以及 ClickHouse 的 `events_core/events_full/observations*/traces/scores/analytics_*`
+和 Redis 中的 OTel ingestion 队列；默认保留 `scope_policies`、`bot_accounts`、目录缓存、`schema_migrations`
+与 Langfuse 的登录/API Key。`--with-scopes` 额外清空作用域与目录缓存（回到默认拒绝）；
+`--reset-volumes` 执行 `docker compose down -v`，连 Langfuse 登录与 API Key 一起重建。
+加 `--force` 时先停止后端与前端，清理完成后自动重新启动；不加时若服务仍在运行则拒绝并提示先 `just exit`。
+前端只管理 `web/` 的 `pnpm dev`（默认 127.0.0.1:5173），不安装依赖、不构建产物。
+
 ## 验证
 
 ```bash
