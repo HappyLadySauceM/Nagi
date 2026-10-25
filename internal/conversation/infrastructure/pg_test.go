@@ -39,6 +39,8 @@ func TestConversationIngestDedupAndJobCycle(t *testing.T) {
 			obdomain.Text("集成测试消息"),
 			obdomain.At(991005),
 		},
+		TraceParent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		TraceState:  "vendor=value",
 	}
 
 	first, err := repo.Ingest(ctx, input)
@@ -72,6 +74,13 @@ func TestConversationIngestDedupAndJobCycle(t *testing.T) {
 	}
 	if found.Kind != domain.KindGroup || found.TargetID != groupID || found.BotID != botID {
 		t.Fatalf("job context = %+v", found)
+	}
+	// The trace context must survive the ingest transaction byte for byte so
+	// the worker can restore the exact parent.
+	// 追踪上下文必须在入库事务中逐字节保留，供工作器还原精确的父级。
+	if found.TraceParent != input.TraceParent || found.TraceState != input.TraceState {
+		t.Fatalf("job trace context = %q / %q, want %q / %q",
+			found.TraceParent, found.TraceState, input.TraceParent, input.TraceState)
 	}
 	if len(found.Message.Segments) != 2 || found.Message.Segments[0].Type != obdomain.SegText {
 		t.Fatalf("job segments = %+v", found.Message.Segments)

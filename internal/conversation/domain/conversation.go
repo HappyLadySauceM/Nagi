@@ -69,6 +69,12 @@ type IngestInput struct {
 	SenderID          int64
 	Text              string
 	Segments          []obdomain.Segment
+	// TraceParent and TraceState carry the W3C context of the ingress span so
+	// the worker continues the same trace; empty values mean a new trace.
+	// TraceParent 与 TraceState 携带入站 span 的 W3C 上下文，供工作器延续
+	// 同一条 trace；为空表示开启新的 trace。
+	TraceParent string
+	TraceState  string
 }
 
 // IngestResult reports the outcome of one ingest attempt.
@@ -90,4 +96,10 @@ type Job struct {
 	Kind           Kind
 	TargetID       int64
 	Message        Message
+	// TraceParent and TraceState restore the ingress trace in the worker; an
+	// empty TraceParent marks a legacy job that starts its own trace.
+	// TraceParent 与 TraceState 让工作器还原入站 trace；
+	// TraceParent 为空表示历史任务，将自行开启新的 trace。
+	TraceParent string
+	TraceState  string
 }

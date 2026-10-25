@@ -9,7 +9,11 @@ import (
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 )
 
 // fakeJobRepo serves a fixed job list and records outcomes.
@@ -190,6 +194,146 @@ func TestWorkerProcessesJobsWithConversationOrdering(t *testing.T) {
 	defer repo.mu.Unlock()
 	if len(repo.completed) != 3 || len(repo.failed) != 0 || !repo.recovered {
 		t.Fatalf("completed=%v failed=%v recovered=%v", repo.completed, repo.failed, repo.recovered)
+	}
+}
+
+// TestWorkerRestoresJobTraceContext verifies that the worker continues the
+// trace stored with the job, marks jobs without one as legacy, and attaches
+// session/user attributes.
+// TestWorkerRestoresJobTraceContext 验证工作器延续任务里保存的 trace、
+// 标注无上下文的历史任务，并附加会话与用户属性。
+func TestWorkerRestoresJobTraceContext(t *testing.T) {
+	recorder := recordingProvider(t)
+	withTrace := makeJob(21, "conv-traced")
+	withTrace.Message.SenderID = 200
+	withTrace.TraceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	legacy := makeJob(22, "conv-legacy")
+	legacy.Message.SenderID = 201
+
+	repo := &fakeJobRepo{jobs: []domain.Job{withTrace, legacy}}
+	proc := newTrackingProcessor(nil)
+	worker, err := NewWorker(repo, proc, WorkerOptions{
+		Concurrency:  1,
+		PollInterval: 2 * time.Millisecond,
+		Identity:     observability.NewIdentities("0123456789abcdef0123456789abcdef", false),
+	}, discardLogger())
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		waitFor(t, func() bool {
+			proc.mu.Lock()
+			defer proc.mu.Unlock()
+			return len(proc.processed) == 2
+		})
+		cancel()
+	}()
+	if err := worker.Run(ctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	wantTraceID := trace.SpanContextFromContext(
+		observability.TraceContext{TraceParent: withTrace.TraceParent}.Restore(context.Background()),
+	).TraceID()
+	seen := map[string]sdktrace.ReadOnlySpan{}
+	for _, span := range recorder.Ended() {
+		if span.Name() == "qqbot.worker.process" {
+			attrs := map[string]string{}
+			for _, kv := range span.Attributes() {
+				attrs[string(kv.Key)] = kv.Value.Emit()
+			}
+			seen[attrs["qqbot.conversation_id"]] = span
+		}
+	}
+	traced, ok := seen["conv-traced"]
+	if !ok {
+		t.Fatalf("worker span for the traced job missing: %v", seen)
+	}
+	if got := traced.SpanContext().TraceID(); got != wantTraceID {
+		t.Fatalf("worker trace id = %s, want %s", got, wantTraceID)
+	}
+	tracedAttrs := map[string]string{}
+	for _, kv := range traced.Attributes() {
+		tracedAttrs[string(kv.Key)] = kv.Value.Emit()
+	}
+	if tracedAttrs[observability.SessionIDKey] != "conv-traced" {
+		t.Fatalf("session attribute = %q", tracedAttrs[observability.SessionIDKey])
+	}
+	if tracedAttrs[observability.UserIDKey] == "" {
+		t.Fatal("user attribute must be set when a secret is configured")
+	}
+	if tracedAttrs["qqbot.legacy_task"] != "false" {
+		t.Fatalf("qqbot.legacy_task = %q, want false", tracedAttrs["qqbot.legacy_task"])
+	}
+	legacySpan, ok := seen["conv-legacy"]
+	if !ok {
+		t.Fatal("worker span for the legacy job missing")
+	}
+	legacyAttrs := map[string]string{}
+	for _, kv := range legacySpan.Attributes() {
+		legacyAttrs[string(kv.Key)] = kv.Value.Emit()
+	}
+	if legacyAttrs["qqbot.legacy_task"] != "true" {
+		t.Fatalf("qqbot.legacy_task = %q, want true", legacyAttrs["qqbot.legacy_task"])
+	}
+}
+
+// TestWorkerExportsRawQQIdentifiers verifies raw mode records the real
+// account, target and sender numbers on the worker span.
+// TestWorkerExportsRawQQIdentifiers 验证原始模式在工作器 span 上记录真实账号、
+// 目标与发送者号码。
+func TestWorkerExportsRawQQIdentifiers(t *testing.T) {
+	recorder := recordingProvider(t)
+	job := makeJob(31, "conv-raw")
+	job.BotID = 1341939164
+	job.TargetID = 987654321
+	job.Message.SenderID = 1552089234
+	repo := &fakeJobRepo{jobs: []domain.Job{job}}
+	proc := newTrackingProcessor(nil)
+	worker, err := NewWorker(repo, proc, WorkerOptions{
+		Concurrency:  1,
+		PollInterval: 2 * time.Millisecond,
+		Identity:     observability.NewIdentities("", true),
+	}, discardLogger())
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		waitFor(t, func() bool {
+			proc.mu.Lock()
+			defer proc.mu.Unlock()
+			return len(proc.processed) == 1
+		})
+		cancel()
+	}()
+	if err := worker.Run(ctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	attrs := map[string]string{}
+	for _, span := range recorder.Ended() {
+		if span.Name() != "qqbot.worker.process" {
+			continue
+		}
+		for _, kv := range span.Attributes() {
+			attrs[string(kv.Key)] = kv.Value.AsString()
+		}
+	}
+	for key, want := range map[string]string{
+		observability.SessionIDKey: "conv-raw",
+		observability.UserIDKey:    "1552089234",
+		observability.BotIDKey:     "1341939164",
+		observability.TargetIDKey:  "987654321",
+		observability.SenderIDKey:  "1552089234",
+	} {
+		if attrs[key] != want {
+			t.Fatalf("%s = %q, want %q (attrs=%v)", key, attrs[key], want, attrs)
+		}
+	}
+	if _, ok := attrs[observability.BotIDHashKey]; ok {
+		t.Fatal("raw mode must not also write the hash attribute")
 	}
 }
 

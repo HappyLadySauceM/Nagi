@@ -61,12 +61,13 @@ func Run(ctx context.Context, opts options.Options) error {
 	// deferred and never fails the app.
 	// 观测初始化先执行以捕获早期 span；其关闭被 defer 且不影响应用退出。
 	if cfg.Observability.Enabled {
-		telemetryShutdown, telemetryErr := observability.Setup(ctx, observability.Config{
+		telemetry, telemetryErr := observability.Setup(ctx, observability.Config{
 			BaseURL:          cfg.Observability.BaseURL,
 			PublicKey:        cfg.Observability.PublicKey,
 			SecretKey:        cfg.Observability.SecretKey,
 			IngestionVersion: cfg.Observability.IngestionVersion,
 			ExportRawContent: cfg.Observability.ExportRawContent,
+			Environment:      cfg.Observability.Environment,
 		}, logger)
 		if telemetryErr != nil {
 			return telemetryErr
@@ -74,7 +75,7 @@ func Run(ctx context.Context, opts options.Options) error {
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := telemetryShutdown(shutdownCtx); err != nil {
+			if err := telemetry.Shutdown(shutdownCtx); err != nil {
 				logger.Warn("telemetry shutdown failed", "error", err)
 			}
 		}()

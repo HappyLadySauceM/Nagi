@@ -20,6 +20,7 @@ import (
 	intentinfra "github.com/HappyLadySauceM/QQBot/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
 	memorydomain "github.com/HappyLadySauceM/QQBot/internal/memory/domain"
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
 )
@@ -154,6 +155,7 @@ func memoryFinderAdapt(memory *memoryapp.Service) agentapp.MemoryFinder {
 // intent 启用时装配决策流水线与有界工作器。
 func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
+	identity *observability.Identities,
 ) (*conversationinfra.Worker, error) {
 	if pool == nil {
 		return nil, nil
@@ -216,5 +218,6 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		Concurrency:  cfg.Worker.Concurrency,
 		MaxPending:   cfg.Worker.MaxPendingJobs,
 		PollInterval: cfg.Worker.PollInterval.D(),
+		Identity:     identity,
 	}, logger)
 }

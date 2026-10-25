@@ -200,3 +200,33 @@ func writeTempConfig(t *testing.T, content string) string {
 }
 
 func noEnv(string) (string, bool) { return "", false }
+
+func TestLoadAppliesRawIdentifiersFromEnv(t *testing.T) {
+	// 验证环境变量可开启原始标识，非法值回退到文件配置。
+	file := writeTempConfig(t, "observability:\n  raw-identifiers: false\n")
+	cfg, err := Load(Options{File: file, LookupEnv: func(key string) (string, bool) {
+		if key == "QQBOT_OBSERVABILITY_RAW_IDENTIFIERS" {
+			return "true", true
+		}
+		return "", false
+	}})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.Observability.RawIdentifiers {
+		t.Fatal("env must enable raw identifiers")
+	}
+
+	cfg, err = Load(Options{File: file, LookupEnv: func(key string) (string, bool) {
+		if key == "QQBOT_OBSERVABILITY_RAW_IDENTIFIERS" {
+			return "not-a-bool", true
+		}
+		return "", false
+	}})
+	if err != nil {
+		t.Fatalf("load with invalid env: %v", err)
+	}
+	if cfg.Observability.RawIdentifiers {
+		t.Fatal("unparsable env must keep the file setting")
+	}
+}

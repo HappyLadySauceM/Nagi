@@ -35,6 +35,9 @@ type Config struct {
 	SecretKey        string
 	IngestionVersion string
 	ExportRawContent bool
+	// Environment labels the deployment; empty omits the resource attribute.
+	// Environment 标记部署环境；为空时不写该资源属性。
+	Environment string
 }
 
 // exportRawContent gates span attributes that carry message bodies. It is off
@@ -45,6 +48,11 @@ var exportRawContent atomic.Bool
 // maxContentRunes bounds one exported body so a long reply cannot bloat a trace.
 // maxContentRunes 限制单段导出正文长度，避免超长回复撑大 trace。
 const maxContentRunes = 8192
+
+// ContentEnabled reports whether raw bodies may be exported, letting callers
+// skip building a payload that would be discarded.
+// ContentEnabled 报告是否允许导出原始正文，供调用方跳过注定被丢弃的构造。
+func ContentEnabled() bool { return exportRawContent.Load() }
 
 // RecordContent attaches a raw body to a span when content export is enabled.
 // RecordContent 在开启正文导出时把原始内容写入 span。
@@ -62,18 +70,31 @@ func RecordContent(span trace.Span, key, value string) {
 // ShutdownFunc 刷新并关闭观测管线。
 type ShutdownFunc func(context.Context) error
 
-// Setup installs the global tracer provider; without credentials it keeps the
-// no-op default so business code can always use the tracer API safely.
-// Setup 安装全局 tracer provider；缺少凭据时保持 no-op 默认，
+// Telemetry owns the single tracing pipeline of the process. Provider is nil
+// when telemetry is disabled or credentials are missing; callers that only emit
+// spans keep using the global tracer API. The explicit provider is reserved for
+// the future Agent Runtime callbacks and for tests that need a real exporter.
+// Telemetry 持有进程内唯一的追踪管线。未启用或缺少凭据时 Provider 为 nil；
+// 只创建 span 的调用方继续使用全局 tracer API。显式 Provider 留给后续
+// Agent Runtime 的 callback 以及需要真实导出器的测试。
+type Telemetry struct {
+	Provider *sdktrace.TracerProvider
+	Shutdown ShutdownFunc
+}
+
+// Setup installs the global tracer provider and returns it for reuse; without
+// credentials it keeps the no-op default so business code can always use the
+// tracer API safely.
+// Setup 安装全局 tracer provider 并返回该实例供复用；缺少凭据时保持 no-op 默认，
 // 业务代码可始终安全使用 tracer API。
-func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, error) {
+func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (*Telemetry, error) {
 	if logger == nil {
 		return nil, fmt.Errorf("observability: logger required")
 	}
 	exportRawContent.Store(cfg.ExportRawContent)
 	if cfg.BaseURL == "" || cfg.PublicKey == "" || cfg.SecretKey == "" {
 		logger.Warn("observability enabled but langfuse credentials missing; telemetry stays local no-op")
-		return func(context.Context) error { return nil }, nil
+		return &Telemetry{Shutdown: func(context.Context) error { return nil }}, nil
 	}
 	endpoint, err := url.Parse(strings.TrimRight(cfg.BaseURL, "/") + "/api/public/otel/v1/traces")
 	if err != nil {
@@ -100,24 +121,41 @@ func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, 
 	if err != nil {
 		return nil, fmt.Errorf("observability: create exporter: %w", err)
 	}
-	resource, err := sdkresource.Merge(sdkresource.Default(), sdkresource.NewWithAttributes(
-		semconv.SchemaURL,
+	attrs := []attribute.KeyValue{
 		semconv.ServiceName("qqbot"),
 		semconv.ServiceVersion(version.Version),
+	}
+	if cfg.Environment != "" {
+		attrs = append(attrs, attribute.String("deployment.environment", cfg.Environment))
+	}
+	resource, err := sdkresource.Merge(sdkresource.Default(), sdkresource.NewWithAttributes(
+		semconv.SchemaURL,
+		attrs...,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("observability: build resource: %w", err)
 	}
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
+		// Identity attributes must reach every span created after the identity is
+		// attached, not only the span that set them, otherwise Langfuse cannot
+		// filter those spans by session/user. The session id is only known after
+		// persistence, so it stays on the root span and on later spans.
+		// 身份属性必须落到身份附加之后创建的每个 span，而不只是最先设置它的 span，
+		// 否则 Langfuse 无法按会话/用户过滤这些 span。会话 ID 只在落库后才知道，
+		// 因此只出现在根 span 及其后的 span 上。
+		sdktrace.WithSpanProcessor(identityProcessor{}),
 		sdktrace.WithResource(resource),
 	)
 	otel.SetTracerProvider(provider)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 	logger.Info("langfuse telemetry enabled", "endpoint_host", endpoint.Host)
-	return func(ctx context.Context) error {
-		// Telemetry shutdown errors are logged upstream, never fatal.
-		// 观测关闭错误仅在上游记录日志，不视为致命。
-		return errors.Join(provider.Shutdown(ctx))
+	return &Telemetry{
+		Provider: provider,
+		Shutdown: func(ctx context.Context) error {
+			// Telemetry shutdown errors are logged upstream, never fatal.
+			// 观测关闭错误仅在上游记录日志，不视为致命。
+			return errors.Join(provider.Shutdown(ctx))
+		},
 	}, nil
 }

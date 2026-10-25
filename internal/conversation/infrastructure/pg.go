@@ -86,7 +86,9 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 
 	var jobID int64
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO message_jobs (incoming_message_id) VALUES ($1) RETURNING id`, msgID,
+		`INSERT INTO message_jobs (incoming_message_id, traceparent, tracestate)
+		 VALUES ($1, $2, $3) RETURNING id`,
+		msgID, in.TraceParent, in.TraceState,
 	).Scan(&jobID); err != nil {
 		return domain.IngestResult{}, fmt.Errorf("conversation: insert job: %w", err)
 	}
@@ -170,9 +172,10 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 			SET status = 'processing', updated_at = now()
 			FROM picked
 			WHERE j.id = picked.id
-			RETURNING j.id, j.incoming_message_id
+			RETURNING j.id, j.incoming_message_id, j.traceparent, j.tracestate
 		)
-		SELECT cl.id, cl.incoming_message_id, m.conversation_id, c.bot_id, c.kind, c.target_id,
+		SELECT cl.id, cl.incoming_message_id, cl.traceparent, cl.tracestate,
+		       m.conversation_id, c.bot_id, c.kind, c.target_id,
 		       m.id, COALESCE(m.platform_message_id, 0), m.sender_id, m.text_content, m.segments, m.created_at
 		FROM claimed cl
 		JOIN messages m ON m.id = cl.incoming_message_id
@@ -188,7 +191,8 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 		var j domain.Job
 		var kindStr string
 		var segJSON []byte
-		if err := rows.Scan(&j.ID, &j.MessageID, &j.ConversationID, &j.BotID, &kindStr, &j.TargetID,
+		if err := rows.Scan(&j.ID, &j.MessageID, &j.TraceParent, &j.TraceState,
+			&j.ConversationID, &j.BotID, &kindStr, &j.TargetID,
 			&j.Message.ID, &j.Message.PlatformMessageID, &j.Message.SenderID, &j.Message.Text,
 			&segJSON, &j.Message.CreatedAt); err != nil {
 			return nil, fmt.Errorf("conversation: scan job: %w", err)

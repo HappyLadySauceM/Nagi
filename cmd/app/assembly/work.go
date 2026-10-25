@@ -22,6 +22,7 @@ import (
 	echoinfra "github.com/HappyLadySauceM/QQBot/internal/echo/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
 	memoryinfra "github.com/HappyLadySauceM/QQBot/internal/memory/infrastructure"
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 	observabilityinfra "github.com/HappyLadySauceM/QQBot/internal/observability/infrastructure"
 	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
 	obinfra "github.com/HappyLadySauceM/QQBot/internal/onebot/infrastructure"
@@ -114,6 +115,23 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*Run
 		return nil, err
 	}
 
+	// Without raw identifiers or a usable secret the traces keep working but
+	// expose no user dimension; the warning fires once at startup instead of per
+	// message and always states the reason.
+	// 既未启用原始标识也没有可用密钥时，追踪仍可用但不暴露用户维度；
+	// 告警只在启动时输出一次，并始终说明原因。
+	identities := observability.NewIdentities(cfg.Observability.UserIDSecret, cfg.Observability.RawIdentifiers)
+	if cfg.Observability.Enabled {
+		switch {
+		case cfg.Observability.RawIdentifiers:
+			logger.Warn("observability exports raw QQ identifiers; restrict Langfuse access accordingly")
+		case identities == nil:
+			logger.Warn("observability identity disabled; traces carry no user dimension",
+				"reason", observability.ValidateSecret(cfg.Observability.UserIDSecret).Error(),
+				"hint", "set observability.user-id-secret to `openssl rand -hex 32` or use QQBOT_OBSERVABILITY_USER_ID_SECRET")
+		}
+	}
+
 	if pool != nil {
 		if rt.Directory, err = buildDirectory(registry, pool, logger); err != nil {
 			return nil, err
@@ -138,7 +156,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*Run
 		// is configured; default-deny keeps everything off until then.
 		// 入站处理器仅为管理员显式开启的作用域持久化消息，因此配置了数据库
 		// 即可注册；默认拒绝保证在授权前一切关闭。
-		ingress, ingressErr := conversationinfra.NewIngress(rt.Conversation, rt.Scope, logger)
+		ingress, ingressErr := conversationinfra.NewIngress(rt.Conversation, rt.Scope, identities, logger)
 		if ingressErr != nil {
 			return nil, ingressErr
 		}
@@ -154,7 +172,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*Run
 		if executorErr != nil {
 			return nil, executorErr
 		}
-		if rt.Worker, err = buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor); err != nil {
+		if rt.Worker, err = buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor, identities); err != nil {
 			return nil, err
 		}
 	}

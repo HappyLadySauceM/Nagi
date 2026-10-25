@@ -164,6 +164,18 @@ type Observability struct {
 	// ExportRawContent 为 true 时才允许上传消息正文（默认脱敏）。
 	// ExportRawContent true allows raw message bodies (redacted by default).
 	ExportRawContent bool `yaml:"export-raw-content"`
+	// UserIDSecret 是生成发送者与账号假名的 HMAC 密钥；为空时不导出用户维度。
+	// UserIDSecret keys the HMAC pseudonyms of senders and accounts; empty omits
+	// the user dimension from traces.
+	UserIDSecret string `yaml:"user-id-secret"`
+	// RawIdentifiers 为 true 时直接导出原始 QQ 号，便于对照真实用户调试；
+	// 默认 false，使用 HMAC 假名。
+	// RawIdentifiers exports raw QQ numbers for debugging; false keeps the
+	// default HMAC pseudonyms.
+	RawIdentifiers bool `yaml:"raw-identifiers"`
+	// Environment 标记部署环境（如 local/prod），为空时不写资源属性。
+	// Environment labels the deployment; empty omits the resource attribute.
+	Environment string `yaml:"environment"`
 }
 
 // Config 是解析完成的运行时配置模型。
@@ -261,6 +273,21 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
 	}
 	if v, ok := lookup("QQBOT_LOG_LEVEL"); ok && strings.TrimSpace(v) != "" {
 		cfg.Log.Level = strings.TrimSpace(v)
+	}
+	// The pseudonym key is a runtime secret; the environment variable wins over
+	// the config file so deployments never have to store it on disk.
+	// 假名密钥属于运行时密钥；环境变量优先于配置文件，部署时无需落盘。
+	if v, ok := lookup("QQBOT_OBSERVABILITY_USER_ID_SECRET"); ok && strings.TrimSpace(v) != "" {
+		cfg.Observability.UserIDSecret = strings.TrimSpace(v)
+	}
+	// Raw identifiers are a per-deployment debugging switch; an unparsable value
+	// leaves the file setting untouched instead of silently relaxing privacy.
+	// 原始标识属于按部署切换的调试开关；无法解析时保留文件配置，
+	// 不因拼写错误悄悄放宽隐私设置。
+	if v, ok := lookup("QQBOT_OBSERVABILITY_RAW_IDENTIFIERS"); ok && strings.TrimSpace(v) != "" {
+		if enabled, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
+			cfg.Observability.RawIdentifiers = enabled
+		}
 	}
 }
 

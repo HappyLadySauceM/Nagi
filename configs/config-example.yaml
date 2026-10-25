@@ -99,3 +99,16 @@ observability:
   ingestion-version: "4"
   # 开启后会导出消息正文（prompt 与回复全文），只在本地环境按需开启
   export-raw-content: false
+  # 标记部署环境（如 local/staging/prod），作为 deployment.environment 资源属性；
+  # 留空时不写该属性
+  environment: "local"
+  # 生成发送者与账号假名的 HMAC 密钥，trace 中不会出现原始 QQ 号。
+  # 必须自行生成且不得提交：openssl rand -hex 32（至少 32 字符，否则被视为不可用）。
+  # 留空或使用示例占位符时不导出用户维度；生产环境用
+  # QQBOT_OBSERVABILITY_USER_ID_SECRET 覆盖，换密钥后历史用户视图会与新的统计断开。
+  user-id-secret: ""
+  # 为 true 时改为直接导出原始 QQ 号（发送者、机器人账号、群号/私聊对象），
+  # 便于对照真实用户排查与调参；此模式不需要 user-id-secret。
+  # 注意：Langfuse 的 Users 视图会按真实 QQ 号聚合，同一用户在不同机器人账号下会被合并。
+  # 可用 QQBOT_OBSERVABILITY_RAW_IDENTIFIERS 覆盖。
+  raw-identifiers: false

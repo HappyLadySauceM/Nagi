@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	botcontracts "github.com/HappyLadySauceM/QQBot/internal/bot/contracts"
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 	scopecontracts "github.com/HappyLadySauceM/QQBot/internal/scope/contracts"
 	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
@@ -27,17 +28,22 @@ import (
 type Ingress struct {
 	ingest application.Ingestor
 	scopes scopecontracts.Authorizer
-	logger *slog.Logger
+	// identities may be nil when neither raw mode nor a pseudonym secret is
+	// configured; traces then carry no user dimension at all.
+	// 未启用原始模式且未配置假名密钥时 identities 可为 nil；
+	// 此时 trace 不携带用户维度。
+	identities *observability.Identities
+	logger     *slog.Logger
 }
 
 // NewIngress validates dependencies and builds the handler. The originating
 // account arrives with each event, so no connection-level status is needed.
 // NewIngress 校验依赖并构建处理器。账号身份随事件传入，因此不需要连接级状态。
-func NewIngress(ingest application.Ingestor, scopes scopecontracts.Authorizer, logger *slog.Logger) (*Ingress, error) {
+func NewIngress(ingest application.Ingestor, scopes scopecontracts.Authorizer, identities *observability.Identities, logger *slog.Logger) (*Ingress, error) {
 	if ingest == nil || scopes == nil || logger == nil {
 		return nil, fmt.Errorf("conversation: ingress dependencies required")
 	}
-	return &Ingress{ingest: ingest, scopes: scopes, logger: logger}, nil
+	return &Ingress{ingest: ingest, scopes: scopes, identities: identities, logger: logger}, nil
 }
 
 // Name identifies the handler in logs and status output.
@@ -55,7 +61,7 @@ func (h *Ingress) Match(event obdomain.Event) bool { return event.IsMessage() }
 func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain.Event) error {
 	// No message content is recorded on spans, only ids and kinds.
 	// span 只记录 ID 与类型，不记录消息内容。
-	ctx, span := tracer().Start(ctx, "qqbot.ingress")
+	ctx, span := tracer().Start(ctx, "qqbot.message.process")
 	defer span.End()
 	span.SetAttributes(attribute.Bool("in_group", event.InGroup()))
 
@@ -76,13 +82,32 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	} else {
 		scopeType, targetID = scopedomain.ScopePrivate, int64(event.UserID)
 	}
-	policy, err := h.scopes.Resolve(ctx, botID, scopeType, targetID)
+	// Account, sender and target are known before persistence, so they are
+	// attached here and ride the context into the scope/persist children. The
+	// session id only exists after the row is written and stays on the root.
+	// 账号、发送者与目标在落库前就已知，因此在此写入并随上下文传给
+	// scope/persist 子 span；会话 ID 只在写库后存在，仅落在根 span。
+	identity := h.identities.For(botID, int64(event.Sender.ID), targetID)
+	ctx = observability.WithIdentity(ctx, identity)
+	observability.SetIdentity(span, identity)
+
+	scopeCtx, scopeSpan := tracer().Start(ctx, "qqbot.ingress.scope")
+	scopeSpan.SetAttributes(attribute.String("qqbot.scope_type", string(scopeType)))
+	observability.SetIdentity(scopeSpan, identity)
+	policy, err := h.scopes.Resolve(scopeCtx, botID, scopeType, targetID)
 	if err != nil {
 		// Fail closed: without a policy decision nothing is stored or processed.
 		// 关闭式失败：没有策略判定就不存储、不处理。
+		scopeSpan.RecordError(err)
+		scopeSpan.End()
 		h.logger.Warn("ai ingress scope resolve failed", "error", err, "bot_id", botID)
 		return nil
 	}
+	scopeSpan.SetAttributes(
+		attribute.Bool("qqbot.scope_enabled", policy.Enabled),
+		attribute.Bool("qqbot.scope_store_messages", policy.StoreMessages),
+	)
+	scopeSpan.End()
 	if !policy.Enabled || !policy.StoreMessages {
 		// Default deny: scopes without explicit enablement and storage consent
 		// never persist or process message content.
@@ -99,9 +124,43 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		Text:              event.Text(),
 		Segments:          event.Segments,
 	}
-	if _, err := h.ingest.Ingest(ctx, input); err != nil {
-		h.logger.Warn("ai ingress persist failed", "error", err, "bot_id", botID)
+	// Persist the root span context so the worker continues this trace instead
+	// of starting an unrelated one. An unrecorded span persists nothing.
+	// 持久化根 span 上下文，让工作器延续同一条 trace 而不是另开一条。
+	// span 未记录时不写入任何内容。
+	if traceCtx := observability.Current(ctx); traceCtx.Valid() {
+		input.TraceParent = traceCtx.TraceParent
+		input.TraceState = traceCtx.TraceState
 	}
+
+	persistCtx, persistSpan := tracer().Start(ctx, "qqbot.message.persist")
+	observability.SetIdentity(persistSpan, identity)
+	result, err := h.ingest.Ingest(persistCtx, input)
+	if err != nil {
+		persistSpan.RecordError(err)
+		persistSpan.End()
+		h.logger.Warn("ai ingress persist failed", "error", err, "bot_id", botID)
+		return nil
+	}
+	persistSpan.SetAttributes(
+		attribute.Int64("qqbot.message_id", result.MessageID),
+		attribute.Int64("qqbot.job_id", result.JobID),
+		attribute.Bool("qqbot.duplicate", result.Duplicate),
+	)
+	persistSpan.End()
+
+	// Session and message ids are only known after the row exists; attributes
+	// can still be added to the open root span, and Langfuse keeps them for
+	// Sessions/Users.
+	// 会话与消息 ID 只有在落库后才知道；属性仍可在根 span 结束前追加，
+	// Langfuse 会保留它们供 Sessions/Users 使用。
+	span.SetAttributes(
+		attribute.String("qqbot.conversation_id", result.ConversationID),
+		attribute.Int64("qqbot.message_id", result.MessageID),
+		attribute.Int64("qqbot.job_id", result.JobID),
+	)
+	identity.SessionID = result.ConversationID
+	observability.SetIdentity(span, identity)
 	return nil
 }
 

@@ -10,8 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/HappyLadySauceM/QQBot/internal/conversation/application"
 	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 )
 
 // JobProcessor executes the decision pipeline for one job.
@@ -28,6 +31,9 @@ type WorkerOptions struct {
 	PollInterval time.Duration
 	MaxAttempts  int
 	RetryBackoff time.Duration
+	// Identity may be nil, in which case traces carry no user dimension.
+	// Identity 可为 nil，此时 trace 不携带用户维度。
+	Identity *observability.Identities
 }
 
 // Worker polls pending jobs from the database and processes them with per-conversation
@@ -162,23 +168,65 @@ func (w *Worker) consume(ctx context.Context, ch <-chan domain.Job, sem chan str
 // process 执行流水线并记录结果；panic 转为任务失败。
 // 任务在脱离取消的上下文上执行，优雅关停会等待在途任务及其终态回写完成。
 func (w *Worker) process(ctx context.Context, job domain.Job) {
-	jobCtx := context.WithoutCancel(ctx)
+	// Trace context must be restored on the detached context so shutdown does
+	// not sever the parent chain while the job is still finishing.
+	// 追踪上下文必须在脱离取消的上下文上还原，避免关停期间切断父链。
+	jobCtx := observability.TraceContext{TraceParent: job.TraceParent, TraceState: job.TraceState}.
+		Restore(context.WithoutCancel(ctx))
+	jobCtx, span := tracer().Start(jobCtx, "qqbot.worker.process")
+	defer span.End()
+	// A job without a stored context predates trace propagation; marking it
+	// keeps legacy traffic distinguishable from broken propagation.
+	// 没有存储上下文的任务早于追踪传播；标注后可将其与传播故障区分开。
+	span.SetAttributes(
+		attribute.Int64("qqbot.job_id", job.ID),
+		attribute.Int64("qqbot.message_id", job.MessageID),
+		attribute.String("qqbot.conversation_id", job.ConversationID),
+		attribute.String("qqbot.scope_type", string(job.Kind)),
+		attribute.Bool("qqbot.legacy_task", job.TraceParent == ""),
+	)
+	identity := w.opts.Identity.For(job.BotID, job.Message.SenderID, job.TargetID)
+	identity.SessionID = job.ConversationID
+	observability.SetIdentity(span, identity)
+	// Child spans (intent, agent, send) receive the same identity through
+	// baggage so Langfuse can filter every observation by session and user.
+	// 子 span（意图、生成、发送）通过 baggage 获得同样的身份属性，
+	// 使 Langfuse 能按会话与用户过滤每个观测。
+	jobCtx = observability.WithIdentity(jobCtx, identity)
 	defer func() {
 		if rec := recover(); rec != nil {
 			w.logger.Error("job processor panicked", "job_id", job.ID, "panic", fmt.Sprint(rec))
-			if err := w.repo.FailJob(jobCtx, job.ID, "panic", w.opts.RetryBackoff, w.opts.MaxAttempts); err != nil {
-				w.logger.Warn("record job failure failed", "job_id", job.ID, "error", err)
-			}
+			span.RecordError(fmt.Errorf("panic: %v", rec))
+			w.finish(jobCtx, job.ID, "failed", "panic")
 		}
 	}()
 	if err := w.processor.Process(jobCtx, job); err != nil {
 		w.logger.Warn("job processed with failure", "job_id", job.ID, "error", err)
-		if err := w.repo.FailJob(jobCtx, job.ID, "process_error", w.opts.RetryBackoff, w.opts.MaxAttempts); err != nil {
-			w.logger.Warn("record job failure failed", "job_id", job.ID, "error", err)
-		}
+		span.RecordError(err)
+		w.finish(jobCtx, job.ID, "failed", "process_error")
 		return
 	}
-	if err := w.repo.CompleteJob(jobCtx, job.ID); err != nil {
-		w.logger.Warn("complete job failed", "job_id", job.ID, "error", err)
+	w.finish(jobCtx, job.ID, "done", "")
+}
+
+// finish records the terminal job state inside its own span so a completed job
+// is never mistaken for a delivered message.
+// finish 在独立 span 中记录任务终态，避免把任务完成误认为消息已送达。
+func (w *Worker) finish(ctx context.Context, jobID int64, status, code string) {
+	ctx, span := tracer().Start(ctx, "qqbot.message.finalize")
+	defer span.End()
+	span.SetAttributes(attribute.String("qqbot.job.status", status))
+	if code != "" {
+		span.SetAttributes(attribute.String("qqbot.error_code", code))
+	}
+	var err error
+	if status == "done" {
+		err = w.repo.CompleteJob(ctx, jobID)
+	} else {
+		err = w.repo.FailJob(ctx, jobID, code, w.opts.RetryBackoff, w.opts.MaxAttempts)
+	}
+	if err != nil {
+		span.RecordError(err)
+		w.logger.Warn("record job outcome failed", "job_id", jobID, "status", status, "error", err)
 	}
 }

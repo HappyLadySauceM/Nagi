@@ -21,11 +21,14 @@ func testLogger() *slog.Logger {
 // TestSetupWithoutCredentialsIsNoop 验证缺少凭据时保持 no-op tracer provider
 // 且不会导致应用失败。
 func TestSetupWithoutCredentialsIsNoop(t *testing.T) {
-	shutdown, err := Setup(context.Background(), Config{}, testLogger())
+	telemetry, err := Setup(context.Background(), Config{}, testLogger())
 	if err != nil {
 		t.Fatalf("setup without credentials should not fail: %v", err)
 	}
-	if err := shutdown(context.Background()); err != nil {
+	if telemetry.Provider != nil {
+		t.Fatal("missing credentials must leave the provider nil")
+	}
+	if err := telemetry.Shutdown(context.Background()); err != nil {
 		t.Fatalf("noop shutdown: %v", err)
 	}
 }

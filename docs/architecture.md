@@ -84,10 +84,13 @@ flowchart LR
 见 `configs/config-example.yaml`。端点列表 `onebot.endpoints[]`（`url`、`access-token`、
 可选 `expect-qq`）是唯一的连接配置形态；未显式配置时使用默认端点
 `ws://127.0.0.1:3001`，显式配置为空列表会在启动时报错。
-端点 token、`database.dsn`、`ai.api-key`、`intent.api-key` 与 `observability.{base-url,public-key,secret-key}`
-都直接写在配置文件中；提交仓库的示例文件只含占位符，真实值只存在于 gitignored 的 `configs/config.yaml`。
-通用运行时覆盖：`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`，以及 `--config`、`--listen`、
-`--log-level` Flags，优先级高于 YAML。
+端点 token、`database.dsn`、`ai.api-key`、`intent.api-key`、`observability.{base-url,public-key,secret-key}`
+与 `observability.user-id-secret` 都直接写在配置文件中；提交仓库的示例文件只含占位符，真实值只存在于
+gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl rand -hex 32`，至少 32 字符），
+示例占位符或过短的值会被启动检查拒绝并关闭用户维度。`observability.raw-identifiers=true` 是可回退的
+调试开关，开启后 trace 直接写原始 QQ 号。
+通用运行时覆盖：`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`、`QQBOT_OBSERVABILITY_USER_ID_SECRET`、
+`QQBOT_OBSERVABILITY_RAW_IDENTIFIERS`，以及 `--config`、`--listen`、`--log-level` Flags，优先级高于 YAML。
 `onebot.heartbeat-timeout` 默认 60s，仅经 YAML 或默认值提供。
 
 `ai.enabled=true` 要求 `intent.enabled=true`：AI 回复由意图决策流水线触发，只开生成不会发出任何
@@ -117,7 +120,10 @@ flowchart LR
   conversation），embedding 向量列留待选定模型后添加。
 - `internal/observability`：OTel 全局 tracer + 可选 Langfuse OTLP/HTTP 导出（Basic Auth、
   v4 ingestion header、默认关闭、凭据缺失保持 no-op）；`GET /api/v1/metrics` 提供聚合计数。
-  span 不记录消息正文。
+  span 默认不记录消息正文，`export-raw-content=true` 时才导出有界 JSON；会话维度用 conversation id，
+  用户维度默认是 HMAC 假名（无可用密钥则不写），`raw-identifiers=true` 时改为原始 QQ 号。
+  入站消息的 W3C traceparent 随 `message_jobs` 落库，工作器恢复父上下文，因此一条消息的 ingress、
+  意图、生成与发送共享一条 trace。
 
 ### 管理 API（全部经 `{code,message,data}` 信封）
 
