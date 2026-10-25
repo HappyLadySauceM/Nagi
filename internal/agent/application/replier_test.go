@@ -4,12 +4,18 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	agentdomain "github.com/HappyLadySauceM/QQBot/internal/agent/domain"
 	intentdomain "github.com/HappyLadySauceM/QQBot/internal/intent/domain"
@@ -235,6 +241,56 @@ func TestReplierRecordsUnknownOnTimeout(t *testing.T) {
 	}
 }
 
+// TestReplierAttributesSentStatusOnSpan verifies that delivery outcome reaches
+// the send span before it ends, including the unknown timeout case.
+// TestReplierAttributesSentStatusOnSpan 验证投递结果在发送 span 结束前写入，
+// 覆盖结果未知的超时场景。
+func TestReplierAttributesSentStatusOnSpan(t *testing.T) {
+	cases := []struct {
+		name    string
+		sendErr error
+		want    string
+	}{
+		{name: "sent", want: "sent"},
+		{name: "failed", sendErr: fmt.Errorf("onebot: action failed retcode=1200"), want: "failed"},
+		{name: "unknown", sendErr: fmt.Errorf("onebot: wait: %w", obcontracts.ErrActionTimeout), want: "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			previous := otel.GetTracerProvider()
+			otel.SetTracerProvider(provider)
+			t.Cleanup(func() {
+				otel.SetTracerProvider(previous)
+				_ = provider.Shutdown(context.Background())
+			})
+
+			model := &fakeModel{text: "回复内容"}
+			sender := &fakeSender{err: tc.sendErr, msgID: 4242}
+			r := newReplier(t, model, sender, &fakeRecorder{}, enabledGroupPolicy())
+			if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+
+			status := ""
+			for _, span := range recorder.Ended() {
+				if span.Name() != "qqbot.onebot.send" {
+					continue
+				}
+				for _, kv := range span.Attributes() {
+					if string(kv.Key) == "qqbot.sent_status" {
+						status = kv.Value.Emit()
+					}
+				}
+			}
+			if status != tc.want {
+				t.Fatalf("qqbot.sent_status = %q, want %q", status, tc.want)
+			}
+		})
+	}
+}
+
 // TestReplierRecordsPlatformMessageID verifies the receipt id flows into the
 // outbound record for later reply-to-bot matching.
 // TestReplierRecordsPlatformMessageID 验证回执 ID 进入出站记录，供后续引用判定匹配。
@@ -260,6 +316,172 @@ func TestReplierDetectsTimeoutSentinelCrossWrapping(t *testing.T) {
 	wrapped := fmt.Errorf("agent: send: %w", fmt.Errorf("onebot: wait: %w", errors.Join(obcontracts.ErrActionTimeout)))
 	if !errors.Is(wrapped, obcontracts.ErrActionTimeout) {
 		t.Fatal("wrapped sentinel must stay detectable")
+	}
+}
+
+// TestReplierIncludesCurrentMessageOnce verifies that the persisted copy of the
+// current message in history is not appended a second time.
+// TestReplierIncludesCurrentMessageOnce 验证历史中已落库的当前消息不会被再次追加。
+func TestReplierIncludesCurrentMessageOnce(t *testing.T) {
+	model := &fakeModel{text: "回复内容"}
+	r := newReplier(t, model, &fakeSender{}, &fakeRecorder{}, enabledGroupPolicy())
+	history := []intentdomain.Message{
+		{MessageID: 4001, SenderID: 200, Text: "早先的提问"},
+		{MessageID: 4002, SenderID: 100, IsBot: true, Text: "早先的回答"},
+		{MessageID: 5001, SenderID: 200, Text: "那你觉得呢？"},
+	}
+
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), history); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	occurrences := 0
+	for _, message := range model.req.Messages {
+		if strings.Contains(message.Content, "那你觉得呢？") {
+			occurrences++
+		}
+	}
+	if occurrences != 1 {
+		t.Fatalf("current message appears %d times, want 1: %+v", occurrences, model.req.Messages)
+	}
+	if len(model.req.Messages) != 4 {
+		t.Fatalf("messages = %d, want system + 2 history + current", len(model.req.Messages))
+	}
+	if !strings.Contains(model.req.Messages[1].Content, "早先的提问") {
+		t.Fatalf("older history must survive dedup: %+v", model.req.Messages[1])
+	}
+	last := model.req.Messages[len(model.req.Messages)-1]
+	if last.Role != "user" || !strings.Contains(last.Content, "那你觉得呢？") {
+		t.Fatalf("current message must stay last: %+v", last)
+	}
+}
+
+// TestReplierKeepsHistoryWithoutMessageID verifies that dedup never drops
+// entries when the current message has no platform id.
+// TestReplierKeepsHistoryWithoutMessageID 验证当前消息没有平台 ID 时不去重历史项。
+func TestReplierKeepsHistoryWithoutMessageID(t *testing.T) {
+	model := &fakeModel{text: "回复内容"}
+	r := newReplier(t, model, &fakeSender{}, &fakeRecorder{}, enabledGroupPolicy())
+	task := groupTaskForAgent()
+	task.Message.MessageID = 0
+	history := []intentdomain.Message{
+		{MessageID: 0, SenderID: 200, Text: "那你觉得呢？"},
+	}
+
+	if err := r.ExecuteReply(context.Background(), task, history); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	occurrences := 0
+	for _, message := range model.req.Messages {
+		if strings.Contains(message.Content, "那你觉得呢？") {
+			occurrences++
+		}
+	}
+	if occurrences != 2 {
+		t.Fatalf("history must be kept without an id, got %d occurrences", occurrences)
+	}
+}
+
+// TestTraceMessagesJSONIsBoundedAndValid verifies the exported payload stays
+// valid JSON within the exporter truncation limit.
+// TestTraceMessagesJSONIsBoundedAndValid 验证导出载荷在截断阈值内仍是合法 JSON。
+func TestTraceMessagesJSONIsBoundedAndValid(t *testing.T) {
+	messages := []agentdomain.ChatMessage{{Role: "system", Content: "系统提示"}}
+	for i := 0; i < 40; i++ {
+		messages = append(messages, agentdomain.ChatMessage{Role: "user", Content: strings.Repeat("长", 2000)})
+	}
+	payload, truncated, err := traceMessagesJSON(messages)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !truncated {
+		t.Fatal("dropping or clipping messages must mark the payload as truncated")
+	}
+	if utf8.RuneCountInString(payload) >= 8192 {
+		t.Fatalf("payload too large: %d runes", utf8.RuneCountInString(payload))
+	}
+	var decoded []agentdomain.ChatMessage
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+		t.Fatalf("payload must stay valid JSON: %v", err)
+	}
+	if len(decoded) != maxTraceMessages {
+		t.Fatalf("messages = %d, want %d", len(decoded), maxTraceMessages)
+	}
+	if decoded[0].Role != "system" {
+		t.Fatalf("system prompt must be kept first: %+v", decoded[0])
+	}
+	for _, message := range decoded {
+		if utf8.RuneCountInString(message.Content) > maxTraceMessageRunes+1 {
+			t.Fatalf("message not clipped: %d runes", utf8.RuneCountInString(message.Content))
+		}
+	}
+}
+
+// TestReplierMarksTraceAsGeneration verifies the span carries the metadata
+// Langfuse needs to render a structured generation.
+// TestReplierMarksTraceAsGeneration 验证 span 携带 Langfuse 渲染结构化 generation
+// 所需的元数据。
+func TestReplierMarksTraceAsGeneration(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	r := newReplier(t, &fakeModel{text: "回复内容"}, &fakeSender{msgID: 1}, &fakeRecorder{}, enabledGroupPolicy())
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	attrs := map[string]string{}
+	for _, span := range recorder.Ended() {
+		if span.Name() != "qqbot.agent.run" {
+			continue
+		}
+		for _, kv := range span.Attributes() {
+			attrs[string(kv.Key)] = kv.Value.Emit()
+		}
+	}
+	if attrs["langfuse.observation.type"] != "generation" {
+		t.Fatalf("observation type = %q", attrs["langfuse.observation.type"])
+	}
+	if attrs["langfuse.observation.model.name"] != "test-model" {
+		t.Fatalf("model name = %q", attrs["langfuse.observation.model.name"])
+	}
+	var usage map[string]int64
+	if err := json.Unmarshal([]byte(attrs["langfuse.observation.usage_details"]), &usage); err != nil {
+		t.Fatalf("usage details must be valid JSON: %v", err)
+	}
+	if usage["total"] != 5 {
+		t.Fatalf("usage = %v", usage)
+	}
+	if attrs["qqbot.trace.truncated"] != "false" {
+		t.Fatalf("truncated = %q, want false", attrs["qqbot.trace.truncated"])
+	}
+	if _, ok := attrs["gen_ai.usage.prompt_tokens"]; ok {
+		t.Fatal("token usage must be reported once, through usage_details")
+	}
+}
+
+// TestTraceMessagesJSONMarksSmallPayloadsUncut verifies ordinary prompts are
+// not reported as truncated.
+// TestTraceMessagesJSONMarksSmallPayloadsUncut 验证普通 prompt 不会被标记为裁剪。
+func TestTraceMessagesJSONMarksSmallPayloadsUncut(t *testing.T) {
+	payload, truncated, err := traceMessagesJSON([]agentdomain.ChatMessage{
+		{Role: "system", Content: "系统提示"},
+		{Role: "user", Content: "你好"},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if truncated {
+		t.Fatal("small payload must not be marked truncated")
+	}
+	var decoded []agentdomain.ChatMessage
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil || len(decoded) != 2 {
+		t.Fatalf("payload = %q err=%v", payload, err)
 	}
 }
 

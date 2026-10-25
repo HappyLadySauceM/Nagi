@@ -4,10 +4,12 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -117,26 +119,67 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 
 	messages := r.buildMessages(ctx, task, history)
 	tracer := otel.Tracer("github.com/HappyLadySauceM/QQBot/internal/agent")
-	genCtx, genSpan := tracer.Start(ctx, "qqbot.agent.reply")
-	genSpan.SetAttributes(attribute.String("gen_ai.system", "openai_compatible"))
-	observability.RecordContent(genSpan, "gen_ai.prompt", flattenMessages(messages))
+	genCtx, genSpan := tracer.Start(ctx, "qqbot.agent.run")
+	genSpan.SetAttributes(
+		attribute.String("gen_ai.system", "openai_compatible"),
+		// The explicit type keeps the span a generation even when the provider
+		// returns no model name, so Langfuse renders structured messages. When
+		// the Agent Runtime lands, this marker moves to the model child span so
+		// one model call is never counted twice.
+		// 显式类型保证 span 在提供商未返回模型名时仍是 generation，
+		// Langfuse 才会按结构化消息渲染。接入 Agent Runtime 后，
+		// 该标记应下移到模型子 span，避免一次模型调用被重复计数。
+		attribute.String("langfuse.observation.type", "generation"),
+	)
+	truncated := false
+	if observability.ContentEnabled() {
+		// Bounded JSON keeps the payload below the exporter truncation limit;
+		// truncated JSON would break the Langfuse session transcript.
+		// 有界 JSON 保证载荷低于导出截断阈值；截断的 JSON 会破坏会话 transcript。
+		if payload, clipped, jsonErr := traceMessagesJSON(messages); jsonErr == nil {
+			truncated = clipped
+			observability.RecordContent(genSpan, "langfuse.observation.input", payload)
+		}
+	}
 	result, err := r.model.Generate(genCtx, domain.ChatRequest{Messages: messages, MaxTokens: r.maxTokens})
 	if err != nil {
 		genSpan.RecordError(err)
 		genSpan.End()
 		return fmt.Errorf("agent: generate: %w", err)
 	}
-	genSpan.SetAttributes(
-		attribute.Int64("gen_ai.usage.prompt_tokens", result.PromptTokens),
-		attribute.Int64("gen_ai.usage.completion_tokens", result.CompletionTokens),
-	)
-	observability.RecordContent(genSpan, "gen_ai.completion", result.Text)
+	// Token usage is reported once, through the Langfuse-preferred detail map.
+	// 用量只上报一次，使用 Langfuse 优先采用的明细结构。
+	genSpan.SetAttributes(attribute.String("langfuse.observation.usage_details", usageDetailsJSON(result)))
+	if result.Model != "" {
+		genSpan.SetAttributes(attribute.String("langfuse.observation.model.name", result.Model))
+	}
+	if observability.ContentEnabled() {
+		if payload, clipped, jsonErr := traceReplyJSON(result.Text); jsonErr == nil {
+			truncated = truncated || clipped
+			observability.RecordContent(genSpan, "langfuse.observation.output", payload)
+		}
+	}
+	// The marker distinguishes "the model said only this much" from "the traced
+	// payload was clipped".
+	// 该标记用于区分"模型只说了这么多"与"追踪载荷被裁剪"。
+	genSpan.SetAttributes(attribute.Bool("qqbot.trace.truncated", truncated))
 	genSpan.End()
+
+	_, validateSpan := tracer.Start(ctx, "qqbot.response.validate")
 	reply, err := domain.SanitizeReply(result.Text)
 	if err != nil {
+		// A rejected reply is a policy outcome, not a generation failure.
+		// 被拒绝的回复是策略结果，不是生成失败。
+		validateSpan.SetAttributes(attribute.Bool("qqbot.reply_dropped", true))
+		validateSpan.End()
 		r.logger.Info("reply dropped: empty after sanitize", "job_id", task.JobID)
 		return nil
 	}
+	validateSpan.SetAttributes(
+		attribute.Bool("qqbot.reply_dropped", false),
+		attribute.Int("qqbot.reply_length", len([]rune(reply))),
+	)
+	validateSpan.End()
 
 	sentStatus := "sent"
 	sendCtx, sendSpan := tracer.Start(ctx, "qqbot.onebot.send")
@@ -154,6 +197,13 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			sentStatus = "failed"
 		}
 		r.logger.Warn("reply send failed", "error", sendErr, "job_id", task.JobID, "sent_status", sentStatus)
+	}
+	// Delivery status must be attached before the span ends, otherwise the
+	// outcome never reaches the trace.
+	// 投递结果必须在 span 结束前写入，否则结果不会出现在 trace 中。
+	sendSpan.SetAttributes(attribute.String("qqbot.sent_status", sentStatus))
+	if sendErr == nil {
+		sendSpan.SetAttributes(attribute.Int64("qqbot.onebot_message_id", messageID))
 	}
 	sendSpan.End()
 	if err := r.recorder.RecordOutgoing(ctx, task.ConversationID, task.BotID, reply, messageID, sentStatus); err != nil {
@@ -189,6 +239,14 @@ func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, his
 	}
 	messages := []domain.ChatMessage{{Role: "system", Content: b.String()}}
 	for _, m := range history {
+		// The current message is already persisted, so it is part of the recent
+		// history passed in here; appending it a second time wastes tokens and
+		// makes the model see its own prompt twice.
+		// 当前消息已落库，因此就在传入的最近历史中；再次追加既浪费 token，
+		// 也让模型看到重复的提问。
+		if task.Message.MessageID != 0 && m.MessageID == task.Message.MessageID {
+			continue
+		}
 		if m.IsBot {
 			messages = append(messages, domain.ChatMessage{Role: "assistant", Content: m.Text})
 			continue
@@ -229,15 +287,83 @@ func chatChannel(kind string) string {
 	return "私聊"
 }
 
-// flattenMessages renders the prompt in a stable, readable form for tracing.
-// flattenMessages 把 prompt 渲染成稳定的可读文本，供追踪使用。
-func flattenMessages(messages []domain.ChatMessage) string {
-	var b strings.Builder
-	for _, message := range messages {
-		b.WriteString(message.Role)
-		b.WriteString(": ")
-		b.WriteString(message.Content)
-		b.WriteString("\n")
+// maxTraceMessages bounds how many chat messages are exported to the trace;
+// the system prompt plus the newest turns is enough to explain one reply.
+// maxTraceMessages 限制导出到 trace 的消息条数；系统提示加最近若干轮足以解释一次回复。
+const maxTraceMessages = 12
+
+// maxTraceMessageRunes bounds one exported message body.
+// maxTraceMessageRunes 限制单条导出消息的长度。
+const maxTraceMessageRunes = 600
+
+// traceMessagesJSON renders the prompt as a JSON message array for Langfuse.
+// The payload is bounded before marshaling so it never exceeds the exporter's
+// truncation limit: a half-truncated document would break the session view.
+// traceMessagesJSON 把 prompt 渲染成 Langfuse 使用的 JSON 消息数组。
+// 载荷在序列化前就有界，绝不触发导出截断：半截 JSON 会让会话视图解析失败。
+func traceMessagesJSON(messages []domain.ChatMessage) (string, bool, error) {
+	if len(messages) == 0 {
+		return "", false, nil
 	}
-	return b.String()
+	start := 0
+	truncated := false
+	if len(messages) > maxTraceMessages {
+		start = len(messages) - (maxTraceMessages - 1)
+		truncated = true
+	}
+	trimmed := make([]domain.ChatMessage, 0, maxTraceMessages)
+	if start > 0 && messages[0].Role == "system" {
+		clipped, cut := clipChatMessage(messages[0])
+		trimmed = append(trimmed, clipped)
+		truncated = truncated || cut
+	}
+	for _, message := range messages[start:] {
+		clipped, cut := clipChatMessage(message)
+		trimmed = append(trimmed, clipped)
+		truncated = truncated || cut
+	}
+	payload, err := json.Marshal(trimmed)
+	if err != nil {
+		return "", truncated, fmt.Errorf("agent: marshal trace input: %w", err)
+	}
+	return string(payload), truncated, nil
+}
+
+// traceReplyJSON renders one assistant reply as a JSON message array.
+// traceReplyJSON 把一条助手回复渲染成 JSON 消息数组。
+func traceReplyJSON(text string) (string, bool, error) {
+	clipped, truncated := clipChatMessage(domain.ChatMessage{Role: "assistant", Content: text})
+	payload, err := json.Marshal([]domain.ChatMessage{clipped})
+	if err != nil {
+		return "", truncated, fmt.Errorf("agent: marshal trace output: %w", err)
+	}
+	return string(payload), truncated, nil
+}
+
+// clipChatMessage truncates one message body and reports whether it was cut.
+// clipChatMessage 截断单条消息正文并报告是否发生裁剪。
+func clipChatMessage(message domain.ChatMessage) (domain.ChatMessage, bool) {
+	if utf8.RuneCountInString(message.Content) <= maxTraceMessageRunes {
+		return message, false
+	}
+	message.Content = string([]rune(message.Content)[:maxTraceMessageRunes]) + "…"
+	return message, true
+}
+
+// usageDetailsJSON renders token usage in Langfuse's usage-details shape.
+// usageDetailsJSON 按 Langfuse 的用量结构渲染 token 统计。
+func usageDetailsJSON(result domain.ChatResult) string {
+	payload, err := json.Marshal(struct {
+		Input  int64 `json:"input"`
+		Output int64 `json:"output"`
+		Total  int64 `json:"total"`
+	}{
+		Input:  result.PromptTokens,
+		Output: result.CompletionTokens,
+		Total:  result.PromptTokens + result.CompletionTokens,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(payload)
 }

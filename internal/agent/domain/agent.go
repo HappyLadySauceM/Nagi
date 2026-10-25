@@ -17,8 +17,8 @@ var replyURLPattern = regexp.MustCompile(`(?i)(https?://|www\.)`)
 // ChatMessage is one OpenAI-compatible chat message.
 // ChatMessage 是一条 OpenAI 兼容对话消息。
 type ChatMessage struct {
-	Role    string
-	Content string
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // ChatRequest is one generation request; MaxTokens bounds the reply length.
