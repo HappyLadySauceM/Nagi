@@ -38,16 +38,16 @@ export function Pagination({
         className,
       )}
     >
-      <p className="whitespace-nowrap text-[11px] text-muted-foreground tabular-nums">
+      <p className="whitespace-nowrap text-meta text-muted-foreground tabular-nums">
         共 {formatCount(total)} {itemLabel} · 第 {page} / {totalPages} 页
       </p>
       <div className="flex items-center gap-2">
-        <label className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
+        <label className="flex items-center gap-1.5 whitespace-nowrap text-meta text-muted-foreground">
           每页
           <Select
             aria-label="每页条数"
             containerClassName="w-[68px]"
-            className="h-8 pl-2 pr-6 text-[11px]"
+            className="h-8 pl-2 pr-6 text-meta"
             value={String(limit)}
             onChange={(event) => onLimitChange(Number(event.target.value))}
             disabled={pending}

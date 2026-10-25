@@ -8,9 +8,11 @@ import {
 } from '@tanstack/react-router'
 import { DashboardPage } from '../features/dashboard/dashboard-page'
 import {
+  DEFAULT_DIRECTORY_SEARCH,
+  DEFAULT_PAGE_LIMIT,
+  parseDirectorySearch,
   parseGroupDetailSearch,
   parseMemorySearch,
-  parsePageSearch,
 } from '../lib/search-params'
 import { AppShell } from './layout/app-shell'
 import { NotFoundPage, RootErrorComponent } from './pages/route-fallbacks'
@@ -41,29 +43,19 @@ const accountsRoute = createRoute({
   ),
 })
 
-const contactsRoute = createRoute({
+const directoryRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/contacts',
-  validateSearch: parsePageSearch,
+  path: '/directory',
+  validateSearch: parseDirectorySearch,
   component: lazyRouteComponent(
-    () => import('../features/directory/contacts-page'),
-    'ContactsPage',
-  ),
-})
-
-const groupsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/groups',
-  validateSearch: parsePageSearch,
-  component: lazyRouteComponent(
-    () => import('../features/directory/groups-page'),
-    'GroupsPage',
+    () => import('../features/directory/directory-page'),
+    'DirectoryPage',
   ),
 })
 
 const groupDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/groups/$groupId',
+  path: '/directory/$groupId',
   validateSearch: parseGroupDetailSearch,
   component: lazyRouteComponent(
     () => import('../features/directory/group-detail-page'),
@@ -71,19 +63,70 @@ const groupDetailRoute = createRoute({
   ),
 })
 
-const scopesRoute = createRoute({
+// Legacy paths stay reachable so bookmarks and shared links keep working.
+// 旧路径保留重定向，书签与分享链接不会失效。
+const contactsRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/scopes',
-  component: lazyRouteComponent(() => import('../features/scopes/scopes-page'), 'ScopesPage'),
+  path: '/contacts',
+  beforeLoad: () => {
+    throw redirect({
+      to: '/directory',
+      search: { ...DEFAULT_DIRECTORY_SEARCH, tab: 'friends' },
+    })
+  },
 })
 
-const scopeEditRoute = createRoute({
+const groupsRedirectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/groups',
+  beforeLoad: () => {
+    throw redirect({
+      to: '/directory',
+      search: { ...DEFAULT_DIRECTORY_SEARCH, tab: 'groups' },
+    })
+  },
+})
+
+const legacyGroupDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/groups/$groupId',
+  beforeLoad: ({ params, search }) => {
+    throw redirect({
+      to: '/directory/$groupId',
+      params: { groupId: params.groupId },
+      search: {
+        search: (search as { search?: string }).search ?? '',
+        page: (search as { page?: number }).page ?? 1,
+        limit: (search as { limit?: number }).limit ?? DEFAULT_PAGE_LIMIT,
+        name: (search as { name?: string }).name ?? '',
+      },
+    })
+  },
+})
+
+// Policy management lives on the contacts page now; the legacy paths redirect
+// so bookmarks and shared links keep working.
+// 策略配置已移入联系人页；旧路径保留重定向，书签与分享链接不会失效。
+const scopesRedirectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/scopes',
+  beforeLoad: () => {
+    throw redirect({
+      to: '/directory',
+      search: { ...DEFAULT_DIRECTORY_SEARCH, tab: 'groups' },
+    })
+  },
+})
+
+const scopeEditRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/scopes/$type/$id',
-  component: lazyRouteComponent(
-    () => import('../features/scopes/scope-edit-page'),
-    'ScopeEditPage',
-  ),
+  beforeLoad: () => {
+    throw redirect({
+      to: '/directory',
+      search: { ...DEFAULT_DIRECTORY_SEARCH, tab: 'groups' },
+    })
+  },
 })
 
 const memoriesRoute = createRoute({
@@ -108,11 +151,13 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
   accountsRoute,
-  contactsRoute,
-  groupsRoute,
+  directoryRoute,
   groupDetailRoute,
-  scopesRoute,
-  scopeEditRoute,
+  contactsRedirectRoute,
+  groupsRedirectRoute,
+  legacyGroupDetailRoute,
+  scopesRedirectRoute,
+  scopeEditRedirectRoute,
   memoriesRoute,
 ])
 

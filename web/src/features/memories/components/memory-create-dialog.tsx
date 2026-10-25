@@ -199,7 +199,7 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
               <Label htmlFor="create-approve" className="text-xs">
                 立即审批并启用
               </Label>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+              <p className="mt-0.5 text-meta leading-relaxed text-muted-foreground">
                 关闭时保存为候选，需要到列表中审批；重复内容不会被激活。
               </p>
             </div>

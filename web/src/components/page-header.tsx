@@ -17,11 +17,11 @@ export function PageHeader({ title, description, actions, className }: PageHeade
       )}
     >
       <div className="min-w-0">
-        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
+        <h1 className="text-display font-semibold leading-tight tracking-tight text-foreground">
           {title}
         </h1>
         {description ? (
-          <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
+          <p className="mt-1.5 max-w-2xl text-body leading-relaxed text-muted-foreground">
             {description}
           </p>
         ) : null}

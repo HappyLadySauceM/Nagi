@@ -16,7 +16,7 @@ function Table({ className, label = '数据表格', ...props }: TableProps) {
     >
       <table
         data-slot="table"
-        className={cn('w-full caption-bottom border-collapse text-xs', className)}
+        className={cn('w-full caption-bottom border-collapse text-body', className)}
         {...props}
       />
     </div>
@@ -62,7 +62,7 @@ function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
       data-slot="table-head"
       scope="col"
       className={cn(
-        'h-9 whitespace-nowrap px-3 text-left align-middle text-[11px] font-medium uppercase tracking-wider text-muted-foreground',
+        'h-10 whitespace-nowrap border-b border-border/70 px-3.5 text-left align-middle text-meta font-medium uppercase tracking-wider text-muted-foreground',
         className,
       )}
       {...props}
@@ -74,7 +74,7 @@ function TableCell({ className, ...props }: React.ComponentProps<'td'>) {
   return (
     <td
       data-slot="table-cell"
-      className={cn('px-3 py-3 align-middle text-xs text-foreground', className)}
+      className={cn('px-3.5 py-3.5 align-middle text-body text-foreground', className)}
       {...props}
     />
   )

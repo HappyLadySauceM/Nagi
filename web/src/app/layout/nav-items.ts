@@ -2,49 +2,46 @@ import {
   Bot,
   BrainCircuit,
   LayoutDashboard,
-  ShieldCheck,
   Users,
-  UsersRound,
+  type LucideIcon,
 } from 'lucide-react'
 
-/** Only routes that really exist are listed here; no placeholder entries. */
-export const NAV_ITEMS = [
-  {
-    to: '/dashboard',
-    label: '概览',
-    hint: '连接状态与聚合指标',
-    icon: LayoutDashboard,
-  },
-  {
-    to: '/accounts',
-    label: 'QQ 账号',
-    hint: '账号、运行时与处理器',
-    icon: Bot,
-  },
-  {
-    to: '/contacts',
-    label: '联系人',
-    hint: '好友目录与策略入口',
-    icon: Users,
-  },
-  {
-    to: '/groups',
-    label: '群聊',
-    hint: '群列表、成员与策略入口',
-    icon: UsersRound,
-  },
-  {
-    to: '/scopes',
-    label: '作用域策略',
-    hint: '已保存的授权配置',
-    icon: ShieldCheck,
-  },
-  {
-    to: '/memories',
-    label: '长期记忆',
-    hint: '候选、审批与可见性',
-    icon: BrainCircuit,
-  },
-] as const
+export type NavPath = '/dashboard' | '/directory' | '/accounts' | '/memories'
 
-export type NavItem = (typeof NAV_ITEMS)[number]
+export interface NavItem {
+  to: NavPath
+  label: string
+  hint: string
+  icon: LucideIcon
+}
+
+export interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+/**
+ * Grouped navigation: run the bot, shape its knowledge, then configure it.
+ * 分组导航：先看运行状态，再管知识与配置。
+ */
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    label: '工作台',
+    items: [
+      { to: '/dashboard', label: '概览', hint: '账号状态与运行摘要', icon: LayoutDashboard },
+      { to: '/directory', label: '联系人', hint: '好友与群聊统一入口', icon: Users },
+    ],
+  },
+  {
+    label: '智能',
+    items: [
+      { to: '/memories', label: '知识与记忆', hint: '候选、审批与可见性', icon: BrainCircuit },
+    ],
+  },
+  {
+    label: '配置',
+    items: [
+      { to: '/accounts', label: '账号连接', hint: '端点、身份与运行时', icon: Bot },
+    ],
+  },
+]

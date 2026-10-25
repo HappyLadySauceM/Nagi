@@ -13,18 +13,26 @@ export interface MemoryParams extends PageParams {
   botId?: number
 }
 
+/**
+ * Every account-scoped key carries the bot id, so switching accounts can never
+ * reuse another account's cached rows.
+ * 所有账号级查询的 key 都带 bot id，切换账号不会复用其他账号的缓存。
+ */
 export const queryKeys = {
   livez: ['system', 'livez'],
   readyz: ['system', 'readyz'],
   status: ['system', 'status'],
   accounts: ['system', 'accounts'],
-  metrics: ['metrics'],
-  contacts: (params: PageParams) => ['directory', 'contacts', params] as const,
-  groups: (params: PageParams) => ['directory', 'groups', params] as const,
-  members: (groupId: number, params: PageParams) => ['directory', 'members', groupId, params] as const,
-  scopeIndex: ['scopes', 'index'] as const,
-  scope: (scopeType: ScopeType, scopeId: number) =>
-    ['scopes', 'detail', scopeType, scopeId] as const,
+  metrics: (botId?: number) => ['metrics', botId ?? null] as const,
+  contacts: (botId: number | undefined, params: PageParams) =>
+    ['directory', 'contacts', botId ?? null, params] as const,
+  groups: (botId: number | undefined, params: PageParams) =>
+    ['directory', 'groups', botId ?? null, params] as const,
+  members: (botId: number | undefined, groupId: number, params: PageParams) =>
+    ['directory', 'members', botId ?? null, groupId, params] as const,
+  scopeIndex: (botId?: number) => ['scopes', 'index', botId ?? null] as const,
+  scope: (botId: number | undefined, scopeType: ScopeType, scopeId: number) =>
+    ['scopes', 'detail', botId ?? null, scopeType, scopeId] as const,
   memories: (params: MemoryParams) => ['memories', 'list', params] as const,
 } as const
 

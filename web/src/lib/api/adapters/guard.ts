@@ -117,21 +117,6 @@ export function readOptionalString(
   throw contractError(endpoint, `${key} 不是字符串`)
 }
 
-export function readOptionalBoolean(
-  record: Record<string, unknown>,
-  key: string,
-  endpoint: string,
-): boolean | undefined {
-  const value = record[key]
-  if (value === undefined || value === null) {
-    return undefined
-  }
-  if (typeof value === 'boolean') {
-    return value
-  }
-  throw contractError(endpoint, `${key} 不是布尔值`)
-}
-
 /**
  * Go zero-value timestamps mean "never": they serialise either as year 1 or as
  * the Unix epoch, so anything before 2000 is treated as absent.

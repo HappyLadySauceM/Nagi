@@ -8,7 +8,6 @@ const validValues = {
   storeMessages: false,
   allowHistoryRead: false,
   allowMemoryWrite: false,
-  toolPolicy: ['search'],
   minReplyIntervalMs: '10000',
   maxRepliesPerHour: '20',
   retentionDays: '30',

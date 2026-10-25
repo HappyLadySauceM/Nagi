@@ -39,21 +39,21 @@ cp .env.example .env.local   # 再编辑 QQBOT_ADMIN_TOKEN
 生产部署时由同源反向代理（Caddy/Nginx）托管 `dist/` 并代理 `/api`、`/livez`、`/readyz`；
 SPA 回退到 `index.html`，但 `/api/` 的 404 不能被改写成 200 HTML。
 
-## 已实现范围（W0 + W1）
+## 已实现范围
 
-- 应用外壳：可折叠侧栏、面包屑顶栏、全局状态胶囊、移动端抽屉、深/浅双主题（默认深色）。
-- 概览 `/dashboard`：四张 KPI 卡、连接与运行卡、任务状态/意图原因/记忆状态分布。
-- QQ 账号 `/accounts`：账号与连接、运行时快照、处理器清单、复制账号 ID。
+- 应用外壳：可折叠分组侧栏、面包屑顶栏、全局状态胶囊、账号切换器、移动端抽屉、深/浅双主题（默认深色）。
+- 概览 `/dashboard`：账号状态带 + 四张 KPI 卡 + 连接与运行卡 + 任务/意图/记忆分布；指标按当前账号过滤。
+- 联系人 `/directory`：好友与群聊分段切换、主从布局、头像、策略状态徽章、搜索与分页；`/contacts`、
+  `/groups` 保留重定向。群成员并入群详情 `/directory/{groupId}`。
+- 账号连接 `/accounts`：端点列表、身份识别结果、连接/心跳、目录同步、运行时与处理器清单。
+- 作用域策略 `/scopes`：列表与编辑，绑定当前账号；敏感能力二次确认。
+- 知识与记忆 `/memories`：候选审批、编辑、软删除，按当前账号过滤。
 - 数据可信：真实 0 显示 0；请求失败显示「不可获取」并给出可操作原因，不伪装成空数据。
-- 无数据库时账号页仍可用：`/api/v1/accounts` 不依赖数据库，旧后端自动回退到 `/api/v1/status`。
-- 首屏分层加载：`/accounts` 按需加载，框架/路由/动画运行时拆分为可缓存 chunk。
+- 无数据库时账号页仍可用：`/api/v1/accounts` 不依赖数据库。
 
-未实现（后续阶段）：联系人/群/成员、作用域编辑、长期记忆、会话中心、Jev 决策明细、
-远程登录与命令面板。主导航不提供这些假入口。
+未实现（后续阶段）：会话浏览器、Agent 配置与 Eino 工具能力、MCP、Skills、学习历史。主导航不提供这些假入口。
 
 ## 接口契约要点
-
-以下结论已对照 Go handler 实测，后续阶段（W2–W4）请沿用：
 
 - 响应信封统一为 `{ code, message, data }`；非 2xx 仅使用 `message` 作为安全文案。
 - 目录列表（`/contacts`、`/groups`、`/groups/{id}/members`）序列化为 PascalCase：
@@ -61,22 +61,19 @@ SPA 回退到 `index.html`，但 `/api/` 的 404 不能被改写成 200 HTML。
 - 记忆列表是例外：分页键为小写 `items/total/page/limit`，条目字段仍是 PascalCase。
 - 写入接口（作用域 PUT、记忆 POST/PATCH）只接受 snake_case 请求体；作用域 PUT 是整份覆盖。
 - `/api/v1/metrics` 是聚合计数（`message_jobs`、`intent_decisions_24h`、`messages_24h`、`memories`），
-  不是时间序列，因此界面不做趋势曲线。
+  不是时间序列，因此界面不做趋势曲线；支持 `?bot_id=` 按账号过滤。
 - 数据库未配置时依赖库的路由不注册，Go 返回纯文本 `404 page not found`；
   若配置了 admin-token，未注册路由会先被 Auth 拦截成 401。两者都需要与「资源不存在」区分。
-- `/api/v1/accounts` 只读 OneBot 连接，由 `system` handler 无条件注册，无数据库也可用；
-  旧后端未注册该路由时，控制台回退到 `/api/v1/status` 并在界面标注来源。
-- `/readyz` 的 503 只表示 OneBot 未就绪，进程存活只看 `/livez`；网络失败不能显示成机器人离线。
-- `GET /api/v1/scopes/{type}/{id}` 对**已保存**策略返回空的 `ScopeType` 与 `ScopeID`（仓储只扫描值列），
-  适配器用路由参数兜底；`GET /api/v1/scopes` 的列表行带完整身份。
-- 策略列表可能包含历史不完整行（`ReplyMode` 为空、数值为 0、`ToolPolicy` 为 null），
-  适配器按后端 `WithDefaults` 语义补齐，而不是让整页失败。
-- 作用域 PUT 是整份覆盖且要求 `self_id` 已知：`409` 表示机器人账号未识别，需先连接 OneBot 并同步目录。
-- 群成员 `refresh=true` 在进程重启后会从 `bot_accounts` 恢复账号；若从未同步过任何账号则返回 `409`，
-  界面提示先执行「同步目录」。
+- `/api/v1/accounts` 返回 `{ connected, db_configured, accounts[] }`，每个账号含 `bot_id`（未识别时省略）、
+  `nickname`、`endpoint`、`connected`、`self_id_known`、`rejected` 等字段；不依赖数据库。
+- 账号级读取都带 `bot_id`：多账号未指定时返回 `400`，账号身份未识别时返回 `409`。
+- `POST /api/v1/accounts/{bot_id}/sync` 是唯一目录同步入口，且要求该账号在线。
+- `/readyz` 的 503 只表示没有任何 OneBot 连接就绪，进程存活只看 `/livez`。
+- 作用域 `GET`/`PUT` 都需要 `bot_id`；已保存策略的 `ScopeType`/`ScopeID` 由仓储补齐。
+- 群成员 `refresh=true` 按显式 `bot_id` 执行；账号未同步过目录时返回 `409`，界面提示先同步。
 - 记忆创建遇到完全相同内容时返回 `duplicate:true` 且**不会**激活，即使请求带 `approve`。
-- 记忆 `PATCH` 只接受 `status=active`（审批）与 `deleted`（软删除）；`candidate`/`superseded` 返回 `400`，
-  状态校验发生在任何写入之前，不会出现「内容已改、状态未变」的半成品。
+- 记忆 `PATCH` 只接受 `status=active`（审批）与 `deleted`（软删除）；`candidate`/`superseded` 返回 `400`。
+- 工具白名单已从数据库与界面移除：工具能力将由 Agent 运行时注册，不再由自由文本配置。
 
 ## 目录结构
 

@@ -1,12 +1,5 @@
 import type { ReplyMode, ScopeForm, ScopePolicy, ScopeType } from '../contracts'
-import {
-  asArray,
-  asRecord,
-  contractError,
-  readBoolean,
-  readNumber,
-  readString,
-} from './guard'
+import { asArray, asRecord, contractError, readBoolean, readNumber, readString } from './guard'
 
 const SCOPE_ENDPOINT = '/api/v1/scopes'
 
@@ -26,7 +19,6 @@ export const DEFAULT_SCOPE_FORM: ScopeForm = {
   storeMessages: false,
   allowHistoryRead: false,
   allowMemoryWrite: false,
-  toolPolicy: [],
   minReplyIntervalMs: 10_000,
   maxRepliesPerHour: 20,
   retentionDays: 30,
@@ -83,14 +75,6 @@ export function toScopePolicy(raw: unknown): ScopePolicy {
   const replyModeRaw = readString(record, 'ReplyMode', SCOPE_ENDPOINT, '')
   const replyMode = isReplyMode(replyModeRaw) ? replyModeRaw : DEFAULT_SCOPE_FORM.replyMode
 
-  const toolPolicyRaw = record.ToolPolicy
-  const toolPolicy =
-    toolPolicyRaw === null || toolPolicyRaw === undefined
-      ? []
-      : asArray(toolPolicyRaw, SCOPE_ENDPOINT, 'ToolPolicy').filter(
-          (item): item is string => typeof item === 'string',
-        )
-
   return {
     scopeType,
     scopeId,
@@ -99,7 +83,6 @@ export function toScopePolicy(raw: unknown): ScopePolicy {
     storeMessages: readBoolean(record, 'StoreMessages', SCOPE_ENDPOINT),
     allowMemoryWrite: readBoolean(record, 'AllowMemoryWrite', SCOPE_ENDPOINT),
     allowHistoryRead: readBoolean(record, 'AllowHistoryRead', SCOPE_ENDPOINT),
-    toolPolicy,
     minReplyIntervalMs: positiveOr(
       readNumber(record, 'MinReplyIntervalMS', SCOPE_ENDPOINT, 0),
       DEFAULT_MIN_REPLY_INTERVAL_MS,
@@ -127,7 +110,6 @@ export function toScopeForm(policy: ScopePolicy): ScopeForm {
     storeMessages: policy.storeMessages,
     allowHistoryRead: policy.allowHistoryRead,
     allowMemoryWrite: policy.allowMemoryWrite,
-    toolPolicy: [...policy.toolPolicy],
     minReplyIntervalMs: policy.minReplyIntervalMs,
     maxRepliesPerHour: policy.maxRepliesPerHour,
     retentionDays: policy.retentionDays,
@@ -135,8 +117,8 @@ export function toScopeForm(policy: ScopePolicy): ScopeForm {
 }
 
 /**
- * PUT replaces the whole policy, so all nine snake_case fields are always sent.
- * 服务端 PUT 是整份覆盖，必须始终提交全部九个 snake_case 字段。
+ * PUT replaces the whole policy, so every snake_case field is always sent.
+ * 服务端 PUT 是整份覆盖，必须始终提交全部 snake_case 字段。
  */
 export function toScopePutBody(form: ScopeForm): Record<string, unknown> {
   return {
@@ -145,7 +127,6 @@ export function toScopePutBody(form: ScopeForm): Record<string, unknown> {
     store_messages: form.storeMessages,
     allow_history_read: form.allowHistoryRead,
     allow_memory_write: form.allowMemoryWrite,
-    tool_policy: form.toolPolicy,
     min_reply_interval_ms: form.minReplyIntervalMs,
     max_replies_per_hour: form.maxRepliesPerHour,
     retention_days: form.retentionDays,
@@ -170,9 +151,7 @@ export function isScopeEqual(left: ScopeForm, right: ScopeForm): boolean {
     left.allowMemoryWrite === right.allowMemoryWrite &&
     left.minReplyIntervalMs === right.minReplyIntervalMs &&
     left.maxRepliesPerHour === right.maxRepliesPerHour &&
-    left.retentionDays === right.retentionDays &&
-    left.toolPolicy.length === right.toolPolicy.length &&
-    left.toolPolicy.every((tool, index) => tool === right.toolPolicy[index])
+    left.retentionDays === right.retentionDays
   )
 }
 
@@ -190,10 +169,6 @@ export function scopeDangerFlags(form: ScopeForm, baseline?: ScopeForm): string[
   }
   if (turnedOn('allowMemoryWrite')) {
     flags.push('允许机器人向长期记忆写入该会话的内容')
-  }
-  const newTools = form.toolPolicy.filter((tool) => !baseline?.toolPolicy.includes(tool))
-  if (newTools.length > 0) {
-    flags.push(`授权工具：${newTools.join('、')}`)
   }
   return flags
 }

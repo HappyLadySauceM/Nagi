@@ -62,7 +62,7 @@ function DialogDescription({
 }: React.ComponentProps<typeof DialogPrimitive.Description>) {
   return (
     <DialogPrimitive.Description
-      className={cn('text-[11px] leading-relaxed text-muted-foreground', className)}
+      className={cn('text-meta leading-relaxed text-muted-foreground', className)}
       {...props}
     />
   )

@@ -20,6 +20,29 @@ export const pageSearchSchema = z.object(pageFields)
 
 export type PageSearch = z.infer<typeof pageSearchSchema>
 
+/** Friends and groups share one workspace; the tab decides which list renders. */
+export const DIRECTORY_TABS = ['friends', 'groups'] as const
+
+export type DirectoryTab = (typeof DIRECTORY_TABS)[number]
+
+export const directorySearchSchema = z.object({
+  ...pageFields,
+  tab: z.enum(DIRECTORY_TABS).catch('friends'),
+})
+
+export type DirectorySearch = z.infer<typeof directorySearchSchema>
+
+export const DEFAULT_DIRECTORY_SEARCH: DirectorySearch = {
+  search: '',
+  page: 1,
+  limit: DEFAULT_PAGE_LIMIT,
+  tab: 'friends',
+}
+
+export function parseDirectorySearch(input: Record<string, unknown>): DirectorySearch {
+  return parseWith(directorySearchSchema, DEFAULT_DIRECTORY_SEARCH, input)
+}
+
 /**
  * Group detail carries the group name in the URL because the backend has no
  * single-group endpoint; a direct visit simply shows the numeric id.
@@ -79,13 +102,4 @@ export const DEFAULT_MEMORY_SEARCH: MemorySearch = {
 
 export function parseMemorySearch(input: Record<string, unknown>): MemorySearch {
   return parseWith(memorySearchSchema, DEFAULT_MEMORY_SEARCH, input)
-}
-
-/** Drops empty filters so the URL and the query key stay canonical. */
-export function toPageRequest(params: PageSearch): {
-  search: string
-  page: number
-  limit: number
-} {
-  return { search: params.search, page: params.page, limit: params.limit }
 }

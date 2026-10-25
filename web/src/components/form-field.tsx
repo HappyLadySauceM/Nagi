@@ -31,18 +31,18 @@ export function FormField({
       <div className="flex items-baseline gap-1">
         <Label htmlFor={id}>{label}</Label>
         {required ? (
-          <span className="text-[10px] text-destructive" aria-hidden>
+          <span className="text-caption text-destructive" aria-hidden>
             *
           </span>
         ) : null}
       </div>
       {children}
       {error ? (
-        <p id={`${id}-error`} className="text-[11px] text-destructive" role="alert">
+        <p id={`${id}-error`} className="text-meta text-destructive" role="alert">
           {error}
         </p>
       ) : hint ? (
-        <p id={`${id}-hint`} className="text-[11px] leading-relaxed text-muted-foreground">
+        <p id={`${id}-hint`} className="text-meta leading-relaxed text-muted-foreground">
           {hint}
         </p>
       ) : null}

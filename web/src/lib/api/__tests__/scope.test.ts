@@ -19,7 +19,6 @@ const POLICY = {
   StoreMessages: true,
   AllowMemoryWrite: false,
   AllowHistoryRead: true,
-  ToolPolicy: ['search'],
   MinReplyIntervalMS: 10000,
   MaxRepliesPerHour: 20,
   RetentionDays: 30,
@@ -35,30 +34,22 @@ describe('scope adapter', () => {
       storeMessages: true,
       allowMemoryWrite: false,
       allowHistoryRead: true,
-      toolPolicy: ['search'],
       minReplyIntervalMs: 10000,
       maxRepliesPerHour: 20,
       retentionDays: 30,
     })
   })
 
-  it('normalises a null tool policy to an empty list', () => {
-    const policy = toScopePolicy({ ...POLICY, ToolPolicy: null })
-    expect(policy.toolPolicy).toEqual([])
-  })
-
   it('mirrors WithDefaults for a legacy row with an empty mode and zero numbers', () => {
     const policy = toScopePolicy({
       ...POLICY,
       ReplyMode: '',
-      ToolPolicy: null,
       MinReplyIntervalMS: 0,
       MaxRepliesPerHour: 0,
       RetentionDays: 0,
     })
 
     expect(policy.replyMode).toBe('mention_only')
-    expect(policy.toolPolicy).toEqual([])
     expect(policy.minReplyIntervalMs).toBe(10000)
     expect(policy.maxRepliesPerHour).toBe(20)
     expect(policy.retentionDays).toBe(30)
@@ -78,14 +69,13 @@ describe('scope adapter', () => {
     expect(list[0].scopeId).toBe(555)
   })
 
-  it('always sends all nine snake_case fields on PUT', () => {
+  it('always sends every snake_case field on PUT', () => {
     const body = toScopePutBody({
       enabled: false,
       replyMode: 'observe_only',
       storeMessages: false,
       allowHistoryRead: false,
       allowMemoryWrite: false,
-      toolPolicy: [],
       minReplyIntervalMs: 10000,
       maxRepliesPerHour: 20,
       retentionDays: 30,
@@ -101,7 +91,6 @@ describe('scope adapter', () => {
         'reply_mode',
         'retention_days',
         'store_messages',
-        'tool_policy',
       ].sort(),
     )
     expect(body.reply_mode).toBe('observe_only')
@@ -110,7 +99,7 @@ describe('scope adapter', () => {
   it('round-trips a policy into the form shape', () => {
     const form = toScopeForm(toScopePolicy(POLICY))
     expect(form.replyMode).toBe('mention_only')
-    expect(form.toolPolicy).toEqual(['search'])
+    expect(form.storeMessages).toBe(true)
   })
 
   it('detects unchanged and changed forms', () => {
@@ -121,10 +110,9 @@ describe('scope adapter', () => {
 
   it('lists the risky capabilities that need confirmation', () => {
     const baseline: ScopeForm = { ...DEFAULT_SCOPE_FORM }
-    const flags = scopeDangerFlags({ ...baseline, storeMessages: true, toolPolicy: ['search'] }, baseline)
+    const flags = scopeDangerFlags({ ...baseline, storeMessages: true }, baseline)
 
-    expect(flags).toHaveLength(2)
+    expect(flags).toHaveLength(1)
     expect(flags[0]).toContain('消息内容')
-    expect(flags[1]).toContain('search')
   })
 })

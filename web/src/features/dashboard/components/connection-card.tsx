@@ -13,7 +13,8 @@ import { StatusIndicator, type StatusTone } from '../../../components/status-ind
 import { Skeleton } from '../../../components/ui/skeleton'
 import { ApiError } from '../../../lib/api/client'
 import { formatDateTime, formatRelativeTime, formatUptime, UNAVAILABLE_TEXT } from '../../../lib/format'
-import { useAccountSnapshot, useReadyz, useStatus } from '../../system/queries'
+import { useAccountContext } from '../../accounts/account-context'
+import { useReadyz, useStatus } from '../../system/queries'
 
 interface ReadinessView {
   tone: StatusTone
@@ -74,10 +75,16 @@ function describeReadiness(readyz: {
 
 export function ConnectionCard() {
   const status = useStatus()
-  const accountSnapshot = useAccountSnapshot()
+  const {
+    selectedAccount,
+    selectedBotId,
+    connected: anyConnected,
+    dbConfigured,
+    isLoading: accountsLoading,
+  } = useAccountContext()
   const readyz = useReadyz()
 
-  const isLoading = status.isLoading || accountSnapshot.isLoading
+  const isLoading = status.isLoading || accountsLoading
 
   if (isLoading) {
     return (
@@ -115,10 +122,9 @@ export function ConnectionCard() {
   }
 
   const snapshot = status.data
-  const account = accountSnapshot.data
-  const connected = account?.connected ?? snapshot?.onebot.connected ?? false
-  const selfId = account?.botId ?? snapshot?.onebot.selfId
-  const heartbeat = snapshot?.onebot.lastHeartbeat
+  const connected = selectedAccount?.connected ?? anyConnected
+  const selfId = selectedBotId
+  const heartbeat = selectedAccount?.lastHeartbeat
   const readiness = describeReadiness(readyz)
 
   return (
@@ -128,9 +134,7 @@ export function ConnectionCard() {
         <div className="min-w-0">
           <CardTitle>连接与运行</CardTitle>
           <CardDescription className="mt-1">
-            {accountSnapshot.isFallback
-              ? '数据来自 /api/v1/status 与 /readyz（当前后端未注册 /api/v1/accounts）'
-              : '数据来自 /api/v1/status、/api/v1/accounts 与 /readyz'}
+            当前账号的心跳与连接状态，运行时数据来自 /api/v1/status 与 /readyz
           </CardDescription>
         </div>
         <Badge variant={connected ? 'success' : 'warning'} className="shrink-0">
@@ -159,14 +163,12 @@ export function ConnectionCard() {
           mono={Boolean(heartbeat)}
         />
         {heartbeat ? (
-          <p className="pt-2 text-[11px] text-muted-foreground">
+          <p className="pt-2 text-meta text-muted-foreground">
             心跳时间：{formatDateTime(heartbeat)}
           </p>
         ) : null}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {account?.dbConfigured === undefined ? (
-            <Badge variant="outline">数据库状态未知</Badge>
-          ) : account.dbConfigured ? (
+          {dbConfigured ? (
             <Badge variant="accent">数据库已配置</Badge>
           ) : (
             <Badge variant="warning">数据库未配置</Badge>

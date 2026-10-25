@@ -50,7 +50,7 @@ export function MembersTable({ members }: MembersTableProps) {
                   {member.card || member.nickname || '未命名成员'}
                 </p>
                 {member.card && member.nickname ? (
-                  <p className="truncate text-[11px] text-muted-foreground">
+                  <p className="truncate text-meta text-muted-foreground">
                     昵称 {member.nickname}
                   </p>
                 ) : null}

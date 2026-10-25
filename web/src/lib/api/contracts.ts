@@ -13,39 +13,34 @@
  * - Write endpoints only accept snake_case bodies.
  */
 
-export interface OnebotStatus {
-  connected: boolean
-  selfId?: number
-  heartbeatSeen?: boolean
-  lastHeartbeat?: string
-  heartbeatIntervalMs?: number
-}
-
 export interface StatusSnapshot {
   version: string
   uptimeSeconds: number
   echoEnabled: boolean
-  onebot: OnebotStatus
   handlers: string[]
   handledEvents: number
+}
+
+/** One configured SnowLuma endpoint and the QQ account discovered on it. */
+export interface AccountSummary {
+  /** Undefined until `get_login_info` or the first event identifies the account. */
+  botId?: number
+  nickname: string
+  endpoint: string
+  expectedQq?: number
+  connected: boolean
+  selfIdKnown: boolean
+  /** Non-empty when the endpoint was refused, e.g. an unexpected QQ number. */
+  rejected?: string
+  heartbeatSeen: boolean
+  lastHeartbeat?: string
+  syncedAt?: string
 }
 
 export interface AccountsSnapshot {
   connected: boolean
   dbConfigured: boolean
-  botId?: number
-}
-
-/**
- * Connection facts merged from `/api/v1/accounts`, or from `/api/v1/status`
- * when an older backend does not register the accounts route.
- */
-export interface AccountSnapshot {
-  connected: boolean
-  botId?: number
-  /** Undefined when the source cannot tell, which is the `/status` fallback. */
-  dbConfigured?: boolean
-  source: 'accounts' | 'status'
+  accounts: AccountSummary[]
 }
 
 export interface PingState {
@@ -146,7 +141,6 @@ export interface ScopeForm {
   storeMessages: boolean
   allowHistoryRead: boolean
   allowMemoryWrite: boolean
-  toolPolicy: string[]
   minReplyIntervalMs: number
   maxRepliesPerHour: number
   retentionDays: number

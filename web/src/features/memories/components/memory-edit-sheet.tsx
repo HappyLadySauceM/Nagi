@@ -144,7 +144,7 @@ export function MemoryEditSheet({ memory, onOpenChange }: MemoryEditSheetProps) 
               />
             </FormField>
 
-            <div className="grid grid-cols-2 gap-3 text-[11px] text-muted-foreground">
+            <div className="grid grid-cols-2 gap-3 text-meta text-muted-foreground">
               <div>
                 <p className="text-muted-foreground">来源</p>
                 <p className="mt-0.5 font-mono text-foreground">{memory?.source ?? '未记录'}</p>

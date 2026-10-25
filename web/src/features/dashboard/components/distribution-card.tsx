@@ -50,7 +50,7 @@ export function DistributionCard({
           <CardDescription className="mt-1">{description}</CardDescription>
         </div>
         {rows ? (
-          <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+          <span className="shrink-0 font-mono text-meta text-muted-foreground tabular-nums">
             合计 {formatCount(total)}
           </span>
         ) : null}
@@ -96,7 +96,7 @@ export function DistributionCard({
               )
             })}
             {total === 0 ? (
-              <p className="pt-1 text-[11px] text-muted-foreground">{emptyText}</p>
+              <p className="pt-1 text-meta text-muted-foreground">{emptyText}</p>
             ) : null}
           </div>
         ) : null}

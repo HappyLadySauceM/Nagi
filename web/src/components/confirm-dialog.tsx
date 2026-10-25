@@ -47,7 +47,7 @@ export function ConfirmDialog({
         {details && details.length > 0 ? (
           <ul className="mt-3 space-y-1.5 rounded-lg border border-warning/25 bg-warning/5 p-3">
             {details.map((item) => (
-              <li key={item} className="flex gap-2 text-[11px] leading-relaxed text-warning">
+              <li key={item} className="flex gap-2 text-meta leading-relaxed text-warning">
                 <span aria-hidden>•</span>
                 <span className="text-foreground/90">{item}</span>
               </li>

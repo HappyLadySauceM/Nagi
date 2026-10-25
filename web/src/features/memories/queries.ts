@@ -21,7 +21,13 @@ export function useMemories(params: MemoryParams) {
         })}`,
         { signal },
       ).then((raw) => toMemoryPage(raw, { page: params.page, limit: params.limit })),
-    placeholderData: (previousData) => previousData,
+    // Paging keeps the previous page; switching accounts must not reuse it.
+    // 翻页保留上一页，但切换账号时不得复用其他账号的数据。
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] &&
+      (previousQuery.queryKey[2] as { botId?: number }).botId === params.botId
+        ? previousData
+        : undefined,
   })
 }
 
@@ -29,7 +35,7 @@ function useInvalidateMemories() {
   const queryClient = useQueryClient()
   return () => {
     void queryClient.invalidateQueries({ queryKey: ['memories'] })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.metrics })
+    void queryClient.invalidateQueries({ queryKey: ['metrics'] })
   }
 }
 

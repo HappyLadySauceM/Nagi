@@ -1,8 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
-import { Plus, X } from 'lucide-react'
-import { Badge } from '../../../components/ui/badge'
-import { Button } from '../../../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card'
 import { FormField } from '../../../components/form-field'
 import { Input } from '../../../components/ui/input'
@@ -49,11 +46,11 @@ function SwitchRow({
         <Label htmlFor={id} className="text-xs">
           {label}
         </Label>
-        <p id={`${id}-hint`} className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+        <p id={`${id}-hint`} className="mt-0.5 text-meta leading-relaxed text-muted-foreground">
           {description}
         </p>
         {checked && warning ? (
-          <p className="mt-1.5 rounded-md border border-warning/25 bg-warning/10 px-2 py-1 text-[11px] leading-relaxed text-warning">
+          <p className="mt-1.5 rounded-md border border-warning/25 bg-warning/10 px-2 py-1 text-meta leading-relaxed text-warning">
             {warning}
           </p>
         ) : null}
@@ -99,86 +96,11 @@ function NumberField({
           disabled={disabled}
           {...registration}
         />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-meta text-muted-foreground">
           {unit}
         </span>
       </div>
     </FormField>
-  )
-}
-
-function ToolPolicyEditor({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string[]
-  onChange: (next: string[]) => void
-  disabled: boolean
-}) {
-  const [draft, setDraft] = useState('')
-
-  const addTool = () => {
-    const tool = draft.trim()
-    if (!tool) {
-      return
-    }
-    if (!value.includes(tool)) {
-      onChange([...value, tool])
-    }
-    setDraft('')
-  }
-
-  return (
-    <div className="space-y-2.5">
-      <div className="flex gap-2">
-        <Input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="工具标识，例如 search"
-          aria-label="添加工具标识"
-          disabled={disabled}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              addTool()
-            }
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={addTool}
-          disabled={disabled || draft.trim() === ''}
-        >
-          <Plus aria-hidden />
-          添加
-        </Button>
-      </div>
-      {value.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {value.map((tool) => (
-            <Badge key={tool} variant="secondary" className="gap-1 pr-1 font-mono text-[11px]">
-              {tool}
-              <button
-                type="button"
-                aria-label={`移除工具 ${tool}`}
-                disabled={disabled}
-                className="cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:cursor-not-allowed"
-                onClick={() => onChange(value.filter((item) => item !== tool))}
-              >
-                <X className="size-3" aria-hidden />
-              </button>
-            </Badge>
-          ))}
-        </div>
-      ) : (
-        <p className="text-[11px] text-muted-foreground">
-          未授权任何工具。该作用域内的模型只能对话，不能调用外部能力。
-        </p>
-      )}
-    </div>
   )
 }
 
@@ -212,7 +134,6 @@ export function ScopeFormFields({ form, disabled = false }: ScopeFormProps) {
   const errors = formState.errors
   const enabled = watch('enabled')
   const replyMode = watch('replyMode')
-  const toolPolicy = watch('toolPolicy')
 
   return (
     <div className="space-y-3">
@@ -319,16 +240,6 @@ export function ScopeFormFields({ form, disabled = false }: ScopeFormProps) {
         </div>
       </Section>
 
-      <Section
-        title="工具白名单"
-        description="只允许列出的工具标识在该作用域被调用；留空表示不授权任何工具。"
-      >
-        <ToolPolicyEditor
-          value={toolPolicy}
-          disabled={disabled}
-          onChange={(next) => setValue('toolPolicy', next, { shouldDirty: true })}
-        />
-      </Section>
     </div>
   )
 }

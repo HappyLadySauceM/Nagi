@@ -30,8 +30,8 @@ export function AppShell() {
       >
         <Topbar />
 
-        <main className="flex-1 px-4 pb-14 pt-6 sm:px-6 lg:px-8">
-          <div className="mx-auto w-full max-w-[1440px]">
+        <main className="flex-1 px-4 pb-16 pt-6 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-[1680px]">
             {reduceMotion ? (
               <Outlet />
             ) : (

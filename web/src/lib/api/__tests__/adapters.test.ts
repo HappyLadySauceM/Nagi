@@ -9,13 +9,6 @@ describe('toStatusSnapshot', () => {
       version: '0.3.0',
       uptime_seconds: 7325,
       echo_enabled: true,
-      onebot: {
-        connected: true,
-        self_id: 10001,
-        heartbeat_seen: true,
-        last_heartbeat: '2026-10-24T12:00:00Z',
-        heartbeat_interval_ms: 30000,
-      },
       handlers: ['ping', 'echo'],
       handled_events: 42,
     })
@@ -24,29 +17,9 @@ describe('toStatusSnapshot', () => {
       version: '0.3.0',
       uptimeSeconds: 7325,
       echoEnabled: true,
-      onebot: {
-        connected: true,
-        selfId: 10001,
-        heartbeatSeen: true,
-        lastHeartbeat: '2026-10-24T12:00:00Z',
-        heartbeatIntervalMs: 30000,
-      },
       handlers: ['ping', 'echo'],
       handledEvents: 42,
     })
-  })
-
-  it('keeps the account id undefined before the first login info arrives', () => {
-    const snapshot = toStatusSnapshot({
-      version: '0.3.0',
-      uptime_seconds: 10,
-      echo_enabled: false,
-      onebot: { connected: false },
-      handlers: [],
-      handled_events: 0,
-    })
-
-    expect(snapshot.onebot.selfId).toBeUndefined()
   })
 
   it('rejects a payload without a handlers array', () => {
@@ -54,7 +27,6 @@ describe('toStatusSnapshot', () => {
       toStatusSnapshot({
         version: '0.3.0',
         uptime_seconds: 10,
-        onebot: { connected: true },
         handled_events: 0,
       }),
     ).toThrowError(ApiError)
@@ -62,17 +34,44 @@ describe('toStatusSnapshot', () => {
 })
 
 describe('toAccountsSnapshot', () => {
-  it('keeps a known bot id and the database flag', () => {
-    const snapshot = toAccountsSnapshot({ connected: true, db_configured: true, bot_id: 10001 })
+  it('maps every configured account', () => {
+    const snapshot = toAccountsSnapshot({
+      connected: true,
+      db_configured: true,
+      accounts: [
+        {
+          bot_id: 10001,
+          nickname: '小雪',
+          endpoint: 'ws://127.0.0.1:3001',
+          expected_qq: 10001,
+          connected: true,
+          self_id_known: true,
+          heartbeat_seen: true,
+          last_heartbeat: '2026-10-25T10:00:00Z',
+        },
+        {
+          endpoint: 'ws://127.0.0.1:3002',
+          connected: false,
+          self_id_known: false,
+          rejected: 'endpoint reports QQ 20002, expected 10002',
+        },
+      ],
+    })
 
-    expect(snapshot).toEqual({ connected: true, dbConfigured: true, botId: 10001 })
+    expect(snapshot.connected).toBe(true)
+    expect(snapshot.dbConfigured).toBe(true)
+    expect(snapshot.accounts).toHaveLength(2)
+    expect(snapshot.accounts[0].botId).toBe(10001)
+    expect(snapshot.accounts[0].nickname).toBe('小雪')
+    expect(snapshot.accounts[0].heartbeatSeen).toBe(true)
+    expect(snapshot.accounts[1].botId).toBeUndefined()
+    expect(snapshot.accounts[1].rejected).toContain('expected 10002')
   })
 
-  it('omits an unknown bot id', () => {
-    const snapshot = toAccountsSnapshot({ connected: false, db_configured: false })
-
-    expect(snapshot).toEqual({ connected: false, dbConfigured: false })
-    expect(snapshot.botId).toBeUndefined()
+  it('rejects a payload without an accounts array', () => {
+    expect(() => toAccountsSnapshot({ connected: false, db_configured: false })).toThrowError(
+      ApiError,
+    )
   })
 })
 

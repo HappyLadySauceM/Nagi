@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import { ApiError } from '../../lib/api/client'
 import { describeError } from '../../lib/errors'
 import { formatCount } from '../../lib/format'
 import { cn } from '../../lib/utils'
+import { useAccountContext } from '../accounts/account-context'
 import { DirectoryToolbar } from './components/directory-toolbar'
 import { MembersTable } from './components/members-table'
 import { useGroupMembers, useRefreshGroupMembers } from './queries'
@@ -28,7 +29,7 @@ const ROLE_OPTIONS = [
 function refreshFailureHint(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.kind === 'conflict') {
-      return '后端还没有可关联的机器人账号。请先在群聊页执行「同步目录」，成功后再刷新成员。'
+      return '后端还没有可关联的机器人账号。请先在联系人页执行「同步目录」，成功后再刷新成员。'
     }
     if (error.kind === 'server') {
       return '刷新成员时后端调用 OneBot 失败。请确认机器人已连接、群号有效后重试。'
@@ -38,17 +39,33 @@ function refreshFailureHint(error: unknown): string {
 }
 
 export function GroupDetailPage() {
-  const { groupId } = useParams({ from: '/groups/$groupId' })
-  const { search, page, limit, name } = useSearch({ from: '/groups/$groupId' })
-  const navigate = useNavigate({ from: '/groups/$groupId' })
+  const { groupId } = useParams({ from: '/directory/$groupId' })
+  const { search, page, limit, name } = useSearch({ from: '/directory/$groupId' })
+  const navigate = useNavigate({ from: '/directory/$groupId' })
+  const { selectedBotId, selectedAccount } = useAccountContext()
 
   const numericId = Number(groupId)
   const validGroup = Number.isInteger(numericId) && numericId > 0
   const params = { search, page, limit }
 
-  const members = useGroupMembers(numericId, params, validGroup)
-  const refresh = useRefreshGroupMembers(numericId, params)
+  const members = useGroupMembers(selectedBotId, numericId, params, validGroup)
+  const refresh = useRefreshGroupMembers(selectedBotId, numericId, params)
   const [roleFilter, setRoleFilter] = useState('')
+
+  // Entering the page refreshes once: the stored list may be empty or stale.
+  // 进入页面自动刷新一次：存量成员列表可能为空或已过期。
+  const autoRefreshed = useRef(false)
+  useEffect(() => {
+    if (!validGroup || selectedBotId === undefined || autoRefreshed.current) {
+      return
+    }
+    autoRefreshed.current = true
+    refresh.mutate(undefined, {
+      onError: (error: unknown) => {
+        console.error('auto refresh group members failed', error)
+      },
+    })
+  }, [validGroup, selectedBotId, refresh])
 
   const rows = members.data?.items ?? []
   const visibleRows = roleFilter ? rows.filter((row) => row.role === roleFilter) : rows
@@ -72,6 +89,26 @@ export function GroupDetailPage() {
     })
   }
 
+  if (selectedBotId === undefined) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="群详情" description="成员列表必须绑定具体账号。" />
+        <Card>
+          <FeedbackState
+            variant="empty"
+            title="尚未识别 QQ 账号"
+            description="请确认 SnowLuma 已登录并返回登录信息，再查看群成员。"
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link to="/accounts">查看账号连接</Link>
+              </Button>
+            }
+          />
+        </Card>
+      </div>
+    )
+  }
+
   if (!validGroup) {
     return (
       <div className="space-y-4">
@@ -83,8 +120,8 @@ export function GroupDetailPage() {
             description="地址中的群号必须是正整数，请从群聊列表重新进入。"
             action={
               <Button asChild variant="outline" size="sm">
-                <Link to="/groups" search={{ search: '', page: 1, limit: 20 }}>
-                  返回群聊
+                <Link to="/directory" search={{ tab: 'groups', search: '', page: 1, limit: 20 }}>
+                  返回联系人
                 </Link>
               </Button>
             }
@@ -98,13 +135,13 @@ export function GroupDetailPage() {
     <div className="space-y-4">
       <PageHeader
         title={name || `群 ${groupId}`}
-        description={`群号 ${groupId} · 成员列表按需从 OneBot 刷新，未刷新时展示上次同步结果。`}
+        description={`群号 ${groupId} · ${selectedAccount?.nickname || selectedBotId || '当前账号'} · 成员列表按需从 OneBot 刷新，未刷新时展示上次同步结果。`}
         actions={
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
-              <Link to="/groups" search={{ search: '', page: 1, limit: 20 }}>
+              <Link to="/directory" search={{ tab: 'groups', search: '', page: 1, limit: 20 }}>
                 <ArrowLeft aria-hidden />
-                群列表
+                联系人
               </Link>
             </Button>
             <Button
@@ -120,7 +157,10 @@ export function GroupDetailPage() {
               {refresh.isPending ? '刷新中…' : '刷新成员'}
             </Button>
             <Button asChild size="sm">
-              <Link to="/scopes/$type/$id" params={{ type: 'group', id: groupId }}>
+              <Link
+                to="/directory"
+                search={{ tab: 'groups', search: groupId, page: 1, limit: 20 }}
+              >
                 配置策略
               </Link>
             </Button>
@@ -169,7 +209,7 @@ export function GroupDetailPage() {
               ))}
             </Select>
             {roleFilter ? (
-              <span className="text-[11px] text-muted-foreground">仅过滤当前页</span>
+              <span className="text-meta text-muted-foreground">仅过滤当前页</span>
             ) : null}
           </div>
         </DirectoryToolbar>

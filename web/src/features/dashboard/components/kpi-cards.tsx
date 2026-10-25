@@ -21,7 +21,7 @@ function KpiCard({ label, hint, value, isLoading, icon: Icon }: KpiCardProps) {
       <CardContent className="flex items-start justify-between gap-3 p-5">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{label}</p>
-          <div className="mt-2.5 flex h-8 items-baseline text-[30px] font-semibold leading-none tracking-tight text-foreground">
+          <div className="mt-2.5 flex h-8 items-baseline text-display font-semibold leading-none tracking-tight text-foreground">
             {isLoading ? (
               <Skeleton className="h-7 w-20" />
             ) : value === undefined ? (
@@ -32,7 +32,7 @@ function KpiCard({ label, hint, value, isLoading, icon: Icon }: KpiCardProps) {
               <NumberTicker value={value} />
             )}
           </div>
-          <p className="mt-2 truncate text-[11px] text-muted-foreground">{hint}</p>
+          <p className="mt-2 truncate text-meta text-muted-foreground">{hint}</p>
         </div>
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary/50 text-muted-foreground transition-colors group-hover:border-primary/30 group-hover:text-primary">
           <Icon className="size-4" aria-hidden />

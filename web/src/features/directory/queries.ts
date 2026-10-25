@@ -12,64 +12,89 @@ import { DIRECTORY_QUERY_KEYS, queryKeys, type PageParams } from '../../lib/quer
 /** The backend caps sync and member refresh at 30s; leave headroom for the proxy. */
 const SYNC_TIMEOUT_MS = 35_000
 
-export function useContacts(params: PageParams) {
+export function useContacts(botId: number | undefined, params: PageParams, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.contacts(params),
+    queryKey: queryKeys.contacts(botId, params),
     queryFn: ({ signal }) =>
       apiRequest(
         `/api/v1/contacts${toQueryString({
+          bot_id: botId,
           search: params.search,
           page: params.page,
           limit: params.limit,
         })}`,
         { signal },
       ).then(toContactPage),
-    placeholderData: (previousData) => previousData,
+    enabled: enabled && botId !== undefined,
+    // Keep the previous page while paging, but never across an account switch.
+    // 翻页时保留上一页，但切换账号时不复用其他账号的数据。
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === (botId ?? null) ? previousData : undefined,
   })
 }
 
-export function useGroups(params: PageParams) {
+export function useGroups(botId: number | undefined, params: PageParams, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.groups(params),
+    queryKey: queryKeys.groups(botId, params),
     queryFn: ({ signal }) =>
       apiRequest(
         `/api/v1/groups${toQueryString({
+          bot_id: botId,
           search: params.search,
           page: params.page,
           limit: params.limit,
         })}`,
         { signal },
       ).then(toGroupPage),
-    placeholderData: (previousData) => previousData,
+    enabled: enabled && botId !== undefined,
+    // Keep the previous page while paging, but never across an account switch.
+    // 翻页时保留上一页，但切换账号时不复用其他账号的数据。
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === (botId ?? null) ? previousData : undefined,
   })
 }
 
-export function useGroupMembers(groupId: number, params: PageParams, enabled = true) {
+export function useGroupMembers(
+  botId: number | undefined,
+  groupId: number,
+  params: PageParams,
+  enabled = true,
+) {
   return useQuery({
-    queryKey: queryKeys.members(groupId, params),
+    queryKey: queryKeys.members(botId, groupId, params),
     queryFn: ({ signal }) =>
       apiRequest(
         `/api/v1/groups/${groupId}/members${toQueryString({
+          bot_id: botId,
           search: params.search,
           page: params.page,
           limit: params.limit,
         })}`,
         { signal },
       ).then(toMemberPage),
-    enabled: enabled && Number.isFinite(groupId) && groupId > 0,
-    placeholderData: (previousData) => previousData,
+    enabled: enabled && botId !== undefined && Number.isFinite(groupId) && groupId > 0,
+    // Membership notices land in the database, so a light poll keeps the open
+    // detail page in sync without a push channel.
+    // 成员变更通知已落库，轻量轮询让打开的详情页保持同步（无推送通道）。
+    refetchInterval: 30_000,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === (botId ?? null) ? previousData : undefined,
   })
 }
 
-/** Pulls friends and groups from OneBot; requires a connected bot. */
-export function useSyncDirectory() {
+/** Pulls friends and groups from OneBot for one account; requires it connected. */
+export function useSyncDirectory(botId: number | undefined) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () =>
-      apiRequest('/api/v1/directory/sync', {
+    mutationFn: () => {
+      if (botId === undefined) {
+        return Promise.reject(new Error('尚未识别账号，无法同步目录'))
+      }
+      return apiRequest(`/api/v1/accounts/${botId}/sync`, {
         method: 'POST',
         timeoutMs: SYNC_TIMEOUT_MS,
-      }).then(toDirectorySyncResult),
+      }).then(toDirectorySyncResult)
+    },
     onSuccess: () => {
       for (const queryKey of DIRECTORY_QUERY_KEYS) {
         void queryClient.invalidateQueries({ queryKey })
@@ -80,29 +105,32 @@ export function useSyncDirectory() {
   })
 }
 
-/**
- * Refreshes one group's members on demand. The backend resolves the bot id from
- * the last sync held in memory, so this fails after a process restart until the
- * directory is synced again.
- * 按需刷新群成员；后端依赖内存中最近一次同步的机器人账号，
- * 进程重启后需要重新同步目录。
- */
-export function useRefreshGroupMembers(groupId: number, params: PageParams) {
+/** Refreshes one group's members on demand; the account must be identified. */
+export function useRefreshGroupMembers(
+  botId: number | undefined,
+  groupId: number,
+  params: PageParams,
+) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () =>
-      apiRequest(
+    mutationFn: () => {
+      if (botId === undefined) {
+        return Promise.reject(new Error('尚未识别账号，无法刷新成员'))
+      }
+      return apiRequest(
         `/api/v1/groups/${groupId}/members${toQueryString({
+          bot_id: botId,
           search: params.search,
           page: params.page,
           limit: params.limit,
           refresh: 'true',
         })}`,
         { timeoutMs: SYNC_TIMEOUT_MS },
-      ).then(toMemberPage),
+      ).then(toMemberPage)
+    },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['directory', 'members', groupId] })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.groups(params) })
+      void queryClient.invalidateQueries({ queryKey: ['directory', 'members', botId ?? null] })
+      void queryClient.invalidateQueries({ queryKey: ['directory', 'groups'] })
     },
   })
 }

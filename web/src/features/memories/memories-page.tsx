@@ -27,7 +27,7 @@ import {
 import { describeError } from '../../lib/errors'
 import { formatDateTime, formatRelativeTime } from '../../lib/format'
 import { cn } from '../../lib/utils'
-import { useAccountSnapshot } from '../system/queries'
+import { useAccountContext } from '../accounts/account-context'
 import { MemoryCreateDialog } from './components/memory-create-dialog'
 import { MemoryEditSheet } from './components/memory-edit-sheet'
 import { MemoryFilters } from './components/memory-filters'
@@ -43,8 +43,7 @@ const STATUS_VARIANTS: Record<MemoryStatus, 'success' | 'warning' | 'secondary' 
 export function MemoriesPage() {
   const search = useSearch({ from: '/memories' })
   const navigate = useNavigate({ from: '/memories' })
-  const account = useAccountSnapshot()
-  const botId = account.data?.botId
+  const { selectedBotId: botId, selectedAccount } = useAccountContext()
 
   const memories = useMemories({
     search: search.search,
@@ -110,8 +109,8 @@ export function MemoriesPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="长期记忆"
-        description="候选记忆需要审批后才会被会话读取。全局共享记忆对所有会话可见，审批前请确认内容适合共享。"
+        title="知识与记忆"
+        description={`候选记忆需要审批后才会被会话读取。当前账号：${selectedAccount?.nickname || botId || '未识别'}；全局共享记忆对所有会话可见，审批前请确认内容适合共享。`}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => void memories.refetch()}>
@@ -197,7 +196,7 @@ export function MemoriesPage() {
                       {memory.content}
                     </p>
                     {memory.source ? (
-                      <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                      <p className="mt-1 truncate font-mono text-meta text-muted-foreground">
                         {memory.source}
                       </p>
                     ) : null}
@@ -214,7 +213,7 @@ export function MemoriesPage() {
                       {MEMORY_VISIBILITY_LABELS[memory.visibility]}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-[11px] text-muted-foreground tabular-nums">
+                  <TableCell className="font-mono text-meta text-muted-foreground tabular-nums">
                     {memory.ownerKey || '—'}
                   </TableCell>
                   <TableCell>

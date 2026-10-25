@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import { ThemeProvider } from '../components/theme-provider'
 import { useTheme } from '../components/theme-context'
 import { TooltipProvider } from '../components/ui/tooltip'
+import { AccountProvider } from '../features/accounts/account-provider'
 import { queryClient } from './query-client'
 
 function AppToaster() {
@@ -28,7 +29,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider delayDuration={180}>
-          {children}
+          <AccountProvider>{children}</AccountProvider>
           <AppToaster />
         </TooltipProvider>
       </ThemeProvider>

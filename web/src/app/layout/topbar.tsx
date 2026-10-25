@@ -6,16 +6,16 @@ import { StatusPill, type StatusTone } from '../../components/status-indicator'
 import { ThemeToggle } from '../../components/theme-toggle'
 import { ApiError } from '../../lib/api/client'
 import { cn } from '../../lib/utils'
-import { SYSTEM_QUERY_KEYS, useAccountSnapshot, useLivez } from '../../features/system/queries'
+import { AccountSwitcher } from '../../features/accounts/components/account-switcher'
+import { useAccountContext } from '../../features/accounts/account-context'
+import { SYSTEM_QUERY_KEYS, useLivez } from '../../features/system/queries'
 import { MobileNav } from './mobile-nav'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': '概览',
-  '/accounts': 'QQ 账号',
-  '/contacts': '联系人',
-  '/groups': '群聊',
-  '/scopes': '作用域策略',
-  '/memories': '长期记忆',
+  '/directory': '联系人',
+  '/accounts': '账号连接',
+  '/memories': '知识与记忆',
 }
 
 function resolveTitle(pathname: string): string {
@@ -23,11 +23,8 @@ function resolveTitle(pathname: string): string {
   if (exact) {
     return exact
   }
-  if (pathname.startsWith('/groups/')) {
+  if (pathname.startsWith('/directory/')) {
     return '群详情'
-  }
-  if (pathname.startsWith('/scopes/')) {
-    return '编辑策略'
   }
   return '控制台'
 }
@@ -49,7 +46,15 @@ export function Topbar() {
   const queryClient = useQueryClient()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const livez = useLivez()
-  const account = useAccountSnapshot()
+  const {
+    connected,
+    dbConfigured,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    accounts,
+  } = useAccountContext()
 
   const title = resolveTitle(pathname)
 
@@ -59,39 +64,19 @@ export function Topbar() {
       ? { tone: 'error', label: '进程离线' }
       : { tone: 'unknown', label: '检测进程' }
 
-  const accountState: { tone: StatusTone; label: string } = account.data
-    ? account.data.connected
-      ? { tone: 'ok', label: 'OneBot 已连接' }
-      : { tone: 'warn', label: 'OneBot 未连接' }
-    : account.isError
-      ? accountsTone(account.error)
-      : { tone: 'unknown', label: '检测 OneBot' }
+  const accountState: { tone: StatusTone; label: string } = isError
+    ? accountsTone(error)
+    : isLoading
+      ? { tone: 'unknown', label: '检测账号' }
+      : connected
+        ? { tone: 'ok', label: `${accounts.length} 个账号在线` }
+        : { tone: 'warn', label: '账号未连接' }
 
-  const databaseState: { tone: StatusTone; label: string } =
-    account.data?.dbConfigured === undefined
-      ? account.isError
-        ? accountsTone(account.error)
-        : { tone: 'unknown', label: account.data ? '数据库状态未知' : '检测数据库' }
-      : account.data.dbConfigured
-        ? { tone: 'ok', label: '数据库已配置' }
-        : { tone: 'warn', label: '数据库未配置' }
+  const databaseState: { tone: StatusTone; label: string } = dbConfigured
+    ? { tone: 'ok', label: '数据库已配置' }
+    : { tone: 'warn', label: '数据库未配置' }
 
-  // Narrow screens show one summarised pill instead of three, still with text.
-  const summaryState: { tone: StatusTone; label: string } = livez.isError
-    ? { tone: 'error', label: '服务离线' }
-    : account.isError
-      ? accountsTone(account.error)
-      : !account.data
-        ? { tone: 'unknown', label: '状态检测中' }
-        : !account.data.connected
-          ? { tone: 'warn', label: 'OneBot 未连接' }
-          : account.data.dbConfigured === false
-            ? { tone: 'warn', label: '数据库未配置' }
-            : account.data.dbConfigured === undefined
-              ? { tone: 'unknown', label: '数据库状态未知' }
-              : { tone: 'ok', label: '运行正常' }
-
-  const isRefreshing = livez.isFetching || account.isFetching
+  const isRefreshing = livez.isFetching || isFetching
 
   const refreshAll = () => {
     for (const queryKey of SYSTEM_QUERY_KEYS) {
@@ -101,20 +86,17 @@ export function Topbar() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/80 bg-background/85 backdrop-blur-md">
-      <div className="flex h-[60px] items-center gap-2 px-3 sm:px-5 lg:px-7">
+      <div className="flex h-16 items-center gap-2 px-3 sm:px-5 lg:px-7">
         <MobileNav />
 
-        <div className="hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+        <div className="hidden min-w-0 items-center gap-1.5 text-meta text-muted-foreground sm:flex">
           <span className="shrink-0">控制台</span>
           <ChevronRight className="size-3 shrink-0" aria-hidden />
           <span className="truncate font-medium text-foreground">{title}</span>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="sm:hidden">
-            <StatusPill tone={summaryState.tone} label={summaryState.label} live />
-          </span>
-          <div className="hidden items-center gap-1.5 sm:flex" aria-label="全局运行状态">
+          <div className="hidden items-center gap-1.5 lg:flex" aria-label="全局运行状态">
             <StatusPill
               tone={processState.tone}
               label={processState.label}
@@ -136,6 +118,8 @@ export function Topbar() {
               />
             </span>
           </div>
+
+          <AccountSwitcher />
 
           <Button
             variant="ghost"

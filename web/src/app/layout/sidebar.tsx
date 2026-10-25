@@ -8,23 +8,23 @@ import {
   TooltipTrigger,
 } from '../../components/ui/tooltip'
 import { cn } from '../../lib/utils'
-import { NAV_ITEMS, type NavItem } from './nav-items'
+import { NAV_GROUPS, type NavItem } from './nav-items'
 
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       <span
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60 text-[13px] font-semibold text-primary-foreground shadow-[0_6px_18px_-8px_hsl(var(--primary))]"
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60 text-body font-semibold text-primary-foreground shadow-[0_6px_18px_-8px_hsl(var(--primary))]"
         aria-hidden
       >
         Q
       </span>
       {compact ? null : (
         <span className="min-w-0">
-          <span className="block truncate text-[13px] font-semibold leading-tight text-sidebar-foreground">
+          <span className="block truncate text-body font-semibold leading-tight text-sidebar-foreground">
             QQBot
           </span>
-          <span className="block truncate text-[10px] leading-tight text-muted-foreground">
+          <span className="block truncate text-caption leading-tight text-muted-foreground">
             Agent Control Center
           </span>
         </span>
@@ -50,7 +50,7 @@ function SidebarLink({
       to={item.to}
       aria-current={isActive ? 'page' : undefined}
       className={cn(
-        'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors duration-150',
+        'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-body transition-colors duration-150',
         isActive
           ? 'bg-sidebar-accent text-sidebar-foreground'
           : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
@@ -102,16 +102,29 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       <div
         className={cn(
-          'flex h-[60px] items-center border-b border-sidebar-border',
+          'flex h-16 items-center border-b border-sidebar-border',
           collapsed ? 'justify-center px-2' : 'px-4',
         )}
       >
         <Brand compact={collapsed} />
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {NAV_ITEMS.map((item) => (
-          <SidebarLink key={item.to} item={item} collapsed={collapsed} />
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label}>
+            {collapsed ? (
+              <div className="mx-auto mb-2 h-px w-6 bg-sidebar-border" aria-hidden />
+            ) : (
+              <p className="px-2.5 pb-1.5 text-caption font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                {group.label}
+              </p>
+            )}
+            <div className="space-y-1">
+              {group.items.map((item) => (
+                <SidebarLink key={item.to} item={item} collapsed={collapsed} />
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
@@ -122,7 +135,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         )}
       >
         {collapsed ? null : (
-          <span className="font-mono text-[10px] text-muted-foreground">v{__APP_VERSION__}</span>
+          <span className="font-mono text-caption text-muted-foreground">v{__APP_VERSION__}</span>
         )}
         <Tooltip>
           <TooltipTrigger asChild>

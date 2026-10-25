@@ -51,7 +51,7 @@ export function DirectoryToolbar({
         {children}
       </div>
       <div className="flex items-center justify-between gap-3 lg:justify-end">
-        <span className="whitespace-nowrap text-[11px] text-muted-foreground tabular-nums">
+        <span className="whitespace-nowrap text-meta text-muted-foreground tabular-nums">
           {total === undefined ? '总数不可获取' : `共 ${formatCount(total)} ${totalLabel}`}
         </span>
         {onSync ? (

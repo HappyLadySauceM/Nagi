@@ -38,19 +38,19 @@
   }
 
   .dark {
-    --background: 223 24% 6%;
+    --background: 222 40% 7%;
     --foreground: 220 33% 97%;
-    --surface: 223 28% 10%;
-    --card: 223 23% 12%;
+    --surface: 223 32% 11%;
+    --card: 222 32% 12%;
     --card-foreground: 220 33% 97%;
-    --popover: 223 25% 11%;
+    --popover: 222 34% 12%;
     --popover-foreground: 220 33% 97%;
     --primary: 234 90% 74%;
     --primary-foreground: 232 40% 12%;
-    --secondary: 223 20% 16%;
+    --secondary: 222 24% 17%;
     --secondary-foreground: 220 25% 92%;
-    --muted: 223 20% 16%;
-    --muted-foreground: 218 15% 65%;
+    --muted: 222 24% 17%;
+    --muted-foreground: 218 16% 68%;
     --accent: 234 40% 20%;
     --accent-foreground: 232 90% 88%;
     --destructive: 351 94% 71%;
@@ -59,15 +59,15 @@
     --success-foreground: 158 60% 8%;
     --warning: 38 92% 58%;
     --warning-foreground: 32 80% 10%;
-    --border: 220 18% 20%;
-    --input: 220 18% 22%;
+    --border: 220 17% 21%;
+    --input: 220 17% 24%;
     --ring: 234 90% 74%;
-    --sidebar: 223 28% 8%;
-    --sidebar-foreground: 218 20% 88%;
-    --sidebar-accent: 234 40% 22%;
-    --sidebar-border: 220 18% 17%;
-    --glow-primary: 0.14;
-    --glow-secondary: 0.08;
+    --sidebar: 222 38% 8%;
+    --sidebar-foreground: 218 20% 90%;
+    --sidebar-accent: 234 38% 21%;
+    --sidebar-border: 220 17% 17%;
+    --glow-primary: 0.16;
+    --glow-secondary: 0.09;
   }
 
   * {
@@ -94,6 +94,7 @@
     background-attachment: fixed;
     background-repeat: no-repeat;
     font-feature-settings: 'ss01' on;
+    letter-spacing: 0.005em;
   }
 
   ::selection {

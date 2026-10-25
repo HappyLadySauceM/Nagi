@@ -1,27 +1,80 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { RefreshCw } from 'lucide-react'
+import { Avatar } from '../../components/avatar'
 import { Button } from '../../components/ui/button'
 import { PageHeader } from '../../components/page-header'
 import { formatUpdatedAt } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { DECISION_LABELS, JOB_STATUS_LABELS, MEMORY_STATUS_LABELS } from '../../lib/api/contracts'
-import { SYSTEM_QUERY_KEYS, useAccounts, useMetrics, useStatus } from '../system/queries'
+import { accountLabel, useAccountContext } from '../accounts/account-context'
+import { SYSTEM_QUERY_KEYS, useMetrics, useStatus } from '../system/queries'
 import { ConnectionCard } from './components/connection-card'
 import { DistributionCard, type DistributionRow } from './components/distribution-card'
 import { KpiCards } from './components/kpi-cards'
 
+function AccountStrip() {
+  const { accounts, selectedBotId, selectAccount } = useAccountContext()
+
+  if (accounts.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-card/60 p-2">
+      {accounts.map((account) => {
+        const active = account.botId !== undefined && account.botId === selectedBotId
+        const tone = account.rejected
+          ? 'bg-destructive'
+          : account.connected
+            ? 'bg-success'
+            : 'bg-warning'
+        return (
+          <button
+            key={account.endpoint + String(account.botId ?? '')}
+            type="button"
+            disabled={account.botId === undefined}
+            onClick={() => {
+              if (account.botId !== undefined) {
+                selectAccount(account.botId)
+              }
+            }}
+            className={cn(
+              'flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60',
+              active ? 'bg-primary/10 ring-1 ring-primary/30' : 'hover:bg-secondary/60',
+            )}
+          >
+            <Avatar id={account.botId} name={accountLabel(account)} size="sm" className="size-7" />
+            <span className="min-w-0">
+              <span className="block max-w-[130px] truncate text-meta font-medium text-foreground">
+                {accountLabel(account)}
+              </span>
+              <span className="flex items-center gap-1 text-caption text-muted-foreground">
+                <span className={cn('size-1.5 rounded-full', tone)} aria-hidden />
+                {account.botId ?? '待识别'}
+              </span>
+            </span>
+          </button>
+        )
+      })}
+      <Link
+        to="/accounts"
+        className="ml-auto rounded-lg px-2 py-1.5 text-meta text-muted-foreground transition-colors hover:text-foreground"
+      >
+        管理账号连接
+      </Link>
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const queryClient = useQueryClient()
-  const metrics = useMetrics()
+  const { selectedBotId, selectedAccount } = useAccountContext()
+  const metrics = useMetrics(selectedBotId)
   const status = useStatus()
-  const accounts = useAccounts()
 
-  const refreshedAt = Math.max(
-    metrics.dataUpdatedAt,
-    status.dataUpdatedAt,
-    accounts.dataUpdatedAt,
-  )
-  const isRefreshing = metrics.isFetching || status.isFetching || accounts.isFetching
+  const refreshedAt = Math.max(metrics.dataUpdatedAt, status.dataUpdatedAt)
+  const isRefreshing = metrics.isFetching || status.isFetching
 
   const refreshAll = () => {
     for (const queryKey of SYSTEM_QUERY_KEYS) {
@@ -53,10 +106,14 @@ export function DashboardPage() {
     <div className="space-y-4">
       <PageHeader
         title="概览"
-        description="机器人连接、消息与意图决策的实时聚合。所有数字均来自后端聚合计数，不使用推测值。"
+        description={
+          selectedAccount
+            ? `当前账号 ${accountLabel(selectedAccount)} 的连接、消息与决策聚合。所有数字来自后端计数，不使用推测值。`
+            : '账号连接、消息与意图决策的实时聚合。所有数字来自后端计数，不使用推测值。'
+        }
         actions={
           <div className="flex items-center gap-2">
-            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+            <span className="hidden text-meta text-muted-foreground sm:inline">
               更新于 {formatUpdatedAt(refreshedAt)}
             </span>
             <Button variant="outline" size="sm" onClick={refreshAll} disabled={isRefreshing}>
@@ -66,6 +123,8 @@ export function DashboardPage() {
           </div>
         }
       />
+
+      <AccountStrip />
 
       <KpiCards metrics={metrics.data} isLoading={metrics.isLoading} isError={metrics.isError} />
 
