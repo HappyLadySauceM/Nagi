@@ -15,7 +15,7 @@
 
 | 依赖 | 说明 |
 | --- | --- |
-| Go 1.22+ | `go.mod` 声明 1.22 |
+| Go 1.26+ | `go.mod` 声明最低 1.26.0，本地可用更高补丁版（当前用 1.27.2 构建） |
 | SnowLuma | 已登录目标 QQ 账号，并在 WebUI 中配置 OneBot v11 **正向 WS 服务端** |
 | Docker + Compose | `docker compose up -d` 启动 PostgreSQL 16(pgvector) 与 Langfuse 全栈 |
 | PostgreSQL 16（可选） | 未配置 DSN 时机器人仍可运行，但只有 echo 与状态接口 |
@@ -156,10 +156,15 @@ observability:
   public-key: "pk-lf-qqbot-local"
   secret-key: "sk-lf-qqbot-local"
   ingestion-version: "4"
+  environment: "local"        # deployment.environment 资源属性，留空不写
   export-raw-content: false   # true 时导出 prompt 与回复全文
+  user-id-secret: ""          # openssl rand -hex 32；至少 32 字符，留空则无用户维度
+  raw-identifiers: false      # true 时直接导出原始 QQ 号，仅建议本机调试
 ```
 
 `export-raw-content=false` 时只导出结构化骨架；为 true 时聊天正文也会进入本地 Langfuse。
+用户维度二选一：`user-id-secret` 生成稳定 HMAC 假名（占位符或少于 32 字符会被拒绝，启动日志给出原因并关闭该维度）；
+`raw-identifiers=true` 则直接写入发送者 QQ、机器人 QQ 与群号/私聊对象，启动时会额外告警，需自行限制 Langfuse 访问。
 凭据缺失或导出失败只影响追踪，不影响聊天链路。
 
 ## 验证
