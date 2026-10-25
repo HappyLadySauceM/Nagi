@@ -112,9 +112,16 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   独立于聊天历史授权的发言元数据）→ Jev 语义判定（畸形或越界响应视为不可用，
   降级为仅响应明确 @/引用）→ `ReplyPolicy` 输出 reply/silent/defer 与 reason_code，
   落 `intent_decisions` 供评估。
-- `internal/agent`：OpenAI 兼容 `ChatModel`、上下文构建（系统提示 + 授权历史 + 记忆）、
-  输出净化（长度上限、@全体去除、出站链接关闭式拒绝）、发送前二次作用域复核、出站回写；
-  发送超时按 unknown 记录（结果未知不盲目重发），其余失败按 failed 记录。
+- `internal/agent`：`contracts.Runtime` 业务端口；`infrastructure/eino` 用 ADK
+  `ChatModelAgent` + `Runner` 实现生成，事件迭代器消费到终态，`agent.max-steps` 与
+  `agent.max-run-duration` 限定循环与总时长；`application/replier.go` 保留上下文构建
+  （系统提示 + 授权历史）、输出净化（长度上限、@全体去除、出站链接关闭式拒绝）、发送前二次
+  作用域复核与出站回写。发送超时按 unknown 记录（结果未知不盲目重发），其余失败按 failed 记录。
+- `internal/plugins`：`contracts` 定义 `Manifest`/`ToolDescriptor`/`ToolProvider`；
+  `application` 提供启动注册（ID 冲突检测、失败回滚、启用列表、不可变快照）与服务端守卫
+  （权限、账号/目标绑定、超时、结果大小）；`infrastructure` 提供内置只读工具与 Eino 工具适配。
+  工具调用产生的 `qqbot.tool` span 记录 `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据
+  处理，不进入系统提示。
 - `internal/memory`：长期记忆。候选 → 去重 → 管理员审批 → 激活；检索先按
   `bot_id + visibility + owner_key + status` 过滤（bot_shared / group / private_user /
   conversation），embedding 向量列留待选定模型后添加。

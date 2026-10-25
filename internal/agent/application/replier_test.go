@@ -17,6 +17,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	agentcontracts "github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
 	agentdomain "github.com/HappyLadySauceM/QQBot/internal/agent/domain"
 	intentdomain "github.com/HappyLadySauceM/QQBot/internal/intent/domain"
 	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
@@ -28,22 +29,22 @@ func replierLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// fakeModel returns canned text and records the request.
-// fakeModel 返回预置文本并记录请求。
-type fakeModel struct {
-	req   agentdomain.ChatRequest
+// fakeRuntime returns canned text and records the request.
+// fakeRuntime 返回预置文本并记录请求。
+type fakeRuntime struct {
+	req   agentcontracts.Request
 	text  string
 	err   error
 	calls int
 }
 
-func (f *fakeModel) Generate(_ context.Context, req agentdomain.ChatRequest) (agentdomain.ChatResult, error) {
+func (f *fakeRuntime) Run(_ context.Context, req agentcontracts.Request) (agentcontracts.Result, error) {
 	f.calls++
 	f.req = req
 	if f.err != nil {
-		return agentdomain.ChatResult{}, f.err
+		return agentcontracts.Result{}, f.err
 	}
-	return agentdomain.ChatResult{Text: f.text, Model: "test-model", CompletionTokens: 5}, nil
+	return agentcontracts.Result{Text: f.text, Model: "test-model", OutputUsage: 5}, nil
 }
 
 // fakeSender records outgoing sends and reports a canned message id.
@@ -121,10 +122,10 @@ func replierKey(v int64) string {
 	return string(b)
 }
 
-func newReplier(t *testing.T, model *fakeModel, sender *fakeSender, rec *fakeRecorder, policies map[string]scopedomain.Policy) *Replier {
+func newReplier(t *testing.T, fake *fakeRuntime, sender *fakeSender, rec *fakeRecorder, policies map[string]scopedomain.Policy) *Replier {
 	t.Helper()
 	r, err := NewReplier(Options{
-		Model: model, Scopes: &replierScopes{policies: policies},
+		Runtime: fake, Scopes: &replierScopes{policies: policies},
 		Senders: sender, Recorder: rec, BotName: "小雪", Logger: replierLogger(),
 	})
 	if err != nil {
@@ -151,10 +152,10 @@ func enabledGroupPolicy() map[string]scopedomain.Policy {
 // and the outbound record.
 // TestReplierSendsAndRecordsGroupReply 验证生成、带 @ 段的群发与出站回写。
 func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
-	model := &fakeModel{text: "  适合，看你要做什么。 "}
+	fake := &fakeRuntime{text: "  适合，看你要做什么。 "}
 	sender := &fakeSender{}
 	rec := &fakeRecorder{}
-	r := newReplier(t, model, sender, rec, enabledGroupPolicy())
+	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
 
 	history := []intentdomain.Message{
 		{MessageID: 5000, SenderID: 200, Text: "小雪，Go 合适吗？"},
@@ -163,15 +164,15 @@ func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), history); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if model.calls != 1 {
-		t.Fatalf("model calls = %d", model.calls)
+	if fake.calls != 1 {
+		t.Fatalf("model calls = %d", fake.calls)
 	}
 	// Roles: system + history user + history assistant + current user.
 	// 角色：system + 历史用户 + 历史助手 + 当前用户。
-	if len(model.req.Messages) != 4 ||
-		model.req.Messages[0].Role != "system" ||
-		model.req.Messages[2].Role != "assistant" {
-		t.Fatalf("messages = %+v", model.req.Messages)
+	if len(fake.req.Messages) != 4 ||
+		fake.req.Messages[0].Role != "system" ||
+		fake.req.Messages[2].Role != "assistant" {
+		t.Fatalf("messages = %+v", fake.req.Messages)
 	}
 	if len(sender.group) != 1 || sender.group[0] != 700 {
 		t.Fatalf("group sends = %v", sender.group)
@@ -190,16 +191,16 @@ func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 // TestReplierDropsWhenScopeDisabled verifies the pre-send scope re-check.
 // TestReplierDropsWhenScopeDisabled 验证发送前的作用域复核。
 func TestReplierDropsWhenScopeDisabled(t *testing.T) {
-	model := &fakeModel{text: "hello"}
+	fake := &fakeRuntime{text: "hello"}
 	sender := &fakeSender{}
 	rec := &fakeRecorder{}
-	r := newReplier(t, model, sender, rec, map[string]scopedomain.Policy{
+	r := newReplier(t, fake, sender, rec, map[string]scopedomain.Policy{
 		scopeKey(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: false},
 	})
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if model.calls != 0 || len(sender.group) != 0 || len(rec.statuses) != 0 {
+	if fake.calls != 0 || len(sender.group) != 0 || len(rec.statuses) != 0 {
 		t.Fatal("disabled scope must not generate, send or record")
 	}
 }
@@ -207,10 +208,10 @@ func TestReplierDropsWhenScopeDisabled(t *testing.T) {
 // TestReplierRecordsFailedSend verifies failed sends are recorded, not retried.
 // TestReplierRecordsFailedSend 验证发送失败会被记录而非盲目重试。
 func TestReplierRecordsFailedSend(t *testing.T) {
-	model := &fakeModel{text: "回复内容"}
+	fake := &fakeRuntime{text: "回复内容"}
 	sender := &fakeSender{err: fmt.Errorf("onebot: action failed retcode=1200")}
 	rec := &fakeRecorder{}
-	r := newReplier(t, model, sender, rec, enabledGroupPolicy())
+	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
 
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -228,10 +229,10 @@ func TestReplierRecordsFailedSend(t *testing.T) {
 // TestReplierRecordsUnknownOnTimeout 验证超时发送按 unknown 持久化，
 // 因为投递结果无法确认。
 func TestReplierRecordsUnknownOnTimeout(t *testing.T) {
-	model := &fakeModel{text: "回复内容"}
+	fake := &fakeRuntime{text: "回复内容"}
 	sender := &fakeSender{err: fmt.Errorf("onebot: wait action send_group_msg response: %w", obcontracts.ErrActionTimeout)}
 	rec := &fakeRecorder{}
-	r := newReplier(t, model, sender, rec, enabledGroupPolicy())
+	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
 
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -266,9 +267,9 @@ func TestReplierAttributesSentStatusOnSpan(t *testing.T) {
 				_ = provider.Shutdown(context.Background())
 			})
 
-			model := &fakeModel{text: "回复内容"}
+			fake := &fakeRuntime{text: "回复内容"}
 			sender := &fakeSender{err: tc.sendErr, msgID: 4242}
-			r := newReplier(t, model, sender, &fakeRecorder{}, enabledGroupPolicy())
+			r := newReplier(t, fake, sender, &fakeRecorder{}, enabledGroupPolicy())
 			if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 				t.Fatalf("execute: %v", err)
 			}
@@ -295,10 +296,10 @@ func TestReplierAttributesSentStatusOnSpan(t *testing.T) {
 // outbound record for later reply-to-bot matching.
 // TestReplierRecordsPlatformMessageID 验证回执 ID 进入出站记录，供后续引用判定匹配。
 func TestReplierRecordsPlatformMessageID(t *testing.T) {
-	model := &fakeModel{text: "回复内容"}
+	fake := &fakeRuntime{text: "回复内容"}
 	sender := &fakeSender{msgID: 778899}
 	rec := &fakeRecorder{}
-	r := newReplier(t, model, sender, rec, enabledGroupPolicy())
+	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
 
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -323,8 +324,8 @@ func TestReplierDetectsTimeoutSentinelCrossWrapping(t *testing.T) {
 // current message in history is not appended a second time.
 // TestReplierIncludesCurrentMessageOnce 验证历史中已落库的当前消息不会被再次追加。
 func TestReplierIncludesCurrentMessageOnce(t *testing.T) {
-	model := &fakeModel{text: "回复内容"}
-	r := newReplier(t, model, &fakeSender{}, &fakeRecorder{}, enabledGroupPolicy())
+	fake := &fakeRuntime{text: "回复内容"}
+	r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, enabledGroupPolicy())
 	history := []intentdomain.Message{
 		{MessageID: 4001, SenderID: 200, Text: "早先的提问"},
 		{MessageID: 4002, SenderID: 100, IsBot: true, Text: "早先的回答"},
@@ -335,21 +336,21 @@ func TestReplierIncludesCurrentMessageOnce(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	occurrences := 0
-	for _, message := range model.req.Messages {
+	for _, message := range fake.req.Messages {
 		if strings.Contains(message.Content, "那你觉得呢？") {
 			occurrences++
 		}
 	}
 	if occurrences != 1 {
-		t.Fatalf("current message appears %d times, want 1: %+v", occurrences, model.req.Messages)
+		t.Fatalf("current message appears %d times, want 1: %+v", occurrences, fake.req.Messages)
 	}
-	if len(model.req.Messages) != 4 {
-		t.Fatalf("messages = %d, want system + 2 history + current", len(model.req.Messages))
+	if len(fake.req.Messages) != 4 {
+		t.Fatalf("messages = %d, want system + 2 history + current", len(fake.req.Messages))
 	}
-	if !strings.Contains(model.req.Messages[1].Content, "早先的提问") {
-		t.Fatalf("older history must survive dedup: %+v", model.req.Messages[1])
+	if !strings.Contains(fake.req.Messages[1].Content, "早先的提问") {
+		t.Fatalf("older history must survive dedup: %+v", fake.req.Messages[1])
 	}
-	last := model.req.Messages[len(model.req.Messages)-1]
+	last := fake.req.Messages[len(fake.req.Messages)-1]
 	if last.Role != "user" || !strings.Contains(last.Content, "那你觉得呢？") {
 		t.Fatalf("current message must stay last: %+v", last)
 	}
@@ -359,8 +360,8 @@ func TestReplierIncludesCurrentMessageOnce(t *testing.T) {
 // entries when the current message has no platform id.
 // TestReplierKeepsHistoryWithoutMessageID 验证当前消息没有平台 ID 时不去重历史项。
 func TestReplierKeepsHistoryWithoutMessageID(t *testing.T) {
-	model := &fakeModel{text: "回复内容"}
-	r := newReplier(t, model, &fakeSender{}, &fakeRecorder{}, enabledGroupPolicy())
+	fake := &fakeRuntime{text: "回复内容"}
+	r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, enabledGroupPolicy())
 	task := groupTaskForAgent()
 	task.Message.MessageID = 0
 	history := []intentdomain.Message{
@@ -371,7 +372,7 @@ func TestReplierKeepsHistoryWithoutMessageID(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	occurrences := 0
-	for _, message := range model.req.Messages {
+	for _, message := range fake.req.Messages {
 		if strings.Contains(message.Content, "那你觉得呢？") {
 			occurrences++
 		}
@@ -416,11 +417,12 @@ func TestTraceMessagesJSONIsBoundedAndValid(t *testing.T) {
 	}
 }
 
-// TestReplierMarksTraceAsGeneration verifies the span carries the metadata
-// Langfuse needs to render a structured generation.
-// TestReplierMarksTraceAsGeneration 验证 span 携带 Langfuse 渲染结构化 generation
-// 所需的元数据。
-func TestReplierMarksTraceAsGeneration(t *testing.T) {
+// TestReplierAttributesGenerationMetadata verifies the run span reports usage
+// and model, and leaves the generation type to Eino's model callback so one
+// model call is never counted twice.
+// TestReplierAttributesGenerationMetadata 验证运行 span 只报告用量与模型，
+// generation 类型交给 Eino 模型回调，避免一次模型调用被重复计数。
+func TestReplierAttributesGenerationMetadata(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	previous := otel.GetTracerProvider()
@@ -430,7 +432,7 @@ func TestReplierMarksTraceAsGeneration(t *testing.T) {
 		_ = provider.Shutdown(context.Background())
 	})
 
-	r := newReplier(t, &fakeModel{text: "回复内容"}, &fakeSender{msgID: 1}, &fakeRecorder{}, enabledGroupPolicy())
+	r := newReplier(t, &fakeRuntime{text: "回复内容"}, &fakeSender{msgID: 1}, &fakeRecorder{}, enabledGroupPolicy())
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -444,24 +446,23 @@ func TestReplierMarksTraceAsGeneration(t *testing.T) {
 			attrs[string(kv.Key)] = kv.Value.Emit()
 		}
 	}
-	if attrs["langfuse.observation.type"] != "generation" {
-		t.Fatalf("observation type = %q", attrs["langfuse.observation.type"])
+	if _, ok := attrs["langfuse.observation.type"]; ok {
+		t.Fatalf("the run span must not claim the generation type: %q", attrs["langfuse.observation.type"])
 	}
-	if attrs["langfuse.observation.model.name"] != "test-model" {
-		t.Fatalf("model name = %q", attrs["langfuse.observation.model.name"])
+	if attrs["qqbot.model"] != "test-model" {
+		t.Fatalf("model = %q", attrs["qqbot.model"])
 	}
-	var usage map[string]int64
-	if err := json.Unmarshal([]byte(attrs["langfuse.observation.usage_details"]), &usage); err != nil {
-		t.Fatalf("usage details must be valid JSON: %v", err)
+	if attrs["qqbot.usage.output"] != "5" {
+		t.Fatalf("output usage = %q", attrs["qqbot.usage.output"])
 	}
-	if usage["total"] != 5 {
-		t.Fatalf("usage = %v", usage)
+	if _, ok := attrs["langfuse.observation.model.name"]; ok {
+		t.Fatal("the run span must not carry a model attribute that infers a generation")
 	}
 	if attrs["qqbot.trace.truncated"] != "false" {
 		t.Fatalf("truncated = %q, want false", attrs["qqbot.trace.truncated"])
 	}
-	if _, ok := attrs["gen_ai.usage.prompt_tokens"]; ok {
-		t.Fatal("token usage must be reported once, through usage_details")
+	if _, ok := attrs["langfuse.observation.usage_details"]; ok {
+		t.Fatal("model usage belongs to the Eino callback, not the run span")
 	}
 }
 
@@ -488,10 +489,10 @@ func TestTraceMessagesJSONMarksSmallPayloadsUncut(t *testing.T) {
 // TestReplierSkipsEmptyReply verifies empty generations never send.
 // TestReplierSkipsEmptyReply 验证空生成绝不发送。
 func TestReplierSkipsEmptyReply(t *testing.T) {
-	model := &fakeModel{text: "   @全体成员  "}
+	fake := &fakeRuntime{text: "   @全体成员  "}
 	sender := &fakeSender{}
 	rec := &fakeRecorder{}
-	r := newReplier(t, model, sender, rec, enabledGroupPolicy())
+	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
 
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)

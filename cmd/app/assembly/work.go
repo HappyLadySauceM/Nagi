@@ -3,13 +3,19 @@
 package assembly
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/cloudwego/eino/components/tool"
+
 	svc "github.com/HappyLadySauceM/QQBot/cmd/app/svc"
+	agentcontracts "github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
 	auditcontracts "github.com/HappyLadySauceM/QQBot/internal/audit/contracts"
 	auditinfra "github.com/HappyLadySauceM/QQBot/internal/audit/infrastructure"
 	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
@@ -26,6 +32,9 @@ import (
 	observabilityinfra "github.com/HappyLadySauceM/QQBot/internal/observability/infrastructure"
 	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
 	obinfra "github.com/HappyLadySauceM/QQBot/internal/onebot/infrastructure"
+	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
+	pluginscontracts "github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/QQBot/internal/plugins/infrastructure/builtin"
 	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
 	scopeinfra "github.com/HappyLadySauceM/QQBot/internal/scope/infrastructure"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
@@ -72,6 +81,12 @@ type Runtime struct {
 	// Stats may be nil when pool is nil.
 	// pool 为 nil 时 Stats 可为 nil。
 	Stats svc.StatsProvider
+	// ShutdownLangfuse flushes the Eino callback; nil when it is not wired.
+	// ShutdownLangfuse 刷新 Eino 回调；未接入时为 nil。
+	ShutdownLangfuse func(context.Context) error
+	// CloseTools releases registered tool providers; nil when none are wired.
+	// CloseTools 释放已注册的工具提供方；未接入时为 nil。
+	CloseTools func(context.Context) error
 }
 
 // Assemble wires one connection per configured endpoint, registers the shared
@@ -79,7 +94,7 @@ type Runtime struct {
 // builds the directory, scope, conversation and memory services.
 // Assemble 为每个已配置端点装配一条连接，把共享处理器注册到每个分发器，
 // 并在提供数据库连接池时装配目录、作用域、会话与记忆服务。
-func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*Runtime, error) {
+func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provider *sdktrace.TracerProvider) (*Runtime, error) {
 	registry := svc.NewAccounts()
 	accounts := make([]*AccountRuntime, 0, len(cfg.Onebot.Endpoints))
 	for _, endpoint := range cfg.Onebot.Endpoints {
@@ -168,9 +183,31 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*Run
 			return nil, membershipErr
 		}
 		handlers = append(handlers, membership)
-		executor, executorErr := buildReplyExecutor(cfg, logger, pool, rt.Scope, rt.Conversation, rt.Memory, registry)
+		callbacks := buildLangfuseCallback(cfg, logger, provider)
+		var toolsResolver func(context.Context, agentcontracts.Request) []tool.BaseTool
+		if cfg.AI.Enabled {
+			toolRegistry := pluginsapp.NewRegistry(cfg.Tools.Enabled)
+			providers := []pluginscontracts.ToolProvider{
+				builtin.NewTimeProvider(),
+				builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
+			}
+			for _, providerImpl := range providers {
+				if registerErr := toolRegistry.Register(context.Background(), providerImpl); registerErr != nil {
+					_ = toolRegistry.Close(context.Background())
+					return nil, registerErr
+				}
+			}
+			rt.CloseTools = toolRegistry.Close
+			logger.Info("tools registered", "count", len(toolRegistry.Snapshot()), "enabled", cfg.Tools.Enabled)
+			toolsResolver = buildToolsResolver(cfg, toolRegistry)
+		}
+		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, toolsResolver)
 		if executorErr != nil {
 			return nil, executorErr
+		}
+		if callbacks != nil {
+			handler := callbacks
+			rt.ShutdownLangfuse = func(ctx context.Context) error { return handler.Shutdown(ctx) }
 		}
 		if rt.Worker, err = buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor, identities); err != nil {
 			return nil, err
@@ -244,4 +281,20 @@ func buildBuiltins(cfg *config.Config, accounts *svc.Accounts) ([]botcontracts.H
 		handlers = append(handlers, echoinfra.NewHandler(service, cfg.Echo.Prefix))
 	}
 	return handlers, nil
+}
+
+// groupInfoResolver adapts the account registry to the tool's narrow port.
+// groupInfoResolver 把账号注册表适配为工具所需的窄接口。
+type groupInfoResolver struct {
+	accounts *svc.Accounts
+}
+
+// GroupInfoReader resolves the query client of one account.
+// GroupInfoReader 解析单个账号的查询客户端。
+func (r groupInfoResolver) GroupInfoReader(botID int64) (builtin.GroupInfoReader, bool) {
+	reader, ok := r.accounts.InfoReader(botID)
+	if !ok {
+		return nil, false
+	}
+	return reader, true
 }

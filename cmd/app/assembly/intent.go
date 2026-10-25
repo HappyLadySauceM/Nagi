@@ -7,10 +7,16 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/jackc/pgx/v5/pgxpool"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
 
 	agentapp "github.com/HappyLadySauceM/QQBot/internal/agent/application"
-	agentinfra "github.com/HappyLadySauceM/QQBot/internal/agent/infrastructure"
+	agentcontracts "github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
+	einoinfra "github.com/HappyLadySauceM/QQBot/internal/agent/infrastructure/eino"
 	conversationapp "github.com/HappyLadySauceM/QQBot/internal/conversation/application"
 	conversationdomain "github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/QQBot/internal/conversation/infrastructure"
@@ -18,9 +24,10 @@ import (
 	intentcontracts "github.com/HappyLadySauceM/QQBot/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/QQBot/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/QQBot/internal/intent/infrastructure"
-	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
-	memorydomain "github.com/HappyLadySauceM/QQBot/internal/memory/domain"
 	"github.com/HappyLadySauceM/QQBot/internal/observability"
+	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
+	pluginscontracts "github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	einoTools "github.com/HappyLadySauceM/QQBot/internal/plugins/infrastructure/eino"
 	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
 )
@@ -89,66 +96,107 @@ func (a activityReader) BotReplyMeta(ctx context.Context, conversationID string)
 	return a.svc.BotReplyMeta(ctx, conversationID)
 }
 
-// memoryFinder adapts the memory service to the agent memory port.
-// memoryFinder 将记忆服务适配为 agent 的记忆端口。
-type memoryFinder struct {
-	svc *memoryapp.Service
+// buildToolsResolver returns the per-run tool snapshot. The registry is static
+// after startup, so the snapshot is a cheap copy; the guard binds each call to
+// the message scope and the granted permissions.
+// buildToolsResolver 返回单次运行的工具快照。注册表在启动后是静态的，
+// 快照只是廉价复制；守卫把每次调用绑定到消息作用域与已授予权限。
+func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(context.Context, agentcontracts.Request) []tool.BaseTool {
+	return func(_ context.Context, req agentcontracts.Request) []tool.BaseTool {
+		snapshot := registry.Snapshot()
+		if len(snapshot) == 0 {
+			return nil
+		}
+		permissions := make(map[string]bool, len(snapshot))
+		for _, registered := range snapshot {
+			if registered.Descriptor.Permission != "" {
+				permissions[registered.Descriptor.Permission] = true
+			}
+		}
+		scope := pluginsapp.Scope{
+			BotID:          req.BotID,
+			ConversationID: req.ConversationID,
+			Kind:           req.Kind,
+			TargetID:       req.TargetID,
+			SenderID:       req.SenderID,
+			Permissions:    permissions,
+			Timeout:        cfg.Tools.Timeout.D(),
+			MaxResultBytes: cfg.Tools.MaxResultBytes,
+		}
+		wrapped := make([]pluginscontracts.RegisteredTool, 0, len(snapshot))
+		for _, registered := range snapshot {
+			registered.Invoke = pluginsapp.Guard(scope, registered.Descriptor, registered.Invoke)
+			wrapped = append(wrapped, registered)
+		}
+		return einoTools.ToBaseTools(wrapped)
+	}
 }
 
-// Find converts visible memories into prompt snippets.
-// Find 将可见记忆转换为提示词片段。
-func (m memoryFinder) Find(ctx context.Context, botID int64, kind string, targetID int64, query string, limit int) ([]string, error) {
-	memories, err := m.svc.SearchVisible(ctx, memorydomain.SearchRequest{
-		BotID: botID, Kind: kind, TargetID: targetID, Query: query, Limit: limit,
+// buildLangfuseCallback wires the Eino callback when telemetry and raw content
+// export are both enabled; the callback exports model messages, so it follows
+// the same privacy gate as the business spans.
+// buildLangfuseCallback 在遥测与正文导出同时开启时接入 Eino 回调；
+// 回调会导出模型消息，因此沿用与业务 span 相同的隐私门控。
+func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sdktrace.TracerProvider) *langfusecb.CallbackHandler {
+	if provider == nil || !cfg.AI.Enabled || !cfg.Observability.Enabled {
+		return nil
+	}
+	if !cfg.Observability.ExportRawContent {
+		logger.Info("eino langfuse callback disabled: export-raw-content=false")
+		return nil
+	}
+	handler, err := einoinfra.NewLangfuseHandler(context.Background(), provider, einoinfra.LangfuseConfig{
+		BaseURL:     cfg.Observability.BaseURL,
+		PublicKey:   cfg.Observability.PublicKey,
+		SecretKey:   cfg.Observability.SecretKey,
+		Environment: cfg.Observability.Environment,
 	})
 	if err != nil {
-		return nil, err
+		logger.Warn("eino langfuse callback disabled", "error", err)
+		return nil
 	}
-	out := make([]string, 0, len(memories))
-	for _, mem := range memories {
-		out = append(out, mem.Content)
-	}
-	return out, nil
+	return handler
 }
 
-// buildReplyExecutor wires the LLM reply executor when AI generation is enabled.
-// ai.enabled 时装配 LLM 回复执行器。
-func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
-	scope *scopeapp.Service, conv *conversationapp.Service, memory *memoryapp.Service, senders agentapp.SenderResolver,
+// buildReplyExecutor wires the Eino-backed reply executor when generation is
+// enabled. Long-term memory is deliberately not part of this stage.
+// ai.enabled 时装配 Eino 驱动的回复执行器；本阶段刻意不接入长期记忆。
+func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
+	scope *scopeapp.Service, conv *conversationapp.Service, senders agentapp.SenderResolver,
+	handler *langfusecb.CallbackHandler,
+	tools func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool,
 ) (intentcontracts.ReplyExecutor, error) {
 	if !cfg.AI.Enabled || pool == nil || scope == nil || conv == nil {
 		return nil, nil
 	}
-	apiKey := cfg.AI.APIKey
-	model, err := agentinfra.NewOpenAI(agentinfra.OpenAIConfig{
+	runtimeCfg := einoinfra.Config{
 		BaseURL:         cfg.AI.BaseURL,
-		APIKey:          apiKey,
+		APIKey:          cfg.AI.APIKey,
 		Model:           cfg.AI.Model,
-		Timeout:         cfg.AI.GenerationTimeout.D(),
 		MaxOutputTokens: cfg.AI.MaxOutputTokens,
-	})
+		Timeout:         cfg.Agent.MaxRunDuration.D(),
+		HTTPTimeout:     cfg.AI.GenerationTimeout.D(),
+		MaxSteps:        cfg.Agent.MaxSteps,
+		Tools:           tools,
+	}
+	if handler != nil {
+		// Register per run so the callback never becomes global state.
+		// 按 Run 注册，避免回调变成全局状态。
+		runtimeCfg.Handlers = []callbacks.Handler{handler}
+	}
+	runtime, err := einoinfra.NewRuntime(ctx, runtimeCfg)
 	if err != nil {
 		return nil, err
 	}
 	return agentapp.NewReplier(agentapp.Options{
-		Model:     model,
+		Runtime:   runtime,
 		Scopes:    scope,
 		Senders:   senders,
 		Recorder:  conv,
-		Memory:    memoryFinderAdapt(memory),
 		BotName:   cfg.Intent.BotName,
 		MaxTokens: cfg.AI.MaxOutputTokens,
 		Logger:    logger,
 	})
-}
-
-// memoryFinderAdapt returns nil when the memory service is absent.
-// memoryFinderAdapt 在记忆服务缺失时返回 nil。
-func memoryFinderAdapt(memory *memoryapp.Service) agentapp.MemoryFinder {
-	if memory == nil {
-		return nil
-	}
-	return memoryFinder{svc: memory}
 }
 
 // buildWorker wires the decision pipeline and bounded worker when intent is enabled.

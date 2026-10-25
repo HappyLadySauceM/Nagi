@@ -145,6 +145,31 @@ type Intent struct {
 	HistoryLimit          int      `yaml:"history-limit"`
 }
 
+// Agent 是 Agent 运行时的执行限制。
+// Agent holds the runtime limits of one reply generation.
+type Agent struct {
+	// MaxSteps 限制 ReAct 循环轮数，防止工具调用死循环。
+	// MaxSteps bounds the ReAct loop so tool calls cannot spin forever.
+	MaxSteps int `yaml:"max-steps"`
+	// MaxRunDuration 是单次运行的总时长上限（含模型与工具调用）。
+	// MaxRunDuration bounds one run including model and tool calls.
+	MaxRunDuration Duration `yaml:"max-run-duration"`
+}
+
+// Tools 是工具注册与调用限制。
+// Tools configures tool registration and per-call limits.
+type Tools struct {
+	// Enabled 列出启用的提供方 ID（如 builtin.time）；为空时不暴露任何工具。
+	// Enabled lists provider IDs (e.g. builtin.time); empty exposes no tools.
+	Enabled []string `yaml:"enabled"`
+	// Timeout 限制单次工具调用，默认 5s。
+	// Timeout bounds one tool call; defaults to 5s.
+	Timeout Duration `yaml:"timeout"`
+	// MaxResultBytes 限制回给模型的结果大小，超出即拒绝。
+	// MaxResultBytes bounds the result size returned to the model.
+	MaxResultBytes int `yaml:"max-result-bytes"`
+}
+
 // Observability 是 OpenTelemetry/Langfuse 观测配置域；地址与凭据直接写在配置文件中。
 // Observability is the OpenTelemetry/Langfuse config domain; endpoint and credentials are plain values.
 type Observability struct {
@@ -187,6 +212,8 @@ type Config struct {
 	Database      Database      `yaml:"database"`
 	Worker        Worker        `yaml:"worker"`
 	AI            AI            `yaml:"ai"`
+	Agent         Agent         `yaml:"agent"`
+	Tools         Tools         `yaml:"tools"`
 	Intent        Intent        `yaml:"intent"`
 	Observability Observability `yaml:"observability"`
 }
@@ -214,6 +241,14 @@ func defaults() Config {
 		AI: AI{
 			GenerationTimeout: Duration(25 * time.Second),
 			MaxOutputTokens:   400,
+		},
+		Agent: Agent{
+			MaxSteps:       6,
+			MaxRunDuration: Duration(30 * time.Second),
+		},
+		Tools: Tools{
+			Timeout:        Duration(5 * time.Second),
+			MaxResultBytes: 8192,
 		},
 		Intent: Intent{
 			Provider:              "jev",
@@ -370,6 +405,15 @@ func (c *Config) Validate() error {
 		if c.AI.GenerationTimeout.D() <= 0 || c.AI.MaxOutputTokens <= 0 {
 			return fmt.Errorf("config: ai 超时与输出上限必须为正数")
 		}
+	}
+	if c.Agent.MaxSteps <= 0 {
+		return fmt.Errorf("config: agent.max-steps 必须为正数")
+	}
+	if c.Agent.MaxRunDuration.D() <= 0 {
+		return fmt.Errorf("config: agent.max-run-duration 必须为正数")
+	}
+	if c.Tools.Timeout.D() <= 0 || c.Tools.MaxResultBytes <= 0 {
+		return fmt.Errorf("config: tools.timeout 与 tools.max-result-bytes 必须为正数")
 	}
 	if c.Intent.Enabled {
 		if c.Intent.Provider != "jev" {

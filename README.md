@@ -5,7 +5,7 @@
 
 - 协议层：OneBot v11 正向 WebSocket，38 个标准动作，CQ 码/段数组双形态
 - 账号层：多个 SnowLuma 端点并行连接，启动后用 `get_login_info` 自动识别 QQ 号并按账号隔离数据
-- 业务层：目录同步、作用域授权（默认全关）、会话持久化、有界工作器、意图决策、LLM 回复、长期记忆
+- 业务层：目录同步、作用域授权（默认全关）、会话持久化、有界工作器、意图决策、Eino Agent 回复与工具调用、长期记忆
 - 运维层：管理 HTTP API、Bearer 鉴权与审计、聚合指标、可选 Langfuse 追踪
 
 架构细节与分层约定见 [`docs/architecture.md`](docs/architecture.md)，
@@ -166,6 +166,27 @@ observability:
 用户维度二选一：`user-id-secret` 生成稳定 HMAC 假名（占位符或少于 32 字符会被拒绝，启动日志给出原因并关闭该维度）；
 `raw-identifiers=true` 则直接写入发送者 QQ、机器人 QQ 与群号/私聊对象，启动时会额外告警，需自行限制 Langfuse 访问。
 凭据缺失或导出失败只影响追踪，不影响聊天链路。
+
+## Agent 运行时与工具
+
+回复生成由 Eino ADK 的 `ChatModelAgent` + `Runner` 完成，业务侧仍由 `ReplyExecutor` 负责作用域复核、
+出站净化、发送与状态回写。相关配置：
+
+```yaml
+agent:
+  max-steps: 6            # ReAct 循环上限（含工具轮次）
+  max-run-duration: 30s   # 单次运行总超时（含模型与工具）
+
+tools:
+  enabled: [builtin.time, builtin.qq]   # 为空时不暴露任何工具
+  timeout: 5s             # 单次工具调用超时
+  max-result-bytes: 8192  # 结果过大即拒绝
+```
+
+首批工具均为只读：`system.current_time`；`qq.get_group_info`（权限 `qq.group.read`，只查询当前
+BotID 与当前会话群，模型无法传入任意群号）。工具调用在服务端做权限、账号与目标绑定校验，结果按不可信
+数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace，
+仅在 `observability.export-raw-content=true` 时启用（否则会导出模型消息正文）。
 
 ## 验证
 

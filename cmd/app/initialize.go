@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/HappyLadySauceM/QQBot/cmd/app/assembly"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/options"
@@ -58,8 +59,11 @@ func Run(ctx context.Context, opts options.Options) error {
 	}
 
 	// Telemetry setup happens first so early spans are captured; its shutdown is
-	// deferred and never fails the app.
+	// deferred and never fails the app. The provider is handed to the assembly
+	// so Eino callbacks export through the same pipeline.
 	// 观测初始化先执行以捕获早期 span；其关闭被 defer 且不影响应用退出。
+	// Provider 传给组装根，使 Eino 回调复用同一条管线。
+	var tracerProvider *sdktrace.TracerProvider
 	if cfg.Observability.Enabled {
 		telemetry, telemetryErr := observability.Setup(ctx, observability.Config{
 			BaseURL:          cfg.Observability.BaseURL,
@@ -72,6 +76,7 @@ func Run(ctx context.Context, opts options.Options) error {
 		if telemetryErr != nil {
 			return telemetryErr
 		}
+		tracerProvider = telemetry.Provider
 		defer func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -88,9 +93,29 @@ func Run(ctx context.Context, opts options.Options) error {
 	if pool != nil {
 		defer pool.Close()
 	}
-	rt, err := assembly.Assemble(cfg, logger, pool)
+	rt, err := assembly.Assemble(cfg, logger, pool, tracerProvider)
 	if err != nil {
 		return err
+	}
+	// The Eino callback must flush before the shared provider shuts down.
+	// Eino 回调必须先于共享 Provider 关闭完成刷新。
+	if rt.CloseTools != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rt.CloseTools(shutdownCtx); err != nil {
+				logger.Warn("tool provider shutdown failed", "error", err)
+			}
+		}()
+	}
+	if rt.ShutdownLangfuse != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rt.ShutdownLangfuse(shutdownCtx); err != nil {
+				logger.Warn("langfuse callback shutdown failed", "error", err)
+			}
+		}()
 	}
 	dispatchers := make([]*botapp.Dispatcher, 0, len(rt.Accounts))
 	for _, account := range rt.Accounts {

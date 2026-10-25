@@ -21,22 +21,6 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
-// ChatRequest is one generation request; MaxTokens bounds the reply length.
-// ChatRequest 是一次生成请求；MaxTokens 限制回复长度。
-type ChatRequest struct {
-	Messages  []ChatMessage
-	MaxTokens int
-}
-
-// ChatResult is one generation result with usage information.
-// ChatResult 是一次生成结果及用量信息。
-type ChatResult struct {
-	Text             string
-	Model            string
-	PromptTokens     int64
-	CompletionTokens int64
-}
-
 // MaxReplyRunes bounds the sent reply length after generation.
 // MaxReplyRunes 限制发送回复的最大字符数。
 const MaxReplyRunes = 500

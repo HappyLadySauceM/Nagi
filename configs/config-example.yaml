@@ -69,6 +69,21 @@ ai:
   generation-timeout: 25s
   max-output-tokens: 400
 
+agent:
+  # ReAct 循环轮数上限（含工具调用轮次），超过即报错结束
+  max-steps: 6
+  # 单次回复运行总时长上限（含模型与工具调用）
+  max-run-duration: 30s
+
+tools:
+  # 启用的工具提供方 ID；为空时不向模型暴露任何工具
+  # builtin.time: system.current_time；builtin.qq: qq.get_group_info（仅当前群）
+  enabled: [builtin.time, builtin.qq]
+  # 单次工具调用超时
+  timeout: 5s
+  # 回给模型的结果字节上限，超出即拒绝
+  max-result-bytes: 8192
+
 intent:
   # 意图决策（TypeSafe Jev / SystemOne）。密钥直接填写，留空时降级为
   # 仅响应明确 @/引用，绝不自动插话。
