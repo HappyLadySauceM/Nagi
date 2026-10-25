@@ -72,13 +72,23 @@ ai:
 agent:
   # ReAct 循环轮数上限（含工具调用轮次），超过即报错结束
   max-steps: 6
+  # 单次运行的累计工具调用次数上限；用尽后模型收到提示并直接作答
+  max-tool-calls: 5
   # 单次回复运行总时长上限（含模型与工具调用）
   max-run-duration: 30s
 
 tools:
-  # 启用的工具提供方 ID；为空时不向模型暴露任何工具
+  # 启用的工具提供方 ID；为空时不向模型暴露任何工具。
+  # 写错 ID 会导致启动失败，错误信息会列出已知提供方。
   # builtin.time: system.current_time；builtin.qq: qq.get_group_info（仅当前群）
   enabled: [builtin.time, builtin.qq]
+  # 按权限标识覆盖默认基线；未列出的权限保持兜底规则（只读允许、其余拒绝）。
+  # 作用域策略中的 tool_permissions 优先级更高。
+  # 例：permission-defaults:
+  #       qq.group.read: true
+  permission-defaults: {}
+  # 为 true 时才可能暴露非只读工具；默认 false，带副作用的工具始终不可见
+  allow-side-effects: false
   # 单次工具调用超时
   timeout: 5s
   # 回给模型的结果字节上限，超出即拒绝
@@ -112,8 +122,9 @@ observability:
   public-key: "pk-lf-qqbot-local"
   secret-key: "sk-lf-qqbot-local"
   ingestion-version: "4"
-  # 开启后会导出消息正文（prompt 与回复全文），只在本地环境按需开启
-  export-raw-content: false
+  # 默认导出消息正文（prompt、回复与工具结果），使 Langfuse 详情页可直接阅读；
+  # 设为 false 时 span 结构、耗时与用量照常导出，正文替换为 redacted 占位。
+  export-raw-content: true
   # 标记部署环境（如 local/staging/prod），作为 deployment.environment 资源属性；
   # 留空时不写该属性
   environment: "local"

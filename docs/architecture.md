@@ -102,7 +102,8 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 - `internal/directory`：经账号注册表按 `bot_id` 取对应 `InfoReader` 同步好友/群/成员
   （upsert + last_seen），所有同步与查询都显式携带 `bot_id`，不存在“最近同步账号”兜底。
 - `internal/scope`：作用域策略（群/私聊）。默认拒绝（全部关闭），写穿缓存即时生效；
-  `scope/contracts.Authorizer` 是唯一授权入口。
+  `scope/contracts.Authorizer` 是唯一授权入口。`tool_permissions` 保存该作用域的工具权限显式覆盖
+  （迁移 `0007`），只记录与默认基线不同的项，调整默认值不会改写已存行。
 - `internal/conversation`：`AIIngress` Handler（`bot/contracts.Handler`）只做作用域检查与
   事务入库（消息 + `message_jobs` 同事务、平台事件去重）即返回，绝不在 Dispatcher 内等待
   LLM/Jev；有界 worker 以 `FOR UPDATE SKIP LOCKED` 原子认领任务（`processing` 状态），
@@ -113,24 +114,31 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   降级为仅响应明确 @/引用）→ `ReplyPolicy` 输出 reply/silent/defer 与 reason_code，
   落 `intent_decisions` 供评估。
 - `internal/agent`：`contracts.Runtime` 业务端口；`infrastructure/eino` 用 ADK
-  `ChatModelAgent` + `Runner` 实现生成，事件迭代器消费到终态，`agent.max-steps` 与
-  `agent.max-run-duration` 限定循环与总时长；`application/replier.go` 保留上下文构建
-  （系统提示 + 授权历史）、输出净化（长度上限、@全体去除、出站链接关闭式拒绝）、发送前二次
-  作用域复核与出站回写。发送超时按 unknown 记录（结果未知不盲目重发），其余失败按 failed 记录。
+  `ChatModelAgent` + `Runner` 实现生成，事件迭代器消费到终态，`agent.max-steps`、
+  `agent.max-tool-calls` 与 `agent.max-run-duration` 限定循环、工具调用次数与总时长；
+  请求级 `MaxOutputTokens` 按预算选用模型（默认预算复用共享模型，其余按值缓存）。
+  `application/replier.go` 保留上下文构建（系统提示 + 授权历史）、输出净化（长度上限、@全体去除、
+  出站链接关闭式拒绝）、发送前二次作用域复核与出站回写；工具运行摘要经 `Request.OnToolRun`
+  回传到 `Result.ToolRuns`，写入 `qqbot.agent.tools_exposed`/`tool_calls`/`tool_summary`。
+  发送超时按 unknown 记录（结果未知不盲目重发），其余失败按 failed 记录。
 - `internal/plugins`：`contracts` 定义 `Manifest`/`ToolDescriptor`/`ToolProvider`；
-  `application` 提供启动注册（ID 冲突检测、失败回滚、启用列表、不可变快照）与服务端守卫
-  （权限、账号/目标绑定、超时、结果大小）；`infrastructure` 提供内置只读工具与 Eino 工具适配。
-  工具调用产生的 `qqbot.tool` span 记录 `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据
-  处理，不进入系统提示。
+  `application` 提供启动注册（ID 冲突检测、失败回滚、启用列表、不可变快照）、权限解析
+  （作用域覆盖 > 配置默认 > 描述符兜底）与服务端守卫（权限、账号/目标绑定、超时、结果大小）。
+  未授权的工具不会进入模型工具列表，执行前 Guard 用同一份授予集合再校验，并上报 `ToolRun`。
+  `infrastructure` 提供内置只读工具与 Eino 工具适配。工具调用产生的 `qqbot.tool` span 记录
+  `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据处理，不进入系统提示。
+  注册表同时提供 `Enabled`/`Known`/`Unknown`，`tools.enabled` 写错提供方 ID 会让启动失败。
 - `internal/memory`：长期记忆。候选 → 去重 → 管理员审批 → 激活；检索先按
   `bot_id + visibility + owner_key + status` 过滤（bot_shared / group / private_user /
   conversation），embedding 向量列留待选定模型后添加。
 - `internal/observability`：OTel 全局 tracer + 可选 Langfuse OTLP/HTTP 导出（Basic Auth、
   v4 ingestion header、默认关闭、凭据缺失保持 no-op）；`GET /api/v1/metrics` 提供聚合计数。
-  span 默认不记录消息正文，`export-raw-content=true` 时才导出有界 JSON；会话维度用 conversation id，
-  用户维度默认是 HMAC 假名（无可用密钥则不写），`raw-identifiers=true` 时改为原始 QQ 号。
-  入站消息的 W3C traceparent 随 `message_jobs` 落库，工作器恢复父上下文，因此一条消息的 ingress、
-  意图、生成与发送共享一条 trace。
+  `RecordObservation` 为每个业务 span 写入 `langfuse.observation.input/output`，内容受
+  `export-raw-content`（默认 true）控制；关闭时写入 `{"redacted":true}`，结构与指标照常导出。
+  会话维度用 conversation id，用户维度默认是 HMAC 假名（无可用密钥则不写），
+  `raw-identifiers=true` 时改为原始 QQ 号。入站消息的 W3C traceparent 随 `message_jobs` 落库，
+  工作器恢复父上下文，因此一条消息的 ingress、意图、生成与发送共享一条 trace；Eino 回调始终启用
+  并共享同一 `TracerProvider`，内部 `Init`/`Lambda`/`ReAct` 包装已收敛。
 
 ### 管理 API（全部经 `{code,message,data}` 信封）
 
@@ -139,6 +147,7 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 - `GET/PUT /api/v1/scopes(/{type}/{id})`
 - `GET/POST/PATCH/DELETE /api/v1/memories(/{id})`
 - `GET /api/v1/metrics`
+- `GET /api/v1/tools`
 
 配置 `server.admin-token` 后，以上接口需要
 `Authorization: Bearer <token>`；变更类请求写入 `admin_audit_logs`。数据库未配置时，

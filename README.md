@@ -71,6 +71,7 @@ SnowLuma 的 WS 服务端强制校验 token，不带或填错会被拒绝握手�
 | GET/PUT | `/api/v1/scopes` `/api/v1/scopes/{type}/{id}` | 作用域策略 |
 | GET/POST/PATCH/DELETE | `/api/v1/memories` `/api/v1/memories/{id}` | 长期记忆 |
 | GET | `/api/v1/metrics` | 消息、任务、决策、记忆聚合计数 |
+| GET | `/api/v1/tools` | 已注册工具、权限项与默认授予状态 |
 
 ## 打开一个作用域的对话
 
@@ -157,15 +158,20 @@ observability:
   secret-key: "sk-lf-qqbot-local"
   ingestion-version: "4"
   environment: "local"        # deployment.environment 资源属性，留空不写
-  export-raw-content: false   # true 时导出 prompt 与回复全文
+  export-raw-content: true    # 默认导出 prompt、回复与工具结果；false 时正文打码
   user-id-secret: ""          # openssl rand -hex 32；至少 32 字符，留空则无用户维度
   raw-identifiers: false      # true 时直接导出原始 QQ 号，仅建议本机调试
 ```
 
-`export-raw-content=false` 时只导出结构化骨架；为 true 时聊天正文也会进入本地 Langfuse。
+`export-raw-content=true`（默认）时消息正文与工具参数/结果都会进入 Langfuse；设为 false 时 span 结构、
+耗时与 token 用量照常导出，正文替换为 `{"redacted":true}`，详情页不会出现空白。
 用户维度二选一：`user-id-secret` 生成稳定 HMAC 假名（占位符或少于 32 字符会被拒绝，启动日志给出原因并关闭该维度）；
 `raw-identifiers=true` 则直接写入发送者 QQ、机器人 QQ 与群号/私聊对象，启动时会额外告警，需自行限制 Langfuse 访问。
 凭据缺失或导出失败只影响追踪，不影响聊天链路。
+
+一条消息的每个业务节点都会写入 `langfuse.observation.input/output`：入站判定、作用域结果、规则结论、
+Jev 分数、最终决策与原因、Agent 提示与回复、输出净化、发送状态、任务终态，因此详情页可以直接阅读，
+不需要展开 Attributes。Eino 内部 `Init`/`Lambda`/`ReAct` 包装已收敛，trace 保持 `agent → 模型/工具` 的结构。
 
 ## Agent 运行时与工具
 
@@ -175,18 +181,33 @@ observability:
 ```yaml
 agent:
   max-steps: 6            # ReAct 循环上限（含工具轮次）
+  max-tool-calls: 5       # 单次运行的累计工具调用上限
   max-run-duration: 30s   # 单次运行总超时（含模型与工具）
 
 tools:
-  enabled: [builtin.time, builtin.qq]   # 为空时不暴露任何工具
+  enabled: [builtin.time, builtin.qq]   # 为空时不暴露任何工具；写错 ID 启动失败
+  permission-defaults: {} # 按权限覆盖默认基线（未列出的只读允许、其余拒绝）
+  allow-side-effects: false  # true 才可能暴露非只读工具
   timeout: 5s             # 单次工具调用超时
   max-result-bytes: 8192  # 结果过大即拒绝
 ```
 
 首批工具均为只读：`system.current_time`；`qq.get_group_info`（权限 `qq.group.read`，只查询当前
 BotID 与当前会话群，模型无法传入任意群号）。工具调用在服务端做权限、账号与目标绑定校验，结果按不可信
-数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace，
-仅在 `observability.export-raw-content=true` 时启用（否则会导出模型消息正文）。
+数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace。
+
+### 工具权限模型
+
+实际可用的工具由三层共同决定：
+
+1. **进程层**：`tools.enabled` 决定哪些提供方被载入，未启用的提供方不注册、也不出现在清单中。
+2. **默认基线**：`tools.permission-defaults` 覆盖描述符兜底；未配置时只读工具默认允许，写操作/群管理默认拒绝。
+   非只读工具还需要 `allow-side-effects: true` 才会暴露。
+3. **作用域层**：`scope_policies.tool_permissions` 保存每个群/私聊的显式覆盖（如 `{"qq.group.read": false}`），
+   优先级最高；被撤销的工具不会出现在模型工具列表中，执行前 Guard 还会再校验一次。
+
+`GET /api/v1/tools` 返回真正注册成功的工具与权限项（含默认授予状态），控制台的作用域弹窗据此渲染
+「能力授权」区块；提交未知权限会被拒绝，避免存入无效策略。
 
 ## 本地开发环境
 
