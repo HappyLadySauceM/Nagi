@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
 )
@@ -19,12 +18,6 @@ import (
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
-
-// fakeStatus returns a fixed connection snapshot.
-// fakeStatus 返回固定的连接快照。
-type fakeStatus struct{ status obcontracts.BotStatus }
-
-func (f *fakeStatus) Status() obcontracts.BotStatus { return f.status }
 
 // fakeAuthorizer resolves policies from a map and records calls.
 // fakeAuthorizer 从映射解析策略并记录调用。
@@ -90,9 +83,9 @@ func groupEvent(senderID obdomain.UserID, selfID obdomain.BotID) obdomain.Event 
 	}
 }
 
-func newTestIngress(t *testing.T, auth *fakeAuthorizer, ingest *fakeIngestor, status obcontracts.BotStatus) *Ingress {
+func newTestIngress(t *testing.T, auth *fakeAuthorizer, ingest *fakeIngestor) *Ingress {
 	t.Helper()
-	h, err := NewIngress(ingest, auth, &fakeStatus{status: status}, discardLogger())
+	h, err := NewIngress(ingest, auth, discardLogger())
 	if err != nil {
 		t.Fatalf("new ingress: %v", err)
 	}
@@ -105,10 +98,10 @@ func newTestIngress(t *testing.T, auth *fakeAuthorizer, ingest *fakeIngestor, st
 func TestIngressSkipsOwnMessages(t *testing.T) {
 	auth := &fakeAuthorizer{policies: map[string]scopedomain.Policy{}}
 	ingest := &fakeIngestor{}
-	h := newTestIngress(t, auth, ingest, obcontracts.BotStatus{Connected: true, SelfIDKnown: true, SelfID: 100})
+	h := newTestIngress(t, auth, ingest)
 
 	event := groupEvent(100, 100) // sender == self
-	if err := h.Handle(context.Background(), event); err != nil {
+	if err := h.Handle(context.Background(), 100, event); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if auth.resolves != 0 || len(ingest.inputs) != 0 {
@@ -124,9 +117,9 @@ func TestIngressDropsUnauthorizedContent(t *testing.T) {
 		scopedomainScopeKey(100, "group", 700): {Enabled: false},
 	}}
 	ingest := &fakeIngestor{}
-	h := newTestIngress(t, auth, ingest, obcontracts.BotStatus{Connected: true, SelfIDKnown: true, SelfID: 100})
+	h := newTestIngress(t, auth, ingest)
 
-	if err := h.Handle(context.Background(), groupEvent(200, 100)); err != nil {
+	if err := h.Handle(context.Background(), 100, groupEvent(200, 100)); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if len(ingest.inputs) != 0 {
@@ -134,15 +127,15 @@ func TestIngressDropsUnauthorizedContent(t *testing.T) {
 	}
 }
 
-// TestIngressIgnoresEventsBeforeSelfKnown verifies the handler is inert until the
-// bot id is known.
-// TestIngressIgnoresEventsBeforeSelfKnown 验证在获知机器人 ID 前处理器不动作。
-func TestIngressIgnoresEventsBeforeSelfKnown(t *testing.T) {
+// TestIngressIgnoresEventsWithoutAccount verifies the handler is inert when the
+// dispatcher could not resolve an account.
+// TestIngressIgnoresEventsWithoutAccount 验证无法解析账号时处理器不动作。
+func TestIngressIgnoresEventsWithoutAccount(t *testing.T) {
 	auth := &fakeAuthorizer{policies: map[string]scopedomain.Policy{}}
 	ingest := &fakeIngestor{}
-	h := newTestIngress(t, auth, ingest, obcontracts.BotStatus{})
+	h := newTestIngress(t, auth, ingest)
 
-	if err := h.Handle(context.Background(), groupEvent(200, 0)); err != nil {
+	if err := h.Handle(context.Background(), 0, groupEvent(200, 0)); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if auth.resolves != 0 || len(ingest.inputs) != 0 {
@@ -158,13 +151,13 @@ func TestIngressIngestsAuthorizedGroupMessage(t *testing.T) {
 		scopedomainScopeKey(100, "group", 700): {Enabled: true, StoreMessages: true},
 	}}
 	ingest := &fakeIngestor{}
-	h := newTestIngress(t, auth, ingest, obcontracts.BotStatus{Connected: true, SelfIDKnown: true, SelfID: 100})
+	h := newTestIngress(t, auth, ingest)
 
 	event := groupEvent(200, 100)
 	if !h.Match(event) {
 		t.Fatal("message event should match")
 	}
-	if err := h.Handle(context.Background(), event); err != nil {
+	if err := h.Handle(context.Background(), 100, event); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if len(ingest.inputs) != 1 {

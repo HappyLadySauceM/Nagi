@@ -11,42 +11,49 @@ import (
 	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 )
 
-// Service answers simple commands through a contracts.Sender.
-// Service 通过 contracts.Sender 应答简单指令。
-type Service struct {
-	sender obcontracts.Sender
-	prefix string
+// SenderResolver resolves the sender bound to one account; replies must never
+// leave through another account.
+// SenderResolver 解析账号绑定的发送能力；应答不得从其他账号发出。
+type SenderResolver interface {
+	Sender(botID int64) (obcontracts.Sender, bool)
 }
 
-// NewService binds the service to a sender.
-// NewService 将服务绑定到发送端口。
-func NewService(sender obcontracts.Sender, prefix string) (*Service, error) {
-	if sender == nil {
-		return nil, fmt.Errorf("echo: sender required")
+// Service answers simple commands through the originating account's sender.
+// Service 通过来源账号的发送端口应答简单指令。
+type Service struct {
+	senders SenderResolver
+	prefix  string
+}
+
+// NewService binds the service to an account-aware sender resolver.
+// NewService 将服务绑定到按账号解析的发送端口。
+func NewService(senders SenderResolver, prefix string) (*Service, error) {
+	if senders == nil {
+		return nil, fmt.Errorf("echo: sender resolver required")
 	}
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" {
 		return nil, fmt.Errorf("echo: prefix required")
 	}
-	return &Service{sender: sender, prefix: prefix}, nil
+	return &Service{senders: senders, prefix: prefix}, nil
 }
 
 // Prefix returns the configured command prefix.
 // Prefix 返回配置的指令前缀。
 func (s *Service) Prefix() string { return s.prefix }
 
-// HandlePing replies pong to a bare "ping" message.
-// HandlePing 对内容为 ping 的消息回复 pong。
-func (s *Service) HandlePing(ctx context.Context, event domain.Event) error {
+// HandlePing replies pong to a bare "ping" message from the given account.
+// HandlePing 对指定账号收到的内容为 ping 的消息回复 pong。
+func (s *Service) HandlePing(ctx context.Context, botID domain.BotID, event domain.Event) error {
 	if strings.TrimSpace(event.Text()) != "ping" {
 		return nil
 	}
-	return s.reply(ctx, event, domain.Text("pong"))
+	return s.reply(ctx, botID, event, domain.Text("pong"))
 }
 
 // HandleEchoCommand replies with the text after the configured prefix.
 // HandleEchoCommand 复读前缀之后的文本。
-func (s *Service) HandleEchoCommand(ctx context.Context, event domain.Event) error {
+func (s *Service) HandleEchoCommand(ctx context.Context, botID domain.BotID, event domain.Event) error {
 	text := strings.TrimSpace(event.Text())
 	rest, ok := strings.CutPrefix(text, s.prefix)
 	if !ok {
@@ -54,16 +61,20 @@ func (s *Service) HandleEchoCommand(ctx context.Context, event domain.Event) err
 	}
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
-		return s.reply(ctx, event, domain.Text(fmt.Sprintf("usage: %s <text>", s.prefix)))
+		return s.reply(ctx, botID, event, domain.Text(fmt.Sprintf("usage: %s <text>", s.prefix)))
 	}
-	return s.reply(ctx, event, domain.Text(rest))
+	return s.reply(ctx, botID, event, domain.Text(rest))
 }
 
 // reply routes the answer to the originating group or private chat.
 // reply 将应答发送回来源群聊或私聊。
-func (s *Service) reply(ctx context.Context, event domain.Event, segments ...domain.Segment) error {
-	if event.InGroup() {
-		return s.sender.SendGroupMessage(ctx, event.GroupID, segments...)
+func (s *Service) reply(ctx context.Context, botID domain.BotID, event domain.Event, segments ...domain.Segment) error {
+	sender, ok := s.senders.Sender(int64(botID))
+	if !ok {
+		return fmt.Errorf("echo: bot %d is not connected", int64(botID))
 	}
-	return s.sender.SendPrivateMessage(ctx, event.UserID, segments...)
+	if event.InGroup() {
+		return sender.SendGroupMessage(ctx, event.GroupID, segments...)
+	}
+	return sender.SendPrivateMessage(ctx, event.UserID, segments...)
 }

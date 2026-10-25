@@ -25,12 +25,20 @@ func NewStatsRepo(pool *pgxpool.Pool) (*StatsRepo, error) {
 }
 
 // Stats returns aggregate counters for decisions, jobs, messages and memories.
+// botID 0 aggregates every account; a positive id filters to that account.
 // Stats 返回决策、任务、消息与记忆的聚合计数。
-func (r *StatsRepo) Stats(ctx context.Context) (map[string]any, error) {
+// botID 为 0 时汇总全部账号；正数时只统计该账号。
+func (r *StatsRepo) Stats(ctx context.Context, botID int64) (map[string]any, error) {
 	out := make(map[string]any)
 
 	jobs := map[string]int64{}
-	rows, err := r.pool.Query(ctx, `SELECT status, count(*) FROM message_jobs GROUP BY status`)
+	rows, err := r.pool.Query(ctx, `
+		SELECT j.status, count(*)
+		FROM message_jobs j
+		JOIN messages m ON m.id = j.incoming_message_id
+		WHERE ($1 = 0 OR m.bot_id = $1)
+		GROUP BY j.status
+	`, botID)
 	if err != nil {
 		return nil, fmt.Errorf("observability: job stats: %w", err)
 	}
@@ -53,10 +61,13 @@ func (r *StatsRepo) Stats(ctx context.Context) (map[string]any, error) {
 	}
 	decisions := []reasonCount{}
 	rows, err = r.pool.Query(ctx, `
-		SELECT decision, reason_code, count(*) FROM intent_decisions
-		WHERE created_at > now() - interval '24 hours'
-		GROUP BY decision, reason_code ORDER BY count DESC
-	`)
+		SELECT d.decision, d.reason_code, count(*)
+		FROM intent_decisions d
+		JOIN message_jobs j ON j.id = d.job_id
+		JOIN messages m ON m.id = j.incoming_message_id
+		WHERE d.created_at > now() - interval '24 hours' AND ($1 = 0 OR m.bot_id = $1)
+		GROUP BY d.decision, d.reason_code ORDER BY count DESC
+	`, botID)
 	if err != nil {
 		return nil, fmt.Errorf("observability: decision stats: %w", err)
 	}
@@ -73,14 +84,19 @@ func (r *StatsRepo) Stats(ctx context.Context) (map[string]any, error) {
 
 	var messages24h int64
 	if err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM messages WHERE created_at > now() - interval '24 hours'`,
+		`SELECT count(*) FROM messages WHERE created_at > now() - interval '24 hours' AND ($1 = 0 OR bot_id = $1)`,
+		botID,
 	).Scan(&messages24h); err != nil {
 		return nil, fmt.Errorf("observability: message stats: %w", err)
 	}
 	out["messages_24h"] = messages24h
 
 	memories := map[string]int64{}
-	rows, err = r.pool.Query(ctx, `SELECT status, count(*) FROM memories GROUP BY status`)
+	rows, err = r.pool.Query(ctx, `
+		SELECT status, count(*) FROM memories
+		WHERE ($1 = 0 OR bot_id = $1)
+		GROUP BY status
+	`, botID)
 	if err != nil {
 		return nil, fmt.Errorf("observability: memory stats: %w", err)
 	}

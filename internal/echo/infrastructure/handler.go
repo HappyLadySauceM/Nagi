@@ -40,12 +40,12 @@ func (h *Handler) Match(event domain.Event) bool {
 	return text == h.prefix || strings.HasPrefix(text, h.prefix+" ")
 }
 
-// Handle implements bot contracts.Handler.
-// Handle 实现 bot contracts.Handler。
-func (h *Handler) Handle(ctx context.Context, event domain.Event) error {
+// Handle implements bot contracts.Handler; replies leave through the same account.
+// Handle 实现 bot contracts.Handler；应答从同一账号发回。
+func (h *Handler) Handle(ctx context.Context, botID domain.BotID, event domain.Event) error {
 	text := strings.TrimSpace(event.Text())
 	if text == "ping" {
-		return h.service.HandlePing(ctx, event)
+		return h.service.HandlePing(ctx, botID, event)
 	}
-	return h.service.HandleEchoCommand(ctx, event)
+	return h.service.HandleEchoCommand(ctx, botID, event)
 }

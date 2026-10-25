@@ -41,7 +41,6 @@ type Conversation struct {
 	BotID     int64
 	Kind      Kind
 	TargetID  int64
-	Summary   string
 	LastMsgAt time.Time
 }
 

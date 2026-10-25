@@ -33,6 +33,8 @@ func (f *fakeSender) SendGroupMessage(ctx context.Context, to domain.GroupID, se
 
 func (f *fakeSender) DeleteMessage(ctx context.Context, id domain.MessageID) error { return nil }
 
+func (f *fakeSender) Sender(botID int64) (obcontracts.Sender, bool) { return f, true }
+
 var _ obcontracts.Sender = (*fakeSender)(nil)
 
 func TestHandlePingRepliesPongToGroup(t *testing.T) {
@@ -43,7 +45,7 @@ func TestHandlePingRepliesPongToGroup(t *testing.T) {
 		t.Fatalf("new service: %v", err)
 	}
 	event := domain.Event{Post: domain.PostMessage, Type: domain.TypeGroup, GroupID: 456, RawMessage: "ping"}
-	if err := svc.HandlePing(context.Background(), event); err != nil {
+	if err := svc.HandlePing(context.Background(), 100, event); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if len(sender.group) != 1 || sender.group[0].to != 456 || domain.PlainText(sender.group[0].segments) != "pong" {
@@ -56,7 +58,7 @@ func TestHandlePingIgnoresNonPing(t *testing.T) {
 	sender := &fakeSender{}
 	svc, _ := NewService(sender, "/echo")
 	event := domain.Event{Post: domain.PostMessage, Type: domain.TypePrivate, UserID: 111, RawMessage: "hello"}
-	if err := svc.HandlePing(context.Background(), event); err != nil {
+	if err := svc.HandlePing(context.Background(), 100, event); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if len(sender.private) != 0 || len(sender.group) != 0 {
@@ -69,7 +71,7 @@ func TestHandleEchoCommandRepeatsText(t *testing.T) {
 	sender := &fakeSender{}
 	svc, _ := NewService(sender, "/echo")
 	event := domain.Event{Post: domain.PostMessage, Type: domain.TypePrivate, UserID: 111, RawMessage: "/echo hello world"}
-	if err := svc.HandleEchoCommand(context.Background(), event); err != nil {
+	if err := svc.HandleEchoCommand(context.Background(), 100, event); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if len(sender.private) != 1 || domain.PlainText(sender.private[0].segments) != "hello world" {
@@ -82,7 +84,7 @@ func TestHandleEchoCommandWithoutTextReturnsUsage(t *testing.T) {
 	sender := &fakeSender{}
 	svc, _ := NewService(sender, "/echo")
 	event := domain.Event{Post: domain.PostMessage, Type: domain.TypeGroup, GroupID: 456, RawMessage: "/echo"}
-	if err := svc.HandleEchoCommand(context.Background(), event); err != nil {
+	if err := svc.HandleEchoCommand(context.Background(), 100, event); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 	if len(sender.group) != 1 || !strings.Contains(domain.PlainText(sender.group[0].segments), "usage") {

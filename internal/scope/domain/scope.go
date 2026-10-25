@@ -56,7 +56,6 @@ type Policy struct {
 	StoreMessages    bool
 	AllowMemoryWrite bool
 	AllowHistoryRead bool
-	ToolPolicy       []string
 
 	MinReplyIntervalMS int
 	MaxRepliesPerHour  int
@@ -92,9 +91,6 @@ func (p Policy) WithDefaults() Policy {
 	}
 	if p.RetentionDays <= 0 {
 		p.RetentionDays = 30
-	}
-	if p.ToolPolicy == nil {
-		p.ToolPolicy = []string{}
 	}
 	return p
 }

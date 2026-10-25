@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	botcontracts "github.com/HappyLadySauceM/QQBot/internal/bot/contracts"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 	scopecontracts "github.com/HappyLadySauceM/QQBot/internal/scope/contracts"
 	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
@@ -28,17 +27,17 @@ import (
 type Ingress struct {
 	ingest application.Ingestor
 	scopes scopecontracts.Authorizer
-	status obcontracts.StatusReader
 	logger *slog.Logger
 }
 
-// NewIngress validates dependencies and builds the handler.
-// NewIngress 校验依赖并构建处理器。
-func NewIngress(ingest application.Ingestor, scopes scopecontracts.Authorizer, status obcontracts.StatusReader, logger *slog.Logger) (*Ingress, error) {
-	if ingest == nil || scopes == nil || status == nil || logger == nil {
+// NewIngress validates dependencies and builds the handler. The originating
+// account arrives with each event, so no connection-level status is needed.
+// NewIngress 校验依赖并构建处理器。账号身份随事件传入，因此不需要连接级状态。
+func NewIngress(ingest application.Ingestor, scopes scopecontracts.Authorizer, logger *slog.Logger) (*Ingress, error) {
+	if ingest == nil || scopes == nil || logger == nil {
 		return nil, fmt.Errorf("conversation: ingress dependencies required")
 	}
-	return &Ingress{ingest: ingest, scopes: scopes, status: status, logger: logger}, nil
+	return &Ingress{ingest: ingest, scopes: scopes, logger: logger}, nil
 }
 
 // Name identifies the handler in logs and status output.
@@ -53,18 +52,17 @@ func (h *Ingress) Match(event obdomain.Event) bool { return event.IsMessage() }
 // is dropped before any persistence or telemetry; database failures fail closed.
 // Handle 解析作用域并入库已授权消息。未授权内容在任何持久化或遥测之前被丢弃；
 // 数据库故障按关闭处理。
-func (h *Ingress) Handle(ctx context.Context, event obdomain.Event) error {
+func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain.Event) error {
 	// No message content is recorded on spans, only ids and kinds.
 	// span 只记录 ID 与类型，不记录消息内容。
 	ctx, span := tracer().Start(ctx, "qqbot.ingress")
 	defer span.End()
 	span.SetAttributes(attribute.Bool("in_group", event.InGroup()))
 
-	status := h.status.Status()
-	if !status.SelfIDKnown {
+	botID := int64(bot)
+	if botID <= 0 {
 		return nil
 	}
-	botID := int64(status.SelfID)
 	if int64(event.Sender.ID) == botID {
 		// Ignore the bot's own outgoing messages echoed back as events.
 		// 忽略以事件形式回传的机器人自身消息。

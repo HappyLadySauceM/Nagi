@@ -46,6 +46,7 @@ type fakeSender struct {
 	group   []obdomain.GroupID
 	private []obdomain.UserID
 	texts   []string
+	botIDs  []int64
 	err     error
 	msgID   int64
 }
@@ -66,6 +67,13 @@ func (f *fakeSender) SendPrivateMessageReceipt(_ context.Context, to obdomain.Us
 		return 0, f.err
 	}
 	return f.msgID, nil
+}
+
+// ReceiptSender records which account the reply was routed through.
+// ReceiptSender 记录回复实际使用的账号。
+func (f *fakeSender) ReceiptSender(botID int64) (ReceiptSender, bool) {
+	f.botIDs = append(f.botIDs, botID)
+	return f, true
 }
 
 // fakeRecorder records outgoing records.
@@ -111,7 +119,7 @@ func newReplier(t *testing.T, model *fakeModel, sender *fakeSender, rec *fakeRec
 	t.Helper()
 	r, err := NewReplier(Options{
 		Model: model, Scopes: &replierScopes{policies: policies},
-		Sender: sender, Recorder: rec, BotName: "小雪", Logger: replierLogger(),
+		Senders: sender, Recorder: rec, BotName: "小雪", Logger: replierLogger(),
 	})
 	if err != nil {
 		t.Fatalf("new replier: %v", err)
@@ -161,6 +169,9 @@ func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 	}
 	if len(sender.group) != 1 || sender.group[0] != 700 {
 		t.Fatalf("group sends = %v", sender.group)
+	}
+	if len(sender.botIDs) != 1 || sender.botIDs[0] != 100 {
+		t.Fatalf("reply routed through accounts %v, want [100]", sender.botIDs)
 	}
 	if !strings.Contains(sender.texts[0], "适合，看你要做什么。") {
 		t.Fatalf("sent text = %q", sender.texts[0])

@@ -42,6 +42,13 @@ func (f *fakeRepo) Upsert(_ context.Context, botID int64, p domain.Policy) error
 	return nil
 }
 
+func (f *fakeRepo) Delete(_ context.Context, botID int64, t domain.ScopeType, id int64) (bool, error) {
+	key := f.key(botID, t, id)
+	_, ok := f.stored[key]
+	delete(f.stored, key)
+	return ok, nil
+}
+
 func serviceCacheKeyForTest(botID int64, t domain.ScopeType, id int64) string {
 	return cacheKey(botID, t, id)
 }
@@ -170,5 +177,45 @@ func TestCacheExpiryPicksUpOutOfBandChanges(t *testing.T) {
 	}
 	if !policy.Enabled {
 		t.Fatal("expired cache must reload the changed policy from the repository")
+	}
+}
+
+// TestDeleteEvictsCacheAndFallsBackToDeny verifies a deleted policy takes effect
+// immediately, without waiting for the 30s cache TTL.
+// TestDeleteEvictsCacheAndFallsBackToDeny 验证删除立即生效，无需等待 30s 缓存过期。
+func TestDeleteEvictsCacheAndFallsBackToDeny(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	ctx := context.Background()
+
+	policy := domain.Default(domain.ScopeGroup, 42)
+	policy.Enabled = true
+	policy.StoreMessages = true
+	if err := svc.Upsert(ctx, 1, policy); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	// Resolve once so the enabled policy is cached.
+	// 先解析一次，把启用策略写入缓存。
+	if cached, err := svc.Resolve(ctx, 1, domain.ScopeGroup, 42); err != nil || !cached.Enabled {
+		t.Fatalf("expected cached enabled policy: %+v err=%v", cached, err)
+	}
+
+	deleted, err := svc.Delete(ctx, 1, domain.ScopeGroup, 42)
+	if err != nil || !deleted {
+		t.Fatalf("delete: deleted=%v err=%v", deleted, err)
+	}
+	if _, found, _ := repo.Get(ctx, 1, domain.ScopeGroup, 42); found {
+		t.Fatal("stored row should be gone")
+	}
+
+	after, err := svc.Resolve(ctx, 1, domain.ScopeGroup, 42)
+	if err != nil {
+		t.Fatalf("resolve after delete: %v", err)
+	}
+	if after.Enabled || after.StoreMessages {
+		t.Fatalf("expected default deny after delete: %+v", after)
 	}
 }

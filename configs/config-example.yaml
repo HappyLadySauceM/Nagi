@@ -1,11 +1,19 @@
-# QQBot 示例配置。复制为 configs/config.yaml 后按需修改。
-# 优先级：默认值 → 本文件 → 环境变量（QQBOT_*）→ 命令行 Flags。
+# QQBot 示例配置。复制为 configs/config.yaml 后填写真实值。
+# 所有地址、凭据与密钥都直接写在本文件中；提交仓库的示例只含占位符，
+# 真实值只写进已被 .gitignore 忽略的 configs/config.yaml。
+# 优先级：默认值 → 本文件 → 通用运行时覆盖（QQBOT_SERVER_LISTEN / QQBOT_LOG_LEVEL / Flags）。
 
 onebot:
-  # SnowLuma OneBot v11 正向 WebSocket 服务地址（在 SnowLuma WebUI 的网络配置中查看）
-  url: ws://127.0.0.1:3001
-  # 与 SnowLuma 的 access token 保持一致；留空表示不启用鉴权
-  access-token: ""
+  # 多账号接入：每个 QQ 账号在 SnowLuma 中对应一个独立的 OneBot 实例（不同端口）。
+  # 启动后 QQBot 会对每个端点调用 get_login_info 自动识别 QQ 号；
+  # expect-qq 可选，用于校验端点没有被配错，不一致时拒绝该连接。
+  endpoints:
+    - url: ws://127.0.0.1:3001
+      access-token: "REPLACE_WITH_SNOWLUMA_TOKEN"
+      expect-qq: 10001
+    # - url: ws://127.0.0.1:3002
+    #   access-token: "REPLACE_WITH_SNOWLUMA_TOKEN_B"
+    #   expect-qq: 10002
   # 动作调用（发送消息等）的响应超时
   call-timeout: 10s
   # 心跳看门狗：窗口内没有任何入站帧即断开并重连；0 或负值关闭
@@ -19,7 +27,7 @@ server:
   # 管理 HTTP API（/livez /readyz /api/v1/status）监听地址，默认仅监听本机
   listen: 127.0.0.1:5080
   enabled: true
-  # 管理 API 的 Bearer Token（QQBOT_SERVER_ADMIN_TOKEN 可覆盖）；
+  # 管理 API 的 Bearer Token；
   # 为空时不启用鉴权，仅适合默认的本机监听场景
   admin-token: ""
 
@@ -34,14 +42,12 @@ echo:
   prefix: "/echo"
 
 database:
-  # PostgreSQL 连接。推荐经环境变量注入：export QQBOT_DATABASE_DSN=postgres://...
-  # 本地基础设施由仓库 docker-compose.yml 提供（docker compose up -d），DSN 形如：
+  # PostgreSQL 连接字符串，直接填写。本地基础设施由仓库 docker-compose.yml 提供
+  # （docker compose up -d），DSN 形如：
   #   postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable
   # 进程启动时自动应用 migrations/ 下的版本化迁移，无需手工执行。
-  # 未解析出 DSN 时数据库相关功能（目录/作用域/会话/记忆/观测）不启用。
-  dsn: ""
-  # 也可用 dsn-env 引用一个持有连接字符串的环境变量名；dsn 非空时忽略
-  dsn-env: QQBOT_DATABASE_DSN
+  # 留空时数据库相关功能（目录/作用域/会话/记忆/观测）不启用。
+  dsn: "postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable"
   # 连接池上限
   max-conns: 10
 
@@ -54,23 +60,22 @@ worker:
   poll-interval: 200ms
 
 ai:
-  # LLM 生成（OpenAI 兼容 chat/completions）。密钥经环境变量注入：
-  #   export QQBOT_LLM_API_KEY=...
+  # LLM 生成（OpenAI 兼容 chat/completions）。密钥直接填写；
+  # enabled=true 时 api-key 必填，缺失会在启动阶段报错。
   enabled: false
   base-url: "https://YOUR_LLM_ENDPOINT/v1"
-  api-key-env: QQBOT_LLM_API_KEY
+  api-key: "REPLACE_WITH_LLM_API_KEY"
   model: "your-chat-model"
   generation-timeout: 25s
   max-output-tokens: 400
 
 intent:
-  # 意图决策（TypeSafe Jev / SystemOne）。密钥经环境变量注入：
-  #   export TYPESAFE_API_KEY=...
-  # Jev 不可用时降级为仅响应明确 @/引用，绝不自动插话。
+  # 意图决策（TypeSafe Jev / SystemOne）。密钥直接填写，留空时降级为
+  # 仅响应明确 @/引用，绝不自动插话。
   enabled: false
   provider: jev
   endpoint: "https://api.typesafe.ai/v1/systemone"
-  api-key-env: TYPESAFE_API_KEY
+  api-key: ""
   model: "jev-latest"
   # 机器人昵称，用于 Jev state
   bot-name: ""
@@ -83,15 +88,14 @@ intent:
   history-limit: 30
 
 observability:
-  # Langfuse OTLP 追踪导出。凭据与地址经环境变量注入：
-  #   export LANGFUSE_BASE_URL=http://127.0.0.1:3010   # docker compose 起的自托管实例
-  #   export LANGFUSE_PUBLIC_KEY=pk-lf-qqbot-local LANGFUSE_SECRET_KEY=sk-lf-qqbot-local
+  # Langfuse OTLP 追踪导出，地址与项目凭据直接填写。
+  # 本地自托管实例（docker compose up -d）的默认值如下，需与 Langfuse 项目页一致。
   # 自托管 Langfuse v4 保持 ingestion-version: "4"；其他版本留空。默认关闭；
   # 凭据缺失或导出故障均不影响聊天主链路。
   enabled: false
-  base-url-env: LANGFUSE_BASE_URL
-  public-key-env: LANGFUSE_PUBLIC_KEY
-  secret-key-env: LANGFUSE_SECRET_KEY
+  base-url: "http://127.0.0.1:3010"
+  public-key: "pk-lf-qqbot-local"
+  secret-key: "sk-lf-qqbot-local"
   ingestion-version: "4"
-  # 仅在确有需要且获得授权时开启，开启后才会导出消息正文
+  # 开启后会导出消息正文（prompt 与回复全文），只在本地环境按需开启
   export-raw-content: false

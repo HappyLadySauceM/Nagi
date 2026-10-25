@@ -19,6 +19,7 @@ import (
 // Dispatcher 消费事件流并将其路由到已注册的处理器。
 type Dispatcher struct {
 	src    EventSource
+	self   SelfIDReader
 	logger *slog.Logger
 
 	mu       sync.RWMutex
@@ -27,13 +28,29 @@ type Dispatcher struct {
 	handled atomic.Uint64
 }
 
-// NewDispatcher binds the dispatcher to an event source.
-// NewDispatcher 将分发器绑定到事件源。
-func NewDispatcher(src EventSource, logger *slog.Logger) *Dispatcher {
+// NewDispatcher binds the dispatcher to one connection's event source and
+// identity. self may be nil; events then must carry their own self_id.
+// NewDispatcher 将分发器绑定到单条连接的事件源与身份；self 可为 nil，
+// 此时事件必须自带 self_id。
+func NewDispatcher(src EventSource, self SelfIDReader, logger *slog.Logger) *Dispatcher {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Dispatcher{src: src, logger: logger}
+	return &Dispatcher{src: src, self: self, logger: logger}
+}
+
+// accountOf resolves the originating account: the event's self_id wins because
+// it is authoritative for the frame, and the connection binding is the fallback
+// for frames that omit it.
+// accountOf 解析事件所属账号：帧自带的 self_id 优先，缺失时用连接绑定兜底。
+func (d *Dispatcher) accountOf(event domain.Event) (domain.BotID, bool) {
+	if event.SelfID != 0 {
+		return event.SelfID, true
+	}
+	if d.self != nil {
+		return d.self.SelfID()
+	}
+	return 0, false
 }
 
 // Register adds a handler; nil handlers and duplicate names are rejected.
@@ -90,6 +107,16 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 // dispatch matches handlers via the pure policy and invokes each in isolation.
 // dispatch 经纯策略匹配处理器，并逐个隔离调用。
 func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) {
+	botID, known := d.accountOf(event)
+	if !known {
+		// Without an account identity the event cannot be isolated safely.
+		// 没有账号身份的事件无法安全隔离，直接丢弃。
+		d.logger.Warn("bot: drop event without account identity",
+			"post_type", string(event.Post),
+			"message_type", string(event.Type))
+		return
+	}
+
 	d.mu.RLock()
 	handlers := make([]botcontracts.Handler, len(d.handlers))
 	copy(handlers, d.handlers)
@@ -109,13 +136,13 @@ func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) {
 		if !descriptors[i].Match {
 			continue
 		}
-		d.handleOne(ctx, h, event)
+		d.handleOne(ctx, botID, h, event)
 	}
 }
 
 // handleOne runs one handler with panic recovery; failures never kill the loop.
 // handleOne 以 panic 恢复运行单个处理器；失败不会终止分发循环。
-func (d *Dispatcher) handleOne(ctx context.Context, h botcontracts.Handler, event domain.Event) {
+func (d *Dispatcher) handleOne(ctx context.Context, botID domain.BotID, h botcontracts.Handler, event domain.Event) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			d.logger.Error("bot: handler panic recovered",
@@ -124,9 +151,10 @@ func (d *Dispatcher) handleOne(ctx context.Context, h botcontracts.Handler, even
 				"stack", string(debug.Stack()))
 		}
 	}()
-	if err := h.Handle(ctx, event); err != nil {
+	if err := h.Handle(ctx, botID, event); err != nil {
 		d.logger.Error("bot: handler failed",
 			"handler", h.Name(),
+			"bot_id", int64(botID),
 			"post_type", string(event.Post),
 			"message_id", int64(event.MessageID),
 			"error", err)

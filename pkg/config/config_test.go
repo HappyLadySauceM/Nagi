@@ -8,13 +8,13 @@ import (
 )
 
 func TestLoadUsesDefaultsWithoutFileOrEnv(t *testing.T) {
-	// 验证无文件、无环境变量时返回内置默认值。
+	// 验证无文件、无环境变量时返回内置默认值，包括默认端点。
 	cfg, err := Load(Options{LookupEnv: func(string) (string, bool) { return "", false }})
 	if err != nil {
 		t.Fatalf("load defaults: %v", err)
 	}
-	if cfg.Onebot.URL != "ws://127.0.0.1:3001" {
-		t.Fatalf("default onebot url = %q", cfg.Onebot.URL)
+	if len(cfg.Onebot.Endpoints) != 1 || cfg.Onebot.Endpoints[0].URL != "ws://127.0.0.1:3001" {
+		t.Fatalf("unexpected default endpoints: %+v", cfg.Onebot.Endpoints)
 	}
 	if cfg.Onebot.CallTimeout.D() != 10*time.Second {
 		t.Fatalf("default call timeout = %s", cfg.Onebot.CallTimeout.D())
@@ -30,25 +30,16 @@ func TestLoadUsesDefaultsWithoutFileOrEnv(t *testing.T) {
 	}
 }
 
-func TestLoadAppliesYamlThenEnvThenOverrides(t *testing.T) {
-	// 验证优先级：YAML < 环境变量 < 显式覆盖。
-	dir := t.TempDir()
-	file := filepath.Join(dir, "config.yaml")
-	content := "onebot:\n  url: ws://10.0.0.1:9000\n  call-timeout: 3s\nserver:\n  listen: 127.0.0.1:6000\nlog:\n  level: debug\n"
-	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	env := map[string]string{"QQBOT_ONEBOT_URL": "ws://10.0.0.2:9001"}
+func TestLoadAppliesYamlThenOverrides(t *testing.T) {
+	// 验证优先级：YAML < 显式覆盖。
+	file := writeTempConfig(t, "onebot:\n  call-timeout: 3s\nserver:\n  listen: 127.0.0.1:6000\nlog:\n  level: debug\n")
 	cfg, err := Load(Options{
 		File:      file,
-		LookupEnv: func(key string) (string, bool) { v, ok := env[key]; return v, ok },
+		LookupEnv: noEnv,
 		Overrides: Overrides{Listen: "127.0.0.1:7000"},
 	})
 	if err != nil {
 		t.Fatalf("load: %v", err)
-	}
-	if cfg.Onebot.URL != "ws://10.0.0.2:9001" {
-		t.Fatalf("env should override yaml, url = %q", cfg.Onebot.URL)
 	}
 	if cfg.Onebot.CallTimeout.D() != 3*time.Second {
 		t.Fatalf("yaml duration = %s", cfg.Onebot.CallTimeout.D())
@@ -63,19 +54,29 @@ func TestLoadAppliesYamlThenEnvThenOverrides(t *testing.T) {
 
 func TestValidateNormalizesHTTPSchemeToWS(t *testing.T) {
 	// 验证 http(s) 协议头被规范化为 ws(s)。
-	cfg, err := Load(Options{Overrides: Overrides{OnebotURL: "http://127.0.0.1:3001"}})
+	file := writeTempConfig(t, "onebot:\n  endpoints:\n    - url: http://127.0.0.1:3001\n")
+	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.Onebot.URL != "ws://127.0.0.1:3001" {
-		t.Fatalf("normalized url = %q", cfg.Onebot.URL)
+	if cfg.Onebot.Endpoints[0].URL != "ws://127.0.0.1:3001" {
+		t.Fatalf("normalized url = %q", cfg.Onebot.Endpoints[0].URL)
 	}
 }
 
 func TestLoadRejectsUnsupportedScheme(t *testing.T) {
-	// 验证非法协议的 URL 导致装载失败。
-	if _, err := Load(Options{Overrides: Overrides{OnebotURL: "ftp://example.com"}}); err == nil {
+	// 验证非法协议的端点导致装载失败。
+	file := writeTempConfig(t, "onebot:\n  endpoints:\n    - url: ftp://example.com\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
 		t.Fatal("expected error for unsupported scheme")
+	}
+}
+
+func TestValidateRejectsEmptyEndpoints(t *testing.T) {
+	// 验证显式清空端点列表时报错：没有端点就没有账号。
+	file := writeTempConfig(t, "onebot:\n  endpoints: []\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error for empty endpoints")
 	}
 }
 
@@ -111,15 +112,15 @@ func TestLoadRejectsMissingExplicitFile(t *testing.T) {
 
 func TestLoadRejectsAIEnabledWithoutIntent(t *testing.T) {
 	// 验证只开 AI 不开意图流水线时启动失败，避免消息只入库不回复。
-	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  model: test-model\nintent:\n  enabled: false\n")
+	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  api-key: test-key\n  model: test-model\nintent:\n  enabled: false\n")
 	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
 		t.Fatal("expected error for ai.enabled without intent.enabled")
 	}
 }
 
 func TestLoadAcceptsAIEnabledWithIntent(t *testing.T) {
-	// 验证 AI 与意图流水线同时开启时通过校验。
-	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  model: test-model\nintent:\n  enabled: true\n")
+	// 验证 AI 与意图流水线同时开启、且密钥直接在配置文件中时通过校验。
+	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  api-key: test-key\n  model: test-model\nintent:\n  enabled: true\n")
 	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -127,17 +128,65 @@ func TestLoadAcceptsAIEnabledWithIntent(t *testing.T) {
 	if !cfg.AI.Enabled || !cfg.Intent.Enabled {
 		t.Fatalf("unexpected flags: ai=%v intent=%v", cfg.AI.Enabled, cfg.Intent.Enabled)
 	}
+	if cfg.AI.APIKey != "test-key" {
+		t.Fatalf("api key = %q", cfg.AI.APIKey)
+	}
 }
 
-func TestLoadToleratesRemovedLegacyKeys(t *testing.T) {
-	// 验证已删除的 coalesce-window / active-window 仍可出现在旧配置文件中而不报错。
-	file := writeTempConfig(t, "worker:\n  coalesce-window: 2s\nintent:\n  enabled: true\n  active-window: 180s\n")
+func TestLoadRejectsAIEnabledWithoutAPIKey(t *testing.T) {
+	// 验证 ai.enabled 但未填写 api-key 时启动失败，而不是运行期才发现 401。
+	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  model: test-model\nintent:\n  enabled: true\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error for ai.enabled without api-key")
+	}
+}
+
+func TestLoadResolvesMultipleEndpoints(t *testing.T) {
+	// 验证多端点、明文凭据、协议头归一化与 expect-qq 都被正确装载。
+	file := writeTempConfig(t, `onebot:
+  endpoints:
+    - url: http://127.0.0.1:3001
+      access-token: secret-a
+      expect-qq: 10001
+    - url: ws://127.0.0.1:3002
+`)
 	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
 	if err != nil {
-		t.Fatalf("load with legacy keys: %v", err)
+		t.Fatalf("load: %v", err)
 	}
-	if !cfg.Intent.Enabled {
-		t.Fatal("legacy yaml should still apply overrides")
+	if len(cfg.Onebot.Endpoints) != 2 {
+		t.Fatalf("endpoints = %d, want 2", len(cfg.Onebot.Endpoints))
+	}
+	first := cfg.Onebot.Endpoints[0]
+	if first.URL != "ws://127.0.0.1:3001" || first.AccessToken != "secret-a" || first.ExpectQQ != 10001 {
+		t.Fatalf("unexpected first endpoint: %+v", first)
+	}
+	if cfg.Onebot.Endpoints[1].AccessToken != "" {
+		t.Fatalf("second endpoint token = %q", cfg.Onebot.Endpoints[1].AccessToken)
+	}
+}
+
+func TestLoadRejectsDuplicateEndpoints(t *testing.T) {
+	// 验证重复端点会让两个账号争用同一连接，必须启动失败。
+	file := writeTempConfig(t, `onebot:
+  endpoints:
+    - url: ws://127.0.0.1:3001
+    - url: http://127.0.0.1:3001
+`)
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error for duplicate endpoints")
+	}
+}
+
+func TestLoadRejectsNegativeExpectQQ(t *testing.T) {
+	// 验证非法的预期 QQ 号被拒绝。
+	file := writeTempConfig(t, `onebot:
+  endpoints:
+    - url: ws://127.0.0.1:3001
+      expect-qq: -1
+`)
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error for negative expect-qq")
 	}
 }
 

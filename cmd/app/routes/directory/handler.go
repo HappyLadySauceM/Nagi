@@ -27,10 +27,11 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 	return &Handler{svcCtx: svcCtx}
 }
 
-// Register wires routes using Go 1.22 method+path patterns.
-// Register 以 Go 1.22 的方法+路径模式注册路由。
+// Register wires routes using Go 1.22 method+path patterns. Every listing needs
+// an explicit account once more than one is configured.
+// Register 以 Go 1.22 的方法+路径模式注册路由。配置多个账号后每个列表都必须显式指定账号。
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/directory/sync", h.Sync)
+	mux.HandleFunc("POST /api/v1/accounts/{bot_id}/sync", h.Sync)
 	mux.HandleFunc("GET /api/v1/contacts", h.Contacts)
 	mux.HandleFunc("GET /api/v1/groups", h.Groups)
 	mux.HandleFunc("GET /api/v1/groups/{id}/members", h.GroupMembers)
@@ -46,29 +47,63 @@ func (h *Handler) requireDB(w http.ResponseWriter) bool {
 	return true
 }
 
-// Sync refreshes the friend and group directory from the connected OneBot implementation.
-// Sync 从已连接的 OneBot 实现刷新好友与群目录。
+// botID resolves the request account from the path, query or single-account default.
+// botID 从路径、查询参数或单账号默认值解析请求所属账号。
+func (h *Handler) botID(w http.ResponseWriter, r *http.Request, fromPath bool) (int64, bool) {
+	raw := r.URL.Query().Get("bot_id")
+	if fromPath {
+		raw = r.PathValue("bot_id")
+	}
+	botID, err := h.svcCtx.ResolveBotID(raw)
+	if err != nil {
+		switch {
+		case errors.Is(err, svc.ErrBotIDRequired):
+			common.WriteFailure(w, http.StatusBadRequest, "bot_id is required when several accounts are configured")
+		case errors.Is(err, svc.ErrAccountUnknown):
+			common.WriteFailure(w, http.StatusConflict, "bot account identity is not available yet; connect OneBot first")
+		default:
+			common.WriteFailure(w, http.StatusBadRequest, "invalid bot_id")
+		}
+		return 0, false
+	}
+	return botID, true
+}
+
+// Sync refreshes the friend and group directory of one account.
+// Sync 刷新指定账号的好友与群目录。
 func (h *Handler) Sync(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
+	botID, ok := h.botID(w, r, true)
+	if !ok {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	result, err := h.svcCtx.Directory.Sync(ctx)
+	result, err := h.svcCtx.Directory.Sync(ctx, botID)
 	if err != nil {
-		common.WriteFailure(w, http.StatusBadGateway, "directory sync failed; ensure the bot is connected")
+		if errors.Is(err, directoryapp.ErrAccountOffline) {
+			common.WriteFailure(w, http.StatusConflict, "bot account is not connected")
+			return
+		}
+		common.WriteFailure(w, http.StatusBadGateway, "directory sync failed")
 		return
 	}
 	common.WriteSuccess(w, result)
 }
 
-// Contacts returns one page of the friend directory.
-// Contacts 返回一页好友目录。
+// Contacts returns one page of the account's friend directory.
+// Contacts 返回该账号的一页好友目录。
 func (h *Handler) Contacts(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
-	page, err := h.svcCtx.Directory.Contacts(r.Context(), pageQuery(r))
+	botID, ok := h.botID(w, r, false)
+	if !ok {
+		return
+	}
+	page, err := h.svcCtx.Directory.Contacts(r.Context(), botID, pageQuery(r))
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "list contacts failed")
 		return
@@ -76,13 +111,17 @@ func (h *Handler) Contacts(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, page)
 }
 
-// Groups returns one page of the group directory.
-// Groups 返回一页群目录。
+// Groups returns one page of the account's group directory.
+// Groups 返回该账号的一页群目录。
 func (h *Handler) Groups(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
-	page, err := h.svcCtx.Directory.Groups(r.Context(), pageQuery(r))
+	botID, ok := h.botID(w, r, false)
+	if !ok {
+		return
+	}
+	page, err := h.svcCtx.Directory.Groups(r.Context(), botID, pageQuery(r))
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "list groups failed")
 		return
@@ -94,6 +133,10 @@ func (h *Handler) Groups(w http.ResponseWriter, r *http.Request) {
 // GroupMembers 返回一页群成员，可按需触发刷新。
 func (h *Handler) GroupMembers(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
+		return
+	}
+	botID, ok := h.botID(w, r, false)
+	if !ok {
 		return
 	}
 	groupID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -108,13 +151,16 @@ func (h *Handler) GroupMembers(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 	}
-	page, err := h.svcCtx.Directory.GroupMembers(ctx, groupID, pageQuery(r), refresh)
+	page, err := h.svcCtx.Directory.GroupMembers(ctx, botID, groupID, pageQuery(r), refresh)
 	if err != nil {
-		// Refreshing needs a bot account to attach member rows to; without one the
-		// client must sync the directory first instead of retrying a 500.
-		// 刷新成员需要一个可关联的机器人账号；缺失时应提示先同步目录，而不是笼统 500。
+		// Refreshing needs a synced account row to attach member rows to.
+		// 刷新成员需要一个已同步的账号行来关联成员数据。
 		if errors.Is(err, directoryapp.ErrBotNotSynced) {
 			common.WriteFailure(w, http.StatusConflict, "bot account not synced yet; run directory sync first")
+			return
+		}
+		if errors.Is(err, directoryapp.ErrAccountOffline) {
+			common.WriteFailure(w, http.StatusConflict, "bot account is not connected")
 			return
 		}
 		common.WriteFailure(w, http.StatusInternalServerError, "list group members failed")

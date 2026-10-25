@@ -17,7 +17,7 @@ func TestStatsReturnsAggregateKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new stats repo: %v", err)
 	}
-	stats, err := repo.Stats(context.Background())
+	stats, err := repo.Stats(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}

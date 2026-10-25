@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	intentdomain "github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/QQBot/internal/observability"
 	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 	scopecontracts "github.com/HappyLadySauceM/QQBot/internal/scope/contracts"
@@ -36,6 +37,13 @@ type ReceiptSender interface {
 	SendGroupMessageReceipt(ctx context.Context, to obdomain.GroupID, segments ...obdomain.Segment) (int64, error)
 }
 
+// SenderResolver resolves the sender bound to one account. It must never fall
+// back to another account when the requested one is offline.
+// SenderResolver 解析账号绑定的发送能力；目标账号离线时不得回退到其他账号。
+type SenderResolver interface {
+	ReceiptSender(botID int64) (ReceiptSender, bool)
+}
+
 // OutboundRecorder persists the bot's outgoing reply for future context.
 // OutboundRecorder 持久化机器人出站回复，保证后续上下文可见。
 type OutboundRecorder interface {
@@ -53,7 +61,7 @@ type MemoryFinder interface {
 type Options struct {
 	Model     ChatModel
 	Scopes    scopecontracts.Authorizer
-	Sender    ReceiptSender
+	Senders   SenderResolver
 	Recorder  OutboundRecorder
 	Memory    MemoryFinder // 可为 nil / may be nil
 	BotName   string
@@ -66,7 +74,7 @@ type Options struct {
 type Replier struct {
 	model     ChatModel
 	scopes    scopecontracts.Authorizer
-	sender    ReceiptSender
+	senders   SenderResolver
 	recorder  OutboundRecorder
 	memory    MemoryFinder
 	botName   string
@@ -77,14 +85,14 @@ type Replier struct {
 // NewReplier validates dependencies and builds the replier.
 // NewReplier 校验依赖并构建回复器。
 func NewReplier(opts Options) (*Replier, error) {
-	if opts.Model == nil || opts.Scopes == nil || opts.Sender == nil || opts.Recorder == nil || opts.Logger == nil {
+	if opts.Model == nil || opts.Scopes == nil || opts.Senders == nil || opts.Recorder == nil || opts.Logger == nil {
 		return nil, fmt.Errorf("agent: dependencies required")
 	}
 	if opts.MaxTokens <= 0 {
 		opts.MaxTokens = 400
 	}
 	return &Replier{
-		model: opts.Model, scopes: opts.Scopes, sender: opts.Sender,
+		model: opts.Model, scopes: opts.Scopes, senders: opts.Senders,
 		recorder: opts.Recorder, memory: opts.Memory,
 		botName: opts.BotName, maxTokens: opts.MaxTokens, logger: opts.Logger,
 	}, nil
@@ -111,6 +119,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	tracer := otel.Tracer("github.com/HappyLadySauceM/QQBot/internal/agent")
 	genCtx, genSpan := tracer.Start(ctx, "qqbot.agent.reply")
 	genSpan.SetAttributes(attribute.String("gen_ai.system", "openai_compatible"))
+	observability.RecordContent(genSpan, "gen_ai.prompt", flattenMessages(messages))
 	result, err := r.model.Generate(genCtx, domain.ChatRequest{Messages: messages, MaxTokens: r.maxTokens})
 	if err != nil {
 		genSpan.RecordError(err)
@@ -121,6 +130,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		attribute.Int64("gen_ai.usage.prompt_tokens", result.PromptTokens),
 		attribute.Int64("gen_ai.usage.completion_tokens", result.CompletionTokens),
 	)
+	observability.RecordContent(genSpan, "gen_ai.completion", result.Text)
 	genSpan.End()
 	reply, err := domain.SanitizeReply(result.Text)
 	if err != nil {
@@ -199,11 +209,17 @@ func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, his
 // groups prepend an at segment to the sender.
 // send 投递回复并返回分配的 platform message id；群聊在开头附加对发送者的 @ 段。
 func (r *Replier) send(ctx context.Context, task intentdomain.Task, reply string) (int64, error) {
+	sender, ok := r.senders.ReceiptSender(task.BotID)
+	if !ok {
+		// Sending through another account would leak messages across identities.
+		// 借用其他账号发送会让消息跨身份泄漏，因此直接失败。
+		return 0, fmt.Errorf("agent: bot %d is not connected", task.BotID)
+	}
 	if task.Kind == "group" {
-		return r.sender.SendGroupMessageReceipt(ctx, obdomain.GroupID(task.TargetID),
+		return sender.SendGroupMessageReceipt(ctx, obdomain.GroupID(task.TargetID),
 			obdomain.At(obdomain.UserID(task.Message.SenderID)), obdomain.Text(reply))
 	}
-	return r.sender.SendPrivateMessageReceipt(ctx, obdomain.UserID(task.TargetID), obdomain.Text(reply))
+	return sender.SendPrivateMessageReceipt(ctx, obdomain.UserID(task.TargetID), obdomain.Text(reply))
 }
 
 func chatChannel(kind string) string {
@@ -211,4 +227,17 @@ func chatChannel(kind string) string {
 		return "群聊"
 	}
 	return "私聊"
+}
+
+// flattenMessages renders the prompt in a stable, readable form for tracing.
+// flattenMessages 把 prompt 渲染成稳定的可读文本，供追踪使用。
+func flattenMessages(messages []domain.ChatMessage) string {
+	var b strings.Builder
+	for _, message := range messages {
+		b.WriteString(message.Role)
+		b.WriteString(": ")
+		b.WriteString(message.Content)
+		b.WriteString("\n")
+	}
+	return b.String()
 }

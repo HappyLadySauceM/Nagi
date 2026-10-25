@@ -136,10 +136,10 @@ func (r *Repo) GetConversation(ctx context.Context, botID int64, kind domain.Kin
 	var c domain.Conversation
 	var kindStr string
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, bot_id, kind, target_id, summary, COALESCE(last_message_at, to_timestamp(0))
+		SELECT id, bot_id, kind, target_id, COALESCE(last_message_at, to_timestamp(0))
 		FROM conversations
 		WHERE bot_id = $1 AND kind = $2 AND target_id = $3
-	`, botID, string(kind), targetID).Scan(&c.ID, &c.BotID, &kindStr, &c.TargetID, &c.Summary, &c.LastMsgAt)
+	`, botID, string(kind), targetID).Scan(&c.ID, &c.BotID, &kindStr, &c.TargetID, &c.LastMsgAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Conversation{}, false, nil
 	}

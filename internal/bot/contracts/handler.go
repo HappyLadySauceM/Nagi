@@ -19,7 +19,10 @@ type Handler interface {
 	// Match 报告该处理器是否处理此事件。
 	Match(event domain.Event) bool
 
-	// Handle processes the event; it must not block for long.
-	// Handle 处理事件；不应长时间阻塞。
-	Handle(ctx context.Context, event domain.Event) error
+	// Handle processes the event; it must not block for long. botID is the
+	// account bound to the connection that delivered the event; handlers must
+	// never infer it from global state.
+	// Handle 处理事件；不应长时间阻塞。botID 是投递该事件的连接所绑定的账号，
+	// 处理器不得从全局状态推断账号身份。
+	Handle(ctx context.Context, botID domain.BotID, event domain.Event) error
 }

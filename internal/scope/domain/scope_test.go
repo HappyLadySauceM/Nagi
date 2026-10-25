@@ -23,9 +23,6 @@ func TestDefaultPolicyDeniesEverything(t *testing.T) {
 	if filled.MinReplyIntervalMS != 10000 || filled.MaxRepliesPerHour != 20 || filled.RetentionDays != 30 {
 		t.Fatalf("WithDefaults numbers = %d/%d/%d", filled.MinReplyIntervalMS, filled.MaxRepliesPerHour, filled.RetentionDays)
 	}
-	if filled.ToolPolicy == nil {
-		t.Fatal("WithDefaults must initialize tool policy to an empty slice")
-	}
 }
 
 // TestPolicyValidateRejectsInvalidValues verifies validation of scope type,

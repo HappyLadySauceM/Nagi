@@ -4,7 +4,6 @@ package infrastructure
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -33,28 +32,45 @@ func NewRepo(pool *pgxpool.Pool) (*Repo, error) {
 // UpsertBotAccount 存储或刷新机器人账号行。
 func (r *Repo) UpsertBotAccount(ctx context.Context, botID int64, nickname string) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO bot_accounts (bot_id, nickname, status, last_seen_at)
-		VALUES ($1, $2, 'online', now())
-		ON CONFLICT (bot_id) DO UPDATE SET nickname = EXCLUDED.nickname, status = 'online', last_seen_at = now()
+		INSERT INTO bot_accounts (bot_id, nickname, last_seen_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (bot_id) DO UPDATE SET nickname = EXCLUDED.nickname, last_seen_at = now()
 	`, botID, nickname)
 	return err
 }
 
-// LatestBotID returns the most recently seen bot account. It lets the service
-// recover the account identity after a restart, when the in-memory value is gone.
-// LatestBotID 返回最近活跃的机器人账号，用于进程重启后恢复账号身份。
-func (r *Repo) LatestBotID(ctx context.Context) (int64, bool, error) {
-	var botID int64
-	err := r.pool.QueryRow(ctx, `
-		SELECT bot_id FROM bot_accounts ORDER BY last_seen_at DESC NULLS LAST LIMIT 1
-	`).Scan(&botID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, false, nil
-	}
+// BotAccountExists reports whether the account row exists.
+// BotAccountExists 报告账号行是否存在。
+func (r *Repo) BotAccountExists(ctx context.Context, botID int64) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM bot_accounts WHERE bot_id = $1)`, botID).Scan(&exists)
 	if err != nil {
-		return 0, false, fmt.Errorf("directory: latest bot account: %w", err)
+		return false, fmt.Errorf("directory: check bot account: %w", err)
 	}
-	return botID, true, nil
+	return exists, nil
+}
+
+// ListBotAccounts returns all stored account rows ordered by recency.
+// ListBotAccounts 按活跃时间返回全部已存储账号行。
+func (r *Repo) ListBotAccounts(ctx context.Context) ([]domain.BotAccount, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT bot_id, nickname, COALESCE(last_seen_at, to_timestamp(0))
+		FROM bot_accounts
+		ORDER BY last_seen_at DESC NULLS LAST, bot_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("directory: list bot accounts: %w", err)
+	}
+	defer rows.Close()
+	accounts := []domain.BotAccount{}
+	for rows.Next() {
+		var a domain.BotAccount
+		if err := rows.Scan(&a.BotID, &a.Nickname, &a.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("directory: scan bot account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, rows.Err()
 }
 
 // UpsertContacts batch-upserts friend entries with last_seen refresh.
@@ -99,23 +115,31 @@ func (r *Repo) UpsertGroupMembers(ctx context.Context, botID, groupID int64, mem
 	return r.pool.SendBatch(ctx, batch).Close()
 }
 
-// ListContacts returns one page of contacts matching the search text.
-// ListContacts 返回匹配搜索文本的一页联系人。
-func (r *Repo) ListContacts(ctx context.Context, q domain.PageQuery) (domain.ContactPage, error) {
+// ListContacts returns one page of the account's contacts matching the search text.
+// ListContacts 返回该账号匹配搜索文本的一页联系人。
+func (r *Repo) ListContacts(ctx context.Context, botID int64, q domain.PageQuery) (domain.ContactPage, error) {
 	var total int64
 	if err := r.pool.QueryRow(ctx, `
 		SELECT count(*) FROM contacts
-		WHERE ($1 = '' OR nickname ILIKE '%' || $1 || '%' OR remark ILIKE '%' || $1 || '%')
-	`, q.Search).Scan(&total); err != nil {
+		WHERE bot_id = $1
+		  AND ($2 = ''
+		       OR nickname ILIKE '%' || $2 || '%'
+		       OR remark ILIKE '%' || $2 || '%'
+		       OR CAST(user_id AS TEXT) LIKE '%' || $2 || '%')
+	`, botID, q.Search).Scan(&total); err != nil {
 		return domain.ContactPage{}, fmt.Errorf("directory: count contacts: %w", err)
 	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT user_id, nickname, remark, COALESCE(last_seen_at, to_timestamp(0))
 		FROM contacts
-		WHERE ($1 = '' OR nickname ILIKE '%' || $1 || '%' OR remark ILIKE '%' || $1 || '%')
+		WHERE bot_id = $1
+		  AND ($2 = ''
+		       OR nickname ILIKE '%' || $2 || '%'
+		       OR remark ILIKE '%' || $2 || '%'
+		       OR CAST(user_id AS TEXT) LIKE '%' || $2 || '%')
 		ORDER BY nickname, user_id
-		LIMIT $2 OFFSET $3
-	`, q.Search, q.Limit, q.Offset())
+		LIMIT $3 OFFSET $4
+	`, botID, q.Search, q.Limit, q.Offset())
 	if err != nil {
 		return domain.ContactPage{}, fmt.Errorf("directory: list contacts: %w", err)
 	}
@@ -131,23 +155,29 @@ func (r *Repo) ListContacts(ctx context.Context, q domain.PageQuery) (domain.Con
 	return page, rows.Err()
 }
 
-// ListGroups returns one page of groups matching the search text.
-// ListGroups 返回匹配搜索文本的一页群。
-func (r *Repo) ListGroups(ctx context.Context, q domain.PageQuery) (domain.GroupPage, error) {
+// ListGroups returns one page of the account's groups matching the search text.
+// ListGroups 返回该账号匹配搜索文本的一页群。
+func (r *Repo) ListGroups(ctx context.Context, botID int64, q domain.PageQuery) (domain.GroupPage, error) {
 	var total int64
 	if err := r.pool.QueryRow(ctx, `
 		SELECT count(*) FROM qq_groups
-		WHERE ($1 = '' OR name ILIKE '%' || $1 || '%')
-	`, q.Search).Scan(&total); err != nil {
+		WHERE bot_id = $1
+		  AND ($2 = ''
+		       OR name ILIKE '%' || $2 || '%'
+		       OR CAST(group_id AS TEXT) LIKE '%' || $2 || '%')
+	`, botID, q.Search).Scan(&total); err != nil {
 		return domain.GroupPage{}, fmt.Errorf("directory: count groups: %w", err)
 	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT group_id, name, member_count, COALESCE(last_seen_at, to_timestamp(0))
 		FROM qq_groups
-		WHERE ($1 = '' OR name ILIKE '%' || $1 || '%')
+		WHERE bot_id = $1
+		  AND ($2 = ''
+		       OR name ILIKE '%' || $2 || '%'
+		       OR CAST(group_id AS TEXT) LIKE '%' || $2 || '%')
 		ORDER BY name, group_id
-		LIMIT $2 OFFSET $3
-	`, q.Search, q.Limit, q.Offset())
+		LIMIT $3 OFFSET $4
+	`, botID, q.Search, q.Limit, q.Offset())
 	if err != nil {
 		return domain.GroupPage{}, fmt.Errorf("directory: list groups: %w", err)
 	}
@@ -163,22 +193,31 @@ func (r *Repo) ListGroups(ctx context.Context, q domain.PageQuery) (domain.Group
 	return page, rows.Err()
 }
 
-// ListGroupMembers returns one page of members of one group.
-// ListGroupMembers 返回某个群的一页成员。
-func (r *Repo) ListGroupMembers(ctx context.Context, groupID int64, q domain.PageQuery) (domain.MemberPage, error) {
+// ListGroupMembers returns one page of members of one group for one account.
+// ListGroupMembers 返回某个账号下某个群的一页成员。
+func (r *Repo) ListGroupMembers(ctx context.Context, botID, groupID int64, q domain.PageQuery) (domain.MemberPage, error) {
 	var total int64
 	if err := r.pool.QueryRow(ctx, `
-		SELECT count(*) FROM group_members WHERE group_id = $1
-	`, groupID).Scan(&total); err != nil {
+		SELECT count(*) FROM group_members
+		WHERE bot_id = $1 AND group_id = $2
+		  AND ($3 = ''
+		       OR nickname ILIKE '%' || $3 || '%'
+		       OR card ILIKE '%' || $3 || '%'
+		       OR CAST(user_id AS TEXT) LIKE '%' || $3 || '%')
+	`, botID, groupID, strings.TrimSpace(q.Search)).Scan(&total); err != nil {
 		return domain.MemberPage{}, fmt.Errorf("directory: count group members: %w", err)
 	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT group_id, user_id, nickname, card, role, COALESCE(last_seen_at, to_timestamp(0))
 		FROM group_members
-		WHERE group_id = $1 AND ($2 = '' OR nickname ILIKE '%' || $2 || '%' OR card ILIKE '%' || $2 || '%')
+		WHERE bot_id = $1 AND group_id = $2
+		  AND ($3 = ''
+		       OR nickname ILIKE '%' || $3 || '%'
+		       OR card ILIKE '%' || $3 || '%'
+		       OR CAST(user_id AS TEXT) LIKE '%' || $3 || '%')
 		ORDER BY role DESC, card, user_id
-		LIMIT $3 OFFSET $4
-	`, groupID, strings.TrimSpace(q.Search), q.Limit, q.Offset())
+		LIMIT $4 OFFSET $5
+	`, botID, groupID, strings.TrimSpace(q.Search), q.Limit, q.Offset())
 	if err != nil {
 		return domain.MemberPage{}, fmt.Errorf("directory: list group members: %w", err)
 	}
@@ -192,4 +231,40 @@ func (r *Repo) ListGroupMembers(ctx context.Context, groupID int64, q domain.Pag
 		page.Items = append(page.Items, m)
 	}
 	return page, rows.Err()
+}
+
+// DeleteGroupMember removes one member row; re-running it is harmless.
+// DeleteGroupMember 删除单条成员行；重复执行无副作用。
+func (r *Repo) DeleteGroupMember(ctx context.Context, botID, groupID, userID int64) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM group_members WHERE bot_id = $1 AND group_id = $2 AND user_id = $3`,
+		botID, groupID, userID,
+	); err != nil {
+		return fmt.Errorf("directory: delete group member: %w", err)
+	}
+	return nil
+}
+
+// DeleteGroupMembers clears every member row of one group.
+// DeleteGroupMembers 清空一个群的全部成员行。
+func (r *Repo) DeleteGroupMembers(ctx context.Context, botID, groupID int64) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM group_members WHERE bot_id = $1 AND group_id = $2`,
+		botID, groupID,
+	); err != nil {
+		return fmt.Errorf("directory: delete group members: %w", err)
+	}
+	return nil
+}
+
+// DeleteGroup removes one group row.
+// DeleteGroup 删除单条群行。
+func (r *Repo) DeleteGroup(ctx context.Context, botID, groupID int64) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM qq_groups WHERE bot_id = $1 AND group_id = $2`,
+		botID, groupID,
+	); err != nil {
+		return fmt.Errorf("directory: delete group: %w", err)
+	}
+	return nil
 }

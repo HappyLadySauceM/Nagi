@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,7 +18,9 @@ import (
 	"github.com/HappyLadySauceM/QQBot/cmd/app/options"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/router"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
+	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
 	"github.com/HappyLadySauceM/QQBot/internal/observability"
+	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 	"github.com/HappyLadySauceM/QQBot/migrations"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
 	"github.com/HappyLadySauceM/QQBot/pkg/db"
@@ -40,10 +43,11 @@ func Run(ctx context.Context, opts options.Options) error {
 		"version", version.Version,
 		"config_file", opts.ConfigFile,
 		"listen", cfg.Server.Listen,
+		"onebot_endpoints", len(cfg.Onebot.Endpoints),
 		"echo_enabled", cfg.Echo.Enabled,
 		"ai_enabled", cfg.AI.Enabled,
 		"intent_enabled", cfg.Intent.Enabled,
-		"database_configured", cfg.Database.EffectiveDSN(os.LookupEnv) != "",
+		"database_configured", strings.TrimSpace(cfg.Database.DSN) != "",
 		"admin_auth_enabled", strings.TrimSpace(cfg.Server.AdminToken) != "")
 	// Both contexts may answer the same conversation, so surface the risk loudly
 	// instead of relying on the operator remembering the docs.
@@ -57,11 +61,13 @@ func Run(ctx context.Context, opts options.Options) error {
 	// deferred and never fails the app.
 	// 观测初始化先执行以捕获早期 span；其关闭被 defer 且不影响应用退出。
 	if cfg.Observability.Enabled {
-		telemetryShutdown, telemetryErr := observability.Setup(ctx, observability.Resolve(
-			cfg.Observability.BaseURLEnv, cfg.Observability.PublicKeyEnv,
-			cfg.Observability.SecretKeyEnv, cfg.Observability.IngestionVersion,
-			cfg.Observability.ExportRawContent, observability.ResolveEnv,
-		), logger)
+		telemetryShutdown, telemetryErr := observability.Setup(ctx, observability.Config{
+			BaseURL:          cfg.Observability.BaseURL,
+			PublicKey:        cfg.Observability.PublicKey,
+			SecretKey:        cfg.Observability.SecretKey,
+			IngestionVersion: cfg.Observability.IngestionVersion,
+			ExportRawContent: cfg.Observability.ExportRawContent,
+		}, logger)
 		if telemetryErr != nil {
 			return telemetryErr
 		}
@@ -85,7 +91,11 @@ func Run(ctx context.Context, opts options.Options) error {
 	if err != nil {
 		return err
 	}
-	svcCtx, err := svc.New(cfg, logger, rt.Onebot, rt.Dispatcher, rt.Directory, rt.Scope, rt.Memory, rt.Audit)
+	dispatchers := make([]*botapp.Dispatcher, 0, len(rt.Accounts))
+	for _, account := range rt.Accounts {
+		dispatchers = append(dispatchers, account.Dispatcher)
+	}
+	svcCtx, err := svc.New(cfg, logger, rt.Registry, dispatchers, rt.Directory, rt.Scope, rt.Memory, rt.Audit)
 	if err != nil {
 		return err
 	}
@@ -108,19 +118,24 @@ func Run(ctx context.Context, opts options.Options) error {
 		}()
 	}
 
-	transportDone := make(chan struct{})
-	go func() {
-		defer close(transportDone)
-		rt.Transport.Run(runCtx)
-	}()
-
-	dispatcherDone := make(chan struct{})
-	go func() {
-		defer close(dispatcherDone)
-		if err := rt.Dispatcher.Run(runCtx); err != nil {
-			logger.Error("bot dispatcher exited with error", "error", err)
-		}
-	}()
+	var loops sync.WaitGroup
+	for _, account := range rt.Accounts {
+		loops.Add(3)
+		go func(a *assembly.AccountRuntime) {
+			defer loops.Done()
+			a.Transport.Run(runCtx)
+		}(account)
+		go func(a *assembly.AccountRuntime) {
+			defer loops.Done()
+			if err := a.Dispatcher.Run(runCtx); err != nil {
+				logger.Error("bot dispatcher exited with error", "endpoint", a.Endpoint, "error", err)
+			}
+		}(account)
+		go func(a *assembly.AccountRuntime) {
+			defer loops.Done()
+			identifyAccount(runCtx, logger, a)
+		}(account)
+	}
 
 	// Worker is nil until the AI decision pipeline is wired.
 	// AI 决策流水线接入前 Worker 为 nil。
@@ -147,9 +162,10 @@ func Run(ctx context.Context, opts options.Options) error {
 
 	// Shutdown order: WebSocket → HTTP (inside its goroutine) → wait in-flight goroutines.
 	// 关闭顺序：WS → HTTP（在其 goroutine 内）→ 等待在途协程。
-	_ = rt.Onebot.Close()
-	<-transportDone
-	<-dispatcherDone
+	for _, account := range rt.Accounts {
+		_ = account.Client.Close()
+	}
+	loops.Wait()
 	if workerDone != nil {
 		<-workerDone
 	}
@@ -167,12 +183,65 @@ func Run(ctx context.Context, opts options.Options) error {
 	return runErr
 }
 
+// identifyAccount discovers which QQ account one endpoint serves. It waits for
+// the connection, binds the identity and rejects the endpoint when the reported
+// QQ number differs from expect-qq or conflicts with an existing binding.
+// identifyAccount 识别单个端点服务的 QQ 账号：等待连接、绑定身份，并在
+// 实际 QQ 号与 expect-qq 不一致或与既有绑定冲突时拒绝该端点。
+func identifyAccount(ctx context.Context, logger *slog.Logger, account *assembly.AccountRuntime) {
+	logger = logger.With("endpoint", account.Endpoint)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		if botID, known := account.Client.SelfID(); known {
+			verifyIdentity(logger, account, int64(botID), "")
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if !account.Client.Connected() {
+			continue
+		}
+		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		login, err := account.Client.GetLoginInfo(callCtx)
+		cancel()
+		if err != nil {
+			logger.Debug("account identity pending: get_login_info failed", "error", err)
+			continue
+		}
+		if err := account.Client.BindIdentity(obdomain.BotID(login.UserID)); err != nil {
+			account.Connection.Reject(err.Error())
+			logger.Error("account identity conflict; connection rejected", "bot_id", int64(login.UserID), "error", err)
+			_ = account.Client.Close()
+			return
+		}
+		verifyIdentity(logger, account, int64(login.UserID), login.Nickname)
+		return
+	}
+}
+
+// verifyIdentity enforces expect-qq and logs the discovered account.
+// verifyIdentity 校验 expect-qq 并记录识别到的账号。
+func verifyIdentity(logger *slog.Logger, account *assembly.AccountRuntime, botID int64, nickname string) {
+	if account.ExpectedQQ != 0 && botID != account.ExpectedQQ {
+		reason := fmt.Sprintf("endpoint reports QQ %d, expected %d", botID, account.ExpectedQQ)
+		account.Connection.Reject(reason)
+		logger.Error("account identity mismatch; connection rejected", "bot_id", botID, "reason", reason)
+		_ = account.Client.Close()
+		return
+	}
+	logger.Info("account identified", "bot_id", botID, "nickname", nickname)
+}
+
 // connectDatabase opens the pool and applies migrations when a DSN is configured;
-// it returns nil when no DSN resolves, keeping the bot usable without a database.
-// connectDatabase 在配置了 DSN 时打开连接池并应用迁移；未解析出 DSN 时返回 nil，
+// it returns nil when the DSN is empty, keeping the bot usable without a database.
+// connectDatabase 在配置了 DSN 时打开连接池并应用迁移；DSN 为空时返回 nil，
 // 机器人可在无数据库的情况下继续运行。
 func connectDatabase(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*pgxpool.Pool, error) {
-	dsn := cfg.Database.EffectiveDSN(os.LookupEnv)
+	dsn := strings.TrimSpace(cfg.Database.DSN)
 	if dsn == "" {
 		return nil, nil
 	}
@@ -231,9 +300,7 @@ func loadAndStart(loadOpts config.Options) (*config.Config, *slog.Logger, error)
 // toOverrides 将命令行 Flag 映射为配置覆盖。
 func toOverrides(opts options.Options) config.Overrides {
 	return config.Overrides{
-		OnebotURL:   opts.OnebotURL,
-		AccessToken: opts.AccessToken,
-		Listen:      opts.Listen,
-		LogLevel:    opts.LogLevel,
+		Listen:   opts.Listen,
+		LogLevel: opts.LogLevel,
 	}
 }

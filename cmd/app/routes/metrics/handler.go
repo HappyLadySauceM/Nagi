@@ -3,18 +3,13 @@
 package metrics
 
 import (
-	"context"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
 	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
 )
-
-// StatsProvider supplies aggregate counters; it never exposes message content.
-// StatsProvider 提供聚合计数；绝不暴露消息内容。
-type StatsProvider interface {
-	Stats(ctx context.Context) (map[string]any, error)
-}
 
 // Handler serves the metrics endpoint.
 // Handler 提供指标接口。
@@ -41,7 +36,20 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusServiceUnavailable, "database not configured")
 		return
 	}
-	stats, err := h.svcCtx.Stats.Stats(r.Context())
+	// bot_id 0 aggregates every account; the dashboard always sends the selected one.
+	// Malformed ids fail loudly instead of silently widening to all accounts.
+	// bot_id 为 0 时汇总全部账号；看板始终发送当前选中账号。
+	// 非法 bot_id 直接报错，而不是静默放大为全账号聚合。
+	var botID int64
+	if raw := strings.TrimSpace(r.URL.Query().Get("bot_id")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			common.WriteFailure(w, http.StatusBadRequest, "invalid bot_id")
+			return
+		}
+		botID = parsed
+	}
+	stats, err := h.svcCtx.Stats.Stats(r.Context(), botID)
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "collect metrics failed")
 		return

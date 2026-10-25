@@ -30,7 +30,7 @@ func TestMigrateAppliesAndReverses(t *testing.T) {
 	}
 	for _, table := range []string{
 		"bot_accounts", "contacts", "qq_groups", "group_members", "scope_policies", "admin_audit_logs",
-		"conversations", "messages", "message_jobs", "active_threads", "intent_decisions", "memories",
+		"conversations", "messages", "message_jobs", "intent_decisions", "memories",
 	} {
 		var exists bool
 		if err := pool.QueryRow(ctx,

@@ -11,15 +11,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"os"
 	"strings"
+	"sync/atomic"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/HappyLadySauceM/QQBot/pkg/version"
 )
@@ -34,26 +37,25 @@ type Config struct {
 	ExportRawContent bool
 }
 
-// Resolve reads the Langfuse credentials from the configured environment variable
-// names; missing values disable the exporter.
-// Resolve 从配置的环境变量名读取 Langfuse 凭据；缺失时关闭导出器。
-func Resolve(baseURLEnv, publicKeyEnv, secretKeyEnv, ingestionVersion string, exportRawContent bool, lookup func(string) (string, bool)) Config {
-	get := func(name string) string {
-		if name == "" {
-			return ""
-		}
-		if v, ok := lookup(name); ok {
-			return strings.TrimSpace(v)
-		}
-		return ""
+// exportRawContent gates span attributes that carry message bodies. It is off
+// unless the operator sets observability.export-raw-content.
+// exportRawContent 控制 span 是否携带消息正文；仅当显式开启时才记录。
+var exportRawContent atomic.Bool
+
+// maxContentRunes bounds one exported body so a long reply cannot bloat a trace.
+// maxContentRunes 限制单段导出正文长度，避免超长回复撑大 trace。
+const maxContentRunes = 8192
+
+// RecordContent attaches a raw body to a span when content export is enabled.
+// RecordContent 在开启正文导出时把原始内容写入 span。
+func RecordContent(span trace.Span, key, value string) {
+	if span == nil || value == "" || !exportRawContent.Load() {
+		return
 	}
-	return Config{
-		BaseURL:          get(baseURLEnv),
-		PublicKey:        get(publicKeyEnv),
-		SecretKey:        get(secretKeyEnv),
-		IngestionVersion: ingestionVersion,
-		ExportRawContent: exportRawContent,
+	if utf8.RuneCountInString(value) > maxContentRunes {
+		value = string([]rune(value)[:maxContentRunes]) + "…(truncated)"
 	}
+	span.SetAttributes(attribute.String(key, value))
 }
 
 // ShutdownFunc flushes and shuts down the telemetry pipeline.
@@ -68,6 +70,7 @@ func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, 
 	if logger == nil {
 		return nil, fmt.Errorf("observability: logger required")
 	}
+	exportRawContent.Store(cfg.ExportRawContent)
 	if cfg.BaseURL == "" || cfg.PublicKey == "" || cfg.SecretKey == "" {
 		logger.Warn("observability enabled but langfuse credentials missing; telemetry stays local no-op")
 		return func(context.Context) error { return nil }, nil
@@ -76,21 +79,22 @@ func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, 
 	if err != nil {
 		return nil, fmt.Errorf("observability: parse langfuse endpoint: %w", err)
 	}
+	// WithHeaders replaces the whole map, so both headers are set in one call.
+	// WithHeaders 是整表覆盖，必须一次写全，否则后一次会丢掉 Authorization。
+	headers := map[string]string{
+		"Authorization": "Basic " + base64.StdEncoding.EncodeToString(
+			[]byte(cfg.PublicKey+":"+cfg.SecretKey)),
+	}
+	if cfg.IngestionVersion != "" {
+		headers["x-langfuse-ingestion-version"] = cfg.IngestionVersion
+	}
 	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(endpoint.Host),
 		otlptracehttp.WithURLPath(endpoint.Path),
-		otlptracehttp.WithHeaders(map[string]string{
-			"Authorization": "Basic " + base64.StdEncoding.EncodeToString(
-				[]byte(cfg.PublicKey+":"+cfg.SecretKey)),
-		}),
+		otlptracehttp.WithHeaders(headers),
 	}
 	if endpoint.Scheme == "http" {
 		opts = append(opts, otlptracehttp.WithInsecure())
-	}
-	if cfg.IngestionVersion != "" {
-		opts = append(opts, otlptracehttp.WithHeaders(map[string]string{
-			"x-langfuse-ingestion-version": cfg.IngestionVersion,
-		}))
 	}
 	exporter, err := otlptracehttp.New(ctx, opts...)
 	if err != nil {
@@ -117,7 +121,3 @@ func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, 
 		return errors.Join(provider.Shutdown(ctx))
 	}, nil
 }
-
-// ResolveEnv is the default environment lookup for Resolve.
-// ResolveEnv 是 Resolve 的默认环境变量查询。
-func ResolveEnv(name string) (string, bool) { return os.LookupEnv(name) }

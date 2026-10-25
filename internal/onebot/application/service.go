@@ -38,6 +38,11 @@ type ClientService struct {
 	selfID  atomic.Int64
 	selfSet atomic.Bool
 
+	// identityMu serialises first-write identity binding so one connection can
+	// never be silently rebound to another account.
+	// identityMu 串行化首次身份绑定，避免同一连接被静默改写为其他账号。
+	identityMu sync.Mutex
+
 	// Heartbeat visibility derived from meta_event frames.
 	// 由 meta_event 帧推导的心跳可见性。
 	lastHeartbeatAt   atomic.Int64 // unix nanos; 0 = unseen
@@ -173,8 +178,14 @@ func (s *ClientService) HandleResponse(echo string, payload json.RawMessage) {
 // HandleEvent 实现 EventSink：记录自身账号与最近心跳，并发布事件。
 func (s *ClientService) HandleEvent(event domain.Event) {
 	if event.SelfID != 0 {
-		s.selfID.Store(int64(event.SelfID))
-		s.selfSet.Store(true)
+		if err := s.BindIdentity(event.SelfID); err != nil {
+			// A connection that changes identity mid-flight would mix two accounts'
+			// data, so drop the event instead of overwriting the binding.
+			// 连接中途改变身份会导致两个账号数据混用，因此丢弃事件而不是覆盖绑定。
+			s.logger.Error("onebot: drop event from unexpected account",
+				"event_self_id", int64(event.SelfID), "error", err)
+			return
+		}
 	}
 	if event.IsHeartbeat() {
 		s.lastHeartbeatAt.Store(time.Now().UnixNano())
@@ -202,6 +213,28 @@ func (s *ClientService) Events() <-chan domain.Event { return s.events }
 // Connected 实现 contracts.EventSource 的连接状态查询。
 func (s *ClientService) Connected() bool {
 	return s.transport != nil && s.transport.Connected()
+}
+
+// BindIdentity records the account identity observed by get_login_info or the
+// first event. The first observation wins; a different id returns an error so
+// callers can reject the connection rather than mix two accounts.
+// BindIdentity 记录 get_login_info 或首个事件观测到的账号身份。首次观测生效；
+// 后续不一致返回错误，调用方应拒绝该连接而不是混用两个账号。
+func (s *ClientService) BindIdentity(botID domain.BotID) error {
+	if botID <= 0 {
+		return fmt.Errorf("onebot: bot id must be positive")
+	}
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
+	if s.selfSet.Load() {
+		if current := s.selfID.Load(); current != int64(botID) {
+			return fmt.Errorf("onebot: connection bound to bot %d, refusing bot %d", current, int64(botID))
+		}
+		return nil
+	}
+	s.selfID.Store(int64(botID))
+	s.selfSet.Store(true)
+	return nil
 }
 
 // SelfID returns the bot account observed from recent events.

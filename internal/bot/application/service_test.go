@@ -29,6 +29,7 @@ type recordingHandler struct {
 	name    string
 	match   func(domain.Event) bool
 	handled *atomic.Int32
+	botID   *atomic.Int64
 	panicOn bool
 }
 
@@ -36,8 +37,11 @@ func (h *recordingHandler) Name() string { return h.name }
 
 func (h *recordingHandler) Match(event domain.Event) bool { return h.match(event) }
 
-func (h *recordingHandler) Handle(ctx context.Context, event domain.Event) error {
+func (h *recordingHandler) Handle(ctx context.Context, botID domain.BotID, event domain.Event) error {
 	h.handled.Add(1)
+	if h.botID != nil {
+		h.botID.Store(int64(botID))
+	}
 	if h.panicOn {
 		panic("boom")
 	}
@@ -47,12 +51,14 @@ func (h *recordingHandler) Handle(ctx context.Context, event domain.Event) error
 func TestDispatcherRoutesMatchingHandlersAndRecoversPanics(t *testing.T) {
 	// 验证分发按 Match 路由、panic 被恢复且循环继续。
 	src := newFakeSource()
-	d := NewDispatcher(src, nil)
+	d := NewDispatcher(src, nil, nil)
 	var handled, panicked, unmatched atomic.Int32
+	var observed atomic.Int64
 	if err := d.Register(&recordingHandler{
 		name:    "h1",
 		match:   func(domain.Event) bool { return true },
 		handled: &handled,
+		botID:   &observed,
 	}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -79,8 +85,8 @@ func TestDispatcherRoutesMatchingHandlersAndRecoversPanics(t *testing.T) {
 		close(done)
 	}()
 
-	src.events <- domain.Event{Post: domain.PostMessage}
-	src.events <- domain.Event{Post: domain.PostMessage}
+	src.events <- domain.Event{Post: domain.PostMessage, SelfID: 10001}
+	src.events <- domain.Event{Post: domain.PostMessage, SelfID: 10001}
 	deadline := time.Now().Add(2 * time.Second)
 	for handled.Load() < 2 && time.Now().Before(deadline) {
 		time.Sleep(2 * time.Millisecond)
@@ -90,6 +96,9 @@ func TestDispatcherRoutesMatchingHandlersAndRecoversPanics(t *testing.T) {
 
 	if handled.Load() != 2 {
 		t.Fatalf("handled = %d", handled.Load())
+	}
+	if got := observed.Load(); got != 10001 {
+		t.Fatalf("handler bot id = %d, want 10001", got)
 	}
 	if panicked.Load() != 2 {
 		t.Fatalf("panicking handler executions = %d", panicked.Load())
@@ -108,7 +117,7 @@ func TestDispatcherRoutesMatchingHandlersAndRecoversPanics(t *testing.T) {
 func TestDispatcherRejectsDuplicateNames(t *testing.T) {
 	// 验证重名处理器被拒绝。
 	src := newFakeSource()
-	d := NewDispatcher(src, nil)
+	d := NewDispatcher(src, nil, nil)
 	var counter atomic.Int32
 	if err := d.Register(&recordingHandler{
 		name:    "dup",
@@ -130,7 +139,7 @@ func TestDispatcherRejectsDuplicateNames(t *testing.T) {
 func TestDispatcherReturnsWhenChannelCloses(t *testing.T) {
 	// 验证事件通道关闭后 Run 返回。
 	src := newFakeSource()
-	d := NewDispatcher(src, nil)
+	d := NewDispatcher(src, nil, nil)
 	done := make(chan error, 1)
 	go func() { done <- d.Run(context.Background()) }()
 	close(src.events)

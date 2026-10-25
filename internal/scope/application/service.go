@@ -17,6 +17,9 @@ type Repository interface {
 	Get(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (domain.Policy, bool, error)
 	List(ctx context.Context, botID *int64) ([]domain.Policy, error)
 	Upsert(ctx context.Context, botID int64, policy domain.Policy) error
+	// Delete removes one stored policy and reports whether a row existed.
+	// Delete 删除一条已存策略并报告是否存在该行。
+	Delete(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (bool, error)
 }
 
 // cacheTTL bounds how long a resolved policy — including the default-deny
@@ -111,6 +114,23 @@ func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy)
 	}
 	s.mu.Unlock()
 	return nil
+}
+
+// Delete removes one stored policy and evicts its cache entry, so the scope
+// falls back to the default-deny policy immediately instead of after the TTL.
+// Delete 删除一条已存策略并驱逐缓存，使该作用域立即回到默认拒绝，而不是等缓存过期。
+func (s *Service) Delete(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (bool, error) {
+	if !scopeType.Valid() || scopeID <= 0 || botID <= 0 {
+		return false, fmt.Errorf("scope: invalid scope identity")
+	}
+	deleted, err := s.repo.Delete(ctx, botID, scopeType, scopeID)
+	if err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	delete(s.cache, cacheKey(botID, scopeType, scopeID))
+	s.mu.Unlock()
+	return deleted, nil
 }
 
 func cacheKey(botID int64, scopeType domain.ScopeType, scopeID int64) string {

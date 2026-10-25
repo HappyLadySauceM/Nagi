@@ -5,7 +5,6 @@ package assembly
 import (
 	"context"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,7 +20,6 @@ import (
 	intentinfra "github.com/HappyLadySauceM/QQBot/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
 	memorydomain "github.com/HappyLadySauceM/QQBot/internal/memory/domain"
-	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
 	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
 )
@@ -115,20 +113,12 @@ func (m memoryFinder) Find(ctx context.Context, botID int64, kind string, target
 // buildReplyExecutor wires the LLM reply executor when AI generation is enabled.
 // ai.enabled 时装配 LLM 回复执行器。
 func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
-	scope *scopeapp.Service, conv *conversationapp.Service, memory *memoryapp.Service, client *obapp.ClientService,
+	scope *scopeapp.Service, conv *conversationapp.Service, memory *memoryapp.Service, senders agentapp.SenderResolver,
 ) (intentcontracts.ReplyExecutor, error) {
 	if !cfg.AI.Enabled || pool == nil || scope == nil || conv == nil {
 		return nil, nil
 	}
-	apiKey := ""
-	if cfg.AI.APIKeyEnv != "" {
-		apiKey = os.Getenv(cfg.AI.APIKeyEnv)
-	}
-	if apiKey == "" {
-		logger.Warn("ai enabled but api key missing; replies stay silent",
-			"api_key_env", cfg.AI.APIKeyEnv)
-		return nil, nil
-	}
+	apiKey := cfg.AI.APIKey
 	model, err := agentinfra.NewOpenAI(agentinfra.OpenAIConfig{
 		BaseURL:         cfg.AI.BaseURL,
 		APIKey:          apiKey,
@@ -142,7 +132,7 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *pgxpool.P
 	return agentapp.NewReplier(agentapp.Options{
 		Model:     model,
 		Scopes:    scope,
-		Sender:    client,
+		Senders:   senders,
 		Recorder:  conv,
 		Memory:    memoryFinderAdapt(memory),
 		BotName:   cfg.Intent.BotName,
@@ -179,13 +169,10 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	if scope == nil || conv == nil {
 		return nil, nil
 	}
-	jevKey := ""
-	if cfg.Intent.APIKeyEnv != "" {
-		jevKey = os.Getenv(cfg.Intent.APIKeyEnv)
-	}
+	jevKey := cfg.Intent.APIKey
 	if jevKey == "" {
-		logger.Warn("jev api key missing; semantic decisions degrade to explicit mentions only",
-			"api_key_env", cfg.Intent.APIKeyEnv)
+		logger.Warn("jev api-key missing; semantic decisions degrade to explicit mentions only",
+			"hint", "set intent.api-key in the config file")
 	}
 	jev, err := intentinfra.NewJevClient(intentinfra.JevConfig{
 		Endpoint: cfg.Intent.Endpoint,

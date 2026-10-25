@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	echoapp "github.com/HappyLadySauceM/QQBot/internal/echo/application"
+	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
 	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
 )
 
@@ -21,6 +22,8 @@ func (noopSender) SendGroupMessage(ctx context.Context, to domain.GroupID, segme
 }
 
 func (noopSender) DeleteMessage(ctx context.Context, id domain.MessageID) error { return nil }
+
+func (s noopSender) Sender(botID int64) (obcontracts.Sender, bool) { return s, true }
 
 func TestHandlerMatchesOnlyPingAndPrefixedMessages(t *testing.T) {
 	// 验证 Match 仅命中 ping 与前缀指令。
@@ -54,7 +57,7 @@ func TestHandlerHandlesPingWithoutError(t *testing.T) {
 	// 验证 ping 事件进入 ping 用例且不出错。
 	svc, _ := echoapp.NewService(noopSender{}, "/echo")
 	h := NewHandler(svc, "/echo")
-	if err := h.Handle(context.Background(), domain.Event{Post: domain.PostMessage, RawMessage: "ping"}); err != nil {
+	if err := h.Handle(context.Background(), 100, domain.Event{Post: domain.PostMessage, RawMessage: "ping"}); err != nil {
 		t.Fatalf("handle ping: %v", err)
 	}
 	if h.Name() != "echo" {

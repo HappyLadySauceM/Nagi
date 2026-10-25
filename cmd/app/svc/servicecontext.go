@@ -4,15 +4,17 @@ package svc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	auditcontracts "github.com/HappyLadySauceM/QQBot/internal/audit/contracts"
 	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
 	directoryapp "github.com/HappyLadySauceM/QQBot/internal/directory/application"
 	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
-	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
 	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
 	"github.com/HappyLadySauceM/QQBot/pkg/config"
 	"github.com/HappyLadySauceM/QQBot/pkg/version"
@@ -21,11 +23,15 @@ import (
 // ServiceContext holds runtime dependencies for the management API.
 // ServiceContext 持有管理 API 所需的运行时依赖。
 type ServiceContext struct {
-	Config     *config.Config
-	Logger     *slog.Logger
-	StartedAt  time.Time
-	Onebot     *obapp.ClientService
-	Dispatcher *botapp.Dispatcher
+	Config    *config.Config
+	Logger    *slog.Logger
+	StartedAt time.Time
+	// Accounts routes every account-scoped operation; one entry per endpoint.
+	// Accounts 路由所有按账号隔离的操作；每个端点一条记录。
+	Accounts *Accounts
+	// Dispatchers holds one event loop per connection.
+	// Dispatchers 为每条连接持有一个事件循环。
+	Dispatchers []*botapp.Dispatcher
 
 	// Directory, Scope, Memory and Audit are nil when the database is not configured.
 	// 未配置数据库时 Directory、Scope、Memory 与 Audit 为 nil。
@@ -41,33 +47,96 @@ type ServiceContext struct {
 // StatsProvider supplies aggregate counters for the metrics endpoint.
 // StatsProvider 为指标接口提供聚合计数。
 type StatsProvider interface {
-	Stats(ctx context.Context) (map[string]any, error)
+	Stats(ctx context.Context, botID int64) (map[string]any, error)
 }
 
 // New validates inputs and builds the context; database-backed services may be nil.
 // New 校验输入并构建依赖容器；依赖数据库的服务可为 nil。
-func New(cfg *config.Config, logger *slog.Logger, onebot *obapp.ClientService, dispatcher *botapp.Dispatcher,
+func New(cfg *config.Config, logger *slog.Logger, accounts *Accounts, dispatchers []*botapp.Dispatcher,
 	directory *directoryapp.Service, scope *scopeapp.Service, memory *memoryapp.Service, audit auditcontracts.Recorder,
 ) (*ServiceContext, error) {
-	if cfg == nil || logger == nil || onebot == nil || dispatcher == nil {
+	if cfg == nil || logger == nil || accounts == nil || len(dispatchers) == 0 {
 		return nil, fmt.Errorf("svc: dependencies required")
 	}
 	return &ServiceContext{
-		Config:     cfg,
-		Logger:     logger,
-		StartedAt:  time.Now(),
-		Onebot:     onebot,
-		Dispatcher: dispatcher,
-		Directory:  directory,
-		Scope:      scope,
-		Memory:     memory,
-		Audit:      audit,
+		Config:      cfg,
+		Logger:      logger,
+		StartedAt:   time.Now(),
+		Accounts:    accounts,
+		Dispatchers: dispatchers,
+		Directory:   directory,
+		Scope:       scope,
+		Memory:      memory,
+		Audit:       audit,
 	}, nil
+}
+
+// ErrBotIDRequired reports an ambiguous request when several accounts exist.
+// ErrBotIDRequired 表示多账号场景下请求未指定账号。
+var ErrBotIDRequired = errors.New("svc: bot_id is required when several accounts are configured")
+
+// ErrAccountUnknown reports that no account identity is available yet.
+// ErrAccountUnknown 表示账号身份尚不可用。
+var ErrAccountUnknown = errors.New("svc: bot account identity is not available yet")
+
+// ErrInvalidBotID reports a malformed bot_id parameter.
+// ErrInvalidBotID 表示 bot_id 参数格式非法。
+var ErrInvalidBotID = errors.New("svc: invalid bot_id")
+
+// ResolveBotID resolves the account of a request: an explicit bot_id wins,
+// otherwise the single configured account is used. Several accounts without an
+// explicit id is an error, never a guess.
+// ResolveBotID 解析请求所属账号：显式 bot_id 优先，否则使用唯一配置的账号。
+// 多账号且未显式指定时返回错误，绝不做猜测。
+func (s *ServiceContext) ResolveBotID(raw string) (int64, error) {
+	if trimmed := strings.TrimSpace(raw); trimmed != "" {
+		botID, err := strconv.ParseInt(trimmed, 10, 64)
+		if err != nil || botID <= 0 {
+			return 0, fmt.Errorf("%w: %q", ErrInvalidBotID, trimmed)
+		}
+		return botID, nil
+	}
+	conn, ok := s.Accounts.Default()
+	if !ok {
+		return 0, ErrBotIDRequired
+	}
+	botID, known := conn.BotID()
+	if !known {
+		return 0, ErrAccountUnknown
+	}
+	return botID, nil
 }
 
 // Uptime returns how long the process has been running.
 // Uptime 返回进程运行时长。
 func (s *ServiceContext) Uptime() time.Duration { return time.Since(s.StartedAt) }
+
+// HandlerNames returns the union of registered handler names across connections.
+// HandlerNames 返回所有连接已注册处理器名的并集。
+func (s *ServiceContext) HandlerNames() []string {
+	seen := make(map[string]struct{})
+	names := make([]string, 0, 4)
+	for _, dispatcher := range s.Dispatchers {
+		for _, name := range dispatcher.Names() {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// HandledCount sums successful handler executions across connections.
+// HandledCount 汇总所有连接成功执行的处理器次数。
+func (s *ServiceContext) HandledCount() uint64 {
+	var total uint64
+	for _, dispatcher := range s.Dispatchers {
+		total += dispatcher.HandledCount()
+	}
+	return total
+}
 
 // StatusSnapshot builds the data for /api/v1/status; it never contains message bodies.
 // StatusSnapshot 生成 /api/v1/status 数据；不包含任何消息内容。
@@ -77,20 +146,8 @@ func (s *ServiceContext) StatusSnapshot() map[string]any {
 		"uptime_seconds": int64(s.Uptime().Seconds()),
 		"echo_enabled":   s.Config.Echo.Enabled,
 	}
-	status := s.Onebot.Status()
-	onebot := map[string]any{"connected": status.Connected}
-	if status.SelfIDKnown {
-		onebot["self_id"] = int64(status.SelfID)
-	}
-	if status.HeartbeatSeen {
-		onebot["heartbeat_seen"] = true
-		onebot["last_heartbeat"] = status.LastHeartbeatAt.Format(time.RFC3339)
-		if status.HeartbeatIntervalMillis > 0 {
-			onebot["heartbeat_interval_ms"] = status.HeartbeatIntervalMillis
-		}
-	}
-	snapshot["onebot"] = onebot
-	snapshot["handlers"] = s.Dispatcher.Names()
-	snapshot["handled_events"] = s.Dispatcher.HandledCount()
+
+	snapshot["handlers"] = s.HandlerNames()
+	snapshot["handled_events"] = s.HandledCount()
 	return snapshot
 }

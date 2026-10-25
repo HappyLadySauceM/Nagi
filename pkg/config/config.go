@@ -48,16 +48,23 @@ type Reconnect struct {
 	Max     Duration `yaml:"max"`
 }
 
-// Onebot 是 OneBot v11 连接配置域。
-type Onebot struct {
+// OnebotEndpoint 描述一个 SnowLuma OneBot v11 实例端点。
+// 每个 QQ 账号在 SnowLuma 中拥有独立的 OneBot 实例，因此端点与账号是多对一关系：
+// 端点只声明如何连接，账号身份在连接后经 get_login_info 自动识别。
+type OnebotEndpoint struct {
 	URL string `yaml:"url"`
 	// AccessToken 与 OneBot 实现保持一致；空表示不鉴权。
-	// AccessToken 与 OneBot 实现保持一致；空表示不鉴权。
 	AccessToken string `yaml:"access-token"`
-	// CallTimeout 是动作调用的响应超时。
+	// ExpectQQ 是配置声明的预期 QQ 号；非零时与登录信息不一致即拒绝该连接。
+	ExpectQQ int64 `yaml:"expect-qq"`
+}
+
+// Onebot 是 OneBot v11 连接配置域。
+type Onebot struct {
+	// Endpoints 是全部 OneBot 端点；每个 QQ 账号对应一个端点，账号身份连接后自动识别。
+	Endpoints []OnebotEndpoint `yaml:"endpoints"`
 	// CallTimeout 是动作调用的响应超时。
 	CallTimeout Duration `yaml:"call-timeout"`
-	// HeartbeatTimeout 是心跳看门狗窗口；窗口内没有入站帧即断开重连，<= 0 关闭。
 	// HeartbeatTimeout 是心跳看门狗窗口；窗口内没有入站帧即断开重连，<= 0 关闭。
 	HeartbeatTimeout Duration  `yaml:"heartbeat-timeout"`
 	Reconnect        Reconnect `yaml:"reconnect"`
@@ -85,32 +92,15 @@ type Echo struct {
 	Prefix  string `yaml:"prefix"`
 }
 
-// Database 是 PostgreSQL 连接配置域；未解析出 DSN 时数据库功能不启用。
-// Database is the PostgreSQL config domain; when no DSN resolves, database features stay off.
+// Database 是 PostgreSQL 连接配置域；dsn 为空时数据库功能不启用。
+// Database is the PostgreSQL config domain; an empty dsn disables database features.
 type Database struct {
-	// DSN 是连接字符串；通常经 QQBOT_DATABASE_DSN 环境变量注入。
-	// DSN is the connection string, usually injected via the QQBOT_DATABASE_DSN env var.
+	// DSN 是连接字符串，直接写在配置文件中。
+	// DSN is the connection string, written directly in the config file.
 	DSN string `yaml:"dsn"`
-	// DSNEnv 引用一个持有连接字符串的环境变量名；DSN 非空时忽略。
-	// DSNEnv names an env var holding the connection string; ignored when DSN is set.
-	DSNEnv string `yaml:"dsn-env"`
 	// MaxConns 是连接池上限。
 	// MaxConns is the pool size limit.
 	MaxConns int32 `yaml:"max-conns"`
-}
-
-// EffectiveDSN 解析连接字符串：显式 dsn 优先，其次 dsn-env 引用的环境变量。
-// EffectiveDSN resolves the connection string: explicit DSN wins, then the env var named by DSNEnv.
-func (d Database) EffectiveDSN(lookup func(string) (string, bool)) string {
-	if strings.TrimSpace(d.DSN) != "" {
-		return strings.TrimSpace(d.DSN)
-	}
-	if d.DSNEnv != "" {
-		if v, ok := lookup(d.DSNEnv); ok {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
 }
 
 // Worker 是决策任务工作器配置域。
@@ -127,12 +117,12 @@ type Worker struct {
 	PollInterval Duration `yaml:"poll-interval"`
 }
 
-// AI 是 LLM 生成配置域；密钥经 api-key-env 引用的环境变量注入。
-// AI is the LLM generation config domain; the key is injected via the env var named by api-key-env.
+// AI 是 LLM 生成配置域；api-key 直接写在配置文件中（本地配置已 gitignore）。
+// AI is the LLM generation config domain; api-key is written directly in the config file.
 type AI struct {
 	Enabled           bool     `yaml:"enabled"`
 	BaseURL           string   `yaml:"base-url"`
-	APIKeyEnv         string   `yaml:"api-key-env"`
+	APIKey            string   `yaml:"api-key"`
 	Model             string   `yaml:"model"`
 	GenerationTimeout Duration `yaml:"generation-timeout"`
 	MaxOutputTokens   int      `yaml:"max-output-tokens"`
@@ -144,7 +134,7 @@ type Intent struct {
 	Enabled               bool     `yaml:"enabled"`
 	Provider              string   `yaml:"provider"`
 	Endpoint              string   `yaml:"endpoint"`
-	APIKeyEnv             string   `yaml:"api-key-env"`
+	APIKey                string   `yaml:"api-key"`
 	Model                 string   `yaml:"model"`
 	BotName               string   `yaml:"bot-name"`
 	Timeout               Duration `yaml:"timeout"`
@@ -155,19 +145,19 @@ type Intent struct {
 	HistoryLimit          int      `yaml:"history-limit"`
 }
 
-// Observability 是 OpenTelemetry/Langfuse 观测配置域；凭据经环境变量注入。
-// Observability is the OpenTelemetry/Langfuse config domain; credentials come from env vars.
+// Observability 是 OpenTelemetry/Langfuse 观测配置域；地址与凭据直接写在配置文件中。
+// Observability is the OpenTelemetry/Langfuse config domain; endpoint and credentials are plain values.
 type Observability struct {
 	// Enabled 为 false 时不初始化任何导出器，业务零开销。
 	// When Enabled is false no exporter is initialized; business runs at zero cost.
 	Enabled bool `yaml:"enabled"`
-	// BaseURLEnv 引用持有 Langfuse Base URL 的环境变量名。
-	// BaseURLEnv names the env var holding the Langfuse base URL.
-	BaseURLEnv string `yaml:"base-url-env"`
-	// PublicKeyEnv 与 SecretKeyEnv 引用 Langfuse 凭据环境变量名。
-	// PublicKeyEnv and SecretKeyEnv name the Langfuse credential env vars.
-	PublicKeyEnv string `yaml:"public-key-env"`
-	SecretKeyEnv string `yaml:"secret-key-env"`
+	// BaseURL 是 Langfuse 服务地址。
+	// BaseURL is the Langfuse base URL.
+	BaseURL string `yaml:"base-url"`
+	// PublicKey 与 SecretKey 是 Langfuse 项目凭据。
+	// PublicKey and SecretKey are the Langfuse project credentials.
+	PublicKey string `yaml:"public-key"`
+	SecretKey string `yaml:"secret-key"`
 	// IngestionVersion 为 "4" 时携带 Langfuse v4 ingestion header。
 	// IngestionVersion "4" adds the Langfuse v4 ingestion header.
 	IngestionVersion string `yaml:"ingestion-version"`
@@ -193,7 +183,7 @@ type Config struct {
 func defaults() Config {
 	return Config{
 		Onebot: Onebot{
-			URL:              "ws://127.0.0.1:3001",
+			Endpoints:        []OnebotEndpoint{{URL: "ws://127.0.0.1:3001"}},
 			CallTimeout:      Duration(10 * time.Second),
 			HeartbeatTimeout: Duration(60 * time.Second),
 			Reconnect:        Reconnect{Initial: Duration(time.Second), Max: Duration(30 * time.Second)},
@@ -202,7 +192,6 @@ func defaults() Config {
 		Log:    Log{Level: "info"},
 		Echo:   Echo{Enabled: true, Prefix: "/echo"},
 		Database: Database{
-			DSNEnv:   "QQBOT_DATABASE_DSN",
 			MaxConns: 10,
 		},
 		Worker: Worker{
@@ -217,7 +206,6 @@ func defaults() Config {
 		Intent: Intent{
 			Provider:              "jev",
 			Endpoint:              "https://api.typesafe.ai/v1/systemone",
-			APIKeyEnv:             "TYPESAFE_API_KEY",
 			Model:                 "jev-latest",
 			Timeout:               Duration(3 * time.Second),
 			ActiveWindow:          Duration(180 * time.Second),
@@ -226,20 +214,13 @@ func defaults() Config {
 			AddressedOtherMax:     0.60,
 			HistoryLimit:          30,
 		},
-		Observability: Observability{
-			BaseURLEnv:   "LANGFUSE_BASE_URL",
-			PublicKeyEnv: "LANGFUSE_PUBLIC_KEY",
-			SecretKeyEnv: "LANGFUSE_SECRET_KEY",
-		},
 	}
 }
 
 // Overrides 是命令行 Flags 的显式覆盖，优先级最高。
 type Overrides struct {
-	OnebotURL   string
-	AccessToken string
-	Listen      string
-	LogLevel    string
+	Listen   string
+	LogLevel string
 }
 
 // Options 是装载配置的输入。
@@ -275,12 +256,6 @@ func Load(opts Options) (*Config, error) {
 }
 
 func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
-	if v, ok := lookup("QQBOT_ONEBOT_URL"); ok && strings.TrimSpace(v) != "" {
-		cfg.Onebot.URL = strings.TrimSpace(v)
-	}
-	if v, ok := lookup("QQBOT_ONEBOT_ACCESS_TOKEN"); ok {
-		cfg.Onebot.AccessToken = v
-	}
 	if v, ok := lookup("QQBOT_SERVER_LISTEN"); ok && strings.TrimSpace(v) != "" {
 		cfg.Server.Listen = strings.TrimSpace(v)
 	}
@@ -290,12 +265,6 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
 }
 
 func applyOverrides(cfg *Config, o Overrides) {
-	if o.OnebotURL != "" {
-		cfg.Onebot.URL = o.OnebotURL
-	}
-	if o.AccessToken != "" {
-		cfg.Onebot.AccessToken = o.AccessToken
-	}
 	if o.Listen != "" {
 		cfg.Server.Listen = o.Listen
 	}
@@ -306,11 +275,9 @@ func applyOverrides(cfg *Config, o Overrides) {
 
 // Validate 校验配置，并规范化 OneBot URL 的协议头（http/https 视作 ws/wss）。
 func (c *Config) Validate() error {
-	normalized, err := normalizeWSURL(c.Onebot.URL)
-	if err != nil {
-		return fmt.Errorf("config: onebot.url 无效: %w", err)
+	if err := c.Onebot.normalizeEndpoints(); err != nil {
+		return err
 	}
-	c.Onebot.URL = normalized
 
 	if c.Onebot.CallTimeout.D() <= 0 {
 		return fmt.Errorf("config: onebot.call-timeout 必须为正数")
@@ -370,6 +337,9 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(c.AI.Model) == "" {
 			return fmt.Errorf("config: ai.enabled 时 ai.model 不能为空")
 		}
+		if strings.TrimSpace(c.AI.APIKey) == "" {
+			return fmt.Errorf("config: ai.enabled 时 ai.api-key 不能为空")
+		}
 		if c.AI.GenerationTimeout.D() <= 0 || c.AI.MaxOutputTokens <= 0 {
 			return fmt.Errorf("config: ai 超时与输出上限必须为正数")
 		}
@@ -388,6 +358,33 @@ func (c *Config) Validate() error {
 			c.Intent.InterjectionThreshold <= 0 || c.Intent.InterjectionThreshold > 1 ||
 			c.Intent.AddressedOtherMax <= 0 || c.Intent.AddressedOtherMax > 1 {
 			return fmt.Errorf("config: intent 阈值必须在 (0,1] 区间")
+		}
+	}
+	return nil
+}
+
+// normalizeEndpoints 校验端点列表：至少一个端点，统一 ws/wss 协议头，
+// 拒绝重复端点与非法 expect-qq。
+// normalizeEndpoints validates the endpoint list: at least one endpoint,
+// normalized ws/wss scheme, no duplicates and a non-negative expect-qq.
+func (o *Onebot) normalizeEndpoints() error {
+	if len(o.Endpoints) == 0 {
+		return fmt.Errorf("config: onebot.endpoints 至少需要配置一个 SnowLuma OneBot 端点")
+	}
+	seen := make(map[string]struct{}, len(o.Endpoints))
+	for i := range o.Endpoints {
+		endpoint := &o.Endpoints[i]
+		normalized, err := normalizeWSURL(endpoint.URL)
+		if err != nil {
+			return fmt.Errorf("config: onebot.endpoints[%d].url 无效: %w", i, err)
+		}
+		endpoint.URL = normalized
+		if _, ok := seen[normalized]; ok {
+			return fmt.Errorf("config: onebot.endpoints[%d] 与已有端点重复: %s", i, normalized)
+		}
+		seen[normalized] = struct{}{}
+		if endpoint.ExpectQQ < 0 {
+			return fmt.Errorf("config: onebot.endpoints[%d].expect-qq 不能为负数", i)
 		}
 	}
 	return nil

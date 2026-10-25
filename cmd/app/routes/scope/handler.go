@@ -4,6 +4,7 @@ package scope
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -30,6 +31,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/scopes", h.List)
 	mux.HandleFunc("GET /api/v1/scopes/{type}/{id}", h.Get)
 	mux.HandleFunc("PUT /api/v1/scopes/{type}/{id}", h.Put)
+	mux.HandleFunc("DELETE /api/v1/scopes/{type}/{id}", h.Delete)
 }
 
 // requireDB replies with 503 when the database is not configured.
@@ -42,16 +44,22 @@ func (h *Handler) requireDB(w http.ResponseWriter) bool {
 	return true
 }
 
-// currentBotID resolves the managed bot id from the OneBot connection;
-// 0 means "the single configured bot" before the first login info arrives.
-// currentBotID 从 OneBot 连接解析被管理的机器人 ID；
-// 首次登录信息到达前 0 表示“当前唯一账号”。
-func (h *Handler) currentBotID() int64 {
-	status := h.svcCtx.Onebot.Status()
-	if status.SelfIDKnown {
-		return int64(status.SelfID)
+// botID resolves the request account; ambiguous or unknown accounts are refused.
+// botID 解析请求所属账号；多账号未指定或身份未知时拒绝。
+func (h *Handler) botID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	botID, err := h.svcCtx.ResolveBotID(r.URL.Query().Get("bot_id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, svc.ErrBotIDRequired):
+			common.WriteFailure(w, http.StatusBadRequest, "bot_id is required when several accounts are configured")
+		case errors.Is(err, svc.ErrAccountUnknown):
+			common.WriteFailure(w, http.StatusConflict, "bot account identity is not available yet; connect OneBot first")
+		default:
+			common.WriteFailure(w, http.StatusBadRequest, "invalid bot_id")
+		}
+		return 0, false
 	}
-	return 0
+	return botID, true
 }
 
 // List returns stored policies, or one effective policy when type and id are given.
@@ -62,7 +70,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	if t, id, ok := parseScope(q.Get("type"), q.Get("id")); ok {
-		policy, err := h.svcCtx.Scope.Get(r.Context(), h.currentBotID(), t, id)
+		botID, found := h.botID(w, r)
+		if !found {
+			return
+		}
+		policy, err := h.svcCtx.Scope.Get(r.Context(), botID, t, id)
 		if err != nil {
 			common.WriteFailure(w, http.StatusInternalServerError, "resolve scope failed")
 			return
@@ -72,7 +84,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	var botID *int64
 	if raw := q.Get("bot_id"); raw != "" {
-		if v, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > 0 {
 			botID = &v
 		}
 	}
@@ -95,7 +107,11 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid scope type or id")
 		return
 	}
-	policy, err := h.svcCtx.Scope.Get(r.Context(), h.currentBotID(), t, id)
+	botID, found := h.botID(w, r)
+	if !found {
+		return
+	}
+	policy, err := h.svcCtx.Scope.Get(r.Context(), botID, t, id)
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "resolve scope failed")
 		return
@@ -106,29 +122,27 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // policyUpdate is the accepted JSON body of PUT /api/v1/scopes/{type}/{id}.
 // policyUpdate 是 PUT /api/v1/scopes/{type}/{id} 接受的 JSON 请求体。
 type policyUpdate struct {
-	Enabled            bool     `json:"enabled"`
-	ReplyMode          string   `json:"reply_mode"`
-	StoreMessages      bool     `json:"store_messages"`
-	AllowMemoryWrite   bool     `json:"allow_memory_write"`
-	AllowHistoryRead   bool     `json:"allow_history_read"`
-	ToolPolicy         []string `json:"tool_policy"`
-	MinReplyIntervalMS int      `json:"min_reply_interval_ms"`
-	MaxRepliesPerHour  int      `json:"max_replies_per_hour"`
-	RetentionDays      int      `json:"retention_days"`
+	Enabled            bool   `json:"enabled"`
+	ReplyMode          string `json:"reply_mode"`
+	StoreMessages      bool   `json:"store_messages"`
+	AllowMemoryWrite   bool   `json:"allow_memory_write"`
+	AllowHistoryRead   bool   `json:"allow_history_read"`
+	MinReplyIntervalMS int    `json:"min_reply_interval_ms"`
+	MaxRepliesPerHour  int    `json:"max_replies_per_hour"`
+	RetentionDays      int    `json:"retention_days"`
 }
 
 // Put creates or updates one scope policy; changes take effect immediately.
-// The bot account must be known: writing under the placeholder id 0 would
-// create a policy the runtime can never resolve.
-// Put 创建或更新一条作用域策略；变更立即生效。机器人账号必须已知：
-// 以占位 ID 0 写入会产生运行时永远无法命中的策略。
+// The account must be explicit: writing under a guessed id would create a
+// policy the runtime can never resolve.
+// Put 创建或更新一条作用域策略；变更立即生效。账号必须显式指定：
+// 写在猜测的 ID 上会产生运行时永远无法命中的策略。
 func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
-	botID := h.currentBotID()
-	if botID <= 0 {
-		common.WriteFailure(w, http.StatusConflict, "bot account not known yet; connect OneBot first")
+	botID, ok := h.botID(w, r)
+	if !ok {
 		return
 	}
 	t, id, ok := parseScope(r.PathValue("type"), r.PathValue("id"))
@@ -149,7 +163,6 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		StoreMessages:      body.StoreMessages,
 		AllowMemoryWrite:   body.AllowMemoryWrite,
 		AllowHistoryRead:   body.AllowHistoryRead,
-		ToolPolicy:         body.ToolPolicy,
 		MinReplyIntervalMS: body.MinReplyIntervalMS,
 		MaxRepliesPerHour:  body.MaxRepliesPerHour,
 		RetentionDays:      body.RetentionDays,
@@ -159,6 +172,29 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	common.WriteSuccess(w, policy)
+}
+
+// Delete removes one stored policy; the scope falls back to default-deny at once.
+// Delete 删除一条已存策略；该作用域立即回到默认拒绝。
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDB(w) {
+		return
+	}
+	t, id, ok := parseScope(r.PathValue("type"), r.PathValue("id"))
+	if !ok {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid scope type or id")
+		return
+	}
+	botID, found := h.botID(w, r)
+	if !found {
+		return
+	}
+	deleted, err := h.svcCtx.Scope.Delete(r.Context(), botID, t, id)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "delete scope failed")
+		return
+	}
+	common.WriteSuccess(w, map[string]any{"deleted": deleted})
 }
 
 // parseScope parses and validates a scope type and numeric id.

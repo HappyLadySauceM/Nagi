@@ -33,7 +33,6 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	if err := repo.Upsert(ctx, botID, domain.Policy{
 		ScopeType: domain.ScopeGroup, ScopeID: groupID,
 		Enabled: true, ReplyMode: domain.ModeIntentBased, StoreMessages: true,
-		ToolPolicy: []string{"send_message"},
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -45,10 +44,6 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	if !stored.Enabled || stored.ReplyMode != domain.ModeIntentBased || !stored.StoreMessages {
 		t.Fatalf("stored policy = %+v", stored)
 	}
-	if len(stored.ToolPolicy) != 1 || stored.ToolPolicy[0] != "send_message" {
-		t.Fatalf("tool policy = %v", stored.ToolPolicy)
-	}
-
 	if _, found, err := repo.Get(ctx, botID, domain.ScopeGroup, 404); err != nil || found {
 		t.Fatalf("missing scope: found=%v err=%v", found, err)
 	}
@@ -57,5 +52,34 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	list, err := repo.List(ctx, &bot)
 	if err != nil || len(list) == 0 {
 		t.Fatalf("list: len=%d err=%v", len(list), err)
+	}
+	// List must return the stored value columns, not just the identity; a row
+	// with only identity filled makes the UI show every policy as disabled.
+	// List 必须返回值列而不只是身份列；只填身份的回归会让界面把所有策略显示为未启用。
+	var listed *domain.Policy
+	for i := range list {
+		if list[i].ScopeType == domain.ScopeGroup && list[i].ScopeID == groupID {
+			listed = &list[i]
+			break
+		}
+	}
+	if listed == nil {
+		t.Fatalf("list missing group %d: %+v", groupID, list)
+	}
+	if !listed.Enabled || listed.ReplyMode != domain.ModeIntentBased || !listed.StoreMessages {
+		t.Fatalf("listed policy lost its values: %+v", *listed)
+	}
+
+	// Deleting must report the affected row and remove it from later reads.
+	// 删除必须报告命中行，并让后续读取不再返回该策略。
+	deleted, err := repo.Delete(ctx, botID, domain.ScopeGroup, groupID)
+	if err != nil || !deleted {
+		t.Fatalf("delete: deleted=%v err=%v", deleted, err)
+	}
+	if _, found, err := repo.Get(ctx, botID, domain.ScopeGroup, groupID); err != nil || found {
+		t.Fatalf("after delete: found=%v err=%v", found, err)
+	}
+	if deletedAgain, err := repo.Delete(ctx, botID, domain.ScopeGroup, groupID); err != nil || deletedAgain {
+		t.Fatalf("second delete should be a no-op: deleted=%v err=%v", deletedAgain, err)
 	}
 }

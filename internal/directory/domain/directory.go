@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+// BotAccount is one stored bot account row used for display metadata.
+// BotAccount 是用于展示元数据的已存储机器人账号行。
+type BotAccount struct {
+	BotID      int64
+	Nickname   string
+	LastSeenAt time.Time
+}
+
 // Contact is one friend entry of the local directory.
 // Contact 是本地目录中的一名好友。
 type Contact struct {
