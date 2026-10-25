@@ -134,6 +134,40 @@ export type ScopeType = 'group' | 'private'
 
 export type ReplyMode = 'mention_only' | 'intent_based' | 'always_reply' | 'observe_only'
 
+/**
+ * Explicit per-scope overrides of tool permissions. A missing key means "use the
+ * backend default", so the UI never freezes a default into the database.
+ * 作用域级的工具权限显式覆盖。缺少键表示「使用后端默认」，
+ * 界面因此不会把默认值冻结进数据库。
+ */
+export type ToolPermissionOverrides = Record<string, boolean>
+
+/** One registered tool exposed to the model. */
+export interface ToolCatalogEntry {
+  id: string
+  provider: string
+  description: string
+  readOnly: boolean
+  sideEffect: boolean
+  permission: string
+  defaultGranted: boolean
+}
+
+/** One permission shared by one or more tools. */
+export interface ToolPermission {
+  id: string
+  tools: string[]
+  defaultGranted: boolean
+}
+
+/** `GET /api/v1/tools`: what is actually registered right now. */
+export interface ToolsCatalog {
+  providers: string[]
+  tools: ToolCatalogEntry[]
+  permissions: ToolPermission[]
+  allowSideEffects: boolean
+}
+
 /** Form-shaped policy; `PUT` always writes every field. */
 export interface ScopeForm {
   enabled: boolean
@@ -144,6 +178,7 @@ export interface ScopeForm {
   minReplyIntervalMs: number
   maxRepliesPerHour: number
   retentionDays: number
+  toolPermissions: ToolPermissionOverrides
 }
 
 /** Effective policy of one scope, including the default-deny values. */

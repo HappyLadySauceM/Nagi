@@ -11,6 +11,7 @@ const validValues = {
   minReplyIntervalMs: '10000',
   maxRepliesPerHour: '20',
   retentionDays: '30',
+  toolPermissions: {},
 }
 
 function messagesOf(input: unknown): string[] {
@@ -67,5 +68,13 @@ describe('scope form conversion', () => {
     expect(form.minReplyIntervalMs).toBe(5000)
     expect(form.maxRepliesPerHour).toBe(7)
     expect(form.retentionDays).toBe(14)
+  })
+
+  it('keeps permission overrides across the form conversion', () => {
+    const values = toScopeFormValues({
+      ...DEFAULT_SCOPE_FORM,
+      toolPermissions: { 'qq.group.read': false },
+    })
+    expect(fromScopeFormValues(values).toolPermissions).toEqual({ 'qq.group.read': false })
   })
 })

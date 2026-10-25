@@ -24,6 +24,9 @@ export const scopeFormSchema = z.object({
   minReplyIntervalMs: numericField('最小回复间隔', 600_000),
   maxRepliesPerHour: numericField('每小时回复上限', 3_600),
   retentionDays: numericField('留存天数', 3_650),
+  // Only explicit overrides are stored; an absent key means "backend default".
+  // 只存显式覆盖；缺少键表示「后端默认」。
+  toolPermissions: z.record(z.string(), z.boolean()),
 })
 
 export type ScopeFormValues = z.infer<typeof scopeFormSchema>
@@ -38,6 +41,7 @@ export function toScopeFormValues(form: ScopeForm): ScopeFormValues {
     minReplyIntervalMs: String(form.minReplyIntervalMs),
     maxRepliesPerHour: String(form.maxRepliesPerHour),
     retentionDays: String(form.retentionDays),
+    toolPermissions: { ...form.toolPermissions },
   }
 }
 
@@ -51,5 +55,6 @@ export function fromScopeFormValues(values: ScopeFormValues): ScopeForm {
     minReplyIntervalMs: Number(values.minReplyIntervalMs),
     maxRepliesPerHour: Number(values.maxRepliesPerHour),
     retentionDays: Number(values.retentionDays),
+    toolPermissions: { ...values.toolPermissions },
   }
 }

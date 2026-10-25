@@ -1,4 +1,10 @@
-import type { ReplyMode, ScopeForm, ScopePolicy, ScopeType } from '../contracts'
+import type {
+  ReplyMode,
+  ScopeForm,
+  ScopePolicy,
+  ScopeType,
+  ToolPermissionOverrides,
+} from '../contracts'
 import { asArray, asRecord, contractError, readBoolean, readNumber, readString } from './guard'
 
 const SCOPE_ENDPOINT = '/api/v1/scopes'
@@ -22,6 +28,7 @@ export const DEFAULT_SCOPE_FORM: ScopeForm = {
   minReplyIntervalMs: 10_000,
   maxRepliesPerHour: 20,
   retentionDays: 30,
+  toolPermissions: {},
 }
 
 const DEFAULT_MIN_REPLY_INTERVAL_MS = 10_000
@@ -43,6 +50,40 @@ export function isScopeType(value: unknown): value is ScopeType {
 
 function positiveOr(value: number, fallback: number): number {
   return value > 0 ? value : fallback
+}
+
+/**
+ * Parses the explicit permission overrides. `null` (Go nil map) and a missing
+ * key both mean "no override", never "everything revoked".
+ * 解析显式权限覆盖。`null`（Go nil map）与缺失键都表示「无覆盖」，
+ * 绝不表示「全部撤销」。
+ */
+function readToolPermissions(
+  record: Record<string, unknown>,
+  endpoint: string,
+): ToolPermissionOverrides {
+  const raw = record.ToolPermissions
+  if (raw === undefined || raw === null) {
+    return {}
+  }
+  const source = asRecord(raw, endpoint, 'ToolPermissions')
+  const overrides: ToolPermissionOverrides = {}
+  for (const [permission, granted] of Object.entries(source)) {
+    if (typeof granted !== 'boolean') {
+      throw contractError(endpoint, `ToolPermissions.${permission} 不是布尔值`)
+    }
+    overrides[permission] = granted
+  }
+  return overrides
+}
+
+/** Compares override maps by content; key order is irrelevant. */
+function isPermissionMapEqual(left: ToolPermissionOverrides, right: ToolPermissionOverrides): boolean {
+  const leftKeys = Object.keys(left)
+  if (leftKeys.length !== Object.keys(right).length) {
+    return false
+  }
+  return leftKeys.every((key) => right[key] === left[key])
 }
 
 /**
@@ -95,6 +136,7 @@ export function toScopePolicy(raw: unknown): ScopePolicy {
       readNumber(record, 'RetentionDays', SCOPE_ENDPOINT, 0),
       DEFAULT_RETENTION_DAYS,
     ),
+    toolPermissions: readToolPermissions(record, SCOPE_ENDPOINT),
   }
 }
 
@@ -113,6 +155,7 @@ export function toScopeForm(policy: ScopePolicy): ScopeForm {
     minReplyIntervalMs: policy.minReplyIntervalMs,
     maxRepliesPerHour: policy.maxRepliesPerHour,
     retentionDays: policy.retentionDays,
+    toolPermissions: { ...policy.toolPermissions },
   }
 }
 
@@ -130,6 +173,7 @@ export function toScopePutBody(form: ScopeForm): Record<string, unknown> {
     min_reply_interval_ms: form.minReplyIntervalMs,
     max_replies_per_hour: form.maxRepliesPerHour,
     retention_days: form.retentionDays,
+    tool_permissions: form.toolPermissions,
   }
 }
 
@@ -151,7 +195,8 @@ export function isScopeEqual(left: ScopeForm, right: ScopeForm): boolean {
     left.allowMemoryWrite === right.allowMemoryWrite &&
     left.minReplyIntervalMs === right.minReplyIntervalMs &&
     left.maxRepliesPerHour === right.maxRepliesPerHour &&
-    left.retentionDays === right.retentionDays
+    left.retentionDays === right.retentionDays &&
+    isPermissionMapEqual(left.toolPermissions, right.toolPermissions)
   )
 }
 
@@ -169,6 +214,16 @@ export function scopeDangerFlags(form: ScopeForm, baseline?: ScopeForm): string[
   }
   if (turnedOn('allowMemoryWrite')) {
     flags.push('允许机器人向长期记忆写入该会话的内容')
+  }
+  // An explicit true overrides a default-denied permission (the UI drops
+  // overrides that match the default), so it always widens the tool surface.
+  // 显式 true 覆盖的是默认拒绝的权限（与默认一致的覆盖会被界面移除），
+  // 因此一定扩大了工具能力面。
+  const baselineOverrides = baseline?.toolPermissions ?? {}
+  for (const [permission, granted] of Object.entries(form.toolPermissions)) {
+    if (granted && baselineOverrides[permission] !== true) {
+      flags.push(`授予工具权限 ${permission}（模型可调用对应工具）`)
+    }
   }
   return flags
 }

@@ -6,6 +6,7 @@ import {
   toScopePolicyList,
   toScopePutBody,
 } from '../../lib/api/adapters/scope'
+import { toToolsCatalog } from '../../lib/api/adapters/tools'
 import type { ScopeForm, ScopePolicy, ScopeType } from '../../lib/api/contracts'
 import { queryKeys } from '../../lib/query-keys'
 
@@ -19,6 +20,22 @@ export function useScopeIndex(botId: number | undefined) {
       ),
     enabled: botId !== undefined,
     staleTime: 30_000,
+  })
+}
+
+/**
+ * Catalogue of tools registered at startup. A 503 means the tool subsystem is
+ * disabled; the dialog then hides the capability section instead of failing.
+ * 启动时注册成功的工具清单。503 表示工具子系统未启用；
+ * 此时对话框隐藏能力区块，而不是整体失败。
+ */
+export function useToolsCatalog() {
+  return useQuery({
+    queryKey: queryKeys.toolsCatalog,
+    queryFn: ({ signal }) =>
+      apiRequest('/api/v1/tools', { signal }).then(toToolsCatalog),
+    staleTime: 5 * 60_000,
+    retry: false,
   })
 }
 

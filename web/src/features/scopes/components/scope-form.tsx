@@ -10,6 +10,8 @@ import {
   REPLY_MODE_HINTS,
   REPLY_MODE_LABELS,
   type ReplyMode,
+  type ToolPermission,
+  type ToolsCatalog,
 } from '../../../lib/api/contracts'
 import { cn } from '../../../lib/utils'
 import type { ScopeFormValues } from '../schema'
@@ -127,13 +129,41 @@ function Section({
 interface ScopeFormProps {
   form: UseFormReturn<ScopeFormValues>
   disabled?: boolean
+  /** Registered tools of the running process; undefined hides the section. */
+  catalog?: ToolsCatalog
 }
 
-export function ScopeFormFields({ form, disabled = false }: ScopeFormProps) {
+/**
+ * Resolves the effective grant of one permission: an explicit override wins,
+ * otherwise the backend default applies.
+ * 解析单个权限的生效授予：显式覆盖优先，否则使用后端默认。
+ */
+function grantedPermission(
+  permission: ToolPermission,
+  overrides: Record<string, boolean>,
+): boolean {
+  return overrides[permission.id] ?? permission.defaultGranted
+}
+
+export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormProps) {
   const { register, formState, watch, setValue } = form
   const errors = formState.errors
   const enabled = watch('enabled')
   const replyMode = watch('replyMode')
+  const overrides = watch('toolPermissions')
+
+  // Overrides equal to the backend default are removed, so changing the
+  // default baseline later still applies to this scope.
+  // 与后端默认一致的覆盖会被移除，因此以后调整默认基线仍会作用于该作用域。
+  const togglePermission = (permission: ToolPermission, next: boolean) => {
+    const updated = { ...overrides }
+    if (next === permission.defaultGranted) {
+      delete updated[permission.id]
+    } else {
+      updated[permission.id] = next
+    }
+    setValue('toolPermissions', updated, { shouldDirty: true })
+  }
 
   return (
     <div className="space-y-3">
@@ -204,6 +234,44 @@ export function ScopeFormFields({ form, disabled = false }: ScopeFormProps) {
           warning="写入的记忆可能在其它会话被检索（取决于记忆可见性），请先在记忆页审查。"
         />
       </Section>
+
+      {catalog && catalog.permissions.length > 0 ? (
+        <Section
+          title="能力授权"
+          description="工具在启动时由后端注册；这里只控制该会话能否使用对应能力，默认值来自服务端。"
+        >
+          {catalog.permissions.map((permission) => {
+            const tools = catalog.tools.filter((tool) => permission.tools.includes(tool.id))
+            const blocked = !catalog.allowSideEffects && tools.some((tool) => tool.sideEffect)
+            const descriptions = tools.map((tool) => tool.description || tool.id).join('；')
+            return (
+              <SwitchRow
+                key={permission.id}
+                id={`tool-${permission.id}`}
+                label={permission.id}
+                description={
+                  `${descriptions || '无工具声明'} · ${
+                    permission.defaultGranted ? '默认允许' : '默认拒绝'
+                  }`
+                }
+                checked={grantedPermission(permission, overrides)}
+                disabled={disabled || blocked}
+                onChange={(next) => togglePermission(permission, next)}
+                warning={
+                  blocked
+                    ? '该能力包含有副作用的工具，当前版本未启用副作用工具，无法在此授权。'
+                    : !permission.defaultGranted && grantedPermission(permission, overrides)
+                      ? '开启后模型可在该会话调用对应工具；撤销前请确认影响范围。'
+                      : undefined
+                }
+              />
+            )
+          })}
+          <p className="pt-2 text-meta leading-relaxed text-muted-foreground">
+            清单来自后端实际注册结果；未列出的工具，模型无法调用。
+          </p>
+        </Section>
+      ) : null}
 
       <Section
         title="限流与留存"

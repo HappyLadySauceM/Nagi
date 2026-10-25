@@ -23,7 +23,12 @@ import {
 import { SCOPE_TYPE_LABELS, type ScopePolicy, type ScopeType } from '../../../lib/api/contracts'
 import { describeError } from '../../../lib/errors'
 import { ScopeFormFields } from '../../scopes/components/scope-form'
-import { useDeleteScope, useSaveScope, useScope } from '../../scopes/queries'
+import {
+  useDeleteScope,
+  useSaveScope,
+  useScope,
+  useToolsCatalog,
+} from '../../scopes/queries'
 import {
   fromScopeFormValues,
   scopeFormSchema,
@@ -66,6 +71,7 @@ export function ScopeEditDialog({
   savedPolicy,
 }: ScopeEditDialogProps) {
   const scope = useScope(botId, scopeType, scopeId)
+  const tools = useToolsCatalog()
   const save = useSaveScope()
   const remove = useDeleteScope()
 
@@ -186,7 +192,7 @@ export function ScopeEditDialog({
             </div>
           ) : scope.isError ? null : (
             <form id="scope-edit-dialog-form" onSubmit={onSubmit} className="min-w-0">
-              <ScopeFormFields form={form} disabled={isBusy} />
+              <ScopeFormFields form={form} disabled={isBusy} catalog={tools.data} />
             </form>
           )}
 

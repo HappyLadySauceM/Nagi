@@ -34,6 +34,9 @@ export const queryKeys = {
   scope: (botId: number | undefined, scopeType: ScopeType, scopeId: number) =>
     ['scopes', 'detail', botId ?? null, scopeType, scopeId] as const,
   memories: (params: MemoryParams) => ['memories', 'list', params] as const,
+  // The tool registry is process-wide, so its key carries no account id.
+  // 工具注册表属于进程级数据，因此 key 不带账号。
+  toolsCatalog: ['tools', 'catalog'] as const,
 } as const
 
 /** Keys invalidated after a directory sync; members refresh separately. */

@@ -22,6 +22,7 @@ const POLICY = {
   MinReplyIntervalMS: 10000,
   MaxRepliesPerHour: 20,
   RetentionDays: 30,
+  ToolPermissions: { 'qq.group.read': false },
 }
 
 describe('scope adapter', () => {
@@ -37,7 +38,18 @@ describe('scope adapter', () => {
       minReplyIntervalMs: 10000,
       maxRepliesPerHour: 20,
       retentionDays: 30,
+      toolPermissions: { 'qq.group.read': false },
     })
+  })
+
+  it('treats a nil override map as "no overrides"', () => {
+    expect(toScopePolicy({ ...POLICY, ToolPermissions: null }).toolPermissions).toEqual({})
+  })
+
+  it('rejects non-boolean overrides instead of guessing', () => {
+    expect(() =>
+      toScopePolicy({ ...POLICY, ToolPermissions: { 'qq.group.read': 'no' } }),
+    ).toThrowError(ApiError)
   })
 
   it('mirrors WithDefaults for a legacy row with an empty mode and zero numbers', () => {
@@ -79,6 +91,7 @@ describe('scope adapter', () => {
       minReplyIntervalMs: 10000,
       maxRepliesPerHour: 20,
       retentionDays: 30,
+      toolPermissions: {},
     })
 
     expect(Object.keys(body).sort()).toEqual(
@@ -91,6 +104,7 @@ describe('scope adapter', () => {
         'reply_mode',
         'retention_days',
         'store_messages',
+        'tool_permissions',
       ].sort(),
     )
     expect(body.reply_mode).toBe('observe_only')
@@ -114,5 +128,20 @@ describe('scope adapter', () => {
 
     expect(flags).toHaveLength(1)
     expect(flags[0]).toContain('消息内容')
+  })
+
+  it('treats permission overrides as part of form equality', () => {
+    const base = toScopeForm(toScopePolicy(POLICY))
+    expect(isScopeEqual(base, { ...base, toolPermissions: { 'qq.group.read': true } })).toBe(false)
+  })
+
+  it('warns when a tool permission is explicitly granted', () => {
+    const baseline: ScopeForm = { ...DEFAULT_SCOPE_FORM }
+    const flags = scopeDangerFlags(
+      { ...baseline, toolPermissions: { 'qq.group.read': true } },
+      baseline,
+    )
+
+    expect(flags.some((flag) => flag.includes('qq.group.read'))).toBe(true)
   })
 })
