@@ -5,7 +5,7 @@ package contracts
 import (
 	"context"
 
-	"github.com/HappyLadySauceM/QQBot/internal/audit/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 )
 
 // Recorder persists admin audit entries; implementations must never panic and

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // Transport abstracts the wire to a OneBot implementation.

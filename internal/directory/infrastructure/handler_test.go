@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 type recordedChange struct {

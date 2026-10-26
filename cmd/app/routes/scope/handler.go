@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // Handler serves the scope policy endpoints.

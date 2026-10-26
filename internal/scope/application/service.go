@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // Repository persists scope policies; implemented by infrastructure.

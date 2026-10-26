@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 )
 
 // fakeGroupReader records which group was queried.

@@ -22,7 +22,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
       {compact ? null : (
         <span className="min-w-0">
           <span className="block truncate text-body font-semibold leading-tight text-sidebar-foreground">
-            QQBot
+            Nagi
           </span>
           <span className="block truncate text-caption leading-tight text-muted-foreground">
             Agent Control Center

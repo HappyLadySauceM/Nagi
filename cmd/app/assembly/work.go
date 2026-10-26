@@ -14,30 +14,30 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	svc "github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	agentcontracts "github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
-	auditcontracts "github.com/HappyLadySauceM/QQBot/internal/audit/contracts"
-	auditinfra "github.com/HappyLadySauceM/QQBot/internal/audit/infrastructure"
-	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
-	botcontracts "github.com/HappyLadySauceM/QQBot/internal/bot/contracts"
-	conversationapp "github.com/HappyLadySauceM/QQBot/internal/conversation/application"
-	conversationinfra "github.com/HappyLadySauceM/QQBot/internal/conversation/infrastructure"
-	directoryapp "github.com/HappyLadySauceM/QQBot/internal/directory/application"
-	directoryinfra "github.com/HappyLadySauceM/QQBot/internal/directory/infrastructure"
-	echoapp "github.com/HappyLadySauceM/QQBot/internal/echo/application"
-	echoinfra "github.com/HappyLadySauceM/QQBot/internal/echo/infrastructure"
-	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
-	memoryinfra "github.com/HappyLadySauceM/QQBot/internal/memory/infrastructure"
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
-	observabilityinfra "github.com/HappyLadySauceM/QQBot/internal/observability/infrastructure"
-	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
-	obinfra "github.com/HappyLadySauceM/QQBot/internal/onebot/infrastructure"
-	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
-	pluginscontracts "github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/infrastructure/builtin"
-	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
-	scopeinfra "github.com/HappyLadySauceM/QQBot/internal/scope/infrastructure"
-	"github.com/HappyLadySauceM/QQBot/pkg/config"
+	svc "github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditinfra "github.com/HappyLadySauceM/Nagi/internal/audit/infrastructure"
+	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
+	botcontracts "github.com/HappyLadySauceM/Nagi/internal/bot/contracts"
+	conversationapp "github.com/HappyLadySauceM/Nagi/internal/conversation/application"
+	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
+	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
+	directoryinfra "github.com/HappyLadySauceM/Nagi/internal/directory/infrastructure"
+	echoapp "github.com/HappyLadySauceM/Nagi/internal/echo/application"
+	echoinfra "github.com/HappyLadySauceM/Nagi/internal/echo/infrastructure"
+	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
+	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	observabilityinfra "github.com/HappyLadySauceM/Nagi/internal/observability/infrastructure"
+	obapp "github.com/HappyLadySauceM/Nagi/internal/onebot/application"
+	obinfra "github.com/HappyLadySauceM/Nagi/internal/onebot/infrastructure"
+	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/builtin"
+	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
+	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
 // handshakeTimeout bounds each dial attempt.
@@ -146,7 +146,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 		case identities == nil:
 			logger.Warn("observability identity disabled; traces carry no user dimension",
 				"reason", observability.ValidateSecret(cfg.Observability.UserIDSecret).Error(),
-				"hint", "set observability.user-id-secret to `openssl rand -hex 32` or use QQBOT_OBSERVABILITY_USER_ID_SECRET")
+				"hint", "set observability.user-id-secret to `openssl rand -hex 32` or use NAGI_OBSERVABILITY_USER_ID_SECRET")
 		}
 	}
 

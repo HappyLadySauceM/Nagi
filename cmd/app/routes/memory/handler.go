@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/middleware"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
-	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
-	memorydomain "github.com/HappyLadySauceM/QQBot/internal/memory/domain"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
+	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
 // middlewareActor reads the authenticated actor for approval records.

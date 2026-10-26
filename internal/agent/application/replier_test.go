@@ -17,12 +17,12 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	agentcontracts "github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
-	agentdomain "github.com/HappyLadySauceM/QQBot/internal/agent/domain"
-	intentdomain "github.com/HappyLadySauceM/QQBot/internal/intent/domain"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
+	agentdomain "github.com/HappyLadySauceM/Nagi/internal/agent/domain"
+	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 func replierLogger() *slog.Logger {
@@ -288,17 +288,17 @@ func TestReplierAttributesSentStatusOnSpan(t *testing.T) {
 
 			status := ""
 			for _, span := range recorder.Ended() {
-				if span.Name() != "qqbot.onebot.send" {
+				if span.Name() != "nagi.onebot.send" {
 					continue
 				}
 				for _, kv := range span.Attributes() {
-					if string(kv.Key) == "qqbot.sent_status" {
+					if string(kv.Key) == "nagi.sent_status" {
 						status = kv.Value.Emit()
 					}
 				}
 			}
 			if status != tc.want {
-				t.Fatalf("qqbot.sent_status = %q, want %q", status, tc.want)
+				t.Fatalf("nagi.sent_status = %q, want %q", status, tc.want)
 			}
 		})
 	}
@@ -457,7 +457,7 @@ func TestReplierAttributesGenerationMetadata(t *testing.T) {
 
 	attrs := map[string]string{}
 	for _, span := range recorder.Ended() {
-		if span.Name() != "qqbot.agent.run" {
+		if span.Name() != "nagi.agent.run" {
 			continue
 		}
 		for _, kv := range span.Attributes() {
@@ -467,20 +467,20 @@ func TestReplierAttributesGenerationMetadata(t *testing.T) {
 	if _, ok := attrs["langfuse.observation.type"]; ok {
 		t.Fatalf("the run span must not claim the generation type: %q", attrs["langfuse.observation.type"])
 	}
-	if attrs["qqbot.model"] != "test-model" {
-		t.Fatalf("model = %q", attrs["qqbot.model"])
+	if attrs["nagi.model"] != "test-model" {
+		t.Fatalf("model = %q", attrs["nagi.model"])
 	}
-	if attrs["qqbot.usage.output"] != "5" {
-		t.Fatalf("output usage = %q", attrs["qqbot.usage.output"])
+	if attrs["nagi.usage.output"] != "5" {
+		t.Fatalf("output usage = %q", attrs["nagi.usage.output"])
 	}
-	if attrs["qqbot.agent.tools_exposed"] != "2" || attrs["qqbot.agent.tool_calls"] != "1" {
-		t.Fatalf("tool attributes = %q/%q", attrs["qqbot.agent.tools_exposed"], attrs["qqbot.agent.tool_calls"])
+	if attrs["nagi.agent.tools_exposed"] != "2" || attrs["nagi.agent.tool_calls"] != "1" {
+		t.Fatalf("tool attributes = %q/%q", attrs["nagi.agent.tools_exposed"], attrs["nagi.agent.tool_calls"])
 	}
 	if _, ok := attrs["langfuse.observation.model.name"]; ok {
 		t.Fatal("the run span must not carry a model attribute that infers a generation")
 	}
-	if attrs["qqbot.trace.truncated"] != "false" {
-		t.Fatalf("truncated = %q, want false", attrs["qqbot.trace.truncated"])
+	if attrs["nagi.trace.truncated"] != "false" {
+		t.Fatalf("truncated = %q, want false", attrs["nagi.trace.truncated"])
 	}
 	if _, ok := attrs["langfuse.observation.usage_details"]; ok {
 		t.Fatal("model usage belongs to the Eino callback, not the run span")

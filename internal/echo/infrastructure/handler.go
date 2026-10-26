@@ -6,8 +6,8 @@ import (
 	"context"
 	"strings"
 
-	echoapp "github.com/HappyLadySauceM/QQBot/internal/echo/application"
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	echoapp "github.com/HappyLadySauceM/Nagi/internal/echo/application"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // Handler routes message events into the echo service.

@@ -14,10 +14,10 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // discardLogger drops log output in tests.
@@ -184,7 +184,7 @@ func TestIngressObservationOmitsBodyBeforeConsent(t *testing.T) {
 	}
 
 	for _, span := range recorder.Ended() {
-		if span.Name() != "qqbot.message.process" {
+		if span.Name() != "nagi.message.process" {
 			continue
 		}
 		for _, kv := range span.Attributes() {
@@ -265,12 +265,12 @@ func TestIngressPersistsTraceContext(t *testing.T) {
 
 	var root sdktrace.ReadOnlySpan
 	for _, span := range recorder.Ended() {
-		if span.Name() == "qqbot.message.process" {
+		if span.Name() == "nagi.message.process" {
 			root = span
 		}
 	}
 	if root == nil {
-		t.Fatal("qqbot.message.process span not recorded")
+		t.Fatal("nagi.message.process span not recorded")
 	}
 	restored := trace.SpanContextFromContext(stored.Restore(context.Background()))
 	if restored.TraceID() != root.SpanContext().TraceID() {
@@ -295,7 +295,7 @@ func TestIngressPersistsTraceContext(t *testing.T) {
 	// 子 span 必须携带落库前已知的身份；会话 ID 之后才存在，只留在根 span 上。
 	childAttrs := map[string]string{}
 	for _, span := range recorder.Ended() {
-		if span.Name() != "qqbot.message.persist" {
+		if span.Name() != "nagi.message.persist" {
 			continue
 		}
 		for _, kv := range span.Attributes() {
@@ -329,7 +329,7 @@ func TestIngressExportsRawQQIdentifiers(t *testing.T) {
 
 	attrs := map[string]string{}
 	for _, span := range recorder.Ended() {
-		if span.Name() != "qqbot.message.process" {
+		if span.Name() != "nagi.message.process" {
 			continue
 		}
 		for _, kv := range span.Attributes() {

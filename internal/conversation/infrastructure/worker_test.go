@@ -12,8 +12,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
 )
 
 // fakeJobRepo serves a fixed job list and records outcomes.
@@ -238,12 +238,12 @@ func TestWorkerRestoresJobTraceContext(t *testing.T) {
 	).TraceID()
 	seen := map[string]sdktrace.ReadOnlySpan{}
 	for _, span := range recorder.Ended() {
-		if span.Name() == "qqbot.worker.process" {
+		if span.Name() == "nagi.worker.process" {
 			attrs := map[string]string{}
 			for _, kv := range span.Attributes() {
 				attrs[string(kv.Key)] = kv.Value.Emit()
 			}
-			seen[attrs["qqbot.conversation_id"]] = span
+			seen[attrs["nagi.conversation_id"]] = span
 		}
 	}
 	traced, ok := seen["conv-traced"]
@@ -263,8 +263,8 @@ func TestWorkerRestoresJobTraceContext(t *testing.T) {
 	if tracedAttrs[observability.UserIDKey] == "" {
 		t.Fatal("user attribute must be set when a secret is configured")
 	}
-	if tracedAttrs["qqbot.legacy_task"] != "false" {
-		t.Fatalf("qqbot.legacy_task = %q, want false", tracedAttrs["qqbot.legacy_task"])
+	if tracedAttrs["nagi.legacy_task"] != "false" {
+		t.Fatalf("nagi.legacy_task = %q, want false", tracedAttrs["nagi.legacy_task"])
 	}
 	legacySpan, ok := seen["conv-legacy"]
 	if !ok {
@@ -274,8 +274,8 @@ func TestWorkerRestoresJobTraceContext(t *testing.T) {
 	for _, kv := range legacySpan.Attributes() {
 		legacyAttrs[string(kv.Key)] = kv.Value.Emit()
 	}
-	if legacyAttrs["qqbot.legacy_task"] != "true" {
-		t.Fatalf("qqbot.legacy_task = %q, want true", legacyAttrs["qqbot.legacy_task"])
+	if legacyAttrs["nagi.legacy_task"] != "true" {
+		t.Fatalf("nagi.legacy_task = %q, want true", legacyAttrs["nagi.legacy_task"])
 	}
 }
 
@@ -314,7 +314,7 @@ func TestWorkerExportsRawQQIdentifiers(t *testing.T) {
 
 	attrs := map[string]string{}
 	for _, span := range recorder.Ended() {
-		if span.Name() != "qqbot.worker.process" {
+		if span.Name() != "nagi.worker.process" {
 			continue
 		}
 		for _, kv := range span.Attributes() {

@@ -1,13 +1,13 @@
-// Integration test for the scope policy repository, gated by QQBOT_TEST_DSN.
-// 作用域策略仓库的集成测试，以 QQBOT_TEST_DSN 为门控。
+// Integration test for the scope policy repository, gated by NAGI_TEST_DSN.
+// 作用域策略仓库的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure
 
 import (
 	"context"
 	"testing"
 
-	"github.com/HappyLadySauceM/QQBot/internal/scope/domain"
-	"github.com/HappyLadySauceM/QQBot/pkg/db/dbtest"
+	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
 // TestScopePolicyRoundTrip verifies upsert, get, list and the not-found path.

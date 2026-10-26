@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	echoapp "github.com/HappyLadySauceM/QQBot/internal/echo/application"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	echoapp "github.com/HappyLadySauceM/Nagi/internal/echo/application"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // noopSender discards all outgoing messages.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // fakeRepo is an in-memory scope repository.

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 func readOnly(id, permission string) contracts.ToolDescriptor {

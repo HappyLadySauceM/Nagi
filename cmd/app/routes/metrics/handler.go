@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 )
 
 // Handler serves the metrics endpoint.

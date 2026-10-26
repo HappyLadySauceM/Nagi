@@ -12,9 +12,9 @@ const pkg = JSON.parse(
 // 管理员令牌仅由开发服务器注入，不使用 VITE_ 前缀，因此不会进入浏览器产物。
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const apiTarget = env.QQBOT_API_TARGET || 'http://127.0.0.1:5080'
-  const adminToken = env.QQBOT_ADMIN_TOKEN || ''
-  const extraAllowedHosts = (env.QQBOT_DEV_ALLOWED_HOSTS || '')
+  const apiTarget = env.NAGI_API_TARGET || 'http://127.0.0.1:5080'
+  const adminToken = env.NAGI_ADMIN_TOKEN || ''
+  const extraAllowedHosts = (env.NAGI_DEV_ALLOWED_HOSTS || '')
     .split(',')
     .map((host) => host.trim())
     .filter(Boolean)
@@ -49,10 +49,10 @@ export default defineConfig(({ mode }) => {
       // Loopback names only. This dev server injects the admin token into
       // proxied requests, so accepting arbitrary Host headers would hand that
       // token to a DNS-rebinding page. Add hosts through
-      // QQBOT_DEV_ALLOWED_HOSTS only when a tunnel really needs them.
+      // NAGI_DEV_ALLOWED_HOSTS only when a tunnel really needs them.
       // 仅允许回环主机名。本开发服务器会向代理请求注入管理员令牌，
       // 接受任意 Host 头会把令牌交给 DNS rebinding 页面。
-      // 仅在隧道确实需要时通过 QQBOT_DEV_ALLOWED_HOSTS 追加主机。
+      // 仅在隧道确实需要时通过 NAGI_DEV_ALLOWED_HOSTS 追加主机。
       allowedHosts: ['localhost', ...extraAllowedHosts],
       proxy: {
         '/api': apiProxy,

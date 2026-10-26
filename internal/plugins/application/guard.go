@@ -15,8 +15,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // Tool execution statuses recorded on spans and returned to the model.
@@ -78,9 +78,9 @@ func ScopeFrom(ctx context.Context) (Scope, bool) {
 // 模型可以解释原因，既不会扩大权限，也不会让 Agent 直接崩溃。
 func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.InvokeFunc) contracts.InvokeFunc {
 	return func(ctx context.Context, argumentsInJSON string) (string, error) {
-		ctx, span := tracer().Start(ctx, "qqbot.tool")
+		ctx, span := tracer().Start(ctx, "nagi.tool")
 		defer span.End()
-		span.SetAttributes(attribute.String("qqbot.tool_id", descriptor.ID))
+		span.SetAttributes(attribute.String("nagi.tool_id", descriptor.ID))
 		// Arguments stay metadata: they are JSON and bounded by the model's own
 		// tool-call budget, and the content gate decides whether they are shown.
 		// 参数属于元数据：本身是 JSON 且受模型的调用预算约束，
@@ -110,7 +110,7 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		runCtx = WithScope(runCtx, scope)
 
 		result, err := invoke(runCtx, argumentsInJSON)
-		span.SetAttributes(attribute.Int64("qqbot.tool_duration_ms", time.Since(started).Milliseconds()))
+		span.SetAttributes(attribute.Int64("nagi.tool_duration_ms", time.Since(started).Milliseconds()))
 		if err != nil {
 			status := StatusError
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -131,7 +131,7 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 // tracer returns the shared no-op-safe tracer of this package.
 // tracer 返回本包共享的、无 SDK 时为 no-op 的 tracer。
 func tracer() trace.Tracer {
-	return otel.Tracer("github.com/HappyLadySauceM/QQBot/internal/plugins")
+	return otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/plugins")
 }
 
 // toolArguments embeds valid JSON arguments as a document instead of an escaped
@@ -152,8 +152,8 @@ func finish(span trace.Span, scope Scope, descriptor contracts.ToolDescriptor, s
 	status string, bytes int, text string,
 ) (string, error) {
 	span.SetAttributes(
-		attribute.String("qqbot.tool_status", status),
-		attribute.Int("qqbot.tool_bytes", bytes),
+		attribute.String("nagi.tool_status", status),
+		attribute.Int("nagi.tool_bytes", bytes),
 	)
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"status": status,

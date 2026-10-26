@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/audit/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 )
 
 // AuditRecorder persists audit entries; nil disables recording.

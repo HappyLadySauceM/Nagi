@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // ClientService must satisfy the full typed action surface.

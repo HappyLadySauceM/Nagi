@@ -7,9 +7,9 @@ import (
 	"context"
 	"fmt"
 
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // GroupInfoReader is the narrow OneBot query surface this tool needs.

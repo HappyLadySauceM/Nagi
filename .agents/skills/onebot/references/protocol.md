@@ -30,7 +30,7 @@
 
 ## echo 匹配
 
-- echo 全局唯一（`qqbot-<seq>`）；pending 表注册、等待、删除须成对出现，超时与
+- echo 全局唯一（`nagi-<seq>`）；pending 表注册、等待、删除须成对出现，超时与
   ctx 取消路径都要清理，不泄漏 chan。
 - Call 同时受 call-timeout 与 ctx 约束；超时返回包装后的 ErrTimeout，取消返回
   取消原因。

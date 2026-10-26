@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/HappyLadySauceM/QQBot/internal/memory/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
 // fakeMemoryRepo is an in-memory repository.

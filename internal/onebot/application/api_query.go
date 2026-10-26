@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // GetLoginInfo implements contracts.InfoReader.

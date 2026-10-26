@@ -1,11 +1,11 @@
-# QQBot 示例配置。复制为 configs/config.yaml 后填写真实值。
+# Nagi 示例配置。复制为 configs/config.yaml 后填写真实值。
 # 所有地址、凭据与密钥都直接写在本文件中；提交仓库的示例只含占位符，
 # 真实值只写进已被 .gitignore 忽略的 configs/config.yaml。
-# 优先级：默认值 → 本文件 → 通用运行时覆盖（QQBOT_SERVER_LISTEN / QQBOT_LOG_LEVEL / Flags）。
+# 优先级：默认值 → 本文件 → 通用运行时覆盖（NAGI_SERVER_LISTEN / NAGI_LOG_LEVEL / Flags）。
 
 onebot:
   # 多账号接入：每个 QQ 账号在 SnowLuma 中对应一个独立的 OneBot 实例（不同端口）。
-  # 启动后 QQBot 会对每个端点调用 get_login_info 自动识别 QQ 号；
+  # 启动后 Nagi 会对每个端点调用 get_login_info 自动识别 QQ 号；
   # expect-qq 可选，用于校验端点没有被配错，不一致时拒绝该连接。
   endpoints:
     - url: ws://127.0.0.1:3001
@@ -44,10 +44,10 @@ echo:
 database:
   # PostgreSQL 连接字符串，直接填写。本地基础设施由仓库 docker-compose.yml 提供
   # （docker compose up -d），DSN 形如：
-  #   postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable
+  #   postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable
   # 进程启动时自动应用 migrations/ 下的版本化迁移，无需手工执行。
   # 留空时数据库相关功能（目录/作用域/会话/记忆/观测）不启用。
-  dsn: "postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable"
+  dsn: "postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable"
   # 连接池上限
   max-conns: 10
 
@@ -119,8 +119,8 @@ observability:
   # 凭据缺失或导出故障均不影响聊天主链路。
   enabled: false
   base-url: "http://127.0.0.1:3010"
-  public-key: "pk-lf-qqbot-local"
-  secret-key: "sk-lf-qqbot-local"
+  public-key: "pk-lf-nagi-local"
+  secret-key: "sk-lf-nagi-local"
   ingestion-version: "4"
   # 默认导出消息正文（prompt、回复与工具结果），使 Langfuse 详情页可直接阅读；
   # 设为 false 时 span 结构、耗时与用量照常导出，正文替换为 redacted 占位。
@@ -131,10 +131,10 @@ observability:
   # 生成发送者与账号假名的 HMAC 密钥，trace 中不会出现原始 QQ 号。
   # 必须自行生成且不得提交：openssl rand -hex 32（至少 32 字符，否则被视为不可用）。
   # 留空或使用示例占位符时不导出用户维度；生产环境用
-  # QQBOT_OBSERVABILITY_USER_ID_SECRET 覆盖，换密钥后历史用户视图会与新的统计断开。
+  # NAGI_OBSERVABILITY_USER_ID_SECRET 覆盖，换密钥后历史用户视图会与新的统计断开。
   user-id-secret: ""
   # 为 true 时改为直接导出原始 QQ 号（发送者、机器人账号、群号/私聊对象），
   # 便于对照真实用户排查与调参；此模式不需要 user-id-secret。
   # 注意：Langfuse 的 Users 视图会按真实 QQ 号聚合，同一用户在不同机器人账号下会被合并。
-  # 可用 QQBOT_OBSERVABILITY_RAW_IDENTIFIERS 覆盖。
+  # 可用 NAGI_OBSERVABILITY_RAW_IDENTIFIERS 覆盖。
   raw-identifiers: false

@@ -1,5 +1,5 @@
-// Integration test for the migration runner, gated by QQBOT_TEST_DSN.
-// 迁移执行器的集成测试，以 QQBOT_TEST_DSN 为门控。
+// Integration test for the migration runner, gated by NAGI_TEST_DSN.
+// 迁移执行器的集成测试，以 NAGI_TEST_DSN 为门控。
 package db_test
 
 import (
@@ -7,9 +7,9 @@ import (
 	"io/fs"
 	"testing"
 
-	"github.com/HappyLadySauceM/QQBot/migrations"
-	"github.com/HappyLadySauceM/QQBot/pkg/db"
-	"github.com/HappyLadySauceM/QQBot/pkg/db/dbtest"
+	"github.com/HappyLadySauceM/Nagi/migrations"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
 // TestMigrateAppliesAndReverses verifies that Migrate creates the core and

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
 // DecisionsRepo persists final decisions into intent_decisions.

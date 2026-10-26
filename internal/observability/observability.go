@@ -25,7 +25,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/HappyLadySauceM/QQBot/pkg/version"
+	"github.com/HappyLadySauceM/Nagi/pkg/version"
 )
 
 // Config is the resolved telemetry configuration.
@@ -163,7 +163,7 @@ func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (*Telemetry, er
 		return nil, fmt.Errorf("observability: create exporter: %w", err)
 	}
 	attrs := []attribute.KeyValue{
-		semconv.ServiceName("qqbot"),
+		semconv.ServiceName("nagi"),
 		semconv.ServiceVersion(version.Version),
 	}
 	if cfg.Environment != "" {

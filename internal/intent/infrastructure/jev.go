@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
 // JevConfig configures the Jev HTTP adapter.

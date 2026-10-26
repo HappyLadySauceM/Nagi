@@ -10,9 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	botcontracts "github.com/HappyLadySauceM/QQBot/internal/bot/contracts"
-	botdomain "github.com/HappyLadySauceM/QQBot/internal/bot/domain"
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	botcontracts "github.com/HappyLadySauceM/Nagi/internal/bot/contracts"
+	botdomain "github.com/HappyLadySauceM/Nagi/internal/bot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // Dispatcher consumes events and routes them to handlers.

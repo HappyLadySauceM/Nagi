@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // fakeProvider is a configurable ToolProvider that records Close calls.

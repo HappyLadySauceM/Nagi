@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 )
 
 // Handler serves /livez, /readyz, /api/v1/status and /api/v1/accounts.

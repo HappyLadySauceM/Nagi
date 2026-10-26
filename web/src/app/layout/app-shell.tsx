@@ -5,7 +5,7 @@ import { cn } from '../../lib/utils'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 
-const SIDEBAR_STORAGE_KEY = 'qqbot-sidebar-collapsed'
+const SIDEBAR_STORAGE_KEY = 'nagi-sidebar-collapsed'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(

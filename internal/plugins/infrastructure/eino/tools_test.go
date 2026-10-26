@@ -9,7 +9,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // TestToBaseToolsMapsNames verifies dots become underscores and descriptions

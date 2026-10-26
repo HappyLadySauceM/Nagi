@@ -5,7 +5,7 @@ package application
 import (
 	"testing"
 
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // permissionTools is the fixture: one read-only and one side-effecting tool

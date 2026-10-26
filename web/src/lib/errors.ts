@@ -29,7 +29,7 @@ export function describeError(error: unknown): ErrorPresentation {
           variant: 'offline',
           title: '无法连接后端服务',
           description:
-            '请确认 Go 服务已在 127.0.0.1:5080 运行，并检查开发代理配置（QQBOT_API_TARGET）。',
+            '请确认 Go 服务已在 127.0.0.1:5080 运行，并检查开发代理配置（NAGI_API_TARGET）。',
           canRetry: true,
         }
       case 'timeout':
@@ -51,7 +51,7 @@ export function describeError(error: unknown): ErrorPresentation {
           variant: 'unauthorized',
           title: '未通过管理端鉴权',
           description:
-            'Go 服务启用了 server.admin-token。请在 web/.env.local 设置 QQBOT_ADMIN_TOKEN 后重启开发服务器；令牌只由代理注入，不会进入浏览器。',
+            'Go 服务启用了 server.admin-token。请在 web/.env.local 设置 NAGI_ADMIN_TOKEN 后重启开发服务器；令牌只由代理注入，不会进入浏览器。',
           canRetry: true,
         }
       case 'not-found':
@@ -136,7 +136,7 @@ export function shortErrorReason(error: unknown): string {
       case 'cancelled':
         return '请求已取消'
       case 'unauthorized':
-        return '需要配置 QQBOT_ADMIN_TOKEN'
+        return '需要配置 NAGI_ADMIN_TOKEN'
       case 'not-found':
         return error.detail === 'unregistered' ? '数据库未配置' : '资源不存在'
       case 'conflict':

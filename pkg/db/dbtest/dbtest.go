@@ -2,12 +2,12 @@
 // dbtest 包为集成测试打开已完成迁移的数据库。
 //
 // The integration suite drops and recreates every table, so the DSN is always
-// forced onto a "_test" database: the base DSN comes from QQBOT_TEST_DSN or,
+// forced onto a "_test" database: the base DSN comes from NAGI_TEST_DSN or,
 // when that is empty, from `database.dsn` in the user config file. Even when the
-// base points at the live database (…/qqbot), the tests run against …/qqbot_test.
+// base points at the live database (…/nagi), the tests run against …/nagi_test.
 // 集成测试会删除并重建全部表，因此 DSN 始终落到 "_test" 库：基准 DSN 取自
-// QQBOT_TEST_DSN，未设置时取用户配置中的 database.dsn。即使基准指向正式库
-// （…/qqbot），实际执行的也是 …/qqbot_test。
+// NAGI_TEST_DSN，未设置时取用户配置中的 database.dsn。即使基准指向正式库
+// （…/nagi），实际执行的也是 …/nagi_test。
 package dbtest
 
 import (
@@ -24,8 +24,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
 
-	"github.com/HappyLadySauceM/QQBot/migrations"
-	"github.com/HappyLadySauceM/QQBot/pkg/db"
+	"github.com/HappyLadySauceM/Nagi/migrations"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 )
 
 // defaultConfigPath is the config location relative to the repository root.
@@ -67,7 +67,7 @@ func Open(t *testing.T) *pgxpool.Pool {
 // means no base configuration is available; a non-nil error is fatal.
 // testDSN 解析集成测试 DSN：返回空 DSN 表示没有基准配置（跳过），返回错误表示致命问题。
 func testDSN() (dsn string, skipReason string, err error) {
-	if raw := strings.TrimSpace(os.Getenv("QQBOT_TEST_DSN")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("NAGI_TEST_DSN")); raw != "" {
 		derived, deriveErr := deriveTestDSN(raw)
 		if deriveErr != nil {
 			return "", "", deriveErr
@@ -76,7 +76,7 @@ func testDSN() (dsn string, skipReason string, err error) {
 	}
 	path, found := findConfigFile()
 	if !found {
-		return "", "QQBOT_TEST_DSN not set and " + defaultConfigPath +
+		return "", "NAGI_TEST_DSN not set and " + defaultConfigPath +
 			" not found; skipping database integration test", nil
 	}
 	base, readErr := readConfigDSN(path)
@@ -95,11 +95,11 @@ func testDSN() (dsn string, skipReason string, err error) {
 
 // findConfigFile walks up from the working directory looking for the config file,
 // because `go test` runs each package with its own directory as the cwd.
-// QQBOT_CONFIG overrides the location.
+// NAGI_CONFIG overrides the location.
 // findConfigFile 从工作目录向上查找配置文件（go test 以包目录为 cwd）；
-// QQBOT_CONFIG 可覆盖位置。
+// NAGI_CONFIG 可覆盖位置。
 func findConfigFile() (string, bool) {
-	if custom := strings.TrimSpace(os.Getenv("QQBOT_CONFIG")); custom != "" {
+	if custom := strings.TrimSpace(os.Getenv("NAGI_CONFIG")); custom != "" {
 		if _, err := os.Stat(custom); err == nil {
 			return custom, true
 		}
@@ -162,8 +162,8 @@ func deriveTestDSN(dsn string) (string, error) {
 		parsed.Path = "/" + target
 		return parsed.String(), nil
 	}
-	// Keyword/value form, e.g. "host=... dbname=qqbot".
-	// 关键字形式，例如 "host=... dbname=qqbot"。
+	// Keyword/value form, e.g. "host=... dbname=nagi".
+	// 关键字形式，例如 "host=... dbname=nagi"。
 	return dsn + " dbname=" + target, nil
 }
 
@@ -171,7 +171,7 @@ func deriveTestDSN(dsn string) (string, error) {
 // lockDatabase 在测试生命周期内持有跨进程独占文件锁。
 func lockDatabase(t *testing.T) func() {
 	t.Helper()
-	path := filepath.Join(os.TempDir(), "qqbot-dbtest.lock")
+	path := filepath.Join(os.TempDir(), "nagi-dbtest.lock")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatalf("dbtest: open lock file: %v", err)

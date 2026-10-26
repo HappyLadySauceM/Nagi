@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	agentapp "github.com/HappyLadySauceM/QQBot/internal/agent/application"
-	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
+	agentapp "github.com/HappyLadySauceM/Nagi/internal/agent/application"
+	obapp "github.com/HappyLadySauceM/Nagi/internal/onebot/application"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 )
 
 // AccountConnection is one configured SnowLuma endpoint together with the

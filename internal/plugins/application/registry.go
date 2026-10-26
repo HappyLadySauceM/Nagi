@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // Registry holds registered tools. It is not safe for concurrent mutation:

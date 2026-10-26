@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	auditcontracts "github.com/HappyLadySauceM/QQBot/internal/audit/contracts"
-	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
-	directoryapp "github.com/HappyLadySauceM/QQBot/internal/directory/application"
-	memoryapp "github.com/HappyLadySauceM/QQBot/internal/memory/application"
-	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
-	scopeapp "github.com/HappyLadySauceM/QQBot/internal/scope/application"
-	"github.com/HappyLadySauceM/QQBot/pkg/config"
-	"github.com/HappyLadySauceM/QQBot/pkg/version"
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
+	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
+	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
+	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	"github.com/HappyLadySauceM/Nagi/pkg/config"
+	"github.com/HappyLadySauceM/Nagi/pkg/version"
 )
 
 // ServiceContext holds runtime dependencies for the management API.

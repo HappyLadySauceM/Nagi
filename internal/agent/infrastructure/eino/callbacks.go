@@ -11,7 +11,7 @@ import (
 	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/HappyLadySauceM/QQBot/pkg/version"
+	"github.com/HappyLadySauceM/Nagi/pkg/version"
 )
 
 // LangfuseConfig configures the callback. BaseURL is the Langfuse host; the
@@ -54,7 +54,7 @@ func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, 
 		Host:        cfg.BaseURL,
 		PublicKey:   cfg.PublicKey,
 		SecretKey:   cfg.SecretKey,
-		ServiceName: "qqbot",
+		ServiceName: "nagi",
 		Environment: cfg.Environment,
 		Version:     version.Version,
 		Timeout:     timeout,

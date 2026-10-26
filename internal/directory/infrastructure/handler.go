@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"strings"
 
-	botcontracts "github.com/HappyLadySauceM/QQBot/internal/bot/contracts"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	botcontracts "github.com/HappyLadySauceM/Nagi/internal/bot/contracts"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // MembershipApplier is the subset of the directory service needed here.

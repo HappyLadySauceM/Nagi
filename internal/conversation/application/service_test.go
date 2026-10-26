@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 )
 
 // stubRepo records the last ingest input; other methods are unused by these tests.

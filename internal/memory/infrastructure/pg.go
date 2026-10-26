@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/HappyLadySauceM/QQBot/internal/memory/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
 // uuidNewString generates a memory identifier.

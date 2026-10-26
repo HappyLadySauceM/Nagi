@@ -1,4 +1,4 @@
-module github.com/HappyLadySauceM/QQBot
+module github.com/HappyLadySauceM/Nagi
 
 go 1.26.0
 

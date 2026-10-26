@@ -13,7 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // recordedSinks captures frames routed by the transport.

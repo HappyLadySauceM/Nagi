@@ -1,5 +1,5 @@
-// Package main starts the QQBot process.
-// Package main 启动 QQBot 进程。
+// Package main starts the Nagi process.
+// Package main 启动 Nagi 进程。
 package main
 
 import (
@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app"
+	"github.com/HappyLadySauceM/Nagi/cmd/app"
 )
 
 func main() {

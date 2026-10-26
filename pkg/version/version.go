@@ -16,5 +16,5 @@ var (
 
 // String 返回单行版本描述。
 func String() string {
-	return fmt.Sprintf("qqbot %s (commit %s, built %s, %s)", Version, Commit, BuildDate, runtime.Version())
+	return fmt.Sprintf("nagi %s (commit %s, built %s, %s)", Version, Commit, BuildDate, runtime.Version())
 }

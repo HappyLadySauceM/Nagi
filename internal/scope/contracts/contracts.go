@@ -5,7 +5,7 @@ package contracts
 import (
 	"context"
 
-	"github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // Authorizer resolves the effective policy of one conversation scope.

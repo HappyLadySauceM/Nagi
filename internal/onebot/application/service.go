@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // eventBuffer bounds the in-memory event stream.
@@ -78,7 +78,7 @@ func (s *ClientService) Call(ctx context.Context, action domain.Action) (json.Ra
 	if s.closed.Load() {
 		return nil, ErrClosed
 	}
-	echo := fmt.Sprintf("qqbot-%d", s.seq.Add(1))
+	echo := fmt.Sprintf("nagi-%d", s.seq.Add(1))
 	ch := make(chan callResult, 1)
 	s.pendingMu.Lock()
 	s.pending[echo] = ch

@@ -1,5 +1,5 @@
-// Integration test for the conversation repository, gated by QQBOT_TEST_DSN.
-// 会话仓库的集成测试，以 QQBOT_TEST_DSN 为门控。
+// Integration test for the conversation repository, gated by NAGI_TEST_DSN.
+// 会话仓库的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure
 
 import (
@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	"github.com/HappyLadySauceM/QQBot/pkg/db/dbtest"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
 // TestConversationIngestDedupAndJobCycle verifies conversation auto-creation,

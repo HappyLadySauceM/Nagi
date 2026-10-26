@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // fakeSender records outgoing messages per chat type.

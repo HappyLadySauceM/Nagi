@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // decodeJSON decodes the action response data; null or empty yields a zero value.

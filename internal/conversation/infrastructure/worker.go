@@ -12,9 +12,9 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/application"
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/application"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
 )
 
 // JobProcessor executes the decision pipeline for one job.
@@ -173,17 +173,17 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 	// 追踪上下文必须在脱离取消的上下文上还原，避免关停期间切断父链。
 	jobCtx := observability.TraceContext{TraceParent: job.TraceParent, TraceState: job.TraceState}.
 		Restore(context.WithoutCancel(ctx))
-	jobCtx, span := tracer().Start(jobCtx, "qqbot.worker.process")
+	jobCtx, span := tracer().Start(jobCtx, "nagi.worker.process")
 	defer span.End()
 	// A job without a stored context predates trace propagation; marking it
 	// keeps legacy traffic distinguishable from broken propagation.
 	// 没有存储上下文的任务早于追踪传播；标注后可将其与传播故障区分开。
 	span.SetAttributes(
-		attribute.Int64("qqbot.job_id", job.ID),
-		attribute.Int64("qqbot.message_id", job.MessageID),
-		attribute.String("qqbot.conversation_id", job.ConversationID),
-		attribute.String("qqbot.scope_type", string(job.Kind)),
-		attribute.Bool("qqbot.legacy_task", job.TraceParent == ""),
+		attribute.Int64("nagi.job_id", job.ID),
+		attribute.Int64("nagi.message_id", job.MessageID),
+		attribute.String("nagi.conversation_id", job.ConversationID),
+		attribute.String("nagi.scope_type", string(job.Kind)),
+		attribute.Bool("nagi.legacy_task", job.TraceParent == ""),
 	)
 	// The queued message is the worker's input; body export follows the
 	// content gate, so a redacted deployment still shows ids and timing.
@@ -231,11 +231,11 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 // is never mistaken for a delivered message.
 // finish 在独立 span 中记录任务终态，避免把任务完成误认为消息已送达。
 func (w *Worker) finish(ctx context.Context, jobID int64, status, code string) {
-	ctx, span := tracer().Start(ctx, "qqbot.message.finalize")
+	ctx, span := tracer().Start(ctx, "nagi.message.finalize")
 	defer span.End()
-	span.SetAttributes(attribute.String("qqbot.job.status", status))
+	span.SetAttributes(attribute.String("nagi.job.status", status))
 	if code != "" {
-		span.SetAttributes(attribute.String("qqbot.error_code", code))
+		span.SetAttributes(attribute.String("nagi.error_code", code))
 	}
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"status":     status,

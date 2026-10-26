@@ -11,10 +11,10 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	agentcontracts "github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
-	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
-	plugincontracts "github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
-	"github.com/HappyLadySauceM/QQBot/pkg/config"
+	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
+	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
 // fakeProvider exposes canned tools without touching any external system.

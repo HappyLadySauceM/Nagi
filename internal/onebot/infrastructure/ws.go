@@ -18,8 +18,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	obapp "github.com/HappyLadySauceM/QQBot/internal/onebot/application"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	obapp "github.com/HappyLadySauceM/Nagi/internal/onebot/application"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 const (

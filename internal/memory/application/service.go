@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/HappyLadySauceM/QQBot/internal/memory/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
 // Repository persists memories; implemented by infrastructure.

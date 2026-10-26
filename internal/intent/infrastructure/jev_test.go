@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
 func testInput() domain.Input {

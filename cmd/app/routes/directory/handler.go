@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
-	directoryapp "github.com/HappyLadySauceM/QQBot/internal/directory/application"
-	"github.com/HappyLadySauceM/QQBot/internal/directory/domain"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
+	"github.com/HappyLadySauceM/Nagi/internal/directory/domain"
 )
 
 // Handler serves the directory sync and listing endpoints.

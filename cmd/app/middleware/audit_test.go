@@ -10,7 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	auditdomain "github.com/HappyLadySauceM/QQBot/internal/audit/domain"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 )
 
 // discardLogger returns a logger writing nowhere, for middleware tests.

@@ -11,14 +11,14 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	botcontracts "github.com/HappyLadySauceM/QQBot/internal/bot/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	scopecontracts "github.com/HappyLadySauceM/QQBot/internal/scope/contracts"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	botcontracts "github.com/HappyLadySauceM/Nagi/internal/bot/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/application"
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/application"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 )
 
 // Ingress implements bot/contracts.Handler. Match stays cheap; Handle only
@@ -61,7 +61,7 @@ func (h *Ingress) Match(event obdomain.Event) bool { return event.IsMessage() }
 func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain.Event) error {
 	// No message content is recorded on spans, only ids and kinds.
 	// span 只记录 ID 与类型，不记录消息内容。
-	ctx, span := tracer().Start(ctx, "qqbot.message.process")
+	ctx, span := tracer().Start(ctx, "nagi.message.process")
 	defer span.End()
 	span.SetAttributes(attribute.Bool("in_group", event.InGroup()))
 	// Listener-side identity only: the message body is excluded until the scope
@@ -107,8 +107,8 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	ctx = observability.WithIdentity(ctx, identity)
 	observability.SetIdentity(span, identity)
 
-	scopeCtx, scopeSpan := tracer().Start(ctx, "qqbot.ingress.scope")
-	scopeSpan.SetAttributes(attribute.String("qqbot.scope_type", string(scopeType)))
+	scopeCtx, scopeSpan := tracer().Start(ctx, "nagi.ingress.scope")
+	scopeSpan.SetAttributes(attribute.String("nagi.scope_type", string(scopeType)))
 	observability.SetIdentity(scopeSpan, identity)
 	policy, err := h.scopes.Resolve(scopeCtx, botID, scopeType, targetID)
 	if err != nil {
@@ -120,8 +120,8 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		return nil
 	}
 	scopeSpan.SetAttributes(
-		attribute.Bool("qqbot.scope_enabled", policy.Enabled),
-		attribute.Bool("qqbot.scope_store_messages", policy.StoreMessages),
+		attribute.Bool("nagi.scope_enabled", policy.Enabled),
+		attribute.Bool("nagi.scope_store_messages", policy.StoreMessages),
 	)
 	observability.RecordObservation(scopeSpan, "langfuse.observation.output", map[string]any{
 		"enabled":        policy.Enabled,
@@ -157,7 +157,7 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		input.TraceState = traceCtx.TraceState
 	}
 
-	persistCtx, persistSpan := tracer().Start(ctx, "qqbot.message.persist")
+	persistCtx, persistSpan := tracer().Start(ctx, "nagi.message.persist")
 	observability.SetIdentity(persistSpan, identity)
 	result, err := h.ingest.Ingest(persistCtx, input)
 	if err != nil {
@@ -167,9 +167,9 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		return nil
 	}
 	persistSpan.SetAttributes(
-		attribute.Int64("qqbot.message_id", result.MessageID),
-		attribute.Int64("qqbot.job_id", result.JobID),
-		attribute.Bool("qqbot.duplicate", result.Duplicate),
+		attribute.Int64("nagi.message_id", result.MessageID),
+		attribute.Int64("nagi.job_id", result.JobID),
+		attribute.Bool("nagi.duplicate", result.Duplicate),
 	)
 	observability.RecordObservation(persistSpan, "langfuse.observation.output", map[string]any{
 		"message_id": result.MessageID,
@@ -184,9 +184,9 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	// 会话与消息 ID 只有在落库后才知道；属性仍可在根 span 结束前追加，
 	// Langfuse 会保留它们供 Sessions/Users 使用。
 	span.SetAttributes(
-		attribute.String("qqbot.conversation_id", result.ConversationID),
-		attribute.Int64("qqbot.message_id", result.MessageID),
-		attribute.Int64("qqbot.job_id", result.JobID),
+		attribute.String("nagi.conversation_id", result.ConversationID),
+		attribute.Int64("nagi.message_id", result.MessageID),
+		attribute.Int64("nagi.job_id", result.JobID),
 	)
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"stored":          true,
@@ -205,5 +205,5 @@ var _ botcontracts.Handler = (*Ingress)(nil)
 // tracer returns the shared no-op-safe tracer.
 // tracer 返回共享的、无 SDK 时为 no-op 的 tracer。
 func tracer() trace.Tracer {
-	return otel.Tracer("github.com/HappyLadySauceM/QQBot/internal/conversation")
+	return otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/conversation")
 }

@@ -89,8 +89,8 @@ flowchart LR
 gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl rand -hex 32`，至少 32 字符），
 示例占位符或过短的值会被启动检查拒绝并关闭用户维度。`observability.raw-identifiers=true` 是可回退的
 调试开关，开启后 trace 直接写原始 QQ 号。
-通用运行时覆盖：`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`、`QQBOT_OBSERVABILITY_USER_ID_SECRET`、
-`QQBOT_OBSERVABILITY_RAW_IDENTIFIERS`，以及 `--config`、`--listen`、`--log-level` Flags，优先级高于 YAML。
+通用运行时覆盖：`NAGI_SERVER_LISTEN`、`NAGI_LOG_LEVEL`、`NAGI_OBSERVABILITY_USER_ID_SECRET`、
+`NAGI_OBSERVABILITY_RAW_IDENTIFIERS`，以及 `--config`、`--listen`、`--log-level` Flags，优先级高于 YAML。
 `onebot.heartbeat-timeout` 默认 60s，仅经 YAML 或默认值提供。
 
 `ai.enabled=true` 要求 `intent.enabled=true`：AI 回复由意图决策流水线触发，只开生成不会发出任何
@@ -119,13 +119,13 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   请求级 `MaxOutputTokens` 按预算选用模型（默认预算复用共享模型，其余按值缓存）。
   `application/replier.go` 保留上下文构建（系统提示 + 授权历史）、输出净化（长度上限、@全体去除、
   出站链接关闭式拒绝）、发送前二次作用域复核与出站回写；工具运行摘要经 `Request.OnToolRun`
-  回传到 `Result.ToolRuns`，写入 `qqbot.agent.tools_exposed`/`tool_calls`/`tool_summary`。
+  回传到 `Result.ToolRuns`，写入 `nagi.agent.tools_exposed`/`tool_calls`/`tool_summary`。
   发送超时按 unknown 记录（结果未知不盲目重发），其余失败按 failed 记录。
 - `internal/plugins`：`contracts` 定义 `Manifest`/`ToolDescriptor`/`ToolProvider`；
   `application` 提供启动注册（ID 冲突检测、失败回滚、启用列表、不可变快照）、权限解析
   （作用域覆盖 > 配置默认 > 描述符兜底）与服务端守卫（权限、账号/目标绑定、超时、结果大小）。
   未授权的工具不会进入模型工具列表，执行前 Guard 用同一份授予集合再校验，并上报 `ToolRun`。
-  `infrastructure` 提供内置只读工具与 Eino 工具适配。工具调用产生的 `qqbot.tool` span 记录
+  `infrastructure` 提供内置只读工具与 Eino 工具适配。工具调用产生的 `nagi.tool` span 记录
   `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据处理，不进入系统提示。
   注册表同时提供 `Enabled`/`Known`/`Unknown`，`tools.enabled` 写错提供方 ID 会让启动失败。
 - `internal/memory`：长期记忆。候选 → 去重 → 管理员审批 → 激活；检索先按
@@ -156,14 +156,14 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 ### 本地基础设施
 
 `docker compose up -d` 拉起一套完整本地依赖：`pgvector/pgvector:pg16`（主机端口 5433，库
-`qqbot`）、完整 Langfuse 自托管栈（web 端口 3010，ClickHouse/Redis/MinIO 仅内网）、以及一次性
-建库任务 `db-init`（幂等创建 `langfuse` 与 `qqbot_test`）。Justfile 不承担任何数据库操作。
+`nagi`）、完整 Langfuse 自托管栈（web 端口 3010，ClickHouse/Redis/MinIO 仅内网）、以及一次性
+建库任务 `db-init`（幂等创建 `langfuse` 与 `nagi_test`）。Justfile 不承担任何数据库操作。
 
 `migrations/` 为版本化 SQL，每个版本必须同时提供 up 与 down；进程启动连接成功后自动执行
-`db.Migrate` 并在日志输出本次应用的版本，失败即退出。集成测试以 `QQBOT_TEST_DSN` 门控，
-未设置时自动跳过；由于迁移往返测试会删表，该变量只能指向独立测试库 `qqbot_test`。
+`db.Migrate` 并在日志输出本次应用的版本，失败即退出。集成测试以 `NAGI_TEST_DSN` 门控，
+未设置时自动跳过；由于迁移往返测试会删表，该变量只能指向独立测试库 `nagi_test`。
 
 ## 验证
 
 `just verify`（或依次运行 `go mod tidy && go vet ./... && go test ./... && go fmt ./...`）。
-并发相关改动追加 `go test -race ./...`；数据库部分以 `QQBOT_TEST_DSN` 启用集成测试。
+并发相关改动追加 `go test -race ./...`；数据库部分以 `NAGI_TEST_DSN` 启用集成测试。

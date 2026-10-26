@@ -9,9 +9,9 @@ import (
 	"log/slog"
 	"testing"
 
-	domain "github.com/HappyLadySauceM/QQBot/internal/directory/domain"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	domain "github.com/HappyLadySauceM/Nagi/internal/directory/domain"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // testLogger discards log output.

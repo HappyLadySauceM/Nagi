@@ -1,0 +1,100 @@
+name: build-images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "go.mod"
+      - "go.sum"
+      - "web/**"
+      - "Dockerfile"
+      - ".github/workflows/build-images.yml"
+  workflow_dispatch:
+
+env:
+  ZOT: zot.registry.svc.cluster.local:5000
+  PROJECT: nagi
+
+jobs:
+  build:
+    runs-on: hls-builder
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: .
+            dockerfile: Dockerfile
+          - name: web
+            context: web
+            dockerfile: web/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: remote
+          endpoint: ${{ env.BUILDKIT_HOST }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Zot
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ZOT }}
+          username: ${{ secrets.ZOT_USERNAME }}
+          password: ${{ secrets.ZOT_PASSWORD }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.PROJECT }}-${{ matrix.name }}:sha-${{ github.sha }}
+            ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:sha-${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:buildcache
+          cache-to: type=registry,ref=${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:buildcache,mode=max
+
+      - name: Install cosign
+        run: |
+          curl -fsSL -o /tmp/cosign \
+            https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
+          chmod +x /tmp/cosign
+
+      - name: Sign image
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          printf '%s' "$COSIGN_KEY" > /tmp/cosign.key
+          chmod 600 /tmp/cosign.key
+          /tmp/cosign sign --key /tmp/cosign.key --yes --tlog-upload=false \
+            --allow-insecure-registry \
+            --registry-username "${{ secrets.ZOT_USERNAME }}" \
+            --registry-password "${{ secrets.ZOT_PASSWORD }}" \
+            "${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
+
+      - name: Dispatch image update
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_PAT }}
+        run: |
+          gh api repos/HappyLadySauceM/gitops-HappyLadySauce/dispatches \
+            -f event_type=image-update \
+            -f client_payload[app]="${{ env.PROJECT }}-${{ matrix.name }}" \
+            -f client_payload[env]=dev \
+            -f client_payload[digest]="${{ steps.build.outputs.digest }}"

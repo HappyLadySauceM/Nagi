@@ -5,7 +5,7 @@ package contracts
 import (
 	"context"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // Handler is implemented by business contexts to receive OneBot events.

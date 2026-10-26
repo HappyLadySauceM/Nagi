@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/HappyLadySauceM/QQBot/internal/directory/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/directory/domain"
 )
 
 // Repo is the pgx-backed directory repository.

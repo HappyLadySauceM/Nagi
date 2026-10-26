@@ -15,18 +15,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/assembly"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/options"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/router"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	botapp "github.com/HappyLadySauceM/QQBot/internal/bot/application"
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	"github.com/HappyLadySauceM/QQBot/migrations"
-	"github.com/HappyLadySauceM/QQBot/pkg/config"
-	"github.com/HappyLadySauceM/QQBot/pkg/db"
-	"github.com/HappyLadySauceM/QQBot/pkg/logging"
-	"github.com/HappyLadySauceM/QQBot/pkg/version"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/assembly"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/options"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/router"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/migrations"
+	"github.com/HappyLadySauceM/Nagi/pkg/config"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
+	"github.com/HappyLadySauceM/Nagi/pkg/logging"
+	"github.com/HappyLadySauceM/Nagi/pkg/version"
 )
 
 // defaultConfigFile is tried when -config is not provided.
@@ -40,7 +40,7 @@ func Run(ctx context.Context, opts options.Options) error {
 	if err != nil {
 		return err
 	}
-	logger.Info("qqbot starting",
+	logger.Info("nagi starting",
 		"version", version.Version,
 		"config_file", opts.ConfigFile,
 		"listen", cfg.Server.Listen,
@@ -213,7 +213,7 @@ func Run(ctx context.Context, opts options.Options) error {
 		default:
 		}
 	}
-	logger.Info("qqbot stopped")
+	logger.Info("nagi stopped")
 	return runErr
 }
 

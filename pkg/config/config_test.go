@@ -205,7 +205,7 @@ func TestLoadAppliesRawIdentifiersFromEnv(t *testing.T) {
 	// 验证环境变量可开启原始标识，非法值回退到文件配置。
 	file := writeTempConfig(t, "observability:\n  raw-identifiers: false\n")
 	cfg, err := Load(Options{File: file, LookupEnv: func(key string) (string, bool) {
-		if key == "QQBOT_OBSERVABILITY_RAW_IDENTIFIERS" {
+		if key == "NAGI_OBSERVABILITY_RAW_IDENTIFIERS" {
 			return "true", true
 		}
 		return "", false
@@ -218,7 +218,7 @@ func TestLoadAppliesRawIdentifiersFromEnv(t *testing.T) {
 	}
 
 	cfg, err = Load(Options{File: file, LookupEnv: func(key string) (string, bool) {
-		if key == "QQBOT_OBSERVABILITY_RAW_IDENTIFIERS" {
+		if key == "NAGI_OBSERVABILITY_RAW_IDENTIFIERS" {
 			return "not-a-bool", true
 		}
 		return "", false

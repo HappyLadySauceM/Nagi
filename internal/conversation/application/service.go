@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/conversation/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 )
 
 // Repository persists conversations, messages and decision jobs; implemented by infrastructure.

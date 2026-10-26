@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
-	"github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
 // domainSegmentAt builds an at segment targeting the given id.

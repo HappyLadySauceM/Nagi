@@ -1,5 +1,5 @@
-// Integration test for the memory repository, gated by QQBOT_TEST_DSN.
-// 记忆仓库的集成测试，以 QQBOT_TEST_DSN 为门控。
+// Integration test for the memory repository, gated by NAGI_TEST_DSN.
+// 记忆仓库的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure
 
 import (
@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/memory/domain"
-	"github.com/HappyLadySauceM/QQBot/pkg/db/dbtest"
+	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
 // TestMemoryRepositoryRoundTrip verifies insert, dedupe lookup, approve, search

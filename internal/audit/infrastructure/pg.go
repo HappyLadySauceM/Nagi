@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/HappyLadySauceM/QQBot/internal/audit/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 )
 
 // Recorder is the pgx-backed audit recorder.

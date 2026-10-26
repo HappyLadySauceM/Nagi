@@ -1,6 +1,6 @@
-# QQBot Web 控制台
+# Nagi Web 控制台
 
-QQBot 管理后台前端：Vite + React + TypeScript + Tailwind + shadcn/ui + TanStack Router/Query。
+Nagi 管理后台前端：Vite + React + TypeScript + Tailwind + shadcn/ui + TanStack Router/Query。
 构建产物是静态文件，Go 侧不引入 Node 运行时。
 
 ## 命令
@@ -23,18 +23,18 @@ pnpm preview                     # 预览 dist/
 
 ```bash
 # 方式一：仅本次启动注入
-QQBOT_ADMIN_TOKEN=<server.admin-token> pnpm dev
+NAGI_ADMIN_TOKEN=<server.admin-token> pnpm dev
 
 # 方式二：写入 web/.env.local（已被 .gitignore 忽略）
-cp .env.example .env.local   # 再编辑 QQBOT_ADMIN_TOKEN
+cp .env.example .env.local   # 再编辑 NAGI_ADMIN_TOKEN
 ```
 
 令牌只在 Vite dev server 侧写入 `Authorization` 头，**不会**进入浏览器 bundle、
-`localStorage` 或 URL。指向其他后端地址时设置 `QQBOT_API_TARGET`。
+`localStorage` 或 URL。指向其他后端地址时设置 `NAGI_API_TARGET`。
 
 开发服务器默认只接受 `localhost` 与回环 IP 的 Host 头，因为代理会注入令牌，
 放开 Host 校验会让 DNS rebinding 页面借到管理员权限。确需通过隧道域名访问时，
-用 `QQBOT_DEV_ALLOWED_HOSTS=dev.example.com` 追加白名单，不要整体放开。
+用 `NAGI_DEV_ALLOWED_HOSTS=dev.example.com` 追加白名单，不要整体放开。
 
 生产部署时由同源反向代理（Caddy/Nginx）托管 `dist/` 并代理 `/api`、`/livez`、`/readyz`；
 SPA 回退到 `index.html`，但 `/api/` 的 404 不能被改写成 200 HTML。

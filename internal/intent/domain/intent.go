@@ -5,8 +5,8 @@ package domain
 import (
 	"time"
 
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // Decision is the final reply decision.

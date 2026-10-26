@@ -3,7 +3,7 @@ import type { AccountSummary } from '../../lib/api/contracts'
 import { useAccounts } from '../system/queries'
 import { AccountContext, type AccountContextValue } from './account-context'
 
-const STORAGE_KEY = 'qqbot.selected-account'
+const STORAGE_KEY = 'nagi.selected-account'
 
 function readStoredBotId(): number | undefined {
   if (typeof window === 'undefined') {

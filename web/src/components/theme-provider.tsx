@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { ThemeContext, type Theme } from './theme-context'
 
-const THEME_STORAGE_KEY = 'qqbot-theme'
+const THEME_STORAGE_KEY = 'nagi-theme'
 
 function readInitialTheme(): Theme {
   if (typeof document === 'undefined') {

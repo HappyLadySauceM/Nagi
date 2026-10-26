@@ -33,10 +33,10 @@ const (
 	// pseudo mode keeps BotIDHashKey so the two never coexist on one trace.
 	// BotIDKey 携带原始账号并被原始模式使用；假名模式继续用 BotIDHashKey，
 	// 两者不会同时出现在同一条 trace 上。
-	BotIDKey     = "qqbot.bot_id"
-	BotIDHashKey = "qqbot.bot_id_hash"
-	TargetIDKey  = "qqbot.target_id"
-	SenderIDKey  = "qqbot.sender_id"
+	BotIDKey     = "nagi.bot_id"
+	BotIDHashKey = "nagi.bot_id_hash"
+	TargetIDKey  = "nagi.target_id"
+	SenderIDKey  = "nagi.sender_id"
 )
 
 // maxTraceStateLen is the upper bound from the W3C tracestate specification;

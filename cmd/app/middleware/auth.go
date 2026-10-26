@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 )
 
 type actorKey struct{}

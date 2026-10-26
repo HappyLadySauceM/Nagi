@@ -3,9 +3,9 @@
 package application
 
 import (
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
-	"github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
 // EvaluateRules applies hard rules in veto order: policy, rate limits, then

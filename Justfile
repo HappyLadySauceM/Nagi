@@ -25,7 +25,7 @@ exit:
 # Build the release binary into bin/.
 # 构建二进制到 bin/ 目录。
 build:
-    go build -o bin/qqbot ./cmd
+    go build -o bin/nagi ./cmd
 
 # Run all unit tests.
 # 运行全部单元测试。

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 )
 
 // Sentinels for callers using errors.Is.

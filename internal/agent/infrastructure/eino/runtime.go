@@ -17,7 +17,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	einoschema "github.com/cloudwego/eino/schema"
 
-	"github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 )
 
 // defaultMaxSteps bounds the ReAct loop when the caller does not specify one.
@@ -26,7 +26,7 @@ const defaultMaxSteps = 6
 
 // agentName labels this agent in Eino spans and logs.
 // agentName 在 Eino span 与日志中标识该 Agent。
-const agentName = "qqbot_replier"
+const agentName = "nagi_replier"
 
 // Config configures the runtime. BaseURL points at any OpenAI-compatible
 // endpoint; Timeout bounds one HTTP call and MaxOutputTokens one reply.

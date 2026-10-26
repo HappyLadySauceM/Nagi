@@ -1,12 +1,12 @@
-# QQBot v2.0 架构与产品体验优化评审
+# Nagi v2.0 架构与产品体验优化评审
 
 评审基线：`main` 分支 · `76a3a0a` · 2026 年 10 月 24 日
 
-我已经重新读取了 QQBot 的最新代码，并对照你提供的 9 张后台截图进行评审。你提出的几个调整方向，大部分我都赞同，但有些地方建议采用比直接删除旧设计更稳妥的方式。
+我已经重新读取了 Nagi 的最新代码，并对照你提供的 9 张后台截图进行评审。你提出的几个调整方向，大部分我都赞同，但有些地方建议采用比直接删除旧设计更稳妥的方式。
 
 ## 一、先说核心结论
 
-QQBot 下一阶段不应该只是优化管理后台的外观，而应该从“单账号机器人管理工具”升级成“支持多身份、统一 Agent、短期上下文与长期学习的智能体平台”。
+Nagi 下一阶段不应该只是优化管理后台的外观，而应该从“单账号机器人管理工具”升级成“支持多身份、统一 Agent、短期上下文与长期学习的智能体平台”。
 
 目前最大的问题不是技术栈落后，而是产品模型还没有完全统一。
 
@@ -23,9 +23,9 @@ QQBot 下一阶段不应该只是优化管理后台的外观，而应该从“�
 
 这里有三个需要首先确认的代码事实：
 
-第一，QQBot 当前确实是单账号运行架构。 在 `cmd/app/assembly/work.go` 里只创建一个 `Transport`、一个 `ClientService`、一个 `Dispatcher`。虽然数据库部分表已经包含 `bot_id`，但这不等于多个 QQ 账号能同时在线、独立发送消息。
+第一，Nagi 当前确实是单账号运行架构。 在 `cmd/app/assembly/work.go` 里只创建一个 `Transport`、一个 `ClientService`、一个 `Dispatcher`。虽然数据库部分表已经包含 `bot_id`，但这不等于多个 QQ 账号能同时在线、独立发送消息。
 
-第二，SnowLuma 本身支持多账号。 官方文档明确说明每个 QQ UIN 可以拥有独立 OneBot 实例和网络配置。QQBot 需要改造的是如何发现、连接并管理这些实例，而不是重新实现 QQ 多账号登录。
+第二，SnowLuma 本身支持多账号。 官方文档明确说明每个 QQ UIN 可以拥有独立 OneBot 实例和网络配置。Nagi 需要改造的是如何发现、连接并管理这些实例，而不是重新实现 QQ 多账号登录。
 
 [image](https://www.google.com/s2/favicons?domain=https://snowluma.github.io\&sz=32)
 
@@ -35,7 +35,7 @@ snowluma.github.io
 
 
 
-第三，当前 QQBot 尚未真正使用 Eino。 我检查了 `go.mod` 和 `internal/agent/` 的代码结构，现有实现是自定义 OpenAI 兼容 API 调用与回复流水线。你提到的 Eino 工具调用还属于下一阶段的架构升级。
+第三，当前 Nagi 尚未真正使用 Eino。 我检查了 `go.mod` 和 `internal/agent/` 的代码结构，现有实现是自定义 OpenAI 兼容 API 调用与回复流水线。你提到的 Eino 工具调用还属于下一阶段的架构升级。
 
 ## 二、多账号：当前最值得优先解决的架构问题
 
@@ -63,7 +63,7 @@ snowluma.github.io
 
 
 
-QQBot 不应该只从一个 WebSocket 收到 `self_id`，就认为已经发现了整个 SnowLuma 中的所有账号。
+Nagi 不应该只从一个 WebSocket 收到 `self_id`，就认为已经发现了整个 SnowLuma 中的所有账号。
 
 ### 2.2 推荐增加 AccountManager
 
@@ -96,12 +96,12 @@ accounts:
   - id: main-qq
     qq: 10001
     endpoint: ws://127.0.0.1:3001
-    token-env: QQBOT_ONEBOT_TOKEN_A
+    token-env: NAGI_ONEBOT_TOKEN_A
 
   - id: second-qq
     qq: 10002
     endpoint: ws://127.0.0.1:3002
-    token-env: QQBOT_ONEBOT_TOKEN_B
+    token-env: NAGI_ONEBOT_TOKEN_B
 ```
 
 这是建议的新配置格式，不是仓库当前已支持的 YAML。
@@ -168,11 +168,11 @@ accounts:
 
 查看设计思路&#x20;
 
-交互草图，使用演示数据；不是当前 QQBot 的真实联系人。
+交互草图，使用演示数据；不是当前 Nagi 的真实联系人。
 
 我建议统一为 `/contacts`，通过 `?tab=friends` 或 `?tab=groups` 切换。好友/群详情共用导航结构，业务组件可以继续独立。
 
-另外，QQ 的好友分组与 QQ 群并不是一回事。当前 OneBot 标准 `get_friend_list` 数据并不保证包含 QQ 客户端里的所有自定义分组信息。因此第一版可以实现 QQBot 自己的分组/标签，不要假设能完整同步原生 QQ 分组。
+另外，QQ 的好友分组与 QQ 群并不是一回事。当前 OneBot 标准 `get_friend_list` 数据并不保证包含 QQ 客户端里的所有自定义分组信息。因此第一版可以实现 Nagi 自己的分组/标签，不要假设能完整同步原生 QQ 分组。
 
 ## 四、工具白名单：当前确实设计得有些超前
 
@@ -187,7 +187,7 @@ accounts:
 | `scope_policies.tool_policy` | 已在 PostgreSQL 中定义 |
 | 工具白名单编辑器                     | 已在 Web 页面实现       |
 | Eino `ToolsNode`             | 尚未接入              |
-| QQBot Agent Tool Registry    | 尚未实现              |
+| Nagi Agent Tool Registry    | 尚未实现              |
 | 根据 `tool_policy` 过滤工具调用      | 未发现实际执行链路         |
 | MCP 工具接入                     | 尚未实现              |
 | Skills 系统                    | 尚未实现              |
@@ -373,7 +373,7 @@ Hermes Agent
 
 
 
-我建议 QQBot 学习这个机制：
+我建议 Nagi 学习这个机制：
 
 Agent Learning Loop
 
@@ -510,11 +510,11 @@ Magic UI 的动效可以保留在主统计卡片和连接状态，Motion 用在�
 
 下面这份执行计划可以作为新一轮开发的任务基准。建议每个阶段单独提交、单独验收，不要让 Coding Agent 一次完成所有改造。
 
-# QQBot v2.0 优化实施指南
+# Nagi v2.0 优化实施指南
 
-**代码基线：** `HappyLadySauceM/QQBot` — `main` — `76a3a0a`
+**代码基线：** `HappyLadySauceM/Nagi` — `main` — `76a3a0a`
 
-**总体目标：** 将现有 QQBot 升级为支持多 QQ 账号、统一联系人管理、会话画像、跨会话知识记忆，以及基于 Eino 的可扩展 Agent 平台。
+**总体目标：** 将现有 Nagi 升级为支持多 QQ 账号、统一联系人管理、会话画像、跨会话知识记忆，以及基于 Eino 的可扩展 Agent 平台。
 
 **实施原则：**
 
@@ -526,7 +526,7 @@ Magic UI 的动效可以保留在主统计卡片和连接状态，Motion 用在�
 
 ## P0 — 多账号运行时与数据隔离
 
-**目标：** QQBot 能够同时接入两个或更多 SnowLuma OneBot 实例，并正确识别消息来源、路由发送动作。
+**目标：** Nagi 能够同时接入两个或更多 SnowLuma OneBot 实例，并正确识别消息来源、路由发送动作。
 
 ### 后端任务
 

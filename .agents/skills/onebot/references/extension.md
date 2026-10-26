@@ -13,7 +13,7 @@
    走配置域，禁用时不构造服务也不注册处理器。
 4. **配置**：`pkg/config` 增加域结构体、默认值与 Validate 校验 →
    `configs/config-example.yaml` 增加示例注释 → 按需在 `applyEnv`/`applyOverrides`
-   与 `cmd/app/options` 补充 `QQBOT_*` 环境变量与 Flags。
+   与 `cmd/app/options` 补充 `NAGI_*` 环境变量与 Flags。
 5. **测试**：application 用 fakeSender 记录断言；infrastructure 用表驱动验证
    Match/Handle；测试函数以行为命名（TestXxxRepliesYyy），双语注释说明验证什么、
    什么错误会使它失败。

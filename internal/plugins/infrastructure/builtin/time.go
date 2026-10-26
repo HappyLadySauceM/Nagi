@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // timeProvider exposes system.current_time.

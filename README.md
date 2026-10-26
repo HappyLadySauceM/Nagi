@@ -1,4 +1,4 @@
-# QQBot
+# Nagi
 
 接入 [SnowLuma](https://github.com/SnowLuma/SnowLuma)（QQ → OneBot v11 桥接运行时）的 Go 智能 QQ 助手。
 硬性规则决定能否回复，Jev 语义模型判断是否该参与，LLM 负责生成，PostgreSQL 负责会话与记忆。
@@ -9,7 +9,7 @@
 - 运维层：管理 HTTP API、Bearer 鉴权与审计、聚合指标、可选 Langfuse 追踪
 
 架构细节与分层约定见 [`docs/architecture.md`](docs/architecture.md)，
-优化路线见 `docs/QQBot_Implementation_Plan_v2.0.md`。
+优化路线见 `docs/Nagi_Implementation_Plan_v2.0.md`。
 
 ## 前置条件
 
@@ -24,7 +24,7 @@
 
 ```bash
 # 1. 启动基础设施：PostgreSQL(pgvector) + Langfuse 全栈
-#    首次拉取较慢；db-init 会幂等创建 langfuse 与 qqbot_test 库
+#    首次拉取较慢；db-init 会幂等创建 langfuse 与 nagi_test 库
 docker compose up -d
 
 # 2. 生成本地配置（已 gitignore）
@@ -32,7 +32,7 @@ just init-config
 
 # 3. 填写 configs/config.yaml（所有值都直接写在这个文件里）
 #    onebot.endpoints[]：每项一个 SnowLuma OneBot 实例，含 access-token；账号身份启动后自动识别
-#    database.dsn：postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable
+#    database.dsn：postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable
 #    ai.api-key：LLM 密钥（ai.enabled=true 时必填）
 #    intent.api-key：Jev 密钥（留空则降级为仅响应 @/引用）
 #    observability.{base-url,public-key,secret-key}：Langfuse 地址与项目凭据
@@ -108,7 +108,7 @@ curl -s -X PUT "http://$BOT/api/v1/scopes/group/123456789?bot_id=10001" \
   `expect-qq` 不一致时该端点会被拒绝并记录原因，事件不会进入业务流水线。
 - 全部地址、凭据与密钥都直接写在 `configs/config.yaml`（已 gitignore）；提交仓库的
   `configs/config-example.yaml` 只含占位符，不要把真实密钥写进示例文件。
-- 通用运行时覆盖（可选）：`QQBOT_SERVER_LISTEN`、`QQBOT_LOG_LEVEL`，以及 `--listen`、`--log-level` Flags。
+- 通用运行时覆盖（可选）：`NAGI_SERVER_LISTEN`、`NAGI_LOG_LEVEL`，以及 `--listen`、`--log-level` Flags。
 - 无 `configs/config.yaml` 时以默认值 + 上述覆盖启动（默认端点 `ws://127.0.0.1:3001`、无数据库）。
 
 ## MVP 验收清单
@@ -117,8 +117,8 @@ curl -s -X PUT "http://$BOT/api/v1/scopes/group/123456789?bot_id=10001" \
 2. `/api/v1/accounts` 中每个端点都有 `bot_id`，且 `connected=true`。
 3. `POST /api/v1/accounts/{bot_id}/sync` 后 `/api/v1/contacts?bot_id=`、`/api/v1/groups?bot_id=` 有数据。
 4. 对目标群 PUT 作用域后，在群里 @机器人 发一条消息。
-5. 日志依次出现 `intent decided`（`decision=reply`、`reason=explicit_mention`）、`qqbot.agent.reply`、
-   `qqbot.onebot.send`，QQ 侧收到回复。
+5. 日志依次出现 `intent decided`（`decision=reply`、`reason=explicit_mention`）、`nagi.agent.reply`、
+   `nagi.onebot.send`，QQ 侧收到回复。
 6. 数据库核验：
 
    ```sql
@@ -147,15 +147,15 @@ curl -s -X PUT "http://$BOT/api/v1/scopes/group/123456789?bot_id=10001" \
 ## Langfuse 追踪
 
 `docker compose up -d` 会在 <http://127.0.0.1:3010> 拉起 Langfuse，并自动创建组织、项目与 API Key
-（默认 `pk-lf-qqbot-local` / `sk-lf-qqbot-local`；登录账号 `admin@qqbot.local`，密码
-`qqbot-local-2026`，可用 `LANGFUSE_INIT_*` 覆盖）。开启导出只需在 `configs/config.yaml` 填写：
+（默认 `pk-lf-nagi-local` / `sk-lf-nagi-local`；登录账号 `admin@nagi.local`，密码
+`nagi-local-2026`，可用 `LANGFUSE_INIT_*` 覆盖）。开启导出只需在 `configs/config.yaml` 填写：
 
 ```yaml
 observability:
   enabled: true
   base-url: "http://127.0.0.1:3010"
-  public-key: "pk-lf-qqbot-local"
-  secret-key: "sk-lf-qqbot-local"
+  public-key: "pk-lf-nagi-local"
+  secret-key: "sk-lf-nagi-local"
   ingestion-version: "4"
   environment: "local"        # deployment.environment 资源属性，留空不写
   export-raw-content: true    # 默认导出 prompt、回复与工具结果；false 时正文打码
@@ -234,11 +234,11 @@ BotID 与当前会话群，模型无法传入任意群号）。工具调用在�
 ```bash
 just verify   # go mod tidy + vet + test + fmt
 
-# 数据库集成测试必须指向独立测试库（compose 已创建 qqbot_test）
-QQBOT_TEST_DSN="postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot_test?sslmode=disable" go test ./...
+# 数据库集成测试必须指向独立测试库（compose 已创建 nagi_test）
+NAGI_TEST_DSN="postgres://nagi:nagi-local@127.0.0.1:5433/nagi_test?sslmode=disable" go test ./...
 ```
 
-> 迁移往返测试会 `drop` 所有表。绝不把 `QQBOT_TEST_DSN` 指向 `qqbot` 库——跑一次就会清空会话、
+> 迁移往返测试会 `drop` 所有表。绝不把 `NAGI_TEST_DSN` 指向 `nagi` 库——跑一次就会清空会话、
 > 消息、作用域与记忆数据。
 
 并发相关改动建议追加 `go test -race ./...`。

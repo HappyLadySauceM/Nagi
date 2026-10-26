@@ -1,7 +1,7 @@
 package application
 
 import (
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // EventSource provides the OneBot event stream for dispatch.

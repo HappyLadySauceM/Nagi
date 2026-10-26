@@ -1,5 +1,5 @@
-// Package db provides PostgreSQL connectivity for QQBot.
-// db 包提供 QQBot 的 PostgreSQL 连接能力。
+// Package db provides PostgreSQL connectivity for Nagi.
+// db 包提供 Nagi 的 PostgreSQL 连接能力。
 package db
 
 import (

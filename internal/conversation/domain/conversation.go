@@ -5,7 +5,7 @@ package domain
 import (
 	"time"
 
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // Kind is the conversation kind, mirroring the scope types.

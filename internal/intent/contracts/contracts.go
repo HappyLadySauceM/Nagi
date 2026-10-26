@@ -5,7 +5,7 @@ package contracts
 import (
 	"context"
 
-	"github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
 // ReplyExecutor acts on reply decisions, e.g. generating and sending a response.

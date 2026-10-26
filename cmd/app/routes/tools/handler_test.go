@@ -9,10 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
-	pluginsapp "github.com/HappyLadySauceM/QQBot/internal/plugins/application"
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
-	"github.com/HappyLadySauceM/QQBot/pkg/config"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
 // fakeProvider supplies fixed tools for registry construction.

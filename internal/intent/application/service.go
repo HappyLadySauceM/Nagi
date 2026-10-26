@@ -12,12 +12,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
-	scopecontracts "github.com/HappyLadySauceM/QQBot/internal/scope/contracts"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
-	"github.com/HappyLadySauceM/QQBot/internal/intent/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
 // SemanticDecider asks the external semantic service; implementations must be
@@ -144,9 +144,9 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 // loadContext 在单个 span 内读取授权历史与频率规则元数据；
 // 即使未授权读取历史，该 span 仍然存在。
 func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scopedomain.Policy) ([]domain.Message, domain.BotActivity, error) {
-	ctx, span := tracer().Start(ctx, "qqbot.intent.load_context")
+	ctx, span := tracer().Start(ctx, "nagi.intent.load_context")
 	defer span.End()
-	span.SetAttributes(attribute.Bool("qqbot.history_allowed", policy.AllowHistoryRead))
+	span.SetAttributes(attribute.Bool("nagi.history_allowed", policy.AllowHistoryRead))
 	// History bodies stay out of the payload: they can be dozens of messages,
 	// and the count is enough to explain the decision.
 	// 历史正文不进入载荷：它可能包含几十条消息，条数已足以解释决策。
@@ -164,7 +164,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 			// Degrade to current-message-only instead of failing the job.
 			// 降级为仅使用当前消息，而不是让任务失败。
 			span.RecordError(err)
-			span.SetAttributes(attribute.Bool("qqbot.history_degraded", true))
+			span.SetAttributes(attribute.Bool("nagi.history_degraded", true))
 			d.logger.Warn("load conversation history failed", "error", err)
 			history = nil
 		}
@@ -182,8 +182,8 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 		activity = domain.BotActivity{Known: true, LastReplyAt: lastReplyAt, RepliesLastHour: repliesLastHour}
 	}
 	span.SetAttributes(
-		attribute.Int("qqbot.context_count", len(history)),
-		attribute.Bool("qqbot.activity_known", activity.Known),
+		attribute.Int("nagi.context_count", len(history)),
+		attribute.Bool("nagi.activity_known", activity.Known),
 	)
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"context_count":  len(history),
@@ -196,16 +196,16 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 // applyRules evaluates the deterministic gate and records why it stopped.
 // applyRules 执行确定性规则闸门并记录其结论。
 func (d *Decider) applyRules(ctx context.Context, in domain.Input) domain.RuleResult {
-	_, span := tracer().Start(ctx, "qqbot.intent.rules")
+	_, span := tracer().Start(ctx, "nagi.intent.rules")
 	defer span.End()
 	rule := EvaluateRules(in)
 	span.SetAttributes(
-		attribute.Bool("qqbot.rule_blocked", rule.Blocked),
-		attribute.Bool("qqbot.rule_explicit", rule.Explicit),
-		attribute.Bool("qqbot.rule_need_semantic", rule.NeedSemantic),
+		attribute.Bool("nagi.rule_blocked", rule.Blocked),
+		attribute.Bool("nagi.rule_explicit", rule.Explicit),
+		attribute.Bool("nagi.rule_need_semantic", rule.NeedSemantic),
 	)
 	if rule.ReasonCode != "" {
-		span.SetAttributes(attribute.String("qqbot.rule_reason_code", rule.ReasonCode))
+		span.SetAttributes(attribute.String("nagi.rule_reason_code", rule.ReasonCode))
 	}
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"blocked":       rule.Blocked,
@@ -222,11 +222,11 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) domain.RuleRe
 // decideSemantic 在独立 span 内调用 Jev，使网络耗时、返回分数与降级可归因。
 // 失败时返回不可用回答，绝不臆测决策。
 func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.SemanticAnswer, int64) {
-	ctx, span := tracer().Start(ctx, "qqbot.intent.jev")
+	ctx, span := tracer().Start(ctx, "nagi.intent.jev")
 	defer span.End()
 	span.SetAttributes(
-		attribute.String("qqbot.provider", d.provider),
-		attribute.String("qqbot.model", d.model),
+		attribute.String("nagi.provider", d.provider),
+		attribute.String("nagi.model", d.model),
 	)
 	// The classified message is the semantic decider's input; body export obeys
 	// the content gate.
@@ -239,12 +239,12 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.S
 	start := time.Now()
 	answer, err := d.semantic.Decide(ctx, in)
 	latency := time.Since(start).Milliseconds()
-	span.SetAttributes(attribute.Int64("qqbot.latency_ms", latency))
+	span.SetAttributes(attribute.Int64("nagi.latency_ms", latency))
 	if err != nil {
 		// Semantic unavailability degrades to rules-only, never to guessing.
 		// 语义不可用降级为仅规则决策，绝不臆测。
 		span.RecordError(err)
-		span.SetAttributes(attribute.Bool("qqbot.jev_degraded", true))
+		span.SetAttributes(attribute.Bool("nagi.jev_degraded", true))
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 			"degraded":   true,
 			"latency_ms": latency,
@@ -253,11 +253,11 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.S
 		return domain.SemanticAnswer{}, latency
 	}
 	span.SetAttributes(
-		attribute.String("qqbot.intent_category", answer.IntentCategory),
-		attribute.Float64("qqbot.jev.directed_to_bot", answer.DirectedToBot),
-		attribute.Float64("qqbot.jev.continues_bot_thread", answer.ContinuesBotThread),
-		attribute.Float64("qqbot.jev.addressed_to_other", answer.AddressedToOther),
-		attribute.Float64("qqbot.jev.appropriate_to_join", answer.AppropriateToJoin),
+		attribute.String("nagi.intent_category", answer.IntentCategory),
+		attribute.Float64("nagi.jev.directed_to_bot", answer.DirectedToBot),
+		attribute.Float64("nagi.jev.continues_bot_thread", answer.ContinuesBotThread),
+		attribute.Float64("nagi.jev.addressed_to_other", answer.AddressedToOther),
+		attribute.Float64("nagi.jev.appropriate_to_join", answer.AppropriateToJoin),
 	)
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"intent_category":      answer.IntentCategory,
@@ -275,18 +275,18 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.S
 func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.RuleResult,
 	semantic domain.SemanticAnswer, latency int64,
 ) domain.FinalDecision {
-	_, span := tracer().Start(ctx, "qqbot.intent.policy")
+	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
 	decision := EvaluateReplyPolicy(in, rule, semantic, d.th)
 	decision.Provider = d.provider
 	decision.Model = d.model
 	decision.LatencyMS = latency
 	span.SetAttributes(
-		attribute.String("qqbot.decision", string(decision.Decision)),
-		attribute.String("qqbot.reason_code", decision.ReasonCode),
-		attribute.String("qqbot.provider", d.provider),
-		attribute.String("qqbot.model", d.model),
-		attribute.Int64("qqbot.latency_ms", latency),
+		attribute.String("nagi.decision", string(decision.Decision)),
+		attribute.String("nagi.reason_code", decision.ReasonCode),
+		attribute.String("nagi.provider", d.provider),
+		attribute.String("nagi.model", d.model),
+		attribute.Int64("nagi.latency_ms", latency),
 	)
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"decision":           string(decision.Decision),
@@ -301,5 +301,5 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 // tracer returns the shared no-op-safe tracer of this context.
 // tracer 返回本上下文共享的、无 SDK 时为 no-op 的 tracer。
 func tracer() trace.Tracer {
-	return otel.Tracer("github.com/HappyLadySauceM/QQBot/internal/intent")
+	return otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/intent")
 }

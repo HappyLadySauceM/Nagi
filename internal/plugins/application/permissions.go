@@ -1,7 +1,7 @@
 package application
 
 import (
-	"github.com/HappyLadySauceM/QQBot/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // ResolvePermissions computes the granted permission set for one run.

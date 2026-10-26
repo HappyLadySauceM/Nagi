@@ -3,7 +3,7 @@ package application
 import (
 	"context"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // SetRestart implements contracts.Maintenance.

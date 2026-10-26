@@ -15,15 +15,15 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	intentdomain "github.com/HappyLadySauceM/QQBot/internal/intent/domain"
-	"github.com/HappyLadySauceM/QQBot/internal/observability"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
-	scopecontracts "github.com/HappyLadySauceM/QQBot/internal/scope/contracts"
-	scopedomain "github.com/HappyLadySauceM/QQBot/internal/scope/domain"
+	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
-	agentcontracts "github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/agent/domain"
+	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/agent/domain"
 )
 
 // ReceiptSender delivers messages and reports the platform message id assigned
@@ -105,8 +105,8 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	}
 
 	messages := r.buildMessages(task, history)
-	tracer := otel.Tracer("github.com/HappyLadySauceM/QQBot/internal/agent")
-	genCtx, genSpan := tracer.Start(ctx, "qqbot.agent.run")
+	tracer := otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/agent")
+	genCtx, genSpan := tracer.Start(ctx, "nagi.agent.run")
 	genSpan.SetAttributes(attribute.String("gen_ai.system", "openai_compatible"))
 	truncated := false
 	// Bounded JSON keeps the payload below the exporter truncation limit;
@@ -147,12 +147,12 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		genSpan.End()
 		return fmt.Errorf("agent: generate: %w", err)
 	}
-	// Model and usage stay under qqbot.* so this span is not inferred as a
+	// Model and usage stay under nagi.* so this span is not inferred as a
 	// generation: Eino's model callback already exports the per-call generation.
-	// 模型与用量放在 qqbot.* 命名空间，避免本 span 被推断为 generation：
+	// 模型与用量放在 nagi.* 命名空间，避免本 span 被推断为 generation：
 	// Eino 的模型回调已经导出每次调用的 generation。
 	if result.Model != "" {
-		genSpan.SetAttributes(attribute.String("qqbot.model", result.Model))
+		genSpan.SetAttributes(attribute.String("nagi.model", result.Model))
 	}
 	// Runs reported through the callback are authoritative; an implementation
 	// that fills them directly still works. The copy is taken under the lock so
@@ -166,16 +166,16 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		result.ToolRuns = runs
 	}
 	genSpan.SetAttributes(
-		attribute.Int64("qqbot.usage.input", result.InputUsage),
-		attribute.Int64("qqbot.usage.output", result.OutputUsage),
-		attribute.Int("qqbot.agent.tools_exposed", result.ToolsExposed),
-		attribute.Int("qqbot.agent.tool_calls", len(result.ToolRuns)),
+		attribute.Int64("nagi.usage.input", result.InputUsage),
+		attribute.Int64("nagi.usage.output", result.OutputUsage),
+		attribute.Int("nagi.agent.tools_exposed", result.ToolsExposed),
+		attribute.Int("nagi.agent.tool_calls", len(result.ToolRuns)),
 	)
 	// Tool names and statuses are metadata, not message content, so they stay
 	// readable even when the transcript is redacted.
 	// 工具名与状态属于元数据而非消息正文，因此即使对话被脱敏也保持可读。
 	if len(result.ToolRuns) > 0 {
-		genSpan.SetAttributes(attribute.String("qqbot.agent.tool_summary", toolSummaryJSON(result.ToolRuns)))
+		genSpan.SetAttributes(attribute.String("nagi.agent.tool_summary", toolSummaryJSON(result.ToolRuns)))
 	}
 	if payload, clipped, jsonErr := traceReplyJSON(result.Text); jsonErr == nil && payload != "" {
 		truncated = truncated || clipped
@@ -184,10 +184,10 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	// The marker distinguishes "the model said only this much" from "the traced
 	// payload was clipped".
 	// 该标记用于区分"模型只说了这么多"与"追踪载荷被裁剪"。
-	genSpan.SetAttributes(attribute.Bool("qqbot.trace.truncated", truncated))
+	genSpan.SetAttributes(attribute.Bool("nagi.trace.truncated", truncated))
 	genSpan.End()
 
-	_, validateSpan := tracer.Start(ctx, "qqbot.response.validate")
+	_, validateSpan := tracer.Start(ctx, "nagi.response.validate")
 	observability.RecordObservation(validateSpan, "langfuse.observation.input", map[string]any{
 		"reply": result.Text,
 	})
@@ -195,7 +195,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if err != nil {
 		// A rejected reply is a policy outcome, not a generation failure.
 		// 被拒绝的回复是策略结果，不是生成失败。
-		validateSpan.SetAttributes(attribute.Bool("qqbot.reply_dropped", true))
+		validateSpan.SetAttributes(attribute.Bool("nagi.reply_dropped", true))
 		observability.RecordObservation(validateSpan, "langfuse.observation.output", map[string]any{
 			"dropped": true,
 			"reason":  err.Error(),
@@ -205,8 +205,8 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return nil
 	}
 	validateSpan.SetAttributes(
-		attribute.Bool("qqbot.reply_dropped", false),
-		attribute.Int("qqbot.reply_length", len([]rune(reply))),
+		attribute.Bool("nagi.reply_dropped", false),
+		attribute.Int("nagi.reply_length", len([]rune(reply))),
 	)
 	observability.RecordObservation(validateSpan, "langfuse.observation.output", map[string]any{
 		"dropped": false,
@@ -216,7 +216,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	validateSpan.End()
 
 	sentStatus := "sent"
-	sendCtx, sendSpan := tracer.Start(ctx, "qqbot.onebot.send")
+	sendCtx, sendSpan := tracer.Start(ctx, "nagi.onebot.send")
 	// The target is a QQ number, so only the channel kind is exported.
 	// 目标是 QQ 号，因此只导出会话类型。
 	observability.RecordObservation(sendSpan, "langfuse.observation.input", map[string]any{
@@ -241,9 +241,9 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	// Delivery status must be attached before the span ends, otherwise the
 	// outcome never reaches the trace.
 	// 投递结果必须在 span 结束前写入，否则结果不会出现在 trace 中。
-	sendSpan.SetAttributes(attribute.String("qqbot.sent_status", sentStatus))
+	sendSpan.SetAttributes(attribute.String("nagi.sent_status", sentStatus))
 	if sendErr == nil {
-		sendSpan.SetAttributes(attribute.Int64("qqbot.onebot_message_id", messageID))
+		sendSpan.SetAttributes(attribute.Int64("nagi.onebot_message_id", messageID))
 	}
 	observability.RecordObservation(sendSpan, "langfuse.observation.output", map[string]any{
 		"sent_status": sentStatus,

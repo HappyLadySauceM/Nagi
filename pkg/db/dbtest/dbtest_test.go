@@ -19,18 +19,18 @@ func TestDeriveTestDSN(t *testing.T) {
 	}{
 		{
 			name: "live database gets _test suffix",
-			dsn:  "postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable",
-			want: "postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot_test?sslmode=disable",
+			dsn:  "postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable",
+			want: "postgres://nagi:nagi-local@127.0.0.1:5433/nagi_test?sslmode=disable",
 		},
 		{
 			name: "already test database is kept",
-			dsn:  "postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot_test?sslmode=disable",
-			want: "postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot_test?sslmode=disable",
+			dsn:  "postgres://nagi:nagi-local@127.0.0.1:5433/nagi_test?sslmode=disable",
+			want: "postgres://nagi:nagi-local@127.0.0.1:5433/nagi_test?sslmode=disable",
 		},
 		{
 			name: "keyword dsn gets dbname override",
-			dsn:  "host=127.0.0.1 port=5433 user=qqbot dbname=qqbot",
-			want: "host=127.0.0.1 port=5433 user=qqbot dbname=qqbot dbname=qqbot_test",
+			dsn:  "host=127.0.0.1 port=5433 user=nagi dbname=nagi",
+			want: "host=127.0.0.1 port=5433 user=nagi dbname=nagi dbname=nagi_test",
 		},
 	}
 	for _, tc := range cases {
@@ -55,7 +55,7 @@ func TestDeriveTestDSN(t *testing.T) {
 func TestReadConfigDSN(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	content := "database:\n  dsn: postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable\n"
+	content := "database:\n  dsn: postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestReadConfigDSN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readConfigDSN: %v", err)
 	}
-	want := "postgres://qqbot:qqbot-local@127.0.0.1:5433/qqbot?sslmode=disable"
+	want := "postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable"
 	if dsn != want {
 		t.Fatalf("readConfigDSN = %q, want %q", dsn, want)
 	}

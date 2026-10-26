@@ -12,7 +12,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/HappyLadySauceM/QQBot/internal/agent/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 )
 
 // fakeModel returns canned replies in order and records call counts.

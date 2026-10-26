@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // SenderResolver resolves the sender bound to one account; replies must never

@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/HappyLadySauceM/QQBot/internal/directory/domain"
-	obcontracts "github.com/HappyLadySauceM/QQBot/internal/onebot/contracts"
-	obdomain "github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/directory/domain"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // ErrBotNotSynced reports that the bot account row is missing, so member rows

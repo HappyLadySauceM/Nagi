@@ -6,14 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/middleware"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/routes/directory"
-	memoryroutes "github.com/HappyLadySauceM/QQBot/cmd/app/routes/memory"
-	metricsroutes "github.com/HappyLadySauceM/QQBot/cmd/app/routes/metrics"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/routes/scope"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/routes/system"
-	toolsroutes "github.com/HappyLadySauceM/QQBot/cmd/app/routes/tools"
-	"github.com/HappyLadySauceM/QQBot/cmd/app/svc"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/directory"
+	memoryroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/memory"
+	metricsroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/metrics"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/scope"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/system"
+	toolsroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/tools"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 )
 
 // New builds the full management API handler chain.

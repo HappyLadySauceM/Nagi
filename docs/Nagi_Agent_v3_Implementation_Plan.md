@@ -1,7 +1,7 @@
-# QQBot Agent v3.0：Eino 插件化与 Langfuse 全链路重构实施方案
+# Nagi Agent v3.0：Eino 插件化与 Langfuse 全链路重构实施方案
 
 > **状态**：设计/待实施（本文件不代表功能已完成）  
-> **目标仓库**：[HappyLadySauceM/QQBot](https://github.com/HappyLadySauceM/QQBot)  
+> **目标仓库**：[HappyLadySauceM/Nagi](https://github.com/HappyLadySauceM/Nagi)  
 > **代码基线**：`main`，`7962d83433803bfd4f43612ea30f436a6d430359`（2026-10-25 检查）  
 > **目标语言版本**：Go **1.26 系列**，建议固定经安全维护的最新补丁版 **1.26.10**；`go.mod` 设 `go 1.26.0`，CI/镜像锁定相同工具链。  
 > **范围**：Eino Agent Runtime、Go 原生插件/工具注册、MCP、Langfuse、必要的任务与追踪持久化；可选 NATS JetStream。  
@@ -12,7 +12,7 @@
 
 ## 1. 执行摘要与完成定义
 
-本轮建设是 **Agent 子系统重构**，不是 QQBot 全仓库重构。目标是使机器人在既有 `OneBot → Scope → PostgreSQL Job → Rules/Jev` 流程之后，由 **Eino ADK** 驱动生成与工具调用；插件系统向 Eino 暴露可授权能力；业务观测与 Eino Callback 通过**同一个 OpenTelemetry TracerProvider 和 Trace Context**形成 Langfuse 可检索的完整调用树。
+本轮建设是 **Agent 子系统重构**，不是 Nagi 全仓库重构。目标是使机器人在既有 `OneBot → Scope → PostgreSQL Job → Rules/Jev` 流程之后，由 **Eino ADK** 驱动生成与工具调用；插件系统向 Eino 暴露可授权能力；业务观测与 Eino Callback 通过**同一个 OpenTelemetry TracerProvider 和 Trace Context**形成 Langfuse 可检索的完整调用树。
 
 最终单条 QQ 消息应做到：
 
@@ -22,7 +22,7 @@
 4. MCP/工具断开、权限拒绝、超时和模型失败均有明确状态；不会使其他群、其他 QQ 账号串号。
 5. 普通一次聊天只产生**一棵业务逻辑关联的 Trace 树**，不重复导出同一次模型调用。
 6. Eino 可替换旧生成实现，同时保留原有 `ReplyExecutor` 业务边界与安全约束。
-7. 即使 Langfuse 离线也不阻断 QQBot；观察链路的失败可告警和度量。
+7. 即使 Langfuse 离线也不阻断 Nagi；观察链路的失败可告警和度量。
 8. 长期记忆暂不参与新 Agent 的上下文组装；旧数据、数据库接口和审批页面不删除。
 
 ### 1.1 目标架构
@@ -107,7 +107,7 @@ flowchart TB
 
 ### 4.1 域边界
 
-由 QQBot 定义稳定的业务调用接口，避免其他上下文直接导入 Eino：
+由 Nagi 定义稳定的业务调用接口，避免其他上下文直接导入 Eino：
 
 ```go
 // internal/agent/contracts/runtime.go —— 自有业务接口草案（非 Eino 官方签名）
@@ -194,7 +194,7 @@ Model Provider 是注册项，不是硬编码 `OpenAI` 的类名。首期仅实�
 
 ## 5. Go 插件架构：不是 Go `plugin.Open`
 
-本轮“插件化”指 **清晰的能力注册与生命周期、可替换实现、配置启用和权限执行**，不等于加载任意 `.so` 文件。Go `plugin.Open` 对构建平台、版本、共享类型和运维均有较大限制，也不适合 QQBot 的跨平台需求。
+本轮“插件化”指 **清晰的能力注册与生命周期、可替换实现、配置启用和权限执行**，不等于加载任意 `.so` 文件。Go `plugin.Open` 对构建平台、版本、共享类型和运维均有较大限制，也不适合 Nagi 的跨平台需求。
 
 ### 5.1 首期只插件化确有使用者的扩展点
 
@@ -206,7 +206,7 @@ Model Provider 是注册项，不是硬编码 `OpenAI` 的类名。首期仅实�
 ### 5.2 Go 业务接口示例
 
 ```go
-// internal/plugins/contracts/contracts.go —— QQBot 自定义契约草案
+// internal/plugins/contracts/contracts.go —— Nagi 自定义契约草案
 type Manifest struct {
     ID          string  // 如 builtin.qq.directory
     Version     string
@@ -278,7 +278,7 @@ agent:
       - id: trusted-docs
         transport: streamable-http
         url: https://mcp.example.invalid/mcp
-        token-env: QQBOT_MCP_DOCS_TOKEN
+        token-env: NAGI_MCP_DOCS_TOKEN
         enabled: false
         timeout: 8s
 ```
@@ -298,11 +298,11 @@ agent:
 
 ### 7.1 当前问题及根因
 
-用户当前 Langfuse 截图表现：`Sessions` 为空、`Users` 为空、Tracing 中 `qqbot.ingress`、`qqbot.intent.decide`、`qqbot.agent.reply` 分散。
+用户当前 Langfuse 截图表现：`Sessions` 为空、`Users` 为空、Tracing 中 `nagi.ingress`、`nagi.intent.decide`、`nagi.agent.reply` 分散。
 
 已核对源代码：
 
-- Ingress 在 `Handle` 内建立 `qqbot.ingress` span，然后将消息与 job 写入数据库；但没有把 span 的 W3C Trace Context 持久化。
+- Ingress 在 `Handle` 内建立 `nagi.ingress` span，然后将消息与 job 写入数据库；但没有把 span 的 W3C Trace Context 持久化。
 - Worker 使用 `context.WithoutCancel(ctx)` 处理从数据库重新读出的 Job，没有原消息的 Trace Parent。
 - `intent.decide` 在 Jev HTTP 请求**之后**才创建 span，因此 Jev 调用耗时虽然作为属性存在，却看不到该网络请求的子 Span。
 - 旧 Replier 只记录 `agent.reply` 与 `onebot.send`，但没有 `session.id`、`user.id` 和完整 Eino 模型/工具树。
@@ -316,31 +316,31 @@ agent:
 
 - `internal/observability` 创建 OTel SDK Provider、Exporter、Batch Processor，负责业务 Span 及初始化/关闭。
 - Eino Langfuse Callback v2 使用 **调用方提供的同一个 `TracerProvider`**；禁止自己再建一套导出器并重复上报。
-- Eino Callback 自动观测 Agent / Model / Tool，QQBot 手写 Scope、Queue、Jev、Send 等业务 Span。
-- `TracerProvider` 生命周期由 QQBot Host 管理；Callback 关闭与 Provider Flush/Shutdown 顺序需按锁定版本文档验证。
+- Eino Callback 自动观测 Agent / Model / Tool，Nagi 手写 Scope、Queue、Jev、Send 等业务 Span。
+- `TracerProvider` 生命周期由 Nagi Host 管理；Callback 关闭与 Provider Flush/Shutdown 顺序需按锁定版本文档验证。
 - 所有 Span 通过标准 Context 传递；不生成平行的“伪子 Span”。
 
 ### 7.3 Trace 层级
 
 ```text
-Trace: qqbot.message.process                 [ingress/entry]
-├── qqbot.ingress.scope                    [enabled / disabled / reason]
-├── qqbot.message.persist                  [message_id / job_id]
-└── qqbot.worker.process                   [job wait / attempts / status]
-    ├── qqbot.intent.load_context          [context_count / hit]
-    ├── qqbot.intent.rules                 [rule outcome]
-    ├── qqbot.intent.jev                   [provider / latency / scores / fallback]
-    ├── qqbot.intent.policy                [reply / silent / defer / reason_code]
-    ├── qqbot.agent.run                    [Eino Agent: only on reply]
+Trace: nagi.message.process                 [ingress/entry]
+├── nagi.ingress.scope                    [enabled / disabled / reason]
+├── nagi.message.persist                  [message_id / job_id]
+└── nagi.worker.process                   [job wait / attempts / status]
+    ├── nagi.intent.load_context          [context_count / hit]
+    ├── nagi.intent.rules                 [rule outcome]
+    ├── nagi.intent.jev                   [provider / latency / scores / fallback]
+    ├── nagi.intent.policy                [reply / silent / defer / reason_code]
+    ├── nagi.agent.run                    [Eino Agent: only on reply]
     │   ├── eino.chat_model                [model / tokens / params / TTFT]
     │   ├── eino.tool                      [tool_id / status / duration]
     │   └── eino.chat_model                [following tool result, if any]
-    ├── qqbot.response.validate            [sanitized / dropped]
-    ├── qqbot.onebot.send                  [sent / failed / unknown]
-    └── qqbot.message.finalize              [job final status]
+    ├── nagi.response.validate            [sanitized / dropped]
+    ├── nagi.onebot.send                  [sent / failed / unknown]
+    └── nagi.message.finalize              [job final status]
 ```
 
-这是**目标逻辑树**：不回复时没有 `agent`/`send`；规则直接拒绝时没有 Jev；工具未调用时没有 Tool Span。`qqbot.message.process` 这个 root span 可以在 ingress 结束，后续 Worker 仍共享 Trace ID、保留 ParentSpanID 指向已经完成的 span；不要为等待异步队列无限延长一个活跃 Span。
+这是**目标逻辑树**：不回复时没有 `agent`/`send`；规则直接拒绝时没有 Jev；工具未调用时没有 Tool Span。`nagi.message.process` 这个 root span 可以在 ingress 结束，后续 Worker 仍共享 Trace ID、保留 ParentSpanID 指向已经完成的 span；不要为等待异步队列无限延长一个活跃 Span。
 
 ### 7.4 关联字段与隐私
 
@@ -349,13 +349,13 @@ Trace: qqbot.message.process                 [ingress/entry]
 | Trace | W3C `traceparent` / `tracestate` | Ingress Inject → PG Job → Worker Extract |
 | Session | `session.id` / `langfuse.session.id`（按锁定 SDK 约定） | `conversation_id` |
 | User | `user.id` / `langfuse.user.id`（按锁定 SDK 约定） | 稳定 **HMAC 假名 ID**，不直接上传原始 QQ 号 |
-| Account | `qqbot.bot_id_hash` | QQ Bot ID 的稳定假名或内部不敏感 ID |
-| Run | `qqbot.job_id`、`qqbot.message_id` | 数据库 Job 与消息 ID |
-| Scope | `qqbot.scope_type` | `group`/`private` |
-| Intent | `qqbot.decision`、`qqbot.reason_code` | 规则与 Jev 最终决策 |
+| Account | `nagi.bot_id_hash` | QQ Bot ID 的稳定假名或内部不敏感 ID |
+| Run | `nagi.job_id`、`nagi.message_id` | 数据库 Job 与消息 ID |
+| Scope | `nagi.scope_type` | `group`/`private` |
+| Intent | `nagi.decision`、`nagi.reason_code` | 规则与 Jev 最终决策 |
 | Agent | `gen_ai.request.model`/token usage 等 | Eino Model Callback |
-| Tool | `qqbot.tool_id`、`qqbot.tool_status` | Tool Execution Guard |
-| Delivery | `qqbot.sent_status` | `sent`/`failed`/`unknown` |
+| Tool | `nagi.tool_id`、`nagi.tool_status` | Tool Execution Guard |
+| Delivery | `nagi.sent_status` | `sent`/`failed`/`unknown` |
 | Deployment | `service.version`、`deployment.environment` | 启动参数与版本 |
 
 `user.id` 采用类似 `u_` + `hex(HMAC-SHA256(secret, bot_id + ':' + sender_id))` 的稳定假名；不要只做无密钥哈希。HMAC 密钥由独立运行时 Secret 提供，轮换时明确解释跨版本统计会断开。多账号同一真实 QQ 用户是否合并视图需要产品定义，首期按账号隔离。
@@ -380,13 +380,13 @@ ALTER TABLE message_jobs
   DROP COLUMN traceparent;
 ```
 
-Ingress 在当前已授权的事务中通过 `propagation.TraceContext` Inject，将 `traceparent`/`tracestate` 与 Job 一起提交。Worker 取出后通过 Extract 恢复 Parent Context，再创建 `qqbot.worker.process`。传播内容必须先作 W3C 格式校验和长度限制，避免无效或恶意 trace header；不存储 Baggage 中的个人数据。
+Ingress 在当前已授权的事务中通过 `propagation.TraceContext` Inject，将 `traceparent`/`tracestate` 与 Job 一起提交。Worker 取出后通过 Extract 恢复 Parent Context，再创建 `nagi.worker.process`。传播内容必须先作 W3C 格式校验和长度限制，避免无效或恶意 trace header；不存储 Baggage 中的个人数据。
 
 若采用“消息入库失败则不处理”，不能仅成功发布 Trace 而误报消息已处理。历史任务没有 Trace Context 时创建独立新 Trace 并标注 `legacy_task=true`。
 
 ### 7.6 Jev 应被独立详细观测
 
-原有 Jev 网络请求应置于 `qqbot.intent.jev` Span 内：
+原有 Jev 网络请求应置于 `nagi.intent.jev` Span 内：
 
 - `provider=jev`、`model`、接口状态码类别、耗时、是否超时/降级。
 - `directed_to_bot`、`continuation`、`interjection`、`addressed_other` 等实际返回分数，**仅记录已定义维度**。
@@ -433,7 +433,7 @@ Ingress 在当前已授权的事务中通过 `propagation.TraceContext` Inject�
 internal/
   agent/
     contracts/
-      runtime.go                 # QQBot Runtime 接口
+      runtime.go                 # Nagi Runtime 接口
     application/
       replier.go                 # 业务发送入口（保留已有职责）
       context_builder.go         # 当前会话上下文构建
@@ -658,7 +658,7 @@ just verify
 
 可在以下情况**持续出现且数据库与模型调优后仍存在**时立项：
 
-- 必须部署多个 QQBot Worker 实例横向扩容，单实例并发处理不能满足吞吐；
+- 必须部署多个 Nagi Worker 实例横向扩容，单实例并发处理不能满足吞吐；
 - `message_jobs` 长时间积压，`queue_wait` P95 与用户业务目标持续不符，且确认 DB Polling/Claim 是显著瓶颈；
 - 希望不同职责服务（消息工作器、分析、非实时任务）独立消费事件；
 - 可以投入额外运维维护 JetStream 的磁盘、消费者、备份、重试和排障。
@@ -691,7 +691,7 @@ Outbox Publisher ──NATS JetStream──> Workers
 步骤：
 
 1. 入站事务写 `messages`、`message_jobs` 和 `outbox_events`；提交后才由 Publisher 对 NATS 发布 `job_id`，避免 DB commit 与 Publish 之间丢任务。
-2. Publisher 用 `Nats-Msg-Id`（如 `qqbot.job.<job_id>`）降低发布重复；这**不是永久全局去重保证**。
+2. Publisher 用 `Nats-Msg-Id`（如 `nagi.job.<job_id>`）降低发布重复；这**不是永久全局去重保证**。
 3. Worker 从 NATS 收到 `job_id`，仍到 PostgreSQL Claim/Lease 检查 Job 是否应执行；重复消息被安全跳过。
 4. 处理成功并完成 DB Job 状态提交后 `Ack`；失败按错误类型进入延迟重试或死信处理。
 5. 队列消息携带 `traceparent`/`tracestate` 或仅 `job_id`，以 PostgreSQL 中保存的 Trace Context 为准。
@@ -715,9 +715,9 @@ queue:
   nats:
     enabled: false
     url: nats://127.0.0.1:4222
-    stream: QQBOT_JOBS
-    subject: qqbot.jobs.ready
-    durable-consumer: qqbot-agent-workers
+    stream: NAGI_JOBS
+    subject: nagi.jobs.ready
+    durable-consumer: nagi-agent-workers
     ack-wait: 60s
 ```
 
@@ -746,7 +746,7 @@ queue:
 
 本轮最终交付前必须满足：
 
-- [ ] QQBot 在 Go 1.26 构建并通过仓库要求的 `just verify`。
+- [ ] Nagi 在 Go 1.26 构建并通过仓库要求的 `just verify`。
 - [ ] 原有多账号、Scope、Jev、Worker、OneBot 无明显行为回归。
 - [ ] Eino Agent 运行成功，支持至少两个内置工具及一个可信 MCP Server。
 - [ ] Tool Registry 有真实服务端授权，不是仅有配置字段。
@@ -761,7 +761,7 @@ queue:
 
 ## 15. 参考资料（用于实施时按锁定版本二次核对）
 
-- QQBot 源码与项目约束：<https://github.com/HappyLadySauceM/QQBot>
+- Nagi 源码与项目约束：<https://github.com/HappyLadySauceM/Nagi>
 - Go 1.26 发布说明：<https://go.dev/doc/go1.26>
 - Go 版本维护记录（截至 2026-10-25，1.26.10 为最新 1.26 补丁版）：<https://go.dev/doc/devel/release>
 - Eino ADK Quickstart：<https://www.cloudwego.io/docs/eino/core_modules/eino_adk/agent_quickstart/>

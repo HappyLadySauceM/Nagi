@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // ErrActionTimeout reports that an action call timed out without an echo-matched

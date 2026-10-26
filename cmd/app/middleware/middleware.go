@@ -12,7 +12,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/HappyLadySauceM/QQBot/cmd/app/types/common"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 )
 
 // Middleware decorates an http.Handler.

@@ -1,6 +1,6 @@
 // Package config represents the parsed runtime configuration model.
 // Package config 表示解析完成的运行时配置模型及其装载逻辑。
-// 优先级：默认值 → YAML → 环境变量（QQBOT_ 前缀）→ 显式覆盖（Flags）。
+// 优先级：默认值 → YAML → 环境变量（NAGI_ 前缀）→ 显式覆盖（Flags）。
 package config
 
 import (
@@ -15,7 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/HappyLadySauceM/QQBot/pkg/logging"
+	"github.com/HappyLadySauceM/Nagi/pkg/logging"
 )
 
 // Duration 支持在 YAML 中书写 "10s" 字符串或纳秒整数。
@@ -322,23 +322,23 @@ func Load(opts Options) (*Config, error) {
 }
 
 func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
-	if v, ok := lookup("QQBOT_SERVER_LISTEN"); ok && strings.TrimSpace(v) != "" {
+	if v, ok := lookup("NAGI_SERVER_LISTEN"); ok && strings.TrimSpace(v) != "" {
 		cfg.Server.Listen = strings.TrimSpace(v)
 	}
-	if v, ok := lookup("QQBOT_LOG_LEVEL"); ok && strings.TrimSpace(v) != "" {
+	if v, ok := lookup("NAGI_LOG_LEVEL"); ok && strings.TrimSpace(v) != "" {
 		cfg.Log.Level = strings.TrimSpace(v)
 	}
 	// The pseudonym key is a runtime secret; the environment variable wins over
 	// the config file so deployments never have to store it on disk.
 	// 假名密钥属于运行时密钥；环境变量优先于配置文件，部署时无需落盘。
-	if v, ok := lookup("QQBOT_OBSERVABILITY_USER_ID_SECRET"); ok && strings.TrimSpace(v) != "" {
+	if v, ok := lookup("NAGI_OBSERVABILITY_USER_ID_SECRET"); ok && strings.TrimSpace(v) != "" {
 		cfg.Observability.UserIDSecret = strings.TrimSpace(v)
 	}
 	// Raw identifiers are a per-deployment debugging switch; an unparsable value
 	// leaves the file setting untouched instead of silently relaxing privacy.
 	// 原始标识属于按部署切换的调试开关；无法解析时保留文件配置，
 	// 不因拼写错误悄悄放宽隐私设置。
-	if v, ok := lookup("QQBOT_OBSERVABILITY_RAW_IDENTIFIERS"); ok && strings.TrimSpace(v) != "" {
+	if v, ok := lookup("NAGI_OBSERVABILITY_RAW_IDENTIFIERS"); ok && strings.TrimSpace(v) != "" {
 		if enabled, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
 			cfg.Observability.RawIdentifiers = enabled
 		}
