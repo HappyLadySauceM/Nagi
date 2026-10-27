@@ -62,7 +62,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ env.PROJECT }}-${{ matrix.name }}:sha-${{ github.sha }}
+            ghcr.io/happyladysauce/${{ env.PROJECT }}-${{ matrix.name }}:sha-${{ github.sha }}
             ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:sha-${{ github.sha }}
           cache-from: type=registry,ref=${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:buildcache
           cache-to: type=registry,ref=${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:buildcache,mode=max
