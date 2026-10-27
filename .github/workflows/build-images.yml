@@ -134,8 +134,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITOPS_PAT }}
         run: |
-          gh api repos/HappyLadySauceM/gitops-HappyLadySauce/dispatches \
-            -f event_type=image-update \
-            -f client_payload[app]="${{ env.PROJECT }}-${{ matrix.name }}" \
-            -f client_payload[env]=dev \
-            -f client_payload[digest]="${{ steps.build.outputs.digest }}"
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/HappyLadySauceM/gitops-HappyLadySauce/dispatches \
+            -d "{\"event_type\":\"image-update\",\"client_payload\":{\"app\":\"${{ env.PROJECT }}-${{ matrix.name }}\",\"env\":\"dev\",\"digest\":\"${{ steps.build.outputs.digest }}\"}}"
