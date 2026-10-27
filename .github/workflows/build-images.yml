@@ -62,10 +62,12 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/happyladysauce/${{ env.PROJECT }}-${{ matrix.name }}:sha-${{ github.sha }}
+            ghcr.io/happyladysaucem/${{ env.PROJECT }}-${{ matrix.name }}:sha-${{ github.sha }}
             ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:sha-${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:buildcache
-          cache-to: type=registry,ref=${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:buildcache,mode=max
+          build-args: |
+            HTTP_PROXY=http://10.42.0.1:10991
+            HTTPS_PROXY=http://10.42.0.1:10991
+            NO_PROXY=localhost,127.0.0.1,.svc,.cluster.local,zot.registry.svc.cluster.local
 
       - name: Install cosign
         run: |
