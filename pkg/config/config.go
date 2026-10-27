@@ -328,6 +328,11 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
 	if v, ok := lookup("NAGI_LOG_LEVEL"); ok && strings.TrimSpace(v) != "" {
 		cfg.Log.Level = strings.TrimSpace(v)
 	}
+	// 数据库连接串由部署注入，避免把密码写进镜像或 ConfigMap。
+	// Database DSN is injected by the deployment so passwords never live in the image.
+	if v, ok := lookup("NAGI_DATABASE_DSN"); ok && strings.TrimSpace(v) != "" {
+		cfg.Database.DSN = strings.TrimSpace(v)
+	}
 	// The pseudonym key is a runtime secret; the environment variable wins over
 	// the config file so deployments never have to store it on disk.
 	// 假名密钥属于运行时密钥；环境变量优先于配置文件，部署时无需落盘。

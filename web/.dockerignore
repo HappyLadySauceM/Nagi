@@ -1,0 +1,5 @@
+node_modules
+src
+tests
+index.html
+pnpm-lock.yaml

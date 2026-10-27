@@ -7,9 +7,9 @@ on:
       - "cmd/**"
       - "internal/**"
       - "pkg/**"
+      - "web/**"
       - "go.mod"
       - "go.sum"
-      - "web/**"
       - "Dockerfile"
       - ".github/workflows/build-images.yml"
   workflow_dispatch:
@@ -17,9 +17,48 @@ on:
 env:
   ZOT: zot.registry.svc.cluster.local:5000
   PROJECT: nagi
+  CGO_ENABLED: "0"
 
 jobs:
+  verify:
+    runs-on: hls-builder
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Go 校验
+        run: |
+          set -euo pipefail
+          go env -w GOPROXY=https://goproxy.cn,direct
+          just verify
+          git diff --exit-code
+
+      - name: 前端依赖与测试
+        working-directory: web
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: 编译二进制
+        run: |
+          set -euo pipefail
+          go build -trimpath -ldflags="-s -w" -o bin/nagi ./cmd
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nagi-api
+          path: bin/nagi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nagi-web
+          path: web/dist
+
   build:
+    needs: verify
     runs-on: hls-builder
     permissions:
       contents: read
@@ -37,22 +76,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: nagi-${{ matrix.name }}
+          path: ${{ matrix.name == 'api' && 'bin' || 'web/dist' }}
+
+      - uses: docker/setup-buildx-action@v3
         with:
           buildkitd-config-inline: |
             [registry."zot.registry.svc.cluster.local:5000"]
               insecure = true
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to Zot
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.ZOT }}
           username: ${{ secrets.ZOT_USERNAME }}
@@ -68,11 +109,6 @@ jobs:
           tags: |
             ghcr.io/happyladysaucem/${{ env.PROJECT }}-${{ matrix.name }}:sha-${{ github.sha }}
             ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:sha-${{ github.sha }}
-          build-args: |
-            HTTP_PROXY=http://10.42.0.1:10991
-            HTTPS_PROXY=http://10.42.0.1:10991
-            NO_PROXY=localhost,127.0.0.1,.svc,.cluster.local,zot.registry.svc.cluster.local
-            GOPROXY=https://goproxy.cn,direct
 
       - name: Install cosign
         run: |
@@ -85,6 +121,7 @@ jobs:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
+          set -euo pipefail
           printf '%s' "$COSIGN_KEY" > /tmp/cosign.key
           chmod 600 /tmp/cosign.key
           /tmp/cosign sign --key /tmp/cosign.key --yes --tlog-upload=false \

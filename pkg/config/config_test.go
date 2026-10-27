@@ -230,3 +230,38 @@ func TestLoadAppliesRawIdentifiersFromEnv(t *testing.T) {
 		t.Fatal("unparsable env must keep the file setting")
 	}
 }
+
+func TestLoadDatabaseDSNFromEnv(t *testing.T) {
+	// 验证 NAGI_DATABASE_DSN 覆盖 YAML 中的 database.dsn。
+	file := writeTempConfig(t, "database:\n  dsn: \"postgres://file@127.0.0.1:5432/file?sslmode=disable\"\n")
+	env := func(key string) (string, bool) {
+		if key == "NAGI_DATABASE_DSN" {
+			return "postgres://env@postgresql.infrastructure-dev.svc.cluster.local:5432/nagi?sslmode=disable", true
+		}
+		return "", false
+	}
+	cfg, err := Load(Options{File: file, LookupEnv: env})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Database.DSN != "postgres://env@postgresql.infrastructure-dev.svc.cluster.local:5432/nagi?sslmode=disable" {
+		t.Fatalf("dsn = %q", cfg.Database.DSN)
+	}
+}
+
+func TestLoadDatabaseDSNEmptyEnvKeepsFileValue(t *testing.T) {
+	file := writeTempConfig(t, "database:\n  dsn: \"postgres://file@127.0.0.1:5432/file?sslmode=disable\"\n")
+	env := func(key string) (string, bool) {
+		if key == "NAGI_DATABASE_DSN" {
+			return "   ", true
+		}
+		return "", false
+	}
+	cfg, err := Load(Options{File: file, LookupEnv: env})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Database.DSN != "postgres://file@127.0.0.1:5432/file?sslmode=disable" {
+		t.Fatalf("dsn = %q", cfg.Database.DSN)
+	}
+}
