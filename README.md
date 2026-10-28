@@ -261,4 +261,6 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
 - CI 里前端依赖走 `registry.npmmirror.com`，Go 模块与 pnpm store 用 `actions/cache` 复用，
   cosign 二进制同样缓存；artifacts 只保留 1 天。
 - 镜像 tag 是 7 位短 SHA，由 gitops 仓库的 Image Updater 自动开 PR；本仓库不再推送 digest 事件。
-- 旧镜像由 Zot 保留策略（每仓库最近 10 个）与 ghcr 保留策略（每包最近 10 个）清理。
+- 旧镜像由 Zot 保留策略（每仓库最近 10 个）与 ghcr 保留策略（每包最近 10 个）清理；
+  ghcr 侧是 `.github/workflows/ghcr-retention.yml`（显示名
+  `chore(cleanup): Update from GHCR cleanup automation`），只调 GitHub API 删除、不产生提交。
