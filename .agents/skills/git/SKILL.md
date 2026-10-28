@@ -61,13 +61,17 @@ description: 在 Nagi 仓库提交、改写提交（amend/rebase/squash/cherry-p
 - 分支名 `<type>/<scope>/<description>`，与提交信息同源：`type` 与 `scope` 取自上面的词表，
   `description` 用 2–4 个 kebab-case 短词概括改动，例如 `feat/agent/tool-permissions`、
   `fix/zot/ca-trust`、`ci/image/tag-format`；没有合适 scope 时用 `<type>/<description>`。
-- 一个分支只做一件事；同一条分支上的后续改动继续追加提交，不另开分支。
+- 一个分支只服务一个功能或修复：多个独立改动分别开分支、分别开 PR，不要攒成一个 PR；
+  同一功能的后续修改继续追加到原分支。
 - PR 标题复用同一条提交信息格式；正文写清动机、影响面与验证方式。
-- 合并方式固定 Squash and merge，禁止 merge commit 与 rebase merge：默认开自动合并
-  `gh pr merge --auto --squash --delete-branch`；仓库未开启 auto-merge 时，等必需检查
-  通过后执行 `gh pr merge --squash --delete-branch`。合并后删除源分支。
+- 合并方式固定 Squash and merge，禁止 merge commit 与 rebase merge：优先开启自动合并
+  `gh pr merge --auto --squash --delete-branch`。
+- 仓库未开启 auto-merge 或 auto-merge 不可用时，由 agent 自己跟踪检查状态，通过后立即
+  手动执行 `gh pr merge --squash --delete-branch`，不要停在「PR 已创建」就结束。
 - 一条分支上的多个提交会被压成一个，PR 标题必须能独立概括整条分支；需要保留多个提交
   就拆成多个 PR。
+- 合并后清理本地：`git switch main && git pull --ff-only && git branch -d <branch>`，
+  远端源分支由 `--delete-branch` 删除，本地不保留已合并分支与临时文件。
 - 例外：仓库文档写明必须人工审批的改动保持人工合并，例如 prod 镜像更新与 Renovate 的版本升级。
 - 合并前保持分支与目标分支同步，优先 rebase，避免无意义的 merge 提交。
 
