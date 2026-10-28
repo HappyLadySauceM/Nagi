@@ -6,6 +6,9 @@
 [coding 技能入口](.agents/skills/coding/SKILL.md)，并按入口说明加载相关约束。
 只读代码审查也适用；普通问答不必加载完整技能。
 
+提交、改写提交（amend/rebase/squash）、创建分支或发起 PR 前，先读取
+[git 技能入口](.agents/skills/git/SKILL.md)，按 Conventional Commits 约束提交信息与粒度。
+
 涉及 OneBot 协议、上下文分层或新增业务上下文时，继续读取
 [OneBot 技能入口](.agents/skills/onebot/SKILL.md)，按任务加载参考规则。
 
