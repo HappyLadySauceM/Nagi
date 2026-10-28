@@ -1,0 +1,81 @@
+name: ghcr-retention
+
+# ghcr 包版本保留策略：每个包只保留最近 N 个版本（按 created_at 倒序）。
+# 与 Zot 的 registry-retention 配套，避免 Packages 长期堆积。
+on:
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: 每个包保留的版本数
+        default: "10"
+      dry_run:
+        description: 只打印将删除的版本，不实际删除
+        type: boolean
+        default: true
+  schedule:
+    - cron: "30 4 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prune:
+    runs-on: hls-standard
+    steps:
+      - name: 清理旧版本
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: HappyLadySauceM
+          PACKAGES: nagi-api,nagi-web
+          KEEP: ${{ inputs.keep }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.request
+
+          TOKEN = os.environ["GH_TOKEN"]
+          OWNER = os.environ["OWNER"]
+          KEEP = int(os.environ.get("KEEP") or "10")
+          DRY = (os.environ.get("DRY_RUN") or "true").lower() == "true"
+          PACKAGES = [p for p in (os.environ.get("PACKAGES") or "").split(",") if p]
+
+
+          def api(method, path):
+              req = urllib.request.Request(
+                  f"https://api.github.com{path}", method=method,
+                  headers={
+                      "Authorization": f"Bearer {TOKEN}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "ghcr-retention",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as resp:
+                      body = resp.read()
+                      return resp.status, (json.loads(body) if body else None)
+              except urllib.error.HTTPError as exc:
+                  return exc.code, None
+
+
+          for pkg in PACKAGES:
+              status, versions = api(
+                  "GET", f"/users/{OWNER}/packages/container/{pkg}/versions?per_page=100"
+              )
+              if status != 200 or not isinstance(versions, list):
+                  print(f"::{pkg} 读取版本失败: {status}（需要 packages: write 权限）")
+                  continue
+
+              versions.sort(key=lambda v: v.get("created_at") or "", reverse=True)
+              drop = versions[KEEP:]
+              print(f"{pkg}: 共 {len(versions)} 个版本，保留 {min(KEEP, len(versions))}，清理 {len(drop)}")
+
+              for version in drop:
+                  tags = version.get("metadata", {}).get("container", {}).get("tags", [])
+                  if DRY:
+                      print(f"  [dry-run] 删除 id={version['id']} created={version.get('created_at')} tags={tags}")
+                      continue
+                  s, _ = api("DELETE", f"/users/{OWNER}/packages/container/{pkg}/versions/{version['id']}")
+                  print(f"  删除 id={version['id']} tags={tags} -> {s}")
+          PY
