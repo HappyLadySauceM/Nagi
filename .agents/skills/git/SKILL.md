@@ -57,8 +57,18 @@ description: 在 Nagi 仓库提交、改写提交（amend/rebase/squash/cherry-p
 
 ## 分支与 PR
 
-- 分支名用小写 kebab-case，前缀与 type 对齐：`feat/`、`fix/`、`ci/`、`docs/`、`chore/`。
+- 不直接提交或 push 到 `main`：每个任务先开分支，改完开 PR，`main` 只接受合并结果。
+- 分支名 `<type>/<scope>/<description>`，与提交信息同源：`type` 与 `scope` 取自上面的词表，
+  `description` 用 2–4 个 kebab-case 短词概括改动，例如 `feat/agent/tool-permissions`、
+  `fix/zot/ca-trust`、`ci/image/tag-format`；没有合适 scope 时用 `<type>/<description>`。
+- 一个分支只做一件事；同一条分支上的后续改动继续追加提交，不另开分支。
 - PR 标题复用同一条提交信息格式；正文写清动机、影响面与验证方式。
+- 合并方式固定 Squash and merge，禁止 merge commit 与 rebase merge：默认开自动合并
+  `gh pr merge --auto --squash --delete-branch`；仓库未开启 auto-merge 时，等必需检查
+  通过后执行 `gh pr merge --squash --delete-branch`。合并后删除源分支。
+- 一条分支上的多个提交会被压成一个，PR 标题必须能独立概括整条分支；需要保留多个提交
+  就拆成多个 PR。
+- 例外：仓库文档写明必须人工审批的改动保持人工合并，例如 prod 镜像更新与 Renovate 的版本升级。
 - 合并前保持分支与目标分支同步，优先 rebase，避免无意义的 merge 提交。
 
 ## 自动化提交
@@ -83,5 +93,6 @@ docs: 修改 README.md         # 描述写文件名，应写改了什么
 
 ## 完成条件
 
-提交信息符合 `<type>(<scope>): <description>`、单个提交可独立回滚、PR 标题与之一致时，
-即可结束本次提交操作。不要重写已推送的他人提交，也不为满足规范扩大改动范围。
+改动已在 `<type>/<scope>/<description>` 分支上提交、PR 标题与提交信息一致、自动合并已启用，
+且单个提交可独立回滚时，即可结束本次提交操作。不要重写已推送的他人提交，也不为满足规范
+扩大改动范围。
