@@ -32,13 +32,16 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           python3 - <<'PY'
-          import json, os, urllib.error, urllib.request
+          import datetime, json, os, urllib.error, urllib.request
 
           TOKEN = os.environ["GH_TOKEN"]
           OWNER = os.environ["OWNER"]
           KEEP = int(os.environ.get("KEEP") or "10")
           DRY = (os.environ.get("DRY_RUN") or "true").lower() == "true"
           PACKAGES = [p for p in (os.environ.get("PACKAGES") or "").split(",") if p]
+          # 多架构镜像会额外产生无 tag 的平台 manifest 版本，比 tag 版本早几秒；
+          # 用 1 小时窗口保证被保留的 tag 及其子 manifest 不会被拆散。
+          MARGIN = datetime.timedelta(hours=1)
 
 
           def api(method, path):
@@ -59,6 +62,14 @@ jobs:
                   return exc.code, None
 
 
+          def created(version):
+              raw = version.get("created_at") or ""
+              try:
+                  return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+              except ValueError:
+                  return None
+
+
           for pkg in PACKAGES:
               status, versions = api(
                   "GET", f"/users/{OWNER}/packages/container/{pkg}/versions?per_page=100"
@@ -67,12 +78,23 @@ jobs:
                   print(f"::{pkg} 读取版本失败: {status}（需要 packages: write 权限）")
                   continue
 
-              versions.sort(key=lambda v: v.get("created_at") or "", reverse=True)
-              drop = versions[KEEP:]
-              print(f"{pkg}: 共 {len(versions)} 个版本，保留 {min(KEEP, len(versions))}，清理 {len(drop)}")
+              tagged = [v for v in versions if (v.get("metadata", {}).get("container", {}).get("tags") or [])]
+              tagged.sort(key=lambda v: v.get("created_at") or "", reverse=True)
+              if len(tagged) <= KEEP:
+                  print(f"{pkg}: {len(tagged)} 个带 tag 版本，无需清理")
+                  continue
+
+              oldest_kept = created(tagged[KEEP - 1])
+              cutoff = (oldest_kept - MARGIN) if oldest_kept else None
+              if cutoff is None:
+                  print(f"::{pkg} 无法解析创建时间，跳过")
+                  continue
+
+              drop = [v for v in versions if (created(v) or cutoff) < cutoff]
+              print(f"{pkg}: 带 tag {len(tagged)} 个，保留 {KEEP}，清理 {len(drop)} 个版本（cutoff={cutoff.isoformat()}）")
 
               for version in drop:
-                  tags = version.get("metadata", {}).get("container", {}).get("tags", [])
+                  tags = version.get("metadata", {}).get("container", {}).get("tags") or []
                   if DRY:
                       print(f"  [dry-run] 删除 id={version['id']} created={version.get('created_at')} tags={tags}")
                       continue
