@@ -18,6 +18,8 @@ env:
   ZOT: zot.infra-registry.svc.cluster.local:5000
   PROJECT: nagi
   CGO_ENABLED: "0"
+  # 前端依赖走国内镜像，冷启动也快；不改仓库 .npmrc，避免影响本地开发。
+  NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
   # docker/build-push-action 默认每个矩阵任务上传一个 build record artifact，
   # 这里关掉，Artifacts 只保留工作流自己上传的 nagi-api / nagi-web。
   DOCKER_BUILD_RECORD_UPLOAD: "false"
@@ -27,6 +29,20 @@ jobs:
     runs-on: hls-builder
     steps:
       - uses: actions/checkout@v7
+
+      - name: 缓存 Go 模块
+        uses: actions/cache@v6
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-gomod-${{ hashFiles('go.sum') }}
+          restore-keys: ${{ runner.os }}-gomod-
+
+      - name: 缓存 pnpm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('web/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
 
       - name: Go 校验
         run: |
@@ -54,11 +70,13 @@ jobs:
         with:
           name: nagi-api
           path: bin/nagi
+          retention-days: 1
 
       - uses: actions/upload-artifact@v7
         with:
           name: nagi-web
           path: web/dist
+          retention-days: 1
 
   build:
     name: Build Nagi-${{ matrix.name }}
@@ -120,11 +138,21 @@ jobs:
             ghcr.io/happyladysaucem/${{ env.PROJECT }}-${{ matrix.name }}:${{ env.SHORT_SHA }}
             ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:${{ env.SHORT_SHA }}
 
+      - name: 缓存 cosign
+        id: cosign-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/bin/cosign
+          key: ${{ runner.os }}-cosign-2.4.1
+
       - name: Install cosign
+        if: steps.cosign-cache.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL -o /tmp/cosign \
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/cosign" \
             https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
-          chmod +x /tmp/cosign
+          chmod +x "$HOME/.local/bin/cosign"
 
       - name: Sign image
         env:
@@ -134,7 +162,7 @@ jobs:
           set -euo pipefail
           printf '%s' "$COSIGN_KEY" > /tmp/cosign.key
           chmod 600 /tmp/cosign.key
-          /tmp/cosign sign --key /tmp/cosign.key --yes --tlog-upload=false \
+          "$HOME/.local/bin/cosign" sign --key /tmp/cosign.key --yes --tlog-upload=false \
             --allow-insecure-registry \
             --registry-username "${{ secrets.ZOT_USERNAME }}" \
             --registry-password "${{ secrets.ZOT_PASSWORD }}" \
