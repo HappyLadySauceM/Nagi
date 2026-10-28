@@ -107,8 +107,17 @@ jobs:
           name: nagi-${{ matrix.name }}
           path: ${{ matrix.name == 'api' && 'bin' || 'web/dist' }}
 
+      # dind 拉不到 Docker Hub（EOF），buildkit 镜像必须用 Zot 里的那份；
+      # 登录必须早于 setup-buildx，否则 buildx 创建 builder 时拉不到镜像。
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.ZOT }}
+          username: ${{ secrets.ZOT_USERNAME }}
+          password: ${{ secrets.ZOT_PASSWORD }}
+
       - uses: docker/setup-buildx-action@v4
         with:
+          driver-opts: image=zot.infra-registry.svc.cluster.local:5000/infrastructure/buildkit:buildx-stable-1
           buildkitd-config-inline: |
             [registry."zot.infra-registry.svc.cluster.local:5000"]
               insecure = true
@@ -118,12 +127,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/login-action@v4
-        with:
-          registry: ${{ env.ZOT }}
-          username: ${{ secrets.ZOT_USERNAME }}
-          password: ${{ secrets.ZOT_PASSWORD }}
 
       - name: Build and push Nagi-${{ matrix.name }}
         id: build
