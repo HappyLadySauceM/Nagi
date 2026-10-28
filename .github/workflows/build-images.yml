@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  ZOT: zot.registry.svc.cluster.local:5000
+  ZOT: zot.infra-registry.svc.cluster.local:5000
   PROJECT: nagi
   CGO_ENABLED: "0"
 
@@ -76,6 +76,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # tag 用 7 位提交前缀，与 Argo CD Image Updater 的 allowTags 正则一致。
+      - name: 计算镜像 tag
+        run: echo "SHORT_SHA=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
+
       - uses: actions/download-artifact@v4
         with:
           name: nagi-${{ matrix.name }}
@@ -84,7 +88,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
         with:
           buildkitd-config-inline: |
-            [registry."zot.registry.svc.cluster.local:5000"]
+            [registry."zot.infra-registry.svc.cluster.local:5000"]
               insecure = true
 
       - uses: docker/login-action@v3
@@ -107,8 +111,8 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/happyladysaucem/${{ env.PROJECT }}-${{ matrix.name }}:sha-${{ github.sha }}
-            ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:sha-${{ github.sha }}
+            ghcr.io/happyladysaucem/${{ env.PROJECT }}-${{ matrix.name }}:${{ env.SHORT_SHA }}
+            ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:${{ env.SHORT_SHA }}
 
       - name: Install cosign
         run: |
@@ -129,14 +133,3 @@ jobs:
             --registry-username "${{ secrets.ZOT_USERNAME }}" \
             --registry-password "${{ secrets.ZOT_PASSWORD }}" \
             "${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
-
-      - name: Dispatch image update
-        env:
-          GH_TOKEN: ${{ secrets.GITOPS_PAT }}
-        run: |
-          set -euo pipefail
-          curl -fsS -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/HappyLadySauceM/gitops-HappyLadySauce/dispatches \
-            -d "{\"event_type\":\"image-update\",\"client_payload\":{\"app\":\"${{ env.PROJECT }}-${{ matrix.name }}\",\"env\":\"dev\",\"digest\":\"${{ steps.build.outputs.digest }}\"}}"
