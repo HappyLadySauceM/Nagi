@@ -1,4 +1,4 @@
-name: ghcr-retention
+name: "chore(cleanup): Update from GHCR cleanup automation"
 
 # ghcr 包版本保留策略：每个包只保留最近 N 个版本（按 created_at 倒序）。
 # 与 Zot 的 registry-retention 配套，避免 Packages 长期堆积。
