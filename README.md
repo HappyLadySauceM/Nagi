@@ -252,3 +252,13 @@ pkg/            通用技术组件（config / db / logging / version）
 migrations/     版本化 SQL（启动时自动应用）
 configs/        config-example.yaml（config.yaml 为本地文件，已 gitignore）
 ```
+
+## 构建
+
+- 基础镜像默认走集群内 Zot（`zot.infra-registry.svc.cluster.local:5000/infrastructure/{alpine,nginx,node}`），
+  由 `gitops-infra` 的 `sync-base-images` 工作流同步；本地构建可用
+  `docker build --build-arg BASE_IMAGE=alpine:3.22 .` 覆盖。
+- CI 里前端依赖走 `registry.npmmirror.com`，Go 模块与 pnpm store 用 `actions/cache` 复用，
+  cosign 二进制同样缓存；artifacts 只保留 1 天。
+- 镜像 tag 是 7 位短 SHA，由 gitops 仓库的 Image Updater 自动开 PR；本仓库不再推送 digest 事件。
+- 旧镜像由 Zot 保留策略（每仓库最近 10 个）与 ghcr 保留策略（每包最近 10 个）清理。
