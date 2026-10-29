@@ -39,6 +39,9 @@ export const queryKeys = {
   // 工具注册表属于进程级数据，但适用性取决于请求的会话类型，
   // 因此 key 带上该类型。
   toolsCatalog: (scopeKind: ScopeType) => ['tools', 'catalog', scopeKind] as const,
+  decisions: (botId: number | undefined, conversationId: string) =>
+    ['intent', 'decisions', botId ?? null, conversationId] as const,
+  decision: (id: number) => ['intent', 'decision', id] as const,
 } as const
 
 /** Keys invalidated after a directory sync; members refresh separately. */

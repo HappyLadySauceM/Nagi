@@ -43,6 +43,15 @@ const accountsRoute = createRoute({
   ),
 })
 
+const decisionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/decisions',
+  component: lazyRouteComponent(
+    () => import('../features/intent/intent-page'),
+    'IntentPage',
+  ),
+})
+
 const directoryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/directory',
@@ -151,6 +160,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
   accountsRoute,
+  decisionsRoute,
   directoryRoute,
   groupDetailRoute,
   contactsRedirectRoute,
