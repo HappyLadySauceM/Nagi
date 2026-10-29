@@ -18,6 +18,7 @@ import (
 	agentapp "github.com/HappyLadySauceM/Nagi/internal/agent/application"
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	einoinfra "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/eino"
+	replytool "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/replytool"
 	conversationapp "github.com/HappyLadySauceM/Nagi/internal/conversation/application"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
@@ -28,7 +29,6 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
-	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	einoTools "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
@@ -120,6 +120,7 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(
 		granted := pluginsapp.ResolvePermissions(snapshot, cfg.Tools.PermissionDefaults, req.PermissionOverrides)
 		scope := pluginsapp.Scope{
 			BotID:            req.BotID,
+			JobID:            req.JobID,
 			ConversationID:   req.ConversationID,
 			Kind:             req.Kind,
 			TargetID:         req.TargetID,
@@ -152,6 +153,13 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(
 			// 不适用于当前会话类型的工具不会到达模型，模型连请求它的机会都没有；
 			// 工具内部的执行期校验仍作为第二道防线。
 			if !registered.Descriptor.AppliesTo(req.Kind) {
+				continue
+			}
+			// The reply tool stays hidden unless the dedicated switch is on;
+			// widening the generic side-effect flag must not expose it.
+			// 未打开专用开关时回复工具不可见；
+			// 放开通用副作用开关不得连带暴露它。
+			if registered.Descriptor.ID == replytool.ToolID && !cfg.Tools.AllowSendCurrent {
 				continue
 			}
 			// Revoked tools never reach the model, so it cannot even request them.
@@ -208,7 +216,7 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 // ai.enabled 时装配 Eino 驱动的回复执行器；本阶段刻意不接入长期记忆。
 func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	scope *scopeapp.Service, conv *conversationapp.Service, senders agentapp.SenderResolver,
-	handler *langfusecb.CallbackHandler,
+	handler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
 	tools func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool,
 ) (intentcontracts.ReplyExecutor, error) {
 	if !cfg.AI.Enabled || pool == nil || scope == nil || conv == nil {
@@ -233,13 +241,8 @@ func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Lo
 	if err != nil {
 		return nil, err
 	}
-	outboundRepo, err := outboundinfra.NewRepo(pool)
-	if err != nil {
-		return nil, err
-	}
-	ledger, err := outboundapp.NewCoordinator(outboundRepo)
-	if err != nil {
-		return nil, err
+	if ledger == nil {
+		return nil, nil
 	}
 	return agentapp.NewReplier(agentapp.Options{
 		Runtime:  runtime,

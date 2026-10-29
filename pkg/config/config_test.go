@@ -302,3 +302,27 @@ func TestLoadReadsSendingBudgetFromYaml(t *testing.T) {
 		t.Fatalf("sending budget = %+v", cfg.Agent.Sending)
 	}
 }
+
+func TestValidateRejectsSendCurrentWithoutSideEffects(t *testing.T) {
+	// 验证只打开 allow-send-current 而不打开 allow-side-effects 时启动失败。
+	file := writeTempConfig(t, "tools:\n  allow-send-current: true\n  enabled: [builtin.reply]\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error when allow-send-current is set without allow-side-effects")
+	}
+}
+
+func TestValidateRejectsSendCurrentWithoutProvider(t *testing.T) {
+	// 验证打开 allow-send-current 但 enabled 缺少 builtin.reply 时启动失败。
+	file := writeTempConfig(t, "tools:\n  allow-send-current: true\n  allow-side-effects: true\n  enabled: [builtin.time]\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error when builtin.reply is not enabled")
+	}
+}
+
+func TestValidateAcceptsSendCurrentFullyEnabled(t *testing.T) {
+	// 验证三个条件齐备时可以通过校验。
+	file := writeTempConfig(t, "tools:\n  allow-send-current: true\n  allow-side-effects: true\n  enabled: [builtin.reply]\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+}

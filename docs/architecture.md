@@ -140,6 +140,9 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   `infrastructure` 提供内置只读工具与 Eino 工具适配。工具调用产生的 `nagi.tool` span 记录
   `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据处理，不进入系统提示。
   注册表同时提供 `Enabled`/`Known`/`Unknown`，`tools.enabled` 写错提供方 ID 会让启动失败。
+  `internal/agent/infrastructure/replytool` 提供 `qq.send_current`：目标固定为当前会话，
+  复用输出净化与投递台账，受 `tools.allow-send-current`（还需 `allow-side-effects` 与
+  scope 的 `qq.reply.current` 授权）三重限制；未打开该开关时工具对模型不可见。
 - `internal/memory`：长期记忆。候选 → 去重 → 管理员审批 → 激活；检索先按
   `bot_id + visibility + owner_key + status` 过滤（bot_shared / group / private_user /
   conversation），embedding 向量列留待选定模型后添加。

@@ -98,6 +98,9 @@ tools:
   permission-defaults: {}
   # 为 true 时才可能暴露非只读工具；默认 false，带副作用的工具始终不可见
   allow-side-effects: false
+  # 为 true 时才暴露 qq.send_current（Agent 在回合内自主发送）。
+  # 需要同时打开 allow-side-effects，且 builtin.reply 必须出现在 enabled 中。
+  allow-send-current: false
   # 单次工具调用超时
   timeout: 5s
   # 回给模型的结果字节上限，超出即拒绝

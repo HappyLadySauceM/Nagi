@@ -210,3 +210,48 @@ func TestBuildToolsResolverFiltersByConversationKind(t *testing.T) {
 		}
 	}
 }
+
+// TestReplyToolRequiresDedicatedSwitch verifies the send tool stays hidden when
+// only the generic side-effect flag is on, and becomes visible once the
+// dedicated switch and the scope grant are both present.
+// TestReplyToolRequiresDedicatedSwitch 验证只打开通用副作用开关时发送工具仍不可见，
+// 只有专用开关与作用域授权同时具备才暴露。
+func TestReplyToolRequiresDedicatedSwitch(t *testing.T) {
+	registry := pluginsapp.NewRegistry([]string{"test.fake"})
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
+		Descriptor: plugincontracts.ToolDescriptor{
+			ID: "qq.send_current", Description: "发送", ReadOnly: false, SideEffect: true,
+			RiskLevel: plugincontracts.RiskWrite, Permission: "qq.reply.current",
+		},
+		Invoke: func(context.Context, string) (string, error) { return "sent", nil },
+	}}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+
+	overrides := map[string]bool{"qq.reply.current": true}
+	sideEffectsOnly := &config.Config{}
+	sideEffectsOnly.Tools.AllowSideEffects = true
+	if got := exposedToolNames(t, buildToolsResolver(sideEffectsOnly, registry)(
+		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup, PermissionOverrides: overrides},
+	)); len(got) != 0 {
+		t.Fatalf("side effects alone exposed %v, want none", got)
+	}
+
+	full := &config.Config{}
+	full.Tools.AllowSideEffects = true
+	full.Tools.AllowSendCurrent = true
+	if got := exposedToolNames(t, buildToolsResolver(full, registry)(
+		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup, PermissionOverrides: overrides},
+	)); !reflect.DeepEqual(got, []string{"qq_send_current"}) {
+		t.Fatalf("exposed = %v, want qq_send_current", got)
+	}
+
+	// Without the scope grant the tool stays denied even with both switches on.
+	if got := exposedToolNames(t, buildToolsResolver(full, registry)(
+		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup},
+	)); len(got) != 0 {
+		t.Fatalf("missing grant exposed %v, want none", got)
+	}
+}

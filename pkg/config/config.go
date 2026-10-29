@@ -188,6 +188,9 @@ type Tools struct {
 	// unlisted permissions keep the fallback rule (read-only allowed, others
 	// denied), and scope overrides take precedence.
 	PermissionDefaults map[string]bool `yaml:"permission-defaults"`
+	// AllowSendCurrent 为 true 时才暴露 qq.send_current；默认 false。
+	// AllowSendCurrent exposes qq.send_current at all; false keeps it hidden.
+	AllowSendCurrent bool `yaml:"allow-send-current"`
 	// AllowSideEffects 为 true 时才可能暴露非只读工具；默认 false。
 	// AllowSideEffects exposes non read-only tools at all; false keeps them hidden.
 	AllowSideEffects bool `yaml:"allow-side-effects"`
@@ -382,6 +385,23 @@ func applyOverrides(cfg *Config, o Overrides) {
 }
 
 // Validate 校验配置，并规范化 OneBot URL 的协议头（http/https 视作 ws/wss）。
+// replyProviderID mirrors the reply tool provider id. Config validation must not
+// import the tool package, which would invert the dependency direction.
+// replyProviderID 与回复工具提供方 ID 保持一致；配置校验不能导入工具包，
+// 否则会颠倒依赖方向。
+const replyProviderID = "builtin.reply"
+
+// containsString reports whether list holds want.
+// containsString 报告列表中是否包含目标值。
+func containsString(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Config) Validate() error {
 	if err := c.Onebot.normalizeEndpoints(); err != nil {
 		return err
@@ -467,6 +487,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Agent.Sending.MaxCharsPerMessage > c.Agent.Sending.MaxTotalCharsPerRun {
 		return fmt.Errorf("config: agent.sending.max-chars-per-message 不得大于 max-total-chars-per-run")
+	}
+	if c.Tools.AllowSendCurrent && !c.Tools.AllowSideEffects {
+		return fmt.Errorf("config: tools.allow-send-current 需要同时打开 tools.allow-side-effects")
+	}
+	if c.Tools.AllowSendCurrent && !containsString(c.Tools.Enabled, replyProviderID) {
+		return fmt.Errorf("config: tools.allow-send-current 需要 %s 出现在 tools.enabled 中", replyProviderID)
 	}
 	if c.Tools.Timeout.D() <= 0 || c.Tools.MaxResultBytes <= 0 {
 		return fmt.Errorf("config: tools.timeout 与 tools.max-result-bytes 必须为正数")
