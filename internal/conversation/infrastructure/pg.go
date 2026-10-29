@@ -237,16 +237,19 @@ func (r *Repo) CompleteJob(ctx context.Context, jobID int64) error {
 // FailJob records a failure for a claimed job; jobs are retried with backoff
 // until maxAttempts. A job whose outbound ledger already holds a sent or
 // unknown record is never retried: replaying it would resend a delivered
-// message, so it fails immediately with the partial error code.
+// message, so it fails immediately with the partial error code. An in-flight
+// sending record counts too, because its outcome is unconfirmed and only
+// startup recovery may settle it.
 // FailJob 记录已认领任务的失败；任务按退避重试直至 maxAttempts。
 // 出站台账已有 sent/unknown 记录的任务绝不重试：重放会重复发送已送达的消息，
-// 因此直接以 partial 错误码失败。
+// 因此直接以 partial 错误码失败。仍在 sending 的记录同样计入：其结果尚未确认，
+// 只能由启动恢复落定。
 func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter time.Duration, maxAttempts int) error {
 	_, err := r.pool.Exec(ctx, `
 		WITH delivered AS (
 			SELECT j.id, EXISTS (
 				SELECT 1 FROM agent_outbound_messages o
-				WHERE o.job_id = j.id AND o.status IN ('sent', 'unknown')
+				WHERE o.job_id = j.id AND o.status IN ('sent', 'unknown', 'sending')
 			) AS has_delivered
 			FROM message_jobs j
 			WHERE j.id = $1 AND j.status = 'processing'

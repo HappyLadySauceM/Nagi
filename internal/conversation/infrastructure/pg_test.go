@@ -511,3 +511,26 @@ func TestRecoverStaleJobsPartitionsByLedger(t *testing.T) {
 		t.Fatalf("clean job = %s/%s, want pending/empty", status, code)
 	}
 }
+
+// TestFailJobDoesNotRetryInFlightSend verifies an unsettled sending record also
+// blocks retries: its outcome is unknown, so replaying it could duplicate a
+// message that is already visible.
+// TestFailJobDoesNotRetryInFlightSend 验证未落定的 sending 记录同样阻止重试：
+// 其结果不明，重放可能重复已对用户可见的消息。
+func TestFailJobDoesNotRetryInFlightSend(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	const botID = 994009
+	res := ingestAndClaim(t, repo, botID, 994010, "发送中失败")
+	insertLedgerRecord(t, pool, res.JobID, res.ConversationID, botID, 1, "sending")
+
+	if err := repo.FailJob(context.Background(), res.JobID, "panic", 5*time.Second, 5); err != nil {
+		t.Fatalf("fail job: %v", err)
+	}
+	if status, code, _ := jobState(t, pool, res.JobID); status != "failed" || code != "partial" {
+		t.Fatalf("job = %s/%s, want failed/partial", status, code)
+	}
+}

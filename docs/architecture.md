@@ -113,8 +113,8 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   LLM/Jev；有界 worker 以 `FOR UPDATE SKIP LOCKED` 原子认领任务（`processing` 状态），
   按会话顺序、跨会话受控并发，重启恢复 processing 任务；出站回复经 `RecordOutgoing`
   在单事务内回写并携带平台消息 ID 与投递记录 ID。失败重试与重启恢复都先看投递台账：
-  已有 `sent`/`unknown` 记录的任务不再重排，直接 `failed` + `last_error_code='partial'`，
-  `sending` 记录在恢复时改为 `unknown`。
+  已有 `sent`/`unknown`（或仍在 `sending`）记录的任务不再重排，直接 `failed` +
+  `last_error_code='partial'`，`sending` 记录在恢复时改为 `unknown`。
 - `internal/outbound`：出站投递台账（迁移 `0008`）。`Coordinator.Reserve` 在单个事务内
   `SELECT ... FOR UPDATE` 锁住任务行，串行分配 `sequence`、校验单条/总字符/总条数预算并累加
   `agent_run_budgets`；超预算返回带维度的 `BudgetError` 且不落记录。发送前 `MarkSending`
