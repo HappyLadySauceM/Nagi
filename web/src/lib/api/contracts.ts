@@ -357,3 +357,14 @@ export const RULESET_STATUS_LABELS: Record<Ruleset['status'], string> = {
   published: '已发布',
   archived: '已归档',
 }
+
+export interface SendingPolicy {
+  botId: number
+  scopeType: ScopeType
+  scopeId: number
+  exists: boolean
+  allowSendCurrent: boolean
+  maxMessagesPerRun: number
+  maxCharsPerMessage: number
+  maxTotalCharsPerRun: number
+}
