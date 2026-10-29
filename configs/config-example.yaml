@@ -93,6 +93,7 @@ tools:
   # builtin.qq.member: qq.get_group_member_info（仅当前群，只读）
   # builtin.qq.admin: qq.mute_group_member（仅当前群，写操作，需 allow-side-effects
   #   与作用域授予 qq.group.admin.mute；单次最多 3600 秒，0 表示解除禁言）
+  #   qq.set_group_whole_ban 为全员禁言开关（权限 qq.group.admin.wholeban，可逆）
   # builtin.qq.profile: qq.set_group_card（名片，最多 30 字）与 qq.kick_group_member
   #   （移出群聊，不可撤销），分别需要 qq.group.admin.card / qq.group.admin.kick
   enabled: [builtin.time, builtin.qq]
