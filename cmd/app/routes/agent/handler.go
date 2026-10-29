@@ -25,6 +25,7 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler { return &Handler{svcCtx: s
 // Register 注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/agent/outbound", h.ListOutbound)
+	h.RegisterPolicy(mux)
 }
 
 // outboundInfo is one delivery record.

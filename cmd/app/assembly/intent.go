@@ -100,6 +100,10 @@ func (a activityReader) BotReplyMeta(ctx context.Context, conversationID string)
 	return a.svc.BotReplyMeta(ctx, conversationID)
 }
 
+// sendPolicyLookup reports whether one scope has a policy row and its verdict.
+// sendPolicyLookup 报告某作用域是否存在策略行及其结论。
+type sendPolicyLookup func(ctx context.Context, botID int64, scopeType string, scopeID int64) (allow bool, exists bool)
+
 // buildToolsResolver returns the per-run tool snapshot filtered by the
 // conversation kind and the granted permissions. The registry is static after
 // startup, so the snapshot is a cheap copy; the guard binds each call to the
@@ -107,7 +111,9 @@ func (a activityReader) BotReplyMeta(ctx context.Context, conversationID string)
 // buildToolsResolver 返回单次运行的工具快照，按会话类型与已授予权限过滤。
 // 注册表在启动后是静态的，快照只是廉价复制；
 // 守卫把每次调用绑定到消息作用域与已授予权限。
-func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(context.Context, agentcontracts.Request) []tool.BaseTool {
+func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
+	policies sendPolicyLookup,
+) func(context.Context, agentcontracts.Request) []tool.BaseTool {
 	return func(_ context.Context, req agentcontracts.Request) []tool.BaseTool {
 		snapshot := registry.Snapshot()
 		if len(snapshot) == 0 {
@@ -118,6 +124,14 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(
 		// 授予集合来自作用域策略，绝不来自工具快照本身：
 		// 由工具推导会让守卫变成自证。
 		granted := pluginsapp.ResolvePermissions(snapshot, cfg.Tools.PermissionDefaults, req.PermissionOverrides)
+		// Per-scope gray release: a policy row can veto the dedicated switch.
+		// 按作用域灰度：策略行可以否决专用开关。
+		sendAllowed := cfg.Tools.AllowSendCurrent
+		if sendAllowed && policies != nil {
+			if allow, exists := policies(context.Background(), req.BotID, req.Kind, req.TargetID); exists && !allow {
+				sendAllowed = false
+			}
+		}
 		scope := pluginsapp.Scope{
 			BotID:            req.BotID,
 			JobID:            req.JobID,
@@ -159,7 +173,7 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(
 			// widening the generic side-effect flag must not expose it.
 			// 未打开专用开关时回复工具不可见；
 			// 放开通用副作用开关不得连带暴露它。
-			if registered.Descriptor.ID == replytool.ToolID && !cfg.Tools.AllowSendCurrent {
+			if registered.Descriptor.ID == replytool.ToolID && !sendAllowed {
 				continue
 			}
 			// Revoked tools never reach the model, so it cannot even request them.

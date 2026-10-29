@@ -18,6 +18,7 @@ import (
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
+	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
@@ -64,6 +65,9 @@ type ServiceContext struct {
 	// Outbound reads delivery records for the run detail view; nil without a database.
 	// Outbound 读取投递记录供运行详情使用；未配置数据库时为 nil。
 	Outbound OutboundReader
+	// SendingPolicies stores per-scope outbound switches; nil without a database.
+	// SendingPolicies 存储按作用域的出站开关；未配置数据库时为 nil。
+	SendingPolicies *outboundinfra.PoliciesRepo
 }
 
 // KnownToolPermissions returns the permission identifiers declared by the
