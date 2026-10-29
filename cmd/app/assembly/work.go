@@ -93,6 +93,9 @@ type Runtime struct {
 	// Outbound lists delivery records for the run detail API.
 	// Outbound 为运行详情 API 列出投递记录。
 	Outbound *outboundinfra.Repo
+	// SendingPolicies stores per-scope outbound switches.
+	// SendingPolicies 存储按作用域的出站开关。
+	SendingPolicies *outboundinfra.PoliciesRepo
 	// Stats may be nil when pool is nil.
 	// pool 为 nil 时 Stats 可为 nil。
 	Stats svc.StatsProvider
@@ -256,7 +259,21 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				"count", len(toolRegistry.Snapshot()),
 				"providers", len(toolRegistry.Manifests()),
 				"enabled", cfg.Tools.Enabled)
-			toolsResolver = buildToolsResolver(cfg, toolRegistry)
+			policiesRepo, policyErr := outboundinfra.NewPoliciesRepo(pool)
+			if policyErr != nil {
+				return nil, policyErr
+			}
+			rt.SendingPolicies = policiesRepo
+			toolsResolver = buildToolsResolver(cfg, toolRegistry, func(ctx context.Context, botID int64, scopeType string, scopeID int64) (bool, bool) {
+				policy, exists, err := policiesRepo.Get(ctx, botID, scopeType, scopeID)
+				if err != nil {
+					// A lookup failure keeps the global switch; the ledger still
+					// guards every send.
+					// 查询失败时沿用全局开关；投递台账仍会逐条把关。
+					return true, false
+				}
+				return policy.AllowSendCurrent, exists
+			})
 		}
 		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, ledger, toolsResolver)
 		if executorErr != nil {
