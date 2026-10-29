@@ -125,6 +125,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		semantic, latency = d.decideSemantic(ctx, in)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
+	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic)
 
 	if err := d.recorder.Record(ctx, task.JobID, decision); err != nil {
 		d.logger.Warn("record decision failed", "error", err, "job_id", task.JobID)
@@ -191,6 +192,63 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 		"history_read":   policy.AllowHistoryRead,
 	})
 	return history, activity, nil
+}
+
+// decisionSteps turns the pipeline stages into persisted, explainable steps.
+// The order matches evaluation order so the console can replay the decision.
+// decisionSteps 把流水线各阶段整理为可持久化的解释步骤，
+// 顺序与判定顺序一致，控制台可据此复现决策。
+func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
+	semantic domain.SemanticAnswer, decision domain.FinalDecision, latency int64, asked bool,
+) []domain.Step {
+	steps := []domain.Step{{
+		Index: 0,
+		Phase: domain.StepPolicy,
+		Detail: map[string]any{
+			"enabled":               policy.Enabled,
+			"reply_mode":            string(policy.ReplyMode),
+			"scope_type":            string(policy.ScopeType),
+			"min_reply_interval_ms": policy.MinReplyIntervalMS,
+			"max_replies_per_hour":  policy.MaxRepliesPerHour,
+		},
+	}, {
+		Index:      1,
+		Phase:      domain.StepRules,
+		ReasonCode: rule.ReasonCode,
+		Detail: map[string]any{
+			"blocked":       rule.Blocked,
+			"explicit":      rule.Explicit,
+			"need_semantic": rule.NeedSemantic,
+			"always_reply":  rule.AlwaysReply,
+		},
+	}}
+	if asked {
+		steps = append(steps, domain.Step{
+			Index: 2,
+			Phase: domain.StepSemantic,
+			Detail: map[string]any{
+				"available":            semantic.Available,
+				"intent_category":      semantic.IntentCategory,
+				"directed_to_bot":      semantic.DirectedToBot,
+				"continues_bot_thread": semantic.ContinuesBotThread,
+				"addressed_to_other":   semantic.AddressedToOther,
+				"appropriate_to_join":  semantic.AppropriateToJoin,
+				"latency_ms":           latency,
+			},
+		})
+	}
+	steps = append(steps, domain.Step{
+		Index:      len(steps),
+		Phase:      domain.StepFinal,
+		ReasonCode: decision.ReasonCode,
+		Detail: map[string]any{
+			"decision": string(decision.Decision),
+			"provider": decision.Provider,
+			"model":    decision.Model,
+			"scores":   decision.Scores,
+		},
+	})
+	return steps
 }
 
 // applyRules evaluates the deterministic gate and records why it stopped.

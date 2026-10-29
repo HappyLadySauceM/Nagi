@@ -134,6 +134,7 @@ func Run(ctx context.Context, opts options.Options) error {
 	}
 	svcCtx.Stats = rt.Stats
 	svcCtx.Tools = rt.Tools
+	svcCtx.Decisions = rt.Decisions
 
 	// runCtx isolates internal loops from the caller's signal context.
 	// runCtx 将内部循环与调用方的信号上下文隔离。
