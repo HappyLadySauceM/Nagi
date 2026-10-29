@@ -44,7 +44,7 @@ const rulesetColumns = `id, bot_id, scope_type, scope_id, version, status, note`
 func (r *RulesetsRepo) Active(ctx context.Context, botID int64, scopeType string, scopeID int64) (domain.Ruleset, bool, error) {
 	var set domain.Ruleset
 	err := r.pool.QueryRow(ctx, `
-		SELECT `+rulesetColumns+`
+		SELECT s.id, s.bot_id, s.scope_type, s.scope_id, s.version, s.status, s.note
 		FROM intent_rulesets s
 		JOIN intent_rule_activations a ON a.ruleset_id = s.id
 		WHERE a.bot_id = $1 AND a.scope_type = $2 AND a.scope_id = $3
