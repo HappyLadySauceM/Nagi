@@ -90,6 +90,9 @@ type Runtime struct {
 	// Rulesets stores versioned intent rules; nil when the database is absent.
 	// Rulesets 存储版本化意图规则；未配置数据库时为 nil。
 	Rulesets *intentinfra.RulesetsRepo
+	// Outbound lists delivery records for the run detail API.
+	// Outbound 为运行详情 API 列出投递记录。
+	Outbound *outboundinfra.Repo
 	// Stats may be nil when pool is nil.
 	// pool 为 nil 时 Stats 可为 nil。
 	Stats svc.StatsProvider
@@ -207,6 +210,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 		if ledgerErr != nil {
 			return nil, ledgerErr
 		}
+		rt.Outbound = outboundRepo
 		rulesRepo, rulesErr := intentinfra.NewRulesetsRepo(pool)
 		if rulesErr != nil {
 			return nil, rulesErr
