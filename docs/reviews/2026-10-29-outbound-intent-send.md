@@ -32,6 +32,21 @@
 - `go test -race ./internal/outbound/... ./pkg/db/... ./internal/conversation/... ./internal/agent/...`（`NAGI_TEST_DSN` 指向临时库）：全部通过，覆盖迁移 up/down 与并发 Reserve。
 - 变异实验 4 组，全部被现有用例捕获，无「永远通过」的空转测试。
 
+## 第二轮：独立审查（Codex CLI）
+
+subagent 连续失败后，改用本机 `codex` CLI（OpenAI Codex 0.165.0，只读沙箱、不同厂商模型）对同样三个提交做独立审查，输出：
+
+* 严重：无
+* 中等：1 条 —— `RecoverStaleJobs` 把**所有** `sending` 记录改为 `unknown`，而不仅是 `processing` 任务下的记录（`internal/conversation/infrastructure/pg.go:300-305`）
+* 轻微：无
+* A/C/D（Reserve 事务顺序与预算拒绝、always_reply/私聊分流、send_current 三重门禁）核验通过
+
+### 对该发现的判断：不修改，调整规格表述
+
+`sending` 是一个只能存在于进程存活期间的中间态：正常路径由 `Settle` 落定终态，异常路径（发送后 `Settle` 失败 → `FailJob`）会让任务变 `failed` 而记录停在 `sending`。恢复时若只处理 `processing` 任务，这条记录会永久停留在 `sending`，既不是已送达也不是失败，`HasDelivered` 也不会把它算作已投递——比误改更糟。
+
+因此实现保持"把全部 `sending` 视为结果不明"是正确的；上一节表格里"只影响 processing"那句话是规格表述不准确，现修正为：**`sending` 记录一律落定为 `unknown`；只有 `processing` 任务会被改判为 `failed/partial`，其余任务状态不变。**
+
 ## 残余风险
 
 - 缺少第三方审查，可能遗漏我们共同的盲点（例如并发边界、错误分类）。
