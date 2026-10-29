@@ -72,6 +72,12 @@ SnowLuma 的 WS 服务端强制校验 token，不带或填错会被拒绝握手�
 | GET/POST/PATCH/DELETE | `/api/v1/memories` `/api/v1/memories/{id}` | 长期记忆 |
 | GET | `/api/v1/metrics` | 消息、任务、决策、记忆聚合计数 |
 | GET | `/api/v1/tools` | 已注册工具、权限项与默认授予状态 |
+| GET | `/api/v1/intent/decisions(/{id})` | 决策记录与可解释步骤 |
+| GET/POST/PATCH | `/api/v1/intent/rulesets(/{id})` | 规则版本、草稿与发布 |
+| POST | `/api/v1/intent/rulesets/{id}/publish` `/rollback` | 发布与回滚规则版本 |
+| POST | `/api/v1/intent/simulate` | 只读模拟：不写库、不发送 |
+| GET | `/api/v1/agent/outbound?job_id=` | 单次运行的投递记录 |
+| GET/PUT | `/api/v1/agent/sending-policy` | 按作用域的发送开关与预算 |
 
 `GET /api/v1/tools` 支持可选参数 `scope_kind=private|group`，按该会话类型返回每个工具的
 `Category`、`ScopeKinds`、`RiskLevel`、`Applicable` 与 `UnavailableReason`；不带参数时
@@ -196,9 +202,12 @@ tools:
   max-result-bytes: 8192  # 结果过大即拒绝
 ```
 
-首批工具均为只读：`system.current_time`；`qq.get_group_info`（权限 `qq.group.read`，只查询当前
-BotID 与当前会话群，模型无法传入任意群号）。工具调用在服务端做权限、账号与目标绑定校验，结果按不可信
-数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace。
+内置工具分三类：只读的 `system.current_time`、`qq.get_group_info`（`qq.group.read`）与
+`qq.get_group_member_info`（`qq.group.member.read`）；回合内发送 `qq.send_current`
+（`qq.reply.current`，需 `tools.allow-send-current`）；群管理的禁言/名片/移出
+（`qq.group.admin.mute`、`qq.group.admin.card`、`qq.group.admin.kick`）。只读工具直接可用，
+其余默认不暴露。模型无法传入任意群号或跨会话目标，工具调用在服务端做权限、账号与目标绑定校验，
+结果按不可信数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace。
 
 ### 工具权限模型
 
