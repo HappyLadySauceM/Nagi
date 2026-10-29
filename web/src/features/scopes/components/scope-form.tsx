@@ -279,6 +279,21 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
               })
               .join('；')
             const granted = grantedPermission(permission, overrides)
+            // Collect every reason that applies: a capability can be blocked by
+            // the session kind and by side effects at the same time, and the
+            // operator needs both to understand the disabled switch.
+            // 汇总所有适用的原因：会话类型与副作用可能同时禁用同一能力，
+            // 两个原因都要展示，用户才能理解开关为何不可用。
+            const warnings: string[] = []
+            if (allUnavailable) {
+              warnings.push(`该能力${unavailableReasons.join('、')}，当前会话无法授权。`)
+            }
+            if (blocked) {
+              warnings.push('该能力包含有副作用的工具，当前版本未启用副作用工具，无法在此授权。')
+            }
+            if (!permission.defaultGranted && granted) {
+              warnings.push('开启后模型可在该会话调用对应工具；撤销前请确认影响范围。')
+            }
             return (
               <SwitchRow
                 key={permission.id}
@@ -298,15 +313,7 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
                 disabled={disabled || blocked || (allUnavailable && !granted)}
                 onChange={(next) => togglePermission(permission, next)}
                 showWarningWhenUnchecked={allUnavailable || blocked}
-                warning={
-                  allUnavailable
-                    ? `该能力${unavailableReasons.join('、')}，当前会话无法授权。`
-                    : blocked
-                      ? '该能力包含有副作用的工具，当前版本未启用副作用工具，无法在此授权。'
-                      : !permission.defaultGranted && granted
-                        ? '开启后模型可在该会话调用对应工具；撤销前请确认影响范围。'
-                        : undefined
-                }
+                warning={warnings.length > 0 ? warnings.join(' ') : undefined}
               />
             )
           })}

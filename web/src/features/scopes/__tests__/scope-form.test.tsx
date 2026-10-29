@@ -91,6 +91,38 @@ describe('ScopeFormFields capability switches', () => {
     expect(control).toBeDisabled()
     // Both tools share one reason, so it must be listed once.
     expect(screen.getByText('该能力仅适用于群聊，当前会话无法授权。')).toBeInTheDocument()
+    expect(control).toHaveAccessibleDescription(/当前会话无法授权/)
+  })
+
+  it('keeps a granted side-effecting capability disabled', () => {
+    renderCatalog(catalogOf([tool({ id: 'qq.send_message', sideEffect: true })], true))
+
+    const control = screen.getByRole('switch', { name: 'qq.group.read' })
+    expect(control).toBeChecked()
+    expect(control).toBeDisabled()
+    expect(screen.getByText(/包含有副作用的工具/)).toBeInTheDocument()
+  })
+
+  it('explains both reasons when a capability is blocked and inapplicable', () => {
+    renderCatalog(
+      catalogOf(
+        [
+          tool({
+            id: 'qq.send_message',
+            sideEffect: true,
+            applicable: false,
+            unavailableReason: 'scope_kind_mismatch',
+          }),
+        ],
+        false,
+      ),
+    )
+
+    const control = screen.getByRole('switch', { name: 'qq.group.read' })
+    expect(control).toBeDisabled()
+    expect(screen.getByText(/当前会话无法授权/)).toBeInTheDocument()
+    expect(screen.getByText(/包含有副作用的工具/)).toBeInTheDocument()
+    expect(control).toHaveAccessibleDescription(/当前会话无法授权.*包含有副作用的工具/)
   })
 
   it('disables a side-effecting capability and explains why even when unchecked', () => {
