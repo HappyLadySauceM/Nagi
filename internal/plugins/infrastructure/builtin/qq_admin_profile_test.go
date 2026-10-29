@@ -17,11 +17,18 @@ type profileWriter struct {
 	kicked int64
 	reject bool
 	called bool
+	left   bool
 }
 
 func (p *profileWriter) SetGroupCard(_ context.Context, _ obdomain.GroupID, _ obdomain.UserID, card string) error {
 	p.called = true
 	p.card = card
+	return nil
+}
+
+func (p *profileWriter) SetGroupLeave(_ context.Context, _ obdomain.GroupID, dismiss bool) error {
+	p.called = true
+	p.left = !dismiss
 	return nil
 }
 
@@ -39,7 +46,7 @@ func (a profileAccounts) GroupProfiler(int64) (GroupProfiler, bool) { return a.w
 func profileTools(t *testing.T, writer *profileWriter) map[string]contracts.RegisteredTool {
 	t.Helper()
 	tools, err := NewQQProfileProvider(profileAccounts{writer: writer}).Tools(context.Background())
-	if err != nil || len(tools) != 2 {
+	if err != nil || len(tools) != 3 {
 		t.Fatalf("tools: %v %d", err, len(tools))
 	}
 	out := map[string]contracts.RegisteredTool{}
@@ -90,5 +97,18 @@ func TestKickToolKicksAndRejectsSelf(t *testing.T) {
 	}
 	if out, _ := tools["qq.kick_group_member"].Invoke(groupScope(), `{"user_id":100}`); !strings.Contains(out, "不能移出机器人") {
 		t.Fatalf("self kick out = %s", out)
+	}
+}
+
+// TestLeaveToolLeavesWithoutDissolving verifies the bot leaves without dissolving.
+// TestLeaveToolLeavesWithoutDissolving 验证机器人退群且不解散群。
+func TestLeaveToolLeavesWithoutDissolving(t *testing.T) {
+	writer := &profileWriter{}
+	tools := profileTools(t, writer)
+	if _, err := tools["qq.leave_current_group"].Invoke(groupScope(), `{}`); err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if !writer.left {
+		t.Fatal("leave was not dispatched")
 	}
 }
