@@ -49,8 +49,13 @@ func (p qqProvider) Tools(context.Context) ([]contracts.RegisteredTool, error) {
 		Descriptor: contracts.ToolDescriptor{
 			ID:          "qq.get_group_info",
 			Description: "查询当前群的基本信息（群号、群名、成员数、上限），不需要参数",
-			ReadOnly:    true,
-			Permission:  "qq.group.read",
+			Category:    contracts.CategoryGroup,
+			// Group-only: private runs must never see this tool.
+			// 仅群聊可用：私聊运行不得看到该工具。
+			ScopeKinds: []string{contracts.ScopeKindGroup},
+			RiskLevel:  contracts.RiskRead,
+			ReadOnly:   true,
+			Permission: "qq.group.read",
 		},
 		Invoke: p.groupInfo,
 	}}, nil
@@ -64,7 +69,7 @@ func (p qqProvider) groupInfo(ctx context.Context, _ string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("qq tool: missing run scope")
 	}
-	if scope.Kind != "group" || scope.TargetID <= 0 {
+	if scope.Kind != contracts.ScopeKindGroup || scope.TargetID <= 0 {
 		return "error: 只能在群聊会话中查询本群信息", nil
 	}
 	reader, ok := p.accounts.GroupInfoReader(scope.BotID)

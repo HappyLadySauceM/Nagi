@@ -97,11 +97,13 @@ func (a activityReader) BotReplyMeta(ctx context.Context, conversationID string)
 	return a.svc.BotReplyMeta(ctx, conversationID)
 }
 
-// buildToolsResolver returns the per-run tool snapshot. The registry is static
-// after startup, so the snapshot is a cheap copy; the guard binds each call to
-// the message scope and the granted permissions.
-// buildToolsResolver 返回单次运行的工具快照。注册表在启动后是静态的，
-// 快照只是廉价复制；守卫把每次调用绑定到消息作用域与已授予权限。
+// buildToolsResolver returns the per-run tool snapshot filtered by the
+// conversation kind and the granted permissions. The registry is static after
+// startup, so the snapshot is a cheap copy; the guard binds each call to the
+// message scope and the granted permissions.
+// buildToolsResolver 返回单次运行的工具快照，按会话类型与已授予权限过滤。
+// 注册表在启动后是静态的，快照只是廉价复制；
+// 守卫把每次调用绑定到消息作用域与已授予权限。
 func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(context.Context, agentcontracts.Request) []tool.BaseTool {
 	return func(_ context.Context, req agentcontracts.Request) []tool.BaseTool {
 		snapshot := registry.Snapshot()
@@ -141,6 +143,14 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry) func(
 		budget := int64(cfg.Agent.MaxToolCalls)
 		wrapped := make([]pluginscontracts.RegisteredTool, 0, len(snapshot))
 		for _, registered := range snapshot {
+			// A tool that does not apply to the conversation kind never reaches
+			// the model, so it cannot even request it; the execution-time check
+			// inside the tool stays as the second line of defence.
+			// 不适用于当前会话类型的工具不会到达模型，模型连请求它的机会都没有；
+			// 工具内部的执行期校验仍作为第二道防线。
+			if !registered.Descriptor.AppliesTo(req.Kind) {
+				continue
+			}
 			// Revoked tools never reach the model, so it cannot even request them.
 			// 已撤销的工具不会到达模型，模型连请求它的机会都没有。
 			if !pluginsapp.Allowed(registered.Descriptor, granted, cfg.Tools.AllowSideEffects) {

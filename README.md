@@ -198,12 +198,14 @@ BotID 与当前会话群，模型无法传入任意群号）。工具调用在�
 
 ### 工具权限模型
 
-实际可用的工具由三层共同决定：
+实际可用的工具由四层共同决定：
 
 1. **进程层**：`tools.enabled` 决定哪些提供方被载入，未启用的提供方不注册、也不出现在清单中。
-2. **默认基线**：`tools.permission-defaults` 覆盖描述符兜底；未配置时只读工具默认允许，写操作/群管理默认拒绝。
+2. **会话类型层**：描述符的 `ScopeKinds` 限定工具适用的会话类型；`qq.get_group_info` 仅群聊可用，
+   私聊运行的工具列表中不会出现它。省略 `ScopeKinds` 表示所有会话类型可用。
+3. **默认基线**：`tools.permission-defaults` 覆盖描述符兜底；未配置时只读工具默认允许，写操作/群管理默认拒绝。
    非只读工具还需要 `allow-side-effects: true` 才会暴露。
-3. **作用域层**：`scope_policies.tool_permissions` 保存每个群/私聊的显式覆盖（如 `{"qq.group.read": false}`），
+4. **作用域层**：`scope_policies.tool_permissions` 保存每个群/私聊的显式覆盖（如 `{"qq.group.read": false}`），
    优先级最高；被撤销的工具不会出现在模型工具列表中，执行前 Guard 还会再校验一次。
 
 `GET /api/v1/tools` 返回真正注册成功的工具与权限项（含默认授予状态），控制台的作用域弹窗据此渲染
