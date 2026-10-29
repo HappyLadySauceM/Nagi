@@ -9,10 +9,44 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
+
+// insertLedgerRecord writes one outbound ledger row for job-level tests that
+// need a delivery outcome without running the agent.
+// insertLedgerRecord 为需要投递结果的任务级测试写入一条出站台账记录，
+// 无需运行 Agent。
+func insertLedgerRecord(t *testing.T, pool *pgxpool.Pool, jobID int64, conversationID string, botID int64,
+	sequence int, status string,
+) string {
+	t.Helper()
+	id := uuid.NewString()
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO agent_outbound_messages
+			(id, job_id, conversation_id, bot_id, sequence, text_content, status)
+		VALUES ($1, $2, $3, $4, $5, '台账记录', $6)
+	`, id, jobID, conversationID, botID, sequence, status); err != nil {
+		t.Fatalf("insert ledger record: %v", err)
+	}
+	return id
+}
+
+// jobState reads the status, error code and attempt count of one job.
+// jobState 读取单个任务的状态、错误码与尝试次数。
+func jobState(t *testing.T, pool *pgxpool.Pool, jobID int64) (status, code string, attempts int) {
+	t.Helper()
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status, COALESCE(last_error_code, ''), attempts FROM message_jobs WHERE id = $1`, jobID,
+	).Scan(&status, &code, &attempts); err != nil {
+		t.Fatalf("read job state: %v", err)
+	}
+	return status, code, attempts
+}
 
 // TestConversationIngestDedupAndJobCycle verifies conversation auto-creation,
 // platform-event dedup, job creation and the complete-job lifecycle.
@@ -59,7 +93,10 @@ func TestConversationIngestDedupAndJobCycle(t *testing.T) {
 		t.Fatalf("duplicate ingest result = %+v", second)
 	}
 
-	jobs, err := repo.ClaimReadyJobs(ctx, 10)
+	// Claim a batch large enough to include this job regardless of how many
+	// pending jobs earlier runs left in the shared test database.
+	// 批量认领足够多的任务，使本任务不会因共享测试库中早先遗留的待处理任务而被挤出。
+	jobs, err := repo.ClaimReadyJobs(ctx, 500)
 	if err != nil {
 		t.Fatalf("claim ready jobs: %v", err)
 	}
@@ -102,7 +139,7 @@ func TestConversationIngestDedupAndJobCycle(t *testing.T) {
 	if err := repo.CompleteJob(ctx, first.JobID); err != nil {
 		t.Fatalf("complete job: %v", err)
 	}
-	jobs, err = repo.ClaimReadyJobs(ctx, 10)
+	jobs, err = repo.ClaimReadyJobs(ctx, 500)
 	if err != nil {
 		t.Fatalf("claim ready jobs after complete: %v", err)
 	}
@@ -312,7 +349,7 @@ func TestRecordOutgoingStoresPlatformMessageID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
-	if err := repo.RecordOutgoing(ctx, res.ConversationID, botID, "测试回复", receiptID, "sent"); err != nil {
+	if err := repo.RecordOutgoing(ctx, res.ConversationID, botID, "测试回复", receiptID, "sent", ""); err != nil {
 		t.Fatalf("record outgoing: %v", err)
 	}
 
@@ -338,5 +375,139 @@ func TestRecordOutgoingStoresPlatformMessageID(t *testing.T) {
 	}
 	if msgs[1].Direction != domain.Outgoing || msgs[1].PlatformMessageID != receiptID {
 		t.Fatalf("history message = %+v", msgs[1])
+	}
+}
+
+// ingestAndClaim creates one job and claims it so it is in the processing state.
+// The job is removed when the test ends: a leftover pending job would change the
+// ready set every other test in this shared database sees.
+// ingestAndClaim 创建一个任务并认领，使其处于处理中状态。
+// 测试结束后删除该任务：遗留的待处理任务会改变共享测试库中其他测试看到的就绪集合。
+func ingestAndClaim(t *testing.T, repo *Repo, botID, senderID int64, text string) domain.IngestResult {
+	t.Helper()
+	base := time.Now().UnixNano()
+	res, err := repo.Ingest(context.Background(), domain.IngestInput{
+		BotID: botID, Kind: domain.KindGroup, TargetID: base % 1_000_000_000,
+		PlatformMessageID: base, SenderID: senderID, Text: text,
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := repo.pool.Exec(context.Background(),
+			`DELETE FROM message_jobs WHERE id = $1`, res.JobID,
+		); err != nil {
+			t.Logf("cleanup job %d: %v", res.JobID, err)
+		}
+	})
+	jobs, err := repo.ClaimReadyJobs(context.Background(), 500)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	for _, job := range jobs {
+		if job.ID == res.JobID {
+			return res
+		}
+	}
+	t.Fatalf("job %d was not claimed", res.JobID)
+	return domain.IngestResult{}
+}
+
+// TestFailJobDoesNotRetryDeliveredJob verifies a job with a delivered record
+// fails immediately as partial instead of being requeued.
+// TestFailJobDoesNotRetryDeliveredJob 验证已有投递记录的任务直接以 partial
+// 失败，而不是重新排队。
+func TestFailJobDoesNotRetryDeliveredJob(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	const botID = 994001
+	res := ingestAndClaim(t, repo, botID, 994002, "部分成功")
+	insertLedgerRecord(t, pool, res.JobID, res.ConversationID, botID, 1, "sent")
+
+	if err := repo.FailJob(context.Background(), res.JobID, "process_error", 5*time.Second, 5); err != nil {
+		t.Fatalf("fail job: %v", err)
+	}
+	status, code, attempts := jobState(t, pool, res.JobID)
+	if status != "failed" || code != "partial" || attempts != 1 {
+		t.Fatalf("job = %s/%s/%d, want failed/partial/1", status, code, attempts)
+	}
+
+	jobs, err := repo.ClaimReadyJobs(context.Background(), 500)
+	if err != nil {
+		t.Fatalf("claim after failure: %v", err)
+	}
+	for _, job := range jobs {
+		if job.ID == res.JobID {
+			t.Fatal("a partially delivered job must never be requeued")
+		}
+	}
+}
+
+// TestFailJobRetriesWithoutDelivery verifies the ordinary retry path is intact.
+// TestFailJobRetriesWithoutDelivery 验证没有投递记录时保留原有重试行为。
+func TestFailJobRetriesWithoutDelivery(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	res := ingestAndClaim(t, repo, 994003, 994004, "普通失败")
+
+	if err := repo.FailJob(context.Background(), res.JobID, "process_error", 5*time.Second, 5); err != nil {
+		t.Fatalf("fail job: %v", err)
+	}
+	status, code, attempts := jobState(t, pool, res.JobID)
+	if status != "pending" || code != "process_error" || attempts != 1 {
+		t.Fatalf("job = %s/%s/%d, want pending/process_error/1", status, code, attempts)
+	}
+}
+
+// TestRecoverStaleJobsPartitionsByLedger verifies startup recovery converts
+// sending records to unknown, fails delivered jobs and requeues the rest.
+// TestRecoverStaleJobsPartitionsByLedger 验证启动恢复把 sending 记录改为
+// unknown、让已投递任务失败，其余任务重新排队。
+func TestRecoverStaleJobsPartitionsByLedger(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	const botID = 994005
+	sendingJob := ingestAndClaim(t, repo, botID, 994006, "发送中重启")
+	sendingRecord := insertLedgerRecord(t, pool, sendingJob.JobID, sendingJob.ConversationID, botID, 1, "sending")
+	deliveredJob := ingestAndClaim(t, repo, botID, 994007, "已投递重启")
+	deliveredRecord := insertLedgerRecord(t, pool, deliveredJob.JobID, deliveredJob.ConversationID, botID, 1, "sent")
+	cleanJob := ingestAndClaim(t, repo, botID, 994008, "未发送重启")
+
+	if err := repo.RecoverStaleJobs(context.Background()); err != nil {
+		t.Fatalf("recover stale jobs: %v", err)
+	}
+
+	assertLedger := func(id, wantStatus, wantCode string) {
+		t.Helper()
+		var status, code string
+		if err := pool.QueryRow(context.Background(),
+			`SELECT status, COALESCE(error_code, '') FROM agent_outbound_messages WHERE id = $1`, id,
+		).Scan(&status, &code); err != nil {
+			t.Fatalf("read ledger %s: %v", id, err)
+		}
+		if status != wantStatus || code != wantCode {
+			t.Fatalf("ledger %s = %s/%s, want %s/%s", id, status, code, wantStatus, wantCode)
+		}
+	}
+	assertLedger(sendingRecord, "unknown", "recovered")
+	assertLedger(deliveredRecord, "sent", "")
+
+	if status, code, _ := jobState(t, pool, sendingJob.JobID); status != "failed" || code != "partial" {
+		t.Fatalf("sending job = %s/%s, want failed/partial", status, code)
+	}
+	if status, code, _ := jobState(t, pool, deliveredJob.JobID); status != "failed" || code != "partial" {
+		t.Fatalf("delivered job = %s/%s, want failed/partial", status, code)
+	}
+	if status, code, _ := jobState(t, pool, cleanJob.JobID); status != "pending" || code != "" {
+		t.Fatalf("clean job = %s/%s, want pending/empty", status, code)
 	}
 }

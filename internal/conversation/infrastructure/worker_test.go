@@ -78,7 +78,7 @@ func (f *fakeJobRepo) GetConversation(context.Context, int64, domain.Kind, int64
 func (f *fakeJobRepo) BotReplyMeta(context.Context, string) (time.Time, int, error) {
 	return time.Time{}, 0, nil
 }
-func (f *fakeJobRepo) RecordOutgoing(context.Context, string, int64, string, int64, string) error {
+func (f *fakeJobRepo) RecordOutgoing(context.Context, string, int64, string, int64, string, string) error {
 	return nil
 }
 

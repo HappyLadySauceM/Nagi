@@ -235,17 +235,36 @@ func (r *Repo) CompleteJob(ctx context.Context, jobID int64) error {
 }
 
 // FailJob records a failure for a claimed job; jobs are retried with backoff
-// until maxAttempts.
+// until maxAttempts. A job whose outbound ledger already holds a sent or
+// unknown record is never retried: replaying it would resend a delivered
+// message, so it fails immediately with the partial error code.
 // FailJob 记录已认领任务的失败；任务按退避重试直至 maxAttempts。
+// 出站台账已有 sent/unknown 记录的任务绝不重试：重放会重复发送已送达的消息，
+// 因此直接以 partial 错误码失败。
 func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter time.Duration, maxAttempts int) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE message_jobs SET
-			attempts = attempts + 1,
-			last_error_code = $2,
-			updated_at = now(),
-			status = CASE WHEN attempts + 1 >= $3 THEN 'failed' ELSE 'pending' END,
-			next_run_at = CASE WHEN attempts + 1 >= $3 THEN next_run_at ELSE now() + make_interval(secs => $4) END
-		WHERE id = $1 AND status = 'processing'
+		WITH delivered AS (
+			SELECT j.id, EXISTS (
+				SELECT 1 FROM agent_outbound_messages o
+				WHERE o.job_id = j.id AND o.status IN ('sent', 'unknown')
+			) AS has_delivered
+			FROM message_jobs j
+			WHERE j.id = $1 AND j.status = 'processing'
+		)
+		UPDATE message_jobs j SET
+			attempts = j.attempts + 1,
+			last_error_code = CASE WHEN delivered.has_delivered THEN 'partial' ELSE $2 END,
+			status = CASE
+				WHEN delivered.has_delivered OR j.attempts + 1 >= $3 THEN 'failed'
+				ELSE 'pending'
+			END,
+			next_run_at = CASE
+				WHEN delivered.has_delivered OR j.attempts + 1 >= $3 THEN j.next_run_at
+				ELSE now() + make_interval(secs => $4)
+			END,
+			updated_at = now()
+		FROM delivered
+		WHERE j.id = delivered.id
 	`, jobID, code, maxAttempts, retryAfter.Seconds())
 	if err != nil {
 		return fmt.Errorf("conversation: fail job: %w", err)
@@ -266,11 +285,37 @@ func (r *Repo) ReleaseJob(ctx context.Context, jobID int64) error {
 	return nil
 }
 
-// RecoverStaleJobs requeues jobs left in processing by a previous run.
-// RecoverStaleJobs 将上次运行遗留的处理中任务重新排队。
+// RecoverStaleJobs reconciles jobs left in processing by a previous run with
+// the outbound ledger: records stuck in sending become unknown, and any job
+// with a sent or unknown record fails as partial instead of being requeued,
+// because replaying it could resend a delivered message. The remaining jobs
+// return to pending.
+// RecoverStaleJobs 把上次运行遗留的处理中任务与出站台账对账：
+// 停留在 sending 的记录改为 unknown；已有 sent/unknown 记录的任务以 partial
+// 失败而不重新排队，避免重放导致重复发送；其余任务回到待处理状态。
 func (r *Repo) RecoverStaleJobs(ctx context.Context) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE message_jobs SET status = 'pending', updated_at = now() WHERE status = 'processing'
+		WITH marked AS (
+			UPDATE agent_outbound_messages
+			SET status = 'unknown', error_code = 'recovered', updated_at = now()
+			WHERE status = 'sending'
+			RETURNING job_id
+		), delivered AS (
+			SELECT job_id FROM marked
+			UNION
+			SELECT job_id FROM agent_outbound_messages WHERE status IN ('sent', 'unknown')
+		)
+		UPDATE message_jobs j SET
+			status = CASE
+				WHEN EXISTS (SELECT 1 FROM delivered d WHERE d.job_id = j.id) THEN 'failed'
+				ELSE 'pending'
+			END,
+			last_error_code = CASE
+				WHEN EXISTS (SELECT 1 FROM delivered d WHERE d.job_id = j.id) THEN 'partial'
+				ELSE j.last_error_code
+			END,
+			updated_at = now()
+		WHERE j.status = 'processing'
 	`)
 	if err != nil {
 		return fmt.Errorf("conversation: recover stale jobs: %w", err)
@@ -279,20 +324,21 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context) error {
 }
 
 // RecordOutgoing persists one bot reply — including the platform message id so
-// reply-to-bot detection can match later quotes — and refreshes the conversation
-// activity atomically.
-// RecordOutgoing 持久化一条机器人回复（含 platform message id，供后续引用判定匹配），
-// 并在单事务内刷新会话活跃时间。
-func (r *Repo) RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string) error {
+// reply-to-bot detection can match later quotes and the delivery ledger id so
+// the logical message and its receipt stay linked — and refreshes the
+// conversation activity atomically.
+// RecordOutgoing 持久化一条机器人回复（含 platform message id，供后续引用判定匹配；
+// 以及投递台账 ID，使逻辑消息与回执保持关联），并在单事务内刷新会话活跃时间。
+func (r *Repo) RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation: begin record outgoing: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO messages (conversation_id, bot_id, direction, platform_message_id, sender_id, text_content, sent_status)
-		VALUES ($1, $2, 'outgoing', NULLIF($3, 0), $2, $4, $5)
-	`, conversationID, botID, platformMessageID, text, sentStatus); err != nil {
+		INSERT INTO messages (conversation_id, bot_id, direction, platform_message_id, sender_id, text_content, sent_status, outbound_id)
+		VALUES ($1, $2, 'outgoing', NULLIF($3, 0), $2, $4, $5, NULLIF($6, '')::uuid)
+	`, conversationID, botID, platformMessageID, text, sentStatus, outboundID); err != nil {
 		return fmt.Errorf("conversation: record outgoing: %w", err)
 	}
 	if _, err := tx.Exec(ctx,

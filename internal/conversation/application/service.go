@@ -23,7 +23,7 @@ type Repository interface {
 	FailJob(ctx context.Context, jobID int64, code string, retryAfter time.Duration, maxAttempts int) error
 	ReleaseJob(ctx context.Context, jobID int64) error
 	RecoverStaleJobs(ctx context.Context) error
-	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string) error
+	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error
 }
 
 // Ingestor is the minimal ingest port used by the AI ingress handler.
@@ -104,11 +104,13 @@ func (s *Service) BotReplyMeta(ctx context.Context, conversationID string) (time
 	return s.repo.BotReplyMeta(ctx, conversationID)
 }
 
-// RecordOutgoing persists one bot reply so later context can see what it said.
-// RecordOutgoing 持久化一条机器人回复，保证后续上下文能看到机器人说过什么。
-func (s *Service) RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string) error {
+// RecordOutgoing persists one bot reply so later context can see what it said;
+// outboundID links it to the delivery ledger record and may be empty.
+// RecordOutgoing 持久化一条机器人回复，保证后续上下文能看到机器人说过什么；
+// outboundID 关联投递台账记录，可为空。
+func (s *Service) RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error {
 	if conversationID == "" || botID <= 0 {
 		return fmt.Errorf("conversation: outgoing record requires conversation and bot id")
 	}
-	return s.repo.RecordOutgoing(ctx, conversationID, botID, text, platformMessageID, sentStatus)
+	return s.repo.RecordOutgoing(ctx, conversationID, botID, text, platformMessageID, sentStatus, outboundID)
 }

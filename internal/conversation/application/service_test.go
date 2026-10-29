@@ -44,7 +44,7 @@ func (s *stubRepo) ReleaseJob(context.Context, int64) error { return nil }
 
 func (s *stubRepo) RecoverStaleJobs(context.Context) error { return nil }
 
-func (s *stubRepo) RecordOutgoing(context.Context, string, int64, string, int64, string) error {
+func (s *stubRepo) RecordOutgoing(context.Context, string, int64, string, int64, string, string) error {
 	return nil
 }
 
