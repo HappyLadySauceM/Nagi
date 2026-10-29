@@ -34,7 +34,11 @@ const (
 // Scope 是单次 Agent 运行的消息级安全上下文；由回复流水线注入，
 // 绝不进入提示词。
 type Scope struct {
-	BotID          int64
+	BotID int64
+	// JobID identifies the message job that produced this run; sending tools
+	// write their delivery records against it.
+	// JobID 标识产生本次运行的消息任务；发送类工具据此写投递记录。
+	JobID          int64
 	ConversationID string
 	Kind           string
 	TargetID       int64

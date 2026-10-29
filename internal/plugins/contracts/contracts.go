@@ -41,6 +41,7 @@ const (
 const (
 	CategoryGroup  = "group"
 	CategorySystem = "system"
+	CategoryReply  = "reply"
 )
 
 // ToolDescriptor describes one tool without leaking framework types.

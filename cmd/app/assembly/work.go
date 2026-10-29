@@ -16,6 +16,7 @@ import (
 
 	svc "github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
+	replytool "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/replytool"
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	auditinfra "github.com/HappyLadySauceM/Nagi/internal/audit/infrastructure"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
@@ -33,6 +34,9 @@ import (
 	observabilityinfra "github.com/HappyLadySauceM/Nagi/internal/observability/infrastructure"
 	obapp "github.com/HappyLadySauceM/Nagi/internal/onebot/application"
 	obinfra "github.com/HappyLadySauceM/Nagi/internal/onebot/infrastructure"
+	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
+	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
+	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/builtin"
@@ -191,12 +195,32 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 		}
 		handlers = append(handlers, membership)
 		callbacks := buildLangfuseCallback(cfg, logger, provider)
+		outboundRepo, outboundErr := outboundinfra.NewRepo(pool)
+		if outboundErr != nil {
+			return nil, outboundErr
+		}
+		ledger, ledgerErr := outboundapp.NewCoordinator(outboundRepo)
+		if ledgerErr != nil {
+			return nil, ledgerErr
+		}
 		var toolsResolver func(context.Context, agentcontracts.Request) []tool.BaseTool
 		if cfg.AI.Enabled {
 			toolRegistry := pluginsapp.NewRegistry(cfg.Tools.Enabled)
 			providers := []pluginscontracts.ToolProvider{
 				builtin.NewTimeProvider(),
 				builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
+			}
+			if cfg.Tools.AllowSendCurrent {
+				providers = append(providers, replytool.NewProvider(replytool.Options{
+					Senders:  replySenders{accounts: rt.Registry},
+					Ledger:   ledger,
+					Recorder: rt.Conversation,
+					Limits: outbounddomain.Limits{
+						MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
+						MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
+						MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
+					},
+				}))
 			}
 			for _, providerImpl := range providers {
 				if registerErr := toolRegistry.Register(context.Background(), providerImpl); registerErr != nil {
@@ -221,7 +245,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				"enabled", cfg.Tools.Enabled)
 			toolsResolver = buildToolsResolver(cfg, toolRegistry)
 		}
-		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, toolsResolver)
+		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, ledger, toolsResolver)
 		if executorErr != nil {
 			return nil, executorErr
 		}
@@ -320,4 +344,18 @@ func (r groupInfoResolver) GroupInfoReader(botID int64) (builtin.GroupInfoReader
 		return nil, false
 	}
 	return reader, true
+}
+
+// replySenders adapts the account registry to the reply tool's narrow sender port.
+// replySenders 把账号注册表适配为回复工具的窄发送端口。
+type replySenders struct{ accounts *svc.Accounts }
+
+// ReceiptSender returns the sender of one account; never another account's.
+// ReceiptSender 返回某账号的发送能力，绝不借用其它账号。
+func (s replySenders) ReceiptSender(botID int64) (replytool.Sender, bool) {
+	sender, ok := s.accounts.ReceiptSender(botID)
+	if !ok {
+		return nil, false
+	}
+	return sender, true
 }
