@@ -147,7 +147,8 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 - `GET/PUT /api/v1/scopes(/{type}/{id})`
 - `GET/POST/PATCH/DELETE /api/v1/memories(/{id})`
 - `GET /api/v1/metrics`
-- `GET /api/v1/tools`
+- `GET /api/v1/tools?scope_kind=private|group`（返回 `Category`、`ScopeKinds`、
+  `RiskLevel`、`Applicable`/`UnavailableReason`，缺省时不做过滤、全部按适用返回）
 
 配置 `server.admin-token` 后，以上接口需要
 `Authorization: Bearer <token>`；变更类请求写入 `admin_audit_logs`。数据库未配置时，

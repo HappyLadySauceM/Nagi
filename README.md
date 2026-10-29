@@ -73,6 +73,10 @@ SnowLuma 的 WS 服务端强制校验 token，不带或填错会被拒绝握手�
 | GET | `/api/v1/metrics` | 消息、任务、决策、记忆聚合计数 |
 | GET | `/api/v1/tools` | 已注册工具、权限项与默认授予状态 |
 
+`GET /api/v1/tools` 支持可选参数 `scope_kind=private|group`，按该会话类型返回每个工具的
+`Category`、`ScopeKinds`、`RiskLevel`、`Applicable` 与 `UnavailableReason`；不带参数时
+不做过滤，所有工具都按适用返回。
+
 ## 打开一个作用域的对话
 
 作用域默认全部关闭（`enabled=false`），必须先显式开启。多账号时每个请求都要带 `bot_id`；
