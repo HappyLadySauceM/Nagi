@@ -5,6 +5,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"time"
 	"unicode/utf8"
 )
 
@@ -62,6 +63,8 @@ type Record struct {
 	Status            Status
 	PlatformMessageID int64
 	ErrorCode         string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // Limits bounds the outbound messages of one agent run.

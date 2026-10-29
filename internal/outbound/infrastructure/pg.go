@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -206,4 +207,44 @@ func (r *Repo) currentStatus(ctx context.Context, id string) (domain.Status, err
 		return "", fmt.Errorf("outbound: read record status: %w", err)
 	}
 	return domain.Status(current), nil
+}
+
+// ListByJob returns the delivery records of one job in sequence order; the
+// admin API uses it to explain what a run actually sent.
+// ListByJob 按序号返回某个任务的投递记录；管理 API 用它解释一次运行究竟发了什么。
+func (r *Repo) ListByJob(ctx context.Context, jobID int64) ([]domain.Record, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id::text, job_id, conversation_id::text, bot_id, run_id, sequence, tool_call_id,
+		       text_content, status, COALESCE(platform_message_id, 0), COALESCE(error_code, ''),
+		       created_at, updated_at
+		FROM agent_outbound_messages
+		WHERE job_id = $1
+		ORDER BY sequence
+	`, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("outbound: list records: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Record
+	for rows.Next() {
+		var (
+			record  domain.Record
+			status  string
+			created time.Time
+			updated time.Time
+		)
+		if err := rows.Scan(&record.ID, &record.JobID, &record.ConversationID, &record.BotID,
+			&record.RunID, &record.Sequence, &record.ToolCallID, &record.Text, &status,
+			&record.PlatformMessageID, &record.ErrorCode, &created, &updated); err != nil {
+			return nil, fmt.Errorf("outbound: scan record: %w", err)
+		}
+		record.Status = domain.Status(status)
+		record.CreatedAt = created
+		record.UpdatedAt = updated
+		out = append(out, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("outbound: scan records: %w", err)
+	}
+	return out, nil
 }

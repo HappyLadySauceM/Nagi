@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
+	agentroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/agent"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/directory"
 	intentroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/intent"
 	memoryroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/memory"
@@ -41,6 +42,9 @@ func New(svcCtx *svc.ServiceContext, logger *slog.Logger) http.Handler {
 	}
 	if svcCtx.Decisions != nil {
 		intentroutes.NewHandler(svcCtx).Register(mux)
+	}
+	if svcCtx.Outbound != nil {
+		agentroutes.NewHandler(svcCtx).Register(mux)
 	}
 	return middleware.Chain(mux,
 		middleware.SecurityHeaders,

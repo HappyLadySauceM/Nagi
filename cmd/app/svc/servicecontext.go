@@ -17,6 +17,7 @@ import (
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
+	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
@@ -25,6 +26,12 @@ import (
 
 // ServiceContext holds runtime dependencies for the management API.
 // ServiceContext 持有管理 API 所需的运行时依赖。
+// OutboundReader lists the delivery records of one job.
+// OutboundReader 列出某个任务的投递记录。
+type OutboundReader interface {
+	ListByJob(ctx context.Context, jobID int64) ([]outbounddomain.Record, error)
+}
+
 type ServiceContext struct {
 	Config    *config.Config
 	Logger    *slog.Logger
@@ -54,6 +61,9 @@ type ServiceContext struct {
 	// Rulesets reads and writes versioned intent rules; nil without a database.
 	// Rulesets 读写版本化意图规则；未配置数据库时为 nil。
 	Rulesets *intentinfra.RulesetsRepo
+	// Outbound reads delivery records for the run detail view; nil without a database.
+	// Outbound 读取投递记录供运行详情使用；未配置数据库时为 nil。
+	Outbound OutboundReader
 }
 
 // KnownToolPermissions returns the permission identifiers declared by the
