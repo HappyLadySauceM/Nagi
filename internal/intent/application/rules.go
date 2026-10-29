@@ -3,6 +3,8 @@
 package application
 
 import (
+	"strings"
+
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
@@ -86,6 +88,12 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 	if rule.Explicit {
 		return reply("explicit_mention")
 	}
+	if rule.ForceReply {
+		// A published rule overrides the built-in reason but still runs after the
+		// hard gates, so frequency limits keep their veto.
+		// 已发布规则覆盖内置原因码，但仍排在硬闸门之后，频率限制保留否决权。
+		return reply(rule.ForceReason)
+	}
 	if rule.AlwaysReply {
 		// Reply mode wins over an absent semantic answer.
 		// 回复模式优先于缺失的语义回答。
@@ -138,4 +146,59 @@ func reply(reason string) domain.FinalDecision {
 
 func withScores(d domain.Decision, reason string, scores map[string]float64) domain.FinalDecision {
 	return domain.FinalDecision{Decision: d, ReasonCode: reason, Scores: scores}
+}
+
+// ApplyRuleset overlays a published ruleset on the deterministic gate. Hard
+// rules keep their veto: blocked inputs are returned untouched, and entries are
+// evaluated in priority order with the first match winning.
+// ApplyRuleset 把已发布规则叠加到确定性闸门上。硬规则保留否决权：
+// 已拦截的输入原样返回；条目按优先级求值，首个命中生效。
+func ApplyRuleset(rule domain.RuleResult, in domain.Input, entries []domain.RuleEntry) domain.RuleResult {
+	if rule.Blocked {
+		return rule
+	}
+	for _, entry := range entries {
+		if !matchEntry(entry.Match, in) {
+			continue
+		}
+		switch entry.Action.Type {
+		case domain.ActionReply:
+			return domain.RuleResult{
+				Explicit: rule.Explicit, ForceReply: true, ForceReason: entry.Action.ReasonCode,
+			}
+		case domain.ActionSilent:
+			return blocked(entry.Action.ReasonCode)
+		case domain.ActionRequireSemantic:
+			rule.NeedSemantic = true
+			return rule
+		}
+	}
+	return rule
+}
+
+// matchEntry reports whether every non-zero condition holds.
+// matchEntry 报告所有非零条件是否同时成立。
+func matchEntry(m domain.RuleMatch, in domain.Input) bool {
+	if m.ReplyMode != "" && string(in.Policy.ReplyMode) != m.ReplyMode {
+		return false
+	}
+	if m.Kind != "" && in.Task.Kind != m.Kind {
+		return false
+	}
+	if m.Explicit != nil {
+		explicit := in.MentionsBot() || in.RepliesToBot()
+		if explicit != *m.Explicit {
+			return false
+		}
+	}
+	if m.TextContains != "" && !strings.Contains(in.Task.Message.Text, m.TextContains) {
+		return false
+	}
+	if m.MinSecondsSinceReply > 0 {
+		since := in.BotLastSpoke()
+		if since >= 0 && since < int64(m.MinSecondsSinceReply) {
+			return false
+		}
+	}
+	return true
 }
