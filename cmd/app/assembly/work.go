@@ -232,6 +232,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
 				builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry}),
 				builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry}),
+				builtin.NewQQProfileProvider(groupInfoResolver{accounts: rt.Registry}),
 			}
 			if cfg.Tools.AllowSendCurrent {
 				providers = append(providers, replytool.NewProvider(replytool.Options{
@@ -402,6 +403,16 @@ func (r groupInfoResolver) GroupMemberReader(botID int64) (builtin.MemberInfoRea
 // GroupBanner resolves the moderation surface of one account.
 // GroupBanner 解析单个账号的管理能力。
 func (r groupInfoResolver) GroupBanner(botID int64) (builtin.GroupBanner, bool) {
+	admin, ok := r.accounts.GroupAdmin(botID)
+	if !ok {
+		return nil, false
+	}
+	return admin, true
+}
+
+// GroupProfiler resolves the profile moderation surface of one account.
+// GroupProfiler 解析单个账号的名片与移出能力。
+func (r groupInfoResolver) GroupProfiler(botID int64) (builtin.GroupProfiler, bool) {
 	admin, ok := r.accounts.GroupAdmin(botID)
 	if !ok {
 		return nil, false
