@@ -76,6 +76,15 @@ agent:
   max-tool-calls: 5
   # 单次回复运行总时长上限（含模型与工具调用）
   max-run-duration: 30s
+  # 单次运行的出站消息预算；字符数按 Unicode 字符计。
+  # 超预算的发送会被拒绝，不会截断后发出，任务正常结束。
+  sending:
+    # 一次运行最多发送的消息条数
+    max-messages-per-run: 3
+    # 单条消息的字符上限
+    max-chars-per-message: 500
+    # 一次运行的字符总数上限，必须不小于单条上限
+    max-total-chars-per-run: 1500
 
 tools:
   # 启用的工具提供方 ID；为空时不向模型暴露任何工具。

@@ -157,6 +157,23 @@ type Agent struct {
 	// MaxRunDuration 是单次运行的总时长上限（含模型与工具调用）。
 	// MaxRunDuration bounds one run including model and tool calls.
 	MaxRunDuration Duration `yaml:"max-run-duration"`
+	// Sending 限制单次运行可发送的出站消息。
+	// Sending bounds the outbound messages of one run.
+	Sending Sending `yaml:"sending"`
+}
+
+// Sending 是单次 Agent 运行的出站消息预算；字符数按 Unicode 字符计。
+// Sending is the outbound budget of one agent run; character counts are runes.
+type Sending struct {
+	// MaxMessagesPerRun 限制一次运行的消息条数。
+	// MaxMessagesPerRun bounds the message count of one run.
+	MaxMessagesPerRun int `yaml:"max-messages-per-run"`
+	// MaxCharsPerMessage 限制单条消息的字符数。
+	// MaxCharsPerMessage bounds one message in runes.
+	MaxCharsPerMessage int `yaml:"max-chars-per-message"`
+	// MaxTotalCharsPerRun 限制一次运行的字符总数。
+	// MaxTotalCharsPerRun bounds the summed rune count of one run.
+	MaxTotalCharsPerRun int `yaml:"max-total-chars-per-run"`
 }
 
 // Tools 是工具注册与调用限制。
@@ -261,6 +278,11 @@ func defaults() Config {
 			MaxSteps:       6,
 			MaxToolCalls:   5,
 			MaxRunDuration: Duration(30 * time.Second),
+			Sending: Sending{
+				MaxMessagesPerRun:   3,
+				MaxCharsPerMessage:  500,
+				MaxTotalCharsPerRun: 1500,
+			},
 		},
 		Tools: Tools{
 			Timeout:        Duration(5 * time.Second),
@@ -438,6 +460,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Agent.MaxRunDuration.D() <= 0 {
 		return fmt.Errorf("config: agent.max-run-duration 必须为正数")
+	}
+	if c.Agent.Sending.MaxMessagesPerRun <= 0 || c.Agent.Sending.MaxCharsPerMessage <= 0 ||
+		c.Agent.Sending.MaxTotalCharsPerRun <= 0 {
+		return fmt.Errorf("config: agent.sending 的各项上限必须为正数")
+	}
+	if c.Agent.Sending.MaxCharsPerMessage > c.Agent.Sending.MaxTotalCharsPerRun {
+		return fmt.Errorf("config: agent.sending.max-chars-per-message 不得大于 max-total-chars-per-run")
 	}
 	if c.Tools.Timeout.D() <= 0 || c.Tools.MaxResultBytes <= 0 {
 		return fmt.Errorf("config: tools.timeout 与 tools.max-result-bytes 必须为正数")

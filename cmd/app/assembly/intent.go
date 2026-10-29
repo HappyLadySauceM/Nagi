@@ -26,6 +26,9 @@ import (
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
+	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
+	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	einoTools "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
@@ -230,11 +233,25 @@ func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Lo
 	if err != nil {
 		return nil, err
 	}
+	outboundRepo, err := outboundinfra.NewRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	ledger, err := outboundapp.NewCoordinator(outboundRepo)
+	if err != nil {
+		return nil, err
+	}
 	return agentapp.NewReplier(agentapp.Options{
-		Runtime:   runtime,
-		Scopes:    scope,
-		Senders:   senders,
-		Recorder:  conv,
+		Runtime:  runtime,
+		Scopes:   scope,
+		Senders:  senders,
+		Recorder: conv,
+		Outbound: ledger,
+		Sending: outbounddomain.Limits{
+			MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
+			MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
+			MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
+		},
 		BotName:   cfg.Intent.BotName,
 		MaxTokens: cfg.AI.MaxOutputTokens,
 		Logger:    logger,

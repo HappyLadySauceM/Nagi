@@ -19,6 +19,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
+	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
@@ -42,10 +44,21 @@ type SenderResolver interface {
 	ReceiptSender(botID int64) (ReceiptSender, bool)
 }
 
+// OutboundLedger reserves, advances and settles delivery records before and
+// after the platform call; implemented by the outbound coordinator.
+// OutboundLedger 在平台调用前后预留、推进并落定投递记录；
+// 由 outbound 协调器实现。
+type OutboundLedger interface {
+	Reserve(ctx context.Context, req outboundapp.Request) (outbounddomain.Record, error)
+	MarkSending(ctx context.Context, id string) error
+	Settle(ctx context.Context, id string, outcome outboundapp.Outcome) error
+	HasDelivered(ctx context.Context, jobID int64) (bool, error)
+}
+
 // OutboundRecorder persists the bot's outgoing reply for future context.
 // OutboundRecorder 持久化机器人出站回复，保证后续上下文可见。
 type OutboundRecorder interface {
-	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string) error
+	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error
 }
 
 // Options configure the replier.
@@ -55,6 +68,8 @@ type Options struct {
 	Scopes    scopecontracts.Authorizer
 	Senders   SenderResolver
 	Recorder  OutboundRecorder
+	Outbound  OutboundLedger
+	Sending   outbounddomain.Limits
 	BotName   string
 	MaxTokens int
 	Logger    *slog.Logger
@@ -67,6 +82,8 @@ type Replier struct {
 	scopes    scopecontracts.Authorizer
 	senders   SenderResolver
 	recorder  OutboundRecorder
+	outbound  OutboundLedger
+	sending   outbounddomain.Limits
 	botName   string
 	maxTokens int
 	logger    *slog.Logger
@@ -75,7 +92,8 @@ type Replier struct {
 // NewReplier validates dependencies and builds the replier.
 // NewReplier 校验依赖并构建回复器。
 func NewReplier(opts Options) (*Replier, error) {
-	if opts.Runtime == nil || opts.Scopes == nil || opts.Senders == nil || opts.Recorder == nil || opts.Logger == nil {
+	if opts.Runtime == nil || opts.Scopes == nil || opts.Senders == nil ||
+		opts.Recorder == nil || opts.Outbound == nil || opts.Logger == nil {
 		return nil, fmt.Errorf("agent: dependencies required")
 	}
 	if opts.MaxTokens <= 0 {
@@ -83,14 +101,17 @@ func NewReplier(opts Options) (*Replier, error) {
 	}
 	return &Replier{
 		runtime: opts.Runtime, scopes: opts.Scopes, senders: opts.Senders,
-		recorder: opts.Recorder, botName: opts.BotName, maxTokens: opts.MaxTokens, logger: opts.Logger,
+		recorder: opts.Recorder, outbound: opts.Outbound, sending: opts.Sending,
+		botName: opts.BotName, maxTokens: opts.MaxTokens, logger: opts.Logger,
 	}, nil
 }
 
-// ExecuteReply re-checks the scope, builds context, generates, sanitizes, sends
-// and records the reply. It fails closed: any generation error means no send.
-// ExecuteReply 复核作用域、构建上下文、生成、净化、发送并记录回复。
-// 采用关闭式失败：生成出错就不发送。
+// ExecuteReply re-checks the scope, builds context, generates, sanitizes and
+// delivers the reply through the outbound ledger, then records it. It fails
+// closed: a generation error or an unavailable ledger means no send, and a
+// budget denial ends the job without sending.
+// ExecuteReply 复核作用域、构建上下文、生成、净化，经投递台账发送并记录回复。
+// 采用关闭式失败：生成出错或台账不可用就不发送；预算拒绝则直接结束任务而不发送。
 func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, history []intentdomain.Message) error {
 	policy, err := r.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if err != nil {
@@ -215,7 +236,64 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	})
 	validateSpan.End()
 
-	sentStatus := "sent"
+	// A delivery record means this job already spoke, or may have; sending the
+	// final text again would duplicate a visible message.
+	// 已有投递记录说明该任务已经或可能已经发过言；再次发送最终文本会产生
+	// 用户可见的重复消息。
+	if delivered, err := r.outbound.HasDelivered(ctx, task.JobID); err != nil {
+		// Without the ledger nothing proves the run has not already spoken;
+		// fail closed and let the job retry instead of risking a duplicate.
+		// 台账不可用时无法证明尚未发言；关闭式失败并让任务重试，避免重复发送。
+		return fmt.Errorf("agent: check outbound delivery: %w", err)
+	} else if delivered {
+		r.logger.Info("outbound already delivered; skipping duplicate send", "job_id", task.JobID)
+		return nil
+	}
+
+	reserveCtx, reserveSpan := tracer.Start(ctx, "nagi.outbound.reserve")
+	record, err := r.outbound.Reserve(reserveCtx, outboundapp.Request{
+		JobID:          task.JobID,
+		BotID:          task.BotID,
+		ConversationID: task.ConversationID,
+		Text:           reply,
+		Limits:         r.sending,
+	})
+	if err != nil {
+		var budget *outbounddomain.BudgetError
+		if errors.As(err, &budget) {
+			// A denied reservation is a policy outcome, not a job failure: the
+			// run stops without sending and the job completes normally.
+			// 预算拒绝属于策略结果而非任务失败：本次运行不发送，任务正常结束。
+			reserveSpan.SetAttributes(
+				attribute.Bool("nagi.outbound_denied", true),
+				attribute.String("nagi.outbound_denied_dimension", string(budget.Dimension)),
+			)
+			observability.RecordObservation(reserveSpan, "langfuse.observation.output", map[string]any{
+				"denied":    true,
+				"dimension": string(budget.Dimension),
+			})
+			reserveSpan.End()
+			r.logger.Warn("outbound denied: run budget exceeded", "job_id", task.JobID,
+				"dimension", budget.Dimension, "limit", budget.Limit, "requested", budget.Requested)
+			return nil
+		}
+		reserveSpan.RecordError(err)
+		reserveSpan.End()
+		return fmt.Errorf("agent: reserve outbound: %w", err)
+	}
+	reserveSpan.SetAttributes(attribute.Int("nagi.outbound.sequence", record.Sequence))
+	reserveSpan.End()
+
+	// Nothing may be sent before the record is sending; otherwise a crash would
+	// leave a delivered message that the ledger still reports as prepared.
+	// 记录进入 sending 之前不得发送；否则进程崩溃会留下已送达但台账仍为
+	// prepared 的消息。
+	if err := r.outbound.MarkSending(ctx, record.ID); err != nil {
+		return fmt.Errorf("agent: mark outbound sending: %w", err)
+	}
+
+	status := outbounddomain.StatusSent
+	errorCode := ""
 	sendCtx, sendSpan := tracer.Start(ctx, "nagi.onebot.send")
 	// The target is a QQ number, so only the channel kind is exported.
 	// 目标是 QQ 号，因此只导出会话类型。
@@ -232,28 +310,37 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		// 发送失败会记录但绝不盲目重试。超时表示结果未知：消息可能已送达，
 		// 因此按 unknown 而非 failed 持久化。
 		if errors.Is(sendErr, obcontracts.ErrActionTimeout) {
-			sentStatus = "unknown"
+			status = outbounddomain.StatusUnknown
+			errorCode = "timeout"
 		} else {
-			sentStatus = "failed"
+			status = outbounddomain.StatusFailed
+			errorCode = "send_failed"
 		}
-		r.logger.Warn("reply send failed", "error", sendErr, "job_id", task.JobID, "sent_status", sentStatus)
+		r.logger.Warn("reply send failed", "error", sendErr, "job_id", task.JobID, "sent_status", status)
 	}
 	// Delivery status must be attached before the span ends, otherwise the
 	// outcome never reaches the trace.
 	// 投递结果必须在 span 结束前写入，否则结果不会出现在 trace 中。
-	sendSpan.SetAttributes(attribute.String("nagi.sent_status", sentStatus))
+	sendSpan.SetAttributes(attribute.String("nagi.sent_status", string(status)))
 	if sendErr == nil {
 		sendSpan.SetAttributes(attribute.Int64("nagi.onebot_message_id", messageID))
 	}
 	observability.RecordObservation(sendSpan, "langfuse.observation.output", map[string]any{
-		"sent_status": sentStatus,
+		"sent_status": string(status),
 		"message_id":  messageID,
 	})
 	sendSpan.End()
-	if err := r.recorder.RecordOutgoing(ctx, task.ConversationID, task.BotID, reply, messageID, sentStatus); err != nil {
+	if err := r.outbound.Settle(ctx, record.ID, outboundapp.Outcome{
+		Status:            status,
+		PlatformMessageID: messageID,
+		ErrorCode:         errorCode,
+	}); err != nil {
+		r.logger.Warn("settle outbound record failed", "error", err, "job_id", task.JobID)
+	}
+	if err := r.recorder.RecordOutgoing(ctx, task.ConversationID, task.BotID, reply, messageID, string(status), record.ID); err != nil {
 		r.logger.Warn("record outgoing reply failed", "error", err, "job_id", task.JobID)
 	}
-	r.logger.Info("reply executed", "job_id", task.JobID, "sent_status", sentStatus,
+	r.logger.Info("reply executed", "job_id", task.JobID, "sent_status", status,
 		"prompt_tokens", result.InputUsage, "completion_tokens", result.OutputUsage)
 	return nil
 }

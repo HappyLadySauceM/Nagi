@@ -28,6 +28,13 @@ func TestLoadUsesDefaultsWithoutFileOrEnv(t *testing.T) {
 	if !cfg.Echo.Enabled || cfg.Echo.Prefix != "/echo" {
 		t.Fatalf("unexpected default echo: %+v", cfg.Echo)
 	}
+	// The outbound budget must have a usable default even without a config file.
+	// 即使没有配置文件，出站预算也必须有可用默认值。
+	if cfg.Agent.Sending.MaxMessagesPerRun != 3 ||
+		cfg.Agent.Sending.MaxCharsPerMessage != 500 ||
+		cfg.Agent.Sending.MaxTotalCharsPerRun != 1500 {
+		t.Fatalf("unexpected default sending budget: %+v", cfg.Agent.Sending)
+	}
 }
 
 func TestLoadAppliesYamlThenOverrides(t *testing.T) {
@@ -263,5 +270,35 @@ func TestLoadDatabaseDSNEmptyEnvKeepsFileValue(t *testing.T) {
 	}
 	if cfg.Database.DSN != "postgres://file@127.0.0.1:5432/file?sslmode=disable" {
 		t.Fatalf("dsn = %q", cfg.Database.DSN)
+	}
+}
+
+func TestLoadRejectsContradictorySendingBudget(t *testing.T) {
+	// 验证单条字符上限大于回合总数时启动失败：该组合会让任何正长度消息都自相矛盾。
+	file := writeTempConfig(t, "agent:\n  sending:\n    max-chars-per-message: 2000\n    max-total-chars-per-run: 1500\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("per-message limit above the run total must be rejected")
+	}
+}
+
+func TestLoadRejectsNonPositiveSendingBudget(t *testing.T) {
+	// 验证显式写入的零值不会被默认值掩盖，而是在启动阶段报错。
+	file := writeTempConfig(t, "agent:\n  sending:\n    max-messages-per-run: 0\n")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("a zero message budget must be rejected")
+	}
+}
+
+func TestLoadReadsSendingBudgetFromYaml(t *testing.T) {
+	// 验证 YAML 中的发送预算被读取，未设置的相邻字段仍保留默认值。
+	file := writeTempConfig(t, "agent:\n  sending:\n    max-messages-per-run: 5\n")
+	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Agent.Sending.MaxMessagesPerRun != 5 ||
+		cfg.Agent.Sending.MaxCharsPerMessage != 500 ||
+		cfg.Agent.Sending.MaxTotalCharsPerRun != 1500 {
+		t.Fatalf("sending budget = %+v", cfg.Agent.Sending)
 	}
 }

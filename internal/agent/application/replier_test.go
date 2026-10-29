@@ -22,6 +22,8 @@ import (
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
+	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
@@ -94,13 +96,60 @@ type fakeRecorder struct {
 	conversations []string
 	statuses      []string
 	messageIDs    []int64
+	outboundIDs   []string
 }
 
-func (f *fakeRecorder) RecordOutgoing(_ context.Context, conversationID string, _ int64, _ string, platformMessageID int64, sentStatus string) error {
+func (f *fakeRecorder) RecordOutgoing(_ context.Context, conversationID string, _ int64, _ string, platformMessageID int64, sentStatus string, outboundID string) error {
 	f.conversations = append(f.conversations, conversationID)
 	f.statuses = append(f.statuses, sentStatus)
 	f.messageIDs = append(f.messageIDs, platformMessageID)
+	f.outboundIDs = append(f.outboundIDs, outboundID)
 	return nil
+}
+
+// fakeLedger stands in for the outbound coordinator and records each step.
+// fakeLedger 替代出站协调器并记录每一步。
+type fakeLedger struct {
+	reserved     []outboundapp.Request
+	sending      []string
+	settled      []outboundapp.Outcome
+	delivered    bool
+	deliveredErr error
+	reserveErr   error
+	markErr      error
+	settleErr    error
+}
+
+func (f *fakeLedger) Reserve(_ context.Context, req outboundapp.Request) (outbounddomain.Record, error) {
+	f.reserved = append(f.reserved, req)
+	if f.reserveErr != nil {
+		return outbounddomain.Record{}, f.reserveErr
+	}
+	sequence := len(f.reserved)
+	return outbounddomain.Record{
+		ID: fmt.Sprintf("out-%d", sequence), JobID: req.JobID, ConversationID: req.ConversationID,
+		Sequence: sequence, Text: req.Text, Status: outbounddomain.StatusPrepared,
+	}, nil
+}
+
+func (f *fakeLedger) MarkSending(_ context.Context, id string) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
+	f.sending = append(f.sending, id)
+	return nil
+}
+
+func (f *fakeLedger) Settle(_ context.Context, _ string, outcome outboundapp.Outcome) error {
+	if f.settleErr != nil {
+		return f.settleErr
+	}
+	f.settled = append(f.settled, outcome)
+	return nil
+}
+
+func (f *fakeLedger) HasDelivered(_ context.Context, _ int64) (bool, error) {
+	return f.delivered, f.deliveredErr
 }
 
 // replierScopes reuses the map-based authorizer pattern.
@@ -129,9 +178,18 @@ func replierKey(v int64) string {
 
 func newReplier(t *testing.T, fake *fakeRuntime, sender *fakeSender, rec *fakeRecorder, policies map[string]scopedomain.Policy) *Replier {
 	t.Helper()
+	return newReplierWithLedger(t, fake, sender, rec, policies, &fakeLedger{})
+}
+
+func newReplierWithLedger(t *testing.T, fake *fakeRuntime, sender *fakeSender, rec *fakeRecorder,
+	policies map[string]scopedomain.Policy, ledger *fakeLedger,
+) *Replier {
+	t.Helper()
 	r, err := NewReplier(Options{
 		Runtime: fake, Scopes: &replierScopes{policies: policies},
-		Senders: sender, Recorder: rec, BotName: "小雪", Logger: replierLogger(),
+		Senders: sender, Recorder: rec, Outbound: ledger,
+		Sending: outbounddomain.Limits{MaxMessages: 3, MaxCharsPerMessage: 500, MaxTotalChars: 1500},
+		BotName: "小雪", Logger: replierLogger(),
 	})
 	if err != nil {
 		t.Fatalf("new replier: %v", err)
@@ -198,6 +256,11 @@ func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 	if len(rec.statuses) != 1 || rec.statuses[0] != "sent" || rec.conversations[0] != "conv-1" {
 		t.Fatalf("records = %+v", rec)
 	}
+	// The logical message must point at the delivery record that produced it.
+	// 逻辑消息必须关联到产生它的投递记录。
+	if len(rec.outboundIDs) != 1 || rec.outboundIDs[0] != "out-1" {
+		t.Fatalf("outbound ids = %v", rec.outboundIDs)
+	}
 }
 
 // TestReplierDropsWhenScopeDisabled verifies the pre-send scope re-check.
@@ -223,7 +286,8 @@ func TestReplierRecordsFailedSend(t *testing.T) {
 	fake := &fakeRuntime{text: "回复内容"}
 	sender := &fakeSender{err: fmt.Errorf("onebot: action failed retcode=1200")}
 	rec := &fakeRecorder{}
-	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
+	ledger := &fakeLedger{}
+	r := newReplierWithLedger(t, fake, sender, rec, enabledGroupPolicy(), ledger)
 
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -233,6 +297,13 @@ func TestReplierRecordsFailedSend(t *testing.T) {
 	}
 	if rec.messageIDs[0] != 0 {
 		t.Fatalf("failed send must not record a message id: %d", rec.messageIDs[0])
+	}
+	// The ledger must carry the same outcome; dropping it would leave the
+	// record stuck in sending and block every later retry.
+	// 台账必须记录同样的结果；丢失会让记录停留在 sending 并阻塞后续重试。
+	if len(ledger.settled) != 1 || ledger.settled[0].Status != outbounddomain.StatusFailed ||
+		ledger.settled[0].ErrorCode != "send_failed" {
+		t.Fatalf("settled = %+v", ledger.settled)
 	}
 }
 
@@ -244,13 +315,97 @@ func TestReplierRecordsUnknownOnTimeout(t *testing.T) {
 	fake := &fakeRuntime{text: "回复内容"}
 	sender := &fakeSender{err: fmt.Errorf("onebot: wait action send_group_msg response: %w", obcontracts.ErrActionTimeout)}
 	rec := &fakeRecorder{}
-	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
+	ledger := &fakeLedger{}
+	r := newReplierWithLedger(t, fake, sender, rec, enabledGroupPolicy(), ledger)
 
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if len(rec.statuses) != 1 || rec.statuses[0] != "unknown" {
 		t.Fatalf("records = %+v", rec)
+	}
+	if len(ledger.settled) != 1 || ledger.settled[0].Status != outbounddomain.StatusUnknown ||
+		ledger.settled[0].ErrorCode != "timeout" {
+		t.Fatalf("settled = %+v", ledger.settled)
+	}
+}
+
+// TestReplierDeniesOverBudget verifies that a budget rejection ends the job
+// without sending or recording the reply.
+// TestReplierDeniesOverBudget 验证预算拒绝会直接结束任务，不发送也不回写回复。
+func TestReplierDeniesOverBudget(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	sender := &fakeSender{}
+	rec := &fakeRecorder{}
+	ledger := &fakeLedger{reserveErr: &outbounddomain.BudgetError{
+		Dimension: outbounddomain.DimensionMessageChars, Limit: 2, Requested: 4,
+	}}
+	r := newReplierWithLedger(t, &fakeRuntime{text: "回复内容"}, sender, rec, enabledGroupPolicy(), ledger)
+
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("budget denial must not fail the job: %v", err)
+	}
+	if len(sender.texts) != 0 || len(ledger.sending) != 0 || len(rec.statuses) != 0 {
+		t.Fatalf("denied reply must not be sent (texts=%v sending=%v records=%+v)",
+			sender.texts, ledger.sending, rec)
+	}
+	denied := false
+	for _, span := range recorder.Ended() {
+		if span.Name() != "nagi.outbound.reserve" {
+			continue
+		}
+		for _, kv := range span.Attributes() {
+			if string(kv.Key) == "nagi.outbound_denied" && kv.Value.AsBool() {
+				denied = true
+			}
+		}
+	}
+	if !denied {
+		t.Fatal("reserve span must report nagi.outbound_denied=true")
+	}
+}
+
+// TestReplierSkipsAlreadyDelivered verifies that a retried job never sends the
+// final text again once the ledger holds a delivered record.
+// TestReplierSkipsAlreadyDelivered 验证台账已有投递记录时，重试的任务不会
+// 再次发送最终文本。
+func TestReplierSkipsAlreadyDelivered(t *testing.T) {
+	sender := &fakeSender{}
+	rec := &fakeRecorder{}
+	ledger := &fakeLedger{delivered: true}
+	r := newReplierWithLedger(t, &fakeRuntime{text: "回复内容"}, sender, rec, enabledGroupPolicy(), ledger)
+
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(ledger.reserved) != 0 || len(sender.texts) != 0 || len(rec.statuses) != 0 {
+		t.Fatalf("delivered job must not send again (reserved=%v texts=%v records=%+v)",
+			ledger.reserved, sender.texts, rec)
+	}
+}
+
+// TestReplierFailsClosedWhenLedgerUnavailable verifies that an unreadable
+// ledger blocks sending instead of risking a duplicate.
+// TestReplierFailsClosedWhenLedgerUnavailable 验证台账不可读时阻止发送，
+// 避免重复投递。
+func TestReplierFailsClosedWhenLedgerUnavailable(t *testing.T) {
+	sender := &fakeSender{}
+	ledger := &fakeLedger{deliveredErr: errors.New("db down")}
+	r := newReplierWithLedger(t, &fakeRuntime{text: "回复内容"}, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err == nil {
+		t.Fatal("an unreadable ledger must fail the run instead of sending")
+	}
+	if len(sender.texts) != 0 {
+		t.Fatalf("nothing may be sent without the ledger: %v", sender.texts)
 	}
 }
 
