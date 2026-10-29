@@ -1,12 +1,13 @@
 # 本地开发基础设施：PostgreSQL(pgvector) + Langfuse 自托管全栈。
-# 只有 postgres 与 langfuse-web 暴露到本机回环；clickhouse / redis / minio 仅在 compose 内网互通。
+# postgres 只绑定本机回环，langfuse-web 监听所有网卡；clickhouse / redis / minio 仅在 compose 内网互通。
 # 所有默认口令都是本地开发值，可通过同名环境变量覆盖。
 # Local development infrastructure: PostgreSQL(pgvector) plus the full self-hosted
-# Langfuse stack. Only postgres and langfuse-web bind to loopback; the rest stay internal.
+# Langfuse stack. Postgres binds loopback only and langfuse-web listens on all
+# interfaces; the rest stay internal.
 
 x-langfuse-env: &langfuse-env
   DATABASE_URL: postgresql://nagi:nagi-local@postgres:5432/langfuse
-  NEXTAUTH_URL: http://localhost:3010
+  NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3010}
   NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-nagi-local-nextauth-secret}
   SALT: ${LANGFUSE_SALT:-nagi-local-salt}
   # 必须为 64 位十六进制；更换后已加密数据无法解密
@@ -149,8 +150,8 @@ services:
       minio:
         condition: service_healthy
     ports:
-      # 3000 已被 SnowLuma 的 HTTP OneBot 占用
-      - "127.0.0.1:3010:3000"
+      # 3000 已被 SnowLuma 的 HTTP OneBot 占用；监听所有网卡便于局域网访问
+      - "0.0.0.0:3010:3000"
     environment:
       <<: *langfuse-env
       # 首次启动自动创建组织、项目与 API Key，本地开发免手工初始化

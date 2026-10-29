@@ -43,14 +43,18 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      host: '127.0.0.1',
+      // Dev binds every interface so other devices on the LAN can reach it.
+      // 开发时监听所有网卡，便于局域网内其它设备访问。
+      host: '0.0.0.0',
       port: 5173,
       strictPort: true,
-      // Loopback names only. This dev server injects the admin token into
-      // proxied requests, so accepting arbitrary Host headers would hand that
-      // token to a DNS-rebinding page. Add hosts through
-      // NAGI_DEV_ALLOWED_HOSTS only when a tunnel really needs them.
-      // 仅允许回环主机名。本开发服务器会向代理请求注入管理员令牌，
+      // Aside from localhost, only IP-literal hosts (e.g. 192.168.1.10) pass
+      // automatically; other hostnames must be listed here. This dev server
+      // injects the admin token into proxied requests, so accepting arbitrary
+      // Host headers would hand that token to a DNS-rebinding page. Add hosts
+      // through NAGI_DEV_ALLOWED_HOSTS only when a tunnel really needs them.
+      // 除 localhost 外，Vite 只自动放行 IP 字面量（如 192.168.1.10），
+      // 其它主机名必须在此列出。本开发服务器会向代理请求注入管理员令牌，
       // 接受任意 Host 头会把令牌交给 DNS rebinding 页面。
       // 仅在隧道确实需要时通过 NAGI_DEV_ALLOWED_HOSTS 追加主机。
       allowedHosts: ['localhost', ...extraAllowedHosts],
