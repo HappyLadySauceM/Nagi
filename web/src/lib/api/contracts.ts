@@ -266,3 +266,45 @@ export const MEMORY_VISIBILITY_HINTS: Record<MemoryVisibility, string> = {
   private_user: '仅该好友的私聊可见，需要归属 QQ 号。',
   conversation: '仅单个会话可见，需要会话归属标识。',
 }
+
+export type IntentDecisionKind = 'reply' | 'silent' | 'defer'
+
+export interface DecisionStepEntry {
+  index: number
+  phase: string
+  reasonCode: string
+  detail: Record<string, unknown>
+  createdAt?: string
+}
+
+export interface DecisionEntry {
+  id: number
+  jobId: number
+  botId: number
+  conversationId: string
+  decision: IntentDecisionKind
+  reasonCode: string
+  provider: string
+  model: string
+  rulesetVersion: string
+  latencyMs: number
+  createdAt?: string
+}
+
+export interface DecisionDetailEntry extends DecisionEntry {
+  scores: Record<string, number>
+  steps: DecisionStepEntry[]
+}
+
+export const DECISION_KIND_LABELS: Record<IntentDecisionKind, string> = {
+  reply: '回复',
+  silent: '沉默',
+  defer: '延后',
+}
+
+export const DECISION_PHASE_LABELS: Record<string, string> = {
+  policy: '策略',
+  rules: '规则',
+  semantic: '语义',
+  final: '结论',
+}

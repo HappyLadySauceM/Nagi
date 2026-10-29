@@ -169,6 +169,30 @@ type RuleResult struct {
 	// Explicit is true when the message directly @-mentions or replies to the bot.
 	// Explicit 为 true 表示消息直接 @ 或引用了机器人。
 	Explicit bool
+	// AlwaysReply is true when the scope's reply mode demands a reply without
+	// consulting the semantic decider.
+	// AlwaysReply 为 true 表示该作用域的回复模式要求无条件回复，
+	// 不需要语义判定。
+	AlwaysReply bool
+}
+
+// Step phases recorded with every decision. The strings are stable because the
+// administrative API and the console group steps by them.
+// 决策步骤的阶段名。字符串保持稳定，管理 API 与控制台按它分组。
+const (
+	StepPolicy   = "policy"
+	StepRules    = "rules"
+	StepSemantic = "semantic"
+	StepFinal    = "final"
+)
+
+// Step is one explainable stage of a decision.
+// Step 是决策中一个可解释的阶段。
+type Step struct {
+	Index      int
+	Phase      string
+	ReasonCode string
+	Detail     map[string]any
 }
 
 // FinalDecision is the pipeline outcome recorded for evaluation.
@@ -180,6 +204,11 @@ type FinalDecision struct {
 	Model      string
 	Scores     map[string]float64
 	LatencyMS  int64
+	// RulesetVersion identifies the rules that produced the decision; empty
+	// means the built-in ruleset.
+	// RulesetVersion 标识产生该决策的规则版本；空值表示内置规则。
+	RulesetVersion string
+	Steps          []Step
 }
 
 func itoa(v int64) string {

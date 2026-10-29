@@ -281,3 +281,46 @@ func TestProcessTaskFailsClosedWhenActivityUnavailable(t *testing.T) {
 		t.Fatal("expected activity failure to propagate as a retryable error")
 	}
 }
+
+// TestProcessTaskRecordsExplainableSteps verifies that every decision carries
+// policy, rules and final steps, plus a semantic step only when Jev was asked.
+// TestProcessTaskRecordsExplainableSteps 验证每条决策都带策略、规则与最终步骤，
+// 且仅在调用 Jev 时才出现语义步骤。
+func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
+	scopes := &fakeScopes{policies: map[string]scopedomain.Policy{
+		keyOf(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
+	}}
+	recorder := &fakeRecorder{}
+	d := newDecider(t, Options{Scopes: scopes, Recorder: recorder, Thresholds: thresholds, Provider: "jev", Model: "jev-latest"})
+	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(recorder.decisions) != 1 {
+		t.Fatalf("recorded %d decisions", len(recorder.decisions))
+	}
+	steps := recorder.decisions[0].Steps
+	if len(steps) != 3 {
+		t.Fatalf("steps = %d, want policy/rules/final", len(steps))
+	}
+	if steps[0].Phase != domain.StepPolicy || steps[1].Phase != domain.StepRules || steps[2].Phase != domain.StepFinal {
+		t.Fatalf("phases = %+v", steps)
+	}
+	if steps[2].ReasonCode != "always_reply" {
+		t.Fatalf("final reason = %s", steps[2].ReasonCode)
+	}
+
+	// With intent_based the pipeline asks Jev, so a semantic step appears.
+	scopes.policies[keyOf(100, "group", 700)] = scopedomain.Policy{
+		ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true, ReplyMode: scopedomain.ModeIntentBased,
+	}
+	recorder.decisions = nil
+	semantic := &fakeSemantic{}
+	d = newDecider(t, Options{Scopes: scopes, Semantic: semantic, Recorder: recorder, Thresholds: thresholds, Provider: "jev", Model: "jev-latest"})
+	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
+		t.Fatalf("process with semantics: %v", err)
+	}
+	steps = recorder.decisions[0].Steps
+	if len(steps) != 4 || steps[2].Phase != domain.StepSemantic {
+		t.Fatalf("semantic steps = %+v", steps)
+	}
+}

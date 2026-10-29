@@ -8,6 +8,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/directory"
+	intentroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/intent"
 	memoryroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/memory"
 	metricsroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/metrics"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/scope"
@@ -37,6 +38,9 @@ func New(svcCtx *svc.ServiceContext, logger *slog.Logger) http.Handler {
 	}
 	if svcCtx.Tools != nil {
 		toolsroutes.NewHandler(svcCtx).Register(mux)
+	}
+	if svcCtx.Decisions != nil {
+		intentroutes.NewHandler(svcCtx).Register(mux)
 	}
 	return middleware.Chain(mux,
 		middleware.SecurityHeaders,

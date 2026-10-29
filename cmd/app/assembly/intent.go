@@ -263,9 +263,9 @@ func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Lo
 func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities,
-) (*conversationinfra.Worker, error) {
+) (*conversationinfra.Worker, intentcontracts.DecisionReader, error) {
 	if pool == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if !cfg.Intent.Enabled {
 		// The ingress handler is registered whenever a database exists, so
@@ -273,10 +273,10 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		// 只要配置了数据库就会注册入站处理器，关闭流水线会让每条消息变成永不被消费的任务。
 		logger.Warn("intent pipeline disabled; messages are stored but jobs are never consumed",
 			"hint", "set intent.enabled=true to activate the decision worker")
-		return nil, nil
+		return nil, nil, nil
 	}
 	if scope == nil || conv == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	jevKey := cfg.Intent.APIKey
 	if jevKey == "" {
@@ -291,11 +291,11 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		Timeout:  cfg.Intent.Timeout.D(),
 	}, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	decider, err := intentapp.NewDecider(intentapp.Options{
 		Semantic: jev,
@@ -315,16 +315,17 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		Logger:       logger,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	repo, err := conversationinfra.NewRepo(pool)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return conversationinfra.NewWorker(repo, intentProcessor{decider: decider}, conversationinfra.WorkerOptions{
+	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider}, conversationinfra.WorkerOptions{
 		Concurrency:  cfg.Worker.Concurrency,
 		MaxPending:   cfg.Worker.MaxPendingJobs,
 		PollInterval: cfg.Worker.PollInterval.D(),
 		Identity:     identity,
 	}, logger)
+	return worker, decisionsRepo, err
 }

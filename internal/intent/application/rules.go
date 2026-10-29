@@ -32,7 +32,23 @@ func EvaluateRules(in domain.Input) domain.RuleResult {
 
 	explicit := in.MentionsBot() || in.RepliesToBot()
 	if in.Task.Kind == "private" {
-		return domain.RuleResult{Explicit: explicit}
+		// Private conversations honor the same reply modes as groups: silence is
+		// only correct when the scope asked for it.
+		// 私聊与群聊遵循同一套回复模式：只有作用域明确要求时才沉默。
+		switch in.Policy.ReplyMode {
+		case scopedomain.ModeMentionOnly:
+			if !explicit {
+				return blocked("not_addressed")
+			}
+			return domain.RuleResult{Explicit: true}
+		case scopedomain.ModeAlwaysReply:
+			return domain.RuleResult{AlwaysReply: true}
+		default: // intent_based
+			if explicit {
+				return domain.RuleResult{Explicit: true}
+			}
+			return domain.RuleResult{NeedSemantic: true}
+		}
 	}
 	switch in.Policy.ReplyMode {
 	case scopedomain.ModeMentionOnly:
@@ -41,7 +57,10 @@ func EvaluateRules(in domain.Input) domain.RuleResult {
 		}
 		return domain.RuleResult{Explicit: explicit}
 	case scopedomain.ModeAlwaysReply:
-		return domain.RuleResult{Explicit: explicit}
+		// always_reply must not depend on the semantic decider: an unavailable
+		// Jev used to silence this mode entirely.
+		// always_reply 不得依赖语义判定：语义不可用曾让该模式完全沉默。
+		return domain.RuleResult{Explicit: explicit, AlwaysReply: true}
 	default: // intent_based
 		if explicit {
 			return domain.RuleResult{Explicit: true}
@@ -67,13 +86,21 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 	if rule.Explicit {
 		return reply("explicit_mention")
 	}
-	if in.Task.Kind == "private" {
-		return reply("private_direct")
+	if rule.AlwaysReply {
+		// Reply mode wins over an absent semantic answer.
+		// 回复模式优先于缺失的语义回答。
+		return reply("always_reply")
 	}
 	if !semantic.Available {
-		// Jev unavailable: never auto-interject; only explicit messages pass,
-		// and they were already returned above.
-		// Jev 不可用：绝不自动插话；仅明确指向放行，且已在上方返回。
+		// Semantic unavailability must not silence a one-to-one chat: the scope
+		// already accepted intent-based replies there.
+		// 语义不可用不应让一对一对话沉默：该作用域已允许按意图回复。
+		if in.Task.Kind == "private" {
+			return reply("private_semantic_unavailable")
+		}
+		// Jev unavailable: never auto-interject in groups; only explicit
+		// messages pass, and they were already returned above.
+		// Jev 不可用：群聊绝不自动插话；仅明确指向放行，且已在上方返回。
 		return silent("jev_unavailable")
 	}
 	scores := map[string]float64{

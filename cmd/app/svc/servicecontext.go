@@ -14,6 +14,7 @@ import (
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
 	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
+	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
@@ -46,6 +47,9 @@ type ServiceContext struct {
 	// Tools is the startup tool registry; nil when AI generation is disabled.
 	// Tools 是启动时的工具注册表；AI 生成关闭时为 nil。
 	Tools *pluginsapp.Registry
+	// Decisions reads recorded intent decisions; nil when the pipeline is off.
+	// Decisions 读取已记录的意图决策；流水线关闭时为 nil。
+	Decisions intentcontracts.DecisionReader
 }
 
 // KnownToolPermissions returns the permission identifiers declared by the
