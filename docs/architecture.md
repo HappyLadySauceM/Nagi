@@ -93,6 +93,10 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 `NAGI_OBSERVABILITY_RAW_IDENTIFIERS`，以及 `--config`、`--listen`、`--log-level` Flags，优先级高于 YAML。
 `onebot.heartbeat-timeout` 默认 60s，仅经 YAML 或默认值提供。
 
+`agent.sending`（`max-messages-per-run` / `max-chars-per-message` / `max-total-chars-per-run`，
+默认 3 / 500 / 1500）限定单次运行的出站消息条数与字符预算；字符数按 Unicode 字符计。
+三者必须为正，且 `max-chars-per-message` 不得大于 `max-total-chars-per-run`，矛盾配置在启动阶段报错。
+
 `ai.enabled=true` 要求 `intent.enabled=true`：AI 回复由意图决策流水线触发，只开生成不会发出任何
 消息，配置矛盾在启动阶段直接报错。`echo.enabled` 与 `ai.enabled` 同开时，同一会话可能被回两次，
 启动日志会给出 WARN 而不阻断启动。
@@ -108,7 +112,15 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   事务入库（消息 + `message_jobs` 同事务、平台事件去重）即返回，绝不在 Dispatcher 内等待
   LLM/Jev；有界 worker 以 `FOR UPDATE SKIP LOCKED` 原子认领任务（`processing` 状态），
   按会话顺序、跨会话受控并发，重启恢复 processing 任务；出站回复经 `RecordOutgoing`
-  在单事务内回写并携带平台消息 ID。
+  在单事务内回写并携带平台消息 ID 与投递记录 ID。失败重试与重启恢复都先看投递台账：
+  已有 `sent`/`unknown` 记录的任务不再重排，直接 `failed` + `last_error_code='partial'`，
+  `sending` 记录在恢复时改为 `unknown`。
+- `internal/outbound`：出站投递台账（迁移 `0008`）。`Coordinator.Reserve` 在单个事务内
+  `SELECT ... FOR UPDATE` 锁住任务行，串行分配 `sequence`、校验单条/总字符/总条数预算并累加
+  `agent_run_budgets`；超预算返回带维度的 `BudgetError` 且不落记录。发送前 `MarkSending`
+  把记录推进为 `sending`，发送后 `Settle` 落定 `sent`/`failed`/`unknown`，
+  `HasDelivered` 阻止重试后的重复发送，`RecoverStale` 把遗留 `sending` 改为 `unknown`。
+  预算字符数按 Unicode 字符计，阈值来自 `agent.sending`。
 - `internal/intent`：确定性规则（策略/频率/指向闸门，最终否决权；冷却与小时限流读取
   独立于聊天历史授权的发言元数据）→ Jev 语义判定（畸形或越界响应视为不可用，
   降级为仅响应明确 @/引用）→ `ReplyPolicy` 输出 reply/silent/defer 与 reason_code，
