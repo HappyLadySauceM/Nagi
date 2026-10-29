@@ -10,6 +10,7 @@ import (
 
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // fakeGroupReader records which group was queried.
@@ -51,6 +52,27 @@ func groupTool(t *testing.T, accounts AccountInfoReader) func(context.Context, s
 	return registered[0].Invoke
 }
 
+// TestGroupInfoDescriptorIsGroupScoped verifies the descriptor is restricted to
+// group conversations, so private runs never see the tool at all.
+// TestGroupInfoDescriptorIsGroupScoped 验证描述符限定为群聊，
+// 私聊运行因此完全看不到该工具。
+func TestGroupInfoDescriptorIsGroupScoped(t *testing.T) {
+	registered, err := NewQQProvider(&fakeAccounts{known: true}).Tools(context.Background())
+	if err != nil {
+		t.Fatalf("tools: %v", err)
+	}
+	if len(registered) != 1 {
+		t.Fatalf("tools = %d, want 1", len(registered))
+	}
+	descriptor := registered[0].Descriptor
+	if descriptor.AppliesTo(contracts.ScopeKindPrivate) {
+		t.Fatal("group info tool must not apply to private conversations")
+	}
+	if !descriptor.AppliesTo(contracts.ScopeKindGroup) {
+		t.Fatal("group info tool must apply to group conversations")
+	}
+}
+
 // TestGroupInfoUsesCurrentGroupOnly verifies the queried group always comes from
 // the authorized scope, never from model arguments.
 // TestGroupInfoUsesCurrentGroupOnly 验证查询目标始终来自授权作用域，
@@ -59,7 +81,7 @@ func TestGroupInfoUsesCurrentGroupOnly(t *testing.T) {
 	accounts := &fakeAccounts{known: true}
 	invoke := groupTool(t, accounts)
 	ctx := pluginsapp.WithScope(context.Background(), pluginsapp.Scope{
-		BotID: 100, Kind: "group", TargetID: 700,
+		BotID: 100, Kind: contracts.ScopeKindGroup, TargetID: 700,
 	})
 
 	out, err := invoke(ctx, `{"group_id": 999999}`)
@@ -84,7 +106,7 @@ func TestGroupInfoRejectsPrivateScope(t *testing.T) {
 	accounts := &fakeAccounts{known: true}
 	invoke := groupTool(t, accounts)
 	ctx := pluginsapp.WithScope(context.Background(), pluginsapp.Scope{
-		BotID: 100, Kind: "private", TargetID: 200,
+		BotID: 100, Kind: contracts.ScopeKindPrivate, TargetID: 200,
 	})
 
 	out, err := invoke(ctx, "")
@@ -104,7 +126,7 @@ func TestGroupInfoRejectsPrivateScope(t *testing.T) {
 func TestGroupInfoMissingAccount(t *testing.T) {
 	invoke := groupTool(t, &fakeAccounts{known: false})
 	ctx := pluginsapp.WithScope(context.Background(), pluginsapp.Scope{
-		BotID: 100, Kind: "group", TargetID: 700,
+		BotID: 100, Kind: contracts.ScopeKindGroup, TargetID: 700,
 	})
 
 	out, err := invoke(ctx, "")

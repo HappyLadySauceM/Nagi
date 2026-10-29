@@ -92,8 +92,9 @@ func (r *Registry) Register(ctx context.Context, provider contracts.ToolProvider
 	return nil
 }
 
-// validateDescriptor enforces the namespace and read-only contract.
-// validateDescriptor 强制命名空间与只读契约。
+// validateDescriptor enforces the namespace, read-only, risk level and scope
+// kind contract.
+// validateDescriptor 强制命名空间、只读、风险级别与会话类型契约。
 func validateDescriptor(descriptor contracts.ToolDescriptor) error {
 	if !strings.Contains(descriptor.ID, ".") {
 		return fmt.Errorf("tool id %q must be namespaced", descriptor.ID)
@@ -104,12 +105,35 @@ func validateDescriptor(descriptor contracts.ToolDescriptor) error {
 	if descriptor.SideEffect && descriptor.ReadOnly {
 		return fmt.Errorf("tool %q cannot be read-only and have side effects", descriptor.ID)
 	}
+	// An unknown risk level would bypass the read/write policy checks below;
+	// reject it so a typo cannot weaken the declared impact.
+	// 未知风险级别会绕过下面的读写策略校验；
+	// 直接拒绝，避免拼写错误削弱声明的影响级别。
+	switch descriptor.RiskLevel {
+	case "", contracts.RiskRead, contracts.RiskWrite, contracts.RiskAdmin:
+	default:
+		return fmt.Errorf("tool %q has invalid risk level %q", descriptor.ID, descriptor.RiskLevel)
+	}
+	// A read risk level on a side-effecting tool would let the policy treat it
+	// as safe; reject the contradiction instead of guessing.
+	// 有副作用的工具标注只读风险会被策略当成安全工具；
+	// 直接拒绝矛盾描述符，而不是猜测意图。
+	if descriptor.RiskLevel == contracts.RiskRead && !descriptor.ReadOnly {
+		return fmt.Errorf("tool %q declares read risk but is not read-only", descriptor.ID)
+	}
+	for _, kind := range descriptor.ScopeKinds {
+		if kind != contracts.ScopeKindPrivate && kind != contracts.ScopeKindGroup {
+			return fmt.Errorf("tool %q has invalid scope kind %q", descriptor.ID, kind)
+		}
+	}
 	return nil
 }
 
-// Snapshot returns the registered tools; callers receive their own slice so a
-// run can never observe a later mutation.
-// Snapshot 返回已注册工具；调用方得到独立切片，运行期间不会看到后续修改。
+// Snapshot returns the registered tools. The returned slice is independent, so
+// replacing entries cannot affect the registry, but each descriptor still shares
+// its ScopeKinds backing array with the registered copy.
+// Snapshot 返回已注册工具。返回的切片本身独立，替换元素不会影响注册表，
+// 但每个描述符的 ScopeKinds 底层数组仍与注册时的副本共享。
 func (r *Registry) Snapshot() []contracts.RegisteredTool {
 	out := make([]contracts.RegisteredTool, len(r.tools))
 	copy(out, r.tools)

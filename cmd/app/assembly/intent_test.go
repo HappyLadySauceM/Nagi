@@ -1,10 +1,14 @@
-// Tests for the tool resolver wiring: permission filtering, call budget and
-// run reporting happen in one place, so the assembly is worth testing directly.
-// 工具解析装配的测试：权限过滤、调用预算与运行上报集中在一处，因此直接测试装配层。
+// Tests for the tool resolver wiring: scope and permission filtering, call
+// budget and run reporting happen in one place, so the assembly is worth
+// testing directly.
+// 工具解析装配的测试：会话类型与权限过滤、调用预算与运行上报集中在一处，
+// 因此直接测试装配层。
 package assembly
 
 import (
 	"context"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -12,8 +16,10 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
+	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -105,5 +111,102 @@ func TestBuildToolsResolverFiltersAndBudgets(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].ToolID != "test.read" || runs[0].Status != pluginsapp.StatusOK {
 		t.Fatalf("reported runs = %+v", runs)
+	}
+}
+
+// exposedToolNames returns the model-facing names of the resolved tools.
+// exposedToolNames 返回解析后工具在模型侧的命名。
+func exposedToolNames(t *testing.T, exposed []tool.BaseTool) []string {
+	t.Helper()
+	names := make([]string, 0, len(exposed))
+	for _, base := range exposed {
+		info, err := base.Info(context.Background())
+		if err != nil {
+			t.Fatalf("tool info: %v", err)
+		}
+		names = append(names, info.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TestToolScopeKindsMatchDomainKinds pins the plugin scope kinds to the
+// conversation and scope domain values they are compared against at runtime.
+// TestToolScopeKindsMatchDomainKinds 固定插件会话类型与运行时比较的
+// conversation/scope 领域取值一致。
+func TestToolScopeKindsMatchDomainKinds(t *testing.T) {
+	if plugincontracts.ScopeKindPrivate != string(conversationdomain.KindPrivate) ||
+		plugincontracts.ScopeKindGroup != string(conversationdomain.KindGroup) {
+		t.Fatalf("plugin kinds %q/%q do not match conversation kinds %q/%q",
+			plugincontracts.ScopeKindPrivate, plugincontracts.ScopeKindGroup,
+			conversationdomain.KindPrivate, conversationdomain.KindGroup)
+	}
+	if plugincontracts.ScopeKindPrivate != string(scopedomain.ScopePrivate) ||
+		plugincontracts.ScopeKindGroup != string(scopedomain.ScopeGroup) {
+		t.Fatalf("plugin kinds %q/%q do not match scope kinds %q/%q",
+			plugincontracts.ScopeKindPrivate, plugincontracts.ScopeKindGroup,
+			scopedomain.ScopePrivate, scopedomain.ScopeGroup)
+	}
+}
+
+// TestBuildToolsResolverFiltersByConversationKind verifies a group-only tool is
+// hidden from private runs while tools without ScopeKinds keep their previous
+// visibility in both kinds. An empty kind stays fail-closed for restricted
+// tools.
+// TestBuildToolsResolverFiltersByConversationKind 验证仅群聊可用的工具在私聊运行中
+// 被隐藏，而省略 ScopeKinds 的工具在两种会话中都保持原有可见性；
+// 空会话类型对限定范围的工具保持关闭式失败。
+func TestBuildToolsResolverFiltersByConversationKind(t *testing.T) {
+	registry := pluginsapp.NewRegistry([]string{"test.fake"})
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{
+		{
+			Descriptor: plugincontracts.ToolDescriptor{
+				ID: "system.current_time", Description: "时间", ReadOnly: true,
+			},
+			Invoke: func(context.Context, string) (string, error) { return "ok", nil },
+		},
+		{
+			Descriptor: plugincontracts.ToolDescriptor{
+				ID: "qq.get_group_info", Description: "群信息", ReadOnly: true,
+				Permission: "qq.group.read",
+				ScopeKinds: []string{plugincontracts.ScopeKindGroup},
+			},
+			Invoke: func(context.Context, string) (string, error) { return "group", nil },
+		},
+	}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+
+	cfg := &config.Config{}
+	resolver := buildToolsResolver(cfg, registry)
+
+	cases := []struct {
+		name string
+		kind string
+		want []string
+	}{
+		{
+			name: "private hides group tools",
+			kind: plugincontracts.ScopeKindPrivate,
+			want: []string{"system_current_time"},
+		},
+		{
+			name: "group exposes group tools",
+			kind: plugincontracts.ScopeKindGroup,
+			want: []string{"qq_get_group_info", "system_current_time"},
+		},
+		{
+			name: "empty kind hides group tools",
+			kind: "",
+			want: []string{"system_current_time"},
+		},
+	}
+	for _, tc := range cases {
+		got := exposedToolNames(t, resolver(context.Background(), agentcontracts.Request{Kind: tc.kind}))
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%s: exposed tools = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

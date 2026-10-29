@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
@@ -110,6 +111,88 @@ func TestRegistryRejectsInvalidDescriptors(t *testing.T) {
 		if provider.closed != 1 {
 			t.Fatalf("%s: provider must be closed on failure", name)
 		}
+	}
+}
+
+// TestRegistryRejectsContradictoryRiskLevel verifies a tool that claims read
+// risk while not being read-only fails registration instead of being treated as
+// safe.
+// TestRegistryRejectsContradictoryRiskLevel 验证标注只读风险却不是只读的工具
+// 会注册失败，而不是被当成安全工具。
+func TestRegistryRejectsContradictoryRiskLevel(t *testing.T) {
+	registry := NewRegistry([]string{"builtin.time"})
+	provider := &fakeProvider{
+		manifest: contracts.Manifest{ID: "builtin.time"},
+		tools: []contracts.RegisteredTool{{
+			Descriptor: contracts.ToolDescriptor{
+				ID: "qq.send_message", Description: "发送", RiskLevel: contracts.RiskRead,
+			},
+		}},
+	}
+	err := registry.Register(context.Background(), provider)
+	if err == nil {
+		t.Fatal("read risk with a writable tool must be rejected")
+	}
+	if !strings.Contains(err.Error(), "qq.send_message") {
+		t.Fatalf("error must name the tool: %v", err)
+	}
+	if provider.closed != 1 {
+		t.Fatal("provider must be closed on failure")
+	}
+}
+
+// TestRegistryRejectsInvalidRiskLevel verifies an unknown risk level fails
+// registration and the error reports the tool id and the bad value.
+// TestRegistryRejectsInvalidRiskLevel 验证未知风险级别会注册失败，
+// 且错误包含工具 ID 与非法值。
+func TestRegistryRejectsInvalidRiskLevel(t *testing.T) {
+	for _, level := range []contracts.RiskLevel{"raed", "READ"} {
+		registry := NewRegistry([]string{"builtin.time"})
+		provider := &fakeProvider{
+			manifest: contracts.Manifest{ID: "builtin.time"},
+			tools: []contracts.RegisteredTool{{
+				Descriptor: contracts.ToolDescriptor{
+					ID: "qq.send_message", Description: "发送", RiskLevel: level,
+				},
+			}},
+		}
+		err := registry.Register(context.Background(), provider)
+		if err == nil {
+			t.Fatalf("risk level %q must be rejected", level)
+		}
+		if !strings.Contains(err.Error(), "qq.send_message") || !strings.Contains(err.Error(), string(level)) {
+			t.Fatalf("risk level %q: error = %v, want tool id and invalid value", level, err)
+		}
+		if provider.closed != 1 {
+			t.Fatalf("risk level %q: provider must be closed on failure", level)
+		}
+	}
+}
+
+// TestRegistryRejectsInvalidScopeKinds verifies every declared scope kind must
+// be a supported kind, and the error reports the tool id and the bad value.
+// TestRegistryRejectsInvalidScopeKinds 验证声明的会话类型必须是受支持类型，
+// 且错误包含工具 ID 与非法值。
+func TestRegistryRejectsInvalidScopeKinds(t *testing.T) {
+	registry := NewRegistry([]string{"builtin.time"})
+	provider := &fakeProvider{
+		manifest: contracts.Manifest{ID: "builtin.time"},
+		tools: []contracts.RegisteredTool{{
+			Descriptor: contracts.ToolDescriptor{
+				ID: "qq.get_group_info", Description: "群信息", ReadOnly: true,
+				ScopeKinds: []string{contracts.ScopeKindGroup, "channel"},
+			},
+		}},
+	}
+	err := registry.Register(context.Background(), provider)
+	if err == nil {
+		t.Fatal("unknown scope kind must be rejected")
+	}
+	if !strings.Contains(err.Error(), "qq.get_group_info") || !strings.Contains(err.Error(), "channel") {
+		t.Fatalf("error = %v, want tool id and invalid kind", err)
+	}
+	if provider.closed != 1 {
+		t.Fatal("provider must be closed on failure")
 	}
 }
 
