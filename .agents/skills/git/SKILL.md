@@ -66,6 +66,13 @@ description: 在 Nagi 仓库提交、改写提交（amend/rebase/squash/cherry-p
 - PR 标题复用同一条提交信息格式；正文写清动机、影响面与验证方式。
 - 合并方式固定 Squash and merge，禁止 merge commit 与 rebase merge：优先开启自动合并
   `gh pr merge --auto --squash --delete-branch`。
+- squash 合并必须同时显式指定 subject 与 body，不用 `--auto` 代替：`--auto` 无法同时指定
+  subject，只给 `--squash` 时 GitHub 会把 PR 号追加成 `(#123)`，合入 `main` 的提交变成
+  `test(intent): 固定 P0 意图基线行为快照 (#5)` 这类不合规形态。命令写作
+  `gh pr merge <n> --squash --delete-branch --subject "<type>(<scope>): <description>" --body-file <文件>`，
+  subject 与 PR 标题逐字一致。
+- 合并后用 `git log -1 --format=%s` 核对 subject 是否逐字一致、不含 `(#`；不一致就说明
+  漏了 `--subject`，后续 merge 前补上。
 - 仓库未开启 auto-merge 或 auto-merge 不可用时，由 agent 自己跟踪检查状态，通过后立即
   手动执行 `gh pr merge --squash --delete-branch`，不要停在「PR 已创建」就结束。
 - 一条分支上的多个提交会被压成一个，PR 标题必须能独立概括整条分支；需要保留多个提交
