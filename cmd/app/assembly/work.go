@@ -214,6 +214,11 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 			return nil, ledgerErr
 		}
 		rt.Outbound = outboundRepo
+		policiesRepo, policyErr := outboundinfra.NewPoliciesRepo(pool)
+		if policyErr != nil {
+			return nil, policyErr
+		}
+		rt.SendingPolicies = policiesRepo
 		rulesRepo, rulesErr := intentinfra.NewRulesetsRepo(pool)
 		if rulesErr != nil {
 			return nil, rulesErr
@@ -259,11 +264,6 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				"count", len(toolRegistry.Snapshot()),
 				"providers", len(toolRegistry.Manifests()),
 				"enabled", cfg.Tools.Enabled)
-			policiesRepo, policyErr := outboundinfra.NewPoliciesRepo(pool)
-			if policyErr != nil {
-				return nil, policyErr
-			}
-			rt.SendingPolicies = policiesRepo
 			toolsResolver = buildToolsResolver(cfg, toolRegistry, func(ctx context.Context, botID int64, scopeType string, scopeID int64) (bool, bool) {
 				policy, exists, err := policiesRepo.Get(ctx, botID, scopeType, scopeID)
 				if err != nil {
@@ -275,7 +275,17 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				return policy.AllowSendCurrent, exists
 			})
 		}
-		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, ledger, toolsResolver)
+		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, ledger,
+			func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits {
+				if policy, exists, err := policiesRepo.Get(ctx, botID, kind, targetID); err == nil && exists {
+					return policy.Limits()
+				}
+				return outbounddomain.Limits{
+					MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
+					MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
+					MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
+				}
+			}, toolsResolver)
 		if executorErr != nil {
 			return nil, executorErr
 		}

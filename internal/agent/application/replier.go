@@ -64,29 +64,34 @@ type OutboundRecorder interface {
 // Options configure the replier.
 // Options 配置回复器。
 type Options struct {
-	Runtime   agentcontracts.Runtime
-	Scopes    scopecontracts.Authorizer
-	Senders   SenderResolver
-	Recorder  OutboundRecorder
-	Outbound  OutboundLedger
-	Sending   outbounddomain.Limits
-	BotName   string
-	MaxTokens int
-	Logger    *slog.Logger
+	Runtime  agentcontracts.Runtime
+	Scopes   scopecontracts.Authorizer
+	Senders  SenderResolver
+	Recorder OutboundRecorder
+	Outbound OutboundLedger
+	Sending  outbounddomain.Limits
+	// SendingLimits optionally overrides the budget per scope, e.g. from a
+	// persisted sending policy; nil keeps the static config.
+	// SendingLimits 可按作用域覆盖预算（例如来自持久化策略）；nil 时使用静态配置。
+	SendingLimits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits
+	BotName       string
+	MaxTokens     int
+	Logger        *slog.Logger
 }
 
 // Replier generates, checks, sends and records replies for intent decisions.
 // Replier 为意图决策生成、检查、发送并记录回复。
 type Replier struct {
-	runtime   agentcontracts.Runtime
-	scopes    scopecontracts.Authorizer
-	senders   SenderResolver
-	recorder  OutboundRecorder
-	outbound  OutboundLedger
-	sending   outbounddomain.Limits
-	botName   string
-	maxTokens int
-	logger    *slog.Logger
+	runtime       agentcontracts.Runtime
+	scopes        scopecontracts.Authorizer
+	senders       SenderResolver
+	recorder      OutboundRecorder
+	outbound      OutboundLedger
+	sending       outbounddomain.Limits
+	sendingLimits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits
+	botName       string
+	maxTokens     int
+	logger        *slog.Logger
 }
 
 // NewReplier validates dependencies and builds the replier.
@@ -101,7 +106,7 @@ func NewReplier(opts Options) (*Replier, error) {
 	}
 	return &Replier{
 		runtime: opts.Runtime, scopes: opts.Scopes, senders: opts.Senders,
-		recorder: opts.Recorder, outbound: opts.Outbound, sending: opts.Sending,
+		recorder: opts.Recorder, outbound: opts.Outbound, sending: opts.Sending, sendingLimits: opts.SendingLimits,
 		botName: opts.BotName, maxTokens: opts.MaxTokens, logger: opts.Logger,
 	}, nil
 }
@@ -256,7 +261,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		BotID:          task.BotID,
 		ConversationID: task.ConversationID,
 		Text:           reply,
-		Limits:         r.sending,
+		Limits:         r.limitsFor(ctx, task),
 	})
 	if err != nil {
 		var budget *outbounddomain.BudgetError
@@ -538,4 +543,13 @@ func toRuntimeMessages(messages []domain.ChatMessage) []agentcontracts.Message {
 		out = append(out, agentcontracts.Message{Role: message.Role, Content: message.Content})
 	}
 	return out
+}
+
+// limitsFor resolves the budget for one task, preferring a per-scope override.
+// limitsFor 解析单个任务的预算，优先使用按作用域覆盖。
+func (r *Replier) limitsFor(ctx context.Context, task intentdomain.Task) outbounddomain.Limits {
+	if r.sendingLimits == nil {
+		return r.sending
+	}
+	return r.sendingLimits(ctx, task.BotID, task.Kind, task.TargetID)
 }

@@ -231,6 +231,7 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	scope *scopeapp.Service, conv *conversationapp.Service, senders agentapp.SenderResolver,
 	handler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
+	limits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits,
 	tools func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool,
 ) (intentcontracts.ReplyExecutor, error) {
 	if !cfg.AI.Enabled || pool == nil || scope == nil || conv == nil {
@@ -269,9 +270,10 @@ func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Lo
 			MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
 			MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
 		},
-		BotName:   cfg.Intent.BotName,
-		MaxTokens: cfg.AI.MaxOutputTokens,
-		Logger:    logger,
+		SendingLimits: limits,
+		BotName:       cfg.Intent.BotName,
+		MaxTokens:     cfg.AI.MaxOutputTokens,
+		Logger:        logger,
 	})
 }
 
