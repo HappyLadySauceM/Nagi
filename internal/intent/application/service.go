@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -55,8 +56,17 @@ type ReplyExecutor = contracts.ReplyExecutor
 
 // Options configure the decider.
 // Options 配置决策器。
+// RulesProvider loads the published ruleset of one scope.
+// RulesProvider 加载某作用域已发布的规则集。
+type RulesProvider interface {
+	Active(ctx context.Context, botID int64, scopeType string, scopeID int64) (domain.Ruleset, bool, error)
+}
+
 type Options struct {
-	Semantic     SemanticDecider
+	Semantic SemanticDecider
+	// Rules is optional; without it the built-in ruleset applies.
+	// Rules 可选；未提供时使用内置规则。
+	Rules        RulesProvider
 	History      HistoryReader
 	Activity     ActivityReader // 可为 nil；nil 时退回历史推导 / may be nil; falls back to history
 	Scopes       scopecontracts.Authorizer
@@ -76,6 +86,7 @@ type Decider struct {
 	history      HistoryReader
 	activity     ActivityReader
 	semantic     SemanticDecider
+	rules        RulesProvider
 	recorder     DecisionRecorder
 	executor     ReplyExecutor
 	th           domain.Thresholds
@@ -96,7 +107,8 @@ func NewDecider(opts Options) (*Decider, error) {
 	}
 	return &Decider{
 		scopes: opts.Scopes, history: opts.History, activity: opts.Activity,
-		semantic: opts.Semantic, recorder: opts.Recorder, executor: opts.Executor,
+		semantic: opts.Semantic,
+		rules:    opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
 		th: opts.Thresholds, historyLimit: opts.HistoryLimit,
 		provider: opts.Provider, model: opts.Model, logger: opts.Logger,
 	}, nil
@@ -118,13 +130,14 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	}
 	in := domain.Input{Task: task, Recent: history, Activity: activity, Policy: policy, Now: time.Now()}
 
-	rule := d.applyRules(ctx, in)
+	rule, rulesetVersion := d.applyRules(ctx, in)
 	var semantic domain.SemanticAnswer
 	var latency int64
 	if rule.NeedSemantic && d.semantic != nil {
 		semantic, latency = d.decideSemantic(ctx, in)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
+	decision.RulesetVersion = rulesetVersion
 	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic)
 
 	if err := d.recorder.Record(ctx, task.JobID, decision); err != nil {
@@ -253,10 +266,23 @@ func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
 
 // applyRules evaluates the deterministic gate and records why it stopped.
 // applyRules 执行确定性规则闸门并记录其结论。
-func (d *Decider) applyRules(ctx context.Context, in domain.Input) domain.RuleResult {
+func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleResult, string) {
 	_, span := tracer().Start(ctx, "nagi.intent.rules")
 	defer span.End()
 	rule := EvaluateRules(in)
+	version := ""
+	// A published ruleset overlays the built-in gate; a load failure degrades to
+	// the built-in rules instead of blocking replies.
+	// 已发布规则叠加在内置闸门之上；读取失败时降级为内置规则，而不是阻塞回复。
+	if d.rules != nil {
+		set, ok, err := d.rules.Active(ctx, in.Task.BotID, string(in.Policy.ScopeType), in.Policy.ScopeID)
+		if err != nil {
+			d.logger.Warn("load ruleset failed; using built-in rules", "error", err, "job_id", in.Task.JobID)
+		} else if ok {
+			rule = ApplyRuleset(rule, in, set.Entries)
+			version = strconv.Itoa(set.Version)
+		}
+	}
 	span.SetAttributes(
 		attribute.Bool("nagi.rule_blocked", rule.Blocked),
 		attribute.Bool("nagi.rule_explicit", rule.Explicit),
@@ -270,8 +296,9 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) domain.RuleRe
 		"explicit":      rule.Explicit,
 		"need_semantic": rule.NeedSemantic,
 		"reason_code":   rule.ReasonCode,
+		"ruleset":       version,
 	})
-	return rule
+	return rule, version
 }
 
 // decideSemantic calls Jev inside its own span so the network latency, the

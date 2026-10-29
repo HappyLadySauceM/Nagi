@@ -28,6 +28,7 @@ import (
 	echoapp "github.com/HappyLadySauceM/Nagi/internal/echo/application"
 	echoinfra "github.com/HappyLadySauceM/Nagi/internal/echo/infrastructure"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
+	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
@@ -86,6 +87,9 @@ type Runtime struct {
 	// Decisions reads recorded intent decisions; nil until intent is enabled.
 	// Decisions 读取已记录的意图决策；intent 未启用时为 nil。
 	Decisions intentcontracts.DecisionReader
+	// Rulesets stores versioned intent rules; nil when the database is absent.
+	// Rulesets 存储版本化意图规则；未配置数据库时为 nil。
+	Rulesets *intentinfra.RulesetsRepo
 	// Stats may be nil when pool is nil.
 	// pool 为 nil 时 Stats 可为 nil。
 	Stats svc.StatsProvider
@@ -203,6 +207,11 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 		if ledgerErr != nil {
 			return nil, ledgerErr
 		}
+		rulesRepo, rulesErr := intentinfra.NewRulesetsRepo(pool)
+		if rulesErr != nil {
+			return nil, rulesErr
+		}
+		rt.Rulesets = rulesRepo
 		var toolsResolver func(context.Context, agentcontracts.Request) []tool.BaseTool
 		if cfg.AI.Enabled {
 			toolRegistry := pluginsapp.NewRegistry(cfg.Tools.Enabled)
@@ -253,7 +262,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 			handler := callbacks
 			rt.ShutdownLangfuse = func(ctx context.Context) error { return handler.Shutdown(ctx) }
 		}
-		worker, decisions, workerErr := buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor, identities)
+		worker, decisions, workerErr := buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
 		if workerErr != nil {
 			return nil, workerErr
 		}

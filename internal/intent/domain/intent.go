@@ -174,6 +174,14 @@ type RuleResult struct {
 	// AlwaysReply 为 true 表示该作用域的回复模式要求无条件回复，
 	// 不需要语义判定。
 	AlwaysReply bool
+	// ForceReply is set by a versioned rule whose action is "reply"; the reason
+	// comes from the rule, not from the built-in policy.
+	// ForceReply 由动作是 reply 的版本化规则设置；原因码来自规则本身，
+	// 而不是内置策略。
+	ForceReply bool
+	// ForceReason is the rule-supplied reason code; empty otherwise.
+	// ForceReason 是规则提供的原因码，其它情况为空。
+	ForceReason string
 }
 
 // Step phases recorded with every decision. The strings are stable because the

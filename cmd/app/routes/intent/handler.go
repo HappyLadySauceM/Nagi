@@ -35,6 +35,7 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/intent/decisions", h.List)
 	mux.HandleFunc("GET /api/v1/intent/decisions/{id}", h.Get)
+	h.RegisterRules(mux)
 }
 
 // decisionInfo is the list representation of one decision.

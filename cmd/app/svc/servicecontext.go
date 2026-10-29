@@ -15,6 +15,7 @@ import (
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
 	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
+	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
@@ -50,6 +51,9 @@ type ServiceContext struct {
 	// Decisions reads recorded intent decisions; nil when the pipeline is off.
 	// Decisions 读取已记录的意图决策；流水线关闭时为 nil。
 	Decisions intentcontracts.DecisionReader
+	// Rulesets reads and writes versioned intent rules; nil without a database.
+	// Rulesets 读写版本化意图规则；未配置数据库时为 nil。
+	Rulesets *intentinfra.RulesetsRepo
 }
 
 // KnownToolPermissions returns the permission identifiers declared by the

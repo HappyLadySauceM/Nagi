@@ -265,7 +265,7 @@ func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Lo
 // intent 启用时装配决策流水线与有界工作器。
 func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
-	identity *observability.Identities,
+	identity *observability.Identities, rules *intentinfra.RulesetsRepo,
 ) (*conversationinfra.Worker, intentcontracts.DecisionReader, error) {
 	if pool == nil {
 		return nil, nil, nil
@@ -306,6 +306,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		Activity: activityReader{svc: conv},
 		Scopes:   scope,
 		Recorder: decisionsRepo,
+		Rules:    rules,
 		Executor: executor,
 		Thresholds: intentdomain.Thresholds{
 			Continuation:      cfg.Intent.ContinuationThreshold,
