@@ -96,6 +96,7 @@ tools:
   #   qq.set_group_whole_ban 为全员禁言开关（权限 qq.group.admin.wholeban，可逆）
   # builtin.qq.profile: qq.set_group_card（名片，最多 30 字）与 qq.kick_group_member
   #   （移出群聊，不可撤销），分别需要 qq.group.admin.card / qq.group.admin.kick
+  #   qq.leave_current_group 让机器人退群（不可逆，权限 qq.group.admin.leave）
   enabled: [builtin.time, builtin.qq]
   # 按权限标识覆盖默认基线；未列出的权限保持兜底规则（只读允许、其余拒绝）。
   # 作用域策略中的 tool_permissions 优先级更高。

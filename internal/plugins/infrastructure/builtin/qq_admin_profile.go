@@ -18,6 +18,7 @@ import (
 type GroupProfiler interface {
 	SetGroupCard(ctx context.Context, groupID obdomain.GroupID, userID obdomain.UserID, card string) error
 	SetGroupKick(ctx context.Context, groupID obdomain.GroupID, userID obdomain.UserID, rejectAddRequest bool) error
+	SetGroupLeave(ctx context.Context, groupID obdomain.GroupID, dismiss bool) error
 }
 
 // ProfileAccountReader resolves the profiler of one account.
@@ -76,6 +77,19 @@ func (p profileProvider) Tools(context.Context) ([]contracts.RegisteredTool, err
 				Permission:  "qq.group.admin.kick",
 			},
 			Invoke: p.kick,
+		},
+		{
+			Descriptor: contracts.ToolDescriptor{
+				ID:          "qq.leave_current_group",
+				Description: "让机器人退出当前群聊；不可逆，退出后无法再读取或回复该群。仅在明确要求时使用",
+				Category:    contracts.CategoryGroup,
+				ScopeKinds:  []string{contracts.ScopeKindGroup},
+				RiskLevel:   contracts.RiskAdmin,
+				ReadOnly:    false,
+				SideEffect:  true,
+				Permission:  "qq.group.admin.leave",
+			},
+			Invoke: p.leave,
 		},
 	}, nil
 }
@@ -151,5 +165,27 @@ func (p profileProvider) kick(ctx context.Context, argumentsInJSON string) (stri
 		return "", fmt.Errorf("qq profile tool: %w", err)
 	}
 	payload, _ := json.Marshal(map[string]any{"user_id": args.UserID, "group_id": scope.TargetID, "kicked": true})
+	return string(payload), nil
+}
+
+// leave removes the bot from the current group; dismiss stays false so the
+// group itself is never dissolved.
+// leave 让机器人退出当前群；dismiss 固定为 false，绝不解散群。
+func (p profileProvider) leave(ctx context.Context, _ string) (string, error) {
+	scope, ok := pluginsapp.ScopeFrom(ctx)
+	if !ok {
+		return "", fmt.Errorf("qq profile tool: missing run scope")
+	}
+	if scope.Kind != contracts.ScopeKindGroup || scope.TargetID <= 0 {
+		return "error: 只能在群聊会话中退出本群", nil
+	}
+	writer, ok := p.accounts.GroupProfiler(scope.BotID)
+	if !ok {
+		return "error: 当前机器人账号不可用", nil
+	}
+	if err := writer.SetGroupLeave(ctx, obdomain.GroupID(scope.TargetID), false); err != nil {
+		return "", fmt.Errorf("qq profile tool: %w", err)
+	}
+	payload, _ := json.Marshal(map[string]any{"group_id": scope.TargetID, "left": true})
 	return string(payload), nil
 }
