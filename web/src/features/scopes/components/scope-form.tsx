@@ -9,7 +9,9 @@ import { Switch } from '../../../components/ui/switch'
 import {
   REPLY_MODE_HINTS,
   REPLY_MODE_LABELS,
+  SCOPE_TYPE_LABELS,
   type ReplyMode,
+  type ToolCatalogEntry,
   type ToolPermission,
   type ToolsCatalog,
 } from '../../../lib/api/contracts'
@@ -31,6 +33,7 @@ interface SwitchRowProps {
   disabled: boolean
   onChange: (checked: boolean) => void
   warning?: string
+  showWarningWhenUnchecked?: boolean
 }
 
 function SwitchRow({
@@ -41,7 +44,9 @@ function SwitchRow({
   disabled,
   onChange,
   warning,
+  showWarningWhenUnchecked = false,
 }: SwitchRowProps) {
+  const showWarning = (checked || showWarningWhenUnchecked) && Boolean(warning)
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border/60 py-3 last:border-b-0">
       <div className="min-w-0">
@@ -51,8 +56,11 @@ function SwitchRow({
         <p id={`${id}-hint`} className="mt-0.5 text-meta leading-relaxed text-muted-foreground">
           {description}
         </p>
-        {checked && warning ? (
-          <p className="mt-1.5 rounded-md border border-warning/25 bg-warning/10 px-2 py-1 text-meta leading-relaxed text-warning">
+        {showWarning ? (
+          <p
+            id={`${id}-warning`}
+            className="mt-1.5 rounded-md border border-warning/25 bg-warning/10 px-2 py-1 text-meta leading-relaxed text-warning"
+          >
             {warning}
           </p>
         ) : null}
@@ -62,7 +70,7 @@ function SwitchRow({
         checked={checked}
         disabled={disabled}
         onCheckedChange={onChange}
-        aria-describedby={`${id}-hint`}
+        aria-describedby={showWarning ? `${id}-hint ${id}-warning` : `${id}-hint`}
       />
     </div>
   )
@@ -129,7 +137,11 @@ function Section({
 interface ScopeFormProps {
   form: UseFormReturn<ScopeFormValues>
   disabled?: boolean
-  /** Registered tools of the running process; undefined hides the section. */
+  /**
+   * Tools registered at startup, filtered by the edited scope kind; undefined
+   * hides the section.
+   * 启动时注册成功的工具，已按当前编辑的会话类型过滤；未加载时隐藏该区块。
+   */
   catalog?: ToolsCatalog
 }
 
@@ -143,6 +155,20 @@ function grantedPermission(
   overrides: Record<string, boolean>,
 ): boolean {
   return overrides[permission.id] ?? permission.defaultGranted
+}
+
+/**
+ * Explains why a tool is not usable in the scope being edited.
+ * 说明工具在当前编辑的作用域中为何不可用。
+ */
+function unavailableLabel(tool: ToolCatalogEntry): string {
+  if (tool.unavailableReason === 'scope_kind_mismatch') {
+    const labels = tool.scopeKinds.map((kind) => SCOPE_TYPE_LABELS[kind])
+    if (labels.length > 0) {
+      return `仅适用于${labels.join('、')}`
+    }
+  }
+  return '不适用于当前会话'
 }
 
 export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormProps) {
@@ -243,7 +269,16 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
           {catalog.permissions.map((permission) => {
             const tools = catalog.tools.filter((tool) => permission.tools.includes(tool.id))
             const blocked = !catalog.allowSideEffects && tools.some((tool) => tool.sideEffect)
-            const descriptions = tools.map((tool) => tool.description || tool.id).join('；')
+            const unavailable = tools.filter((tool) => !tool.applicable)
+            const allUnavailable = tools.length > 0 && unavailable.length === tools.length
+            const unavailableReasons = [...new Set(unavailable.map(unavailableLabel))]
+            const descriptions = tools
+              .map((tool) => {
+                const label = tool.description || tool.id
+                return tool.applicable ? label : `${label}（${unavailableLabel(tool)}）`
+              })
+              .join('；')
+            const granted = grantedPermission(permission, overrides)
             return (
               <SwitchRow
                 key={permission.id}
@@ -254,15 +289,23 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
                     permission.defaultGranted ? '默认允许' : '默认拒绝'
                   }`
                 }
-                checked={grantedPermission(permission, overrides)}
-                disabled={disabled || blocked}
+                checked={granted}
+                // Revoking a default-allowed capability that no longer applies
+                // persists an explicit false override, and this dialog then
+                // disables the switch, so it cannot be re-enabled here.
+                // 撤销「默认允许但当前不适用」的能力会写入显式 false 覆盖；
+                // 本对话框随即禁用开关，因此本会话内无法再开启。
+                disabled={disabled || blocked || (allUnavailable && !granted)}
                 onChange={(next) => togglePermission(permission, next)}
+                showWarningWhenUnchecked={allUnavailable || blocked}
                 warning={
-                  blocked
-                    ? '该能力包含有副作用的工具，当前版本未启用副作用工具，无法在此授权。'
-                    : !permission.defaultGranted && grantedPermission(permission, overrides)
-                      ? '开启后模型可在该会话调用对应工具；撤销前请确认影响范围。'
-                      : undefined
+                  allUnavailable
+                    ? `该能力${unavailableReasons.join('、')}，当前会话无法授权。`
+                    : blocked
+                      ? '该能力包含有副作用的工具，当前版本未启用副作用工具，无法在此授权。'
+                      : !permission.defaultGranted && granted
+                        ? '开启后模型可在该会话调用对应工具；撤销前请确认影响范围。'
+                        : undefined
                 }
               />
             )

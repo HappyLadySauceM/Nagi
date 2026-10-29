@@ -71,7 +71,7 @@ export function ScopeEditDialog({
   savedPolicy,
 }: ScopeEditDialogProps) {
   const scope = useScope(botId, scopeType, scopeId)
-  const tools = useToolsCatalog()
+  const tools = useToolsCatalog(scopeType)
   const save = useSaveScope()
   const remove = useDeleteScope()
 

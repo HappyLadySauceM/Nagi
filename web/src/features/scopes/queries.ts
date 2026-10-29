@@ -24,16 +24,19 @@ export function useScopeIndex(botId: number | undefined) {
 }
 
 /**
- * Catalogue of tools registered at startup. A 503 means the tool subsystem is
- * disabled; the dialog then hides the capability section instead of failing.
- * 启动时注册成功的工具清单。503 表示工具子系统未启用；
+ * Catalogue of tools registered at startup, filtered by the edited scope kind.
+ * A 503 means the tool subsystem is disabled; the dialog then hides the
+ * capability section instead of failing.
+ * 启动时注册成功的工具清单，按当前编辑的会话类型过滤。503 表示工具子系统未启用；
  * 此时对话框隐藏能力区块，而不是整体失败。
  */
-export function useToolsCatalog() {
+export function useToolsCatalog(scopeKind: ScopeType) {
   return useQuery({
-    queryKey: queryKeys.toolsCatalog,
+    queryKey: queryKeys.toolsCatalog(scopeKind),
     queryFn: ({ signal }) =>
-      apiRequest('/api/v1/tools', { signal }).then(toToolsCatalog),
+      apiRequest(`/api/v1/tools${toQueryString({ scope_kind: scopeKind })}`, { signal }).then(
+        toToolsCatalog,
+      ),
     staleTime: 5 * 60_000,
     retry: false,
   })
