@@ -3,11 +3,12 @@ import {
   BrainCircuit,
   LayoutDashboard,
   ScrollText,
+  SlidersHorizontal,
   Users,
   type LucideIcon,
 } from 'lucide-react'
 
-export type NavPath = '/dashboard' | '/directory' | '/decisions' | '/accounts' | '/memories'
+export type NavPath = '/dashboard' | '/directory' | '/decisions' | '/rules' | '/accounts' | '/memories'
 
 export interface NavItem {
   to: NavPath
@@ -38,6 +39,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/memories', label: '知识与记忆', hint: '候选、审批与可见性', icon: BrainCircuit },
       { to: '/decisions', label: '决策记录', hint: '为什么回复或沉默', icon: ScrollText },
+      { to: '/rules', label: '意图规则', hint: '版本化规则与模拟', icon: SlidersHorizontal },
     ],
   },
   {

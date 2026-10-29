@@ -308,3 +308,52 @@ export const DECISION_PHASE_LABELS: Record<string, string> = {
   semantic: '语义',
   final: '结论',
 }
+
+export type RuleActionType = 'reply' | 'silent' | 'require_semantic'
+
+export interface RuleMatch {
+  replyMode?: string
+  kind?: string
+  explicit?: boolean
+  textContains?: string
+  minSecondsSinceReply?: number
+}
+
+export interface RuleEntry {
+  priority: number
+  match: RuleMatch
+  action: { type: RuleActionType; reasonCode: string }
+}
+
+export interface Ruleset {
+  id: number
+  botId: number
+  scopeType: ScopeType
+  scopeId: number
+  version: number
+  status: 'draft' | 'published' | 'archived'
+  note: string
+  entries: RuleEntry[]
+}
+
+export interface RuleSimulation {
+  blocked: boolean
+  explicit: boolean
+  needSemantic: boolean
+  alwaysReply: boolean
+  forceReply: boolean
+  reasonCode: string
+  rulesetVersion: string
+}
+
+export const RULE_ACTION_LABELS: Record<RuleActionType, string> = {
+  reply: '强制回复',
+  silent: '强制沉默',
+  require_semantic: '要求语义判定',
+}
+
+export const RULESET_STATUS_LABELS: Record<Ruleset['status'], string> = {
+  draft: '草稿',
+  published: '已发布',
+  archived: '已归档',
+}
