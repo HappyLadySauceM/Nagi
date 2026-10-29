@@ -34,9 +34,11 @@ export const queryKeys = {
   scope: (botId: number | undefined, scopeType: ScopeType, scopeId: number) =>
     ['scopes', 'detail', botId ?? null, scopeType, scopeId] as const,
   memories: (params: MemoryParams) => ['memories', 'list', params] as const,
-  // The tool registry is process-wide, so its key carries no account id.
-  // 工具注册表属于进程级数据，因此 key 不带账号。
-  toolsCatalog: ['tools', 'catalog'] as const,
+  // The tool registry is process-wide, but applicability depends on the
+  // requested scope kind, so that kind is part of the key.
+  // 工具注册表属于进程级数据，但适用性取决于请求的会话类型，
+  // 因此 key 带上该类型。
+  toolsCatalog: (scopeKind: ScopeType) => ['tools', 'catalog', scopeKind] as const,
 } as const
 
 /** Keys invalidated after a directory sync; members refresh separately. */

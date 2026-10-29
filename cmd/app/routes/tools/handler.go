@@ -5,11 +5,18 @@ package tools
 import (
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
+
+// unavailableScopeKindMismatch is the stable reason returned when a tool does
+// not apply to the requested conversation kind.
+// unavailableScopeKindMismatch 是工具不适用于请求会话类型时返回的稳定原因。
+const unavailableScopeKindMismatch = "scope_kind_mismatch"
 
 // Handler serves the tool catalog endpoint.
 // Handler 提供工具清单接口。
@@ -29,16 +36,31 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/tools", h.List)
 }
 
-// toolInfo describes one registered tool, including its default grant state.
-// toolInfo 描述单个已注册工具，包含其默认授予状态。
+// toolInfo describes one registered tool, including its default grant state
+// and, when a scope kind was requested, whether it applies to that kind.
+// toolInfo 描述单个已注册工具，包含其默认授予状态；
+// 请求带会话类型时，还包含该工具是否适用于该类型。
 type toolInfo struct {
-	ID             string
-	Provider       string
-	Description    string
-	ReadOnly       bool
-	SideEffect     bool
-	Permission     string
+	ID          string
+	Provider    string
+	Description string
+	Category    string
+	ScopeKinds  []string
+	RiskLevel   contracts.RiskLevel
+	ReadOnly    bool
+	SideEffect  bool
+	Permission  string
+	// DefaultGranted mirrors the runtime resolution for this tool.
+	// DefaultGranted 对应该工具的运行时授予结果。
 	DefaultGranted bool
+	// Applicable is true when the tool applies to the requested scope kind, and
+	// always true for requests without scope_kind.
+	// Applicable 表示工具是否适用于请求的会话类型；未指定会话类型时恒为 true。
+	Applicable bool
+	// UnavailableReason is empty when applicable, otherwise a stable
+	// machine-readable code such as scope_kind_mismatch.
+	// UnavailableReason 在适用时为空串，否则为 scope_kind_mismatch 等稳定机器码。
+	UnavailableReason string
 }
 
 // permissionInfo groups the tools that require one permission.
@@ -58,11 +80,31 @@ type catalog struct {
 	AllowSideEffects bool
 }
 
+// scopeKindFilter validates the optional scope_kind query parameter; an empty
+// value means "no filtering".
+// scopeKindFilter 校验可选的 scope_kind 查询参数；空值表示不过滤。
+func scopeKindFilter(raw string) (string, bool) {
+	kind := strings.TrimSpace(raw)
+	switch kind {
+	case "":
+		return "", true
+	case contracts.ScopeKindPrivate, contracts.ScopeKindGroup:
+		return kind, true
+	default:
+		return "", false
+	}
+}
+
 // List returns the tools that were actually registered at startup. Default
 // grants mirror runtime resolution, so the UI never needs to duplicate rules.
 // List 返回启动时真正注册成功的工具。默认授予与运行时解析一致，
 // 界面因此无需重复实现规则。
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	scopeKind, ok := scopeKindFilter(r.URL.Query().Get("scope_kind"))
+	if !ok {
+		common.WriteFailure(w, http.StatusBadRequest, "unsupported scope_kind; use private or group")
+		return
+	}
 	registry := h.svcCtx.Tools
 	if registry == nil {
 		// Without AI generation no tool is reachable; an empty catalog would
@@ -89,14 +131,27 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	byPermission := make(map[string]*permissionInfo)
 	for _, registered := range snapshot {
 		descriptor := registered.Descriptor
+		applicable := true
+		unavailableReason := ""
+		if scopeKind != "" {
+			applicable = descriptor.AppliesTo(scopeKind)
+			if !applicable {
+				unavailableReason = unavailableScopeKindMismatch
+			}
+		}
 		out.Tools = append(out.Tools, toolInfo{
-			ID:             descriptor.ID,
-			Provider:       registered.ProviderID,
-			Description:    descriptor.Description,
-			ReadOnly:       descriptor.ReadOnly,
-			SideEffect:     descriptor.SideEffect,
-			Permission:     descriptor.Permission,
-			DefaultGranted: pluginsapp.Allowed(descriptor, granted, allowSideEffects),
+			ID:                descriptor.ID,
+			Provider:          registered.ProviderID,
+			Description:       descriptor.Description,
+			Category:          descriptor.Category,
+			ScopeKinds:        append([]string{}, descriptor.ScopeKinds...),
+			RiskLevel:         descriptor.EffectiveRiskLevel(),
+			ReadOnly:          descriptor.ReadOnly,
+			SideEffect:        descriptor.SideEffect,
+			Permission:        descriptor.Permission,
+			DefaultGranted:    pluginsapp.Allowed(descriptor, granted, allowSideEffects),
+			Applicable:        applicable,
+			UnavailableReason: unavailableReason,
 		})
 		if descriptor.Permission == "" {
 			continue

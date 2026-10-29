@@ -147,10 +147,32 @@ export interface ToolCatalogEntry {
   id: string
   provider: string
   description: string
+  category: string
+  /** Conversation kinds the tool applies to; empty means every kind. */
+  scopeKinds: ScopeType[]
+  /**
+   * Graded impact of the tool; empty when the backend omits it or reports a
+   * level this build does not know yet. The field is informational, so an
+   * unfamiliar value must not fail the catalogue.
+   * 工具的影响级别；后端省略该字段或下发本版本未知的级别时为空串。
+   * 该字段仅用于展示，未知取值不应让清单加载失败。
+   */
+  riskLevel: 'read' | 'write' | 'admin' | ''
   readOnly: boolean
   sideEffect: boolean
   permission: string
   defaultGranted: boolean
+  /**
+   * False when the catalogue was requested for a scope kind this tool does not
+   * apply to. Legacy backends omit the field, which reads as true.
+   * 工具不适用于请求的会话类型时为 false；旧后端不返回该字段时按 true 处理。
+   */
+  applicable: boolean
+  /**
+   * Stable machine-readable reason when `applicable` is false; empty otherwise.
+   * `applicable` 为 false 时的稳定机器可读原因，其余情况为空串。
+   */
+  unavailableReason: string
 }
 
 /** One permission shared by one or more tools. */
