@@ -14,10 +14,11 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
-// GroupBanner performs the mute call.
-// GroupBanner 执行禁言调用。
+// GroupBanner performs the moderation calls.
+// GroupBanner 执行管理调用。
 type GroupBanner interface {
 	SetGroupBan(ctx context.Context, groupID obdomain.GroupID, userID obdomain.UserID, durationSeconds int64) error
+	SetGroupWholeBan(ctx context.Context, groupID obdomain.GroupID, enable bool) error
 }
 
 // AdminAccountReader resolves the moderation surface of one account.
@@ -61,6 +62,18 @@ func (p adminProvider) Tools(context.Context) ([]contracts.RegisteredTool, error
 			Permission:  "qq.group.admin.mute",
 		},
 		Invoke: p.mute,
+	}, {
+		Descriptor: contracts.ToolDescriptor{
+			ID:          "qq.set_group_whole_ban",
+			Description: "开启或关闭当前群的全员禁言；参数 enable 为 true 开启、false 关闭。可逆操作，但会影响所有成员",
+			Category:    contracts.CategoryGroup,
+			ScopeKinds:  []string{contracts.ScopeKindGroup},
+			RiskLevel:   contracts.RiskAdmin,
+			ReadOnly:    false,
+			SideEffect:  true,
+			Permission:  "qq.group.admin.wholeban",
+		},
+		Invoke: p.wholeBan,
 	}}, nil
 }
 
@@ -111,5 +124,36 @@ func (p adminProvider) mute(ctx context.Context, argumentsInJSON string) (string
 	if err != nil {
 		return "", fmt.Errorf("qq admin tool: encode result: %w", err)
 	}
+	return string(payload), nil
+}
+
+// wholeBanArgs is the model-supplied payload.
+// wholeBanArgs 是模型提供的参数。
+type wholeBanArgs struct {
+	Enable bool `json:"enable"`
+}
+
+// wholeBan toggles the whole-group mute.
+// wholeBan 开启或关闭全员禁言。
+func (p adminProvider) wholeBan(ctx context.Context, argumentsInJSON string) (string, error) {
+	var args wholeBanArgs
+	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
+		return "error: 参数必须是 JSON 对象且包含 enable（布尔）", nil
+	}
+	scope, ok := pluginsapp.ScopeFrom(ctx)
+	if !ok {
+		return "", fmt.Errorf("qq admin tool: missing run scope")
+	}
+	if scope.Kind != contracts.ScopeKindGroup || scope.TargetID <= 0 {
+		return "error: 只能在群聊会话中管理本群", nil
+	}
+	writer, ok := p.accounts.GroupBanner(scope.BotID)
+	if !ok {
+		return "error: 当前机器人账号不可用", nil
+	}
+	if err := writer.SetGroupWholeBan(ctx, obdomain.GroupID(scope.TargetID), args.Enable); err != nil {
+		return "", fmt.Errorf("qq admin tool: %w", err)
+	}
+	payload, _ := json.Marshal(map[string]any{"group_id": scope.TargetID, "enabled": args.Enable})
 	return string(payload), nil
 }

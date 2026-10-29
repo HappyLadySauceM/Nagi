@@ -19,6 +19,13 @@ type banWriter struct {
 	duration int64
 	err      error
 	called   bool
+	wholeBan bool
+}
+
+func (b *banWriter) SetGroupWholeBan(_ context.Context, _ obdomain.GroupID, enable bool) error {
+	b.called = true
+	b.wholeBan = enable
+	return nil
 }
 
 func (b *banWriter) SetGroupBan(_ context.Context, groupID obdomain.GroupID, userID obdomain.UserID, durationSeconds int64) error {
@@ -31,13 +38,23 @@ type banAccounts struct{ writer *banWriter }
 
 func (a banAccounts) GroupBanner(int64) (GroupBanner, bool) { return a.writer, true }
 
-func muteTool(t *testing.T, writer *banWriter) contracts.RegisteredTool {
+func adminTool(t *testing.T, writer *banWriter, id string) contracts.RegisteredTool {
 	t.Helper()
 	tools, err := NewQQAdminProvider(banAccounts{writer: writer}).Tools(context.Background())
-	if err != nil || len(tools) != 1 {
-		t.Fatalf("tools: %v %d", err, len(tools))
+	if err != nil {
+		t.Fatalf("tools: %v", err)
 	}
-	return tools[0]
+	for _, tool := range tools {
+		if tool.Descriptor.ID == id {
+			return tool
+		}
+	}
+	t.Fatalf("tool %s not found", id)
+	return contracts.RegisteredTool{}
+}
+
+func muteTool(t *testing.T, writer *banWriter) contracts.RegisteredTool {
+	return adminTool(t, writer, "qq.mute_group_member")
 }
 
 func groupScope() context.Context {
@@ -92,5 +109,25 @@ func TestMuteToolPropagatesOneBotError(t *testing.T) {
 	writer := &banWriter{err: errors.New("no permission")}
 	if _, err := muteTool(t, writer).Invoke(groupScope(), `{"user_id":200,"duration_seconds":60}`); err == nil {
 		t.Fatal("expected the OneBot error to surface")
+	}
+}
+
+// TestWholeBanToolTogglesGroupMute verifies the whole-group mute switch and that
+// private scopes are rejected.
+// TestWholeBanToolTogglesGroupMute 验证全员禁言开关，并确认私聊作用域被拒绝。
+func TestWholeBanToolTogglesGroupMute(t *testing.T) {
+	writer := &banWriter{}
+	tool := adminTool(t, writer, "qq.set_group_whole_ban")
+	if _, err := tool.Invoke(groupScope(), `{"enable":true}`); err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if !writer.wholeBan {
+		t.Fatal("whole ban not enabled")
+	}
+	ctx := pluginsapp.WithScope(context.Background(), pluginsapp.Scope{
+		BotID: 100, JobID: 1, Kind: contracts.ScopeKindPrivate, TargetID: 200,
+	})
+	if out, _ := tool.Invoke(ctx, `{"enable":true}`); !strings.Contains(out, "只能在群聊") {
+		t.Fatalf("private out = %s", out)
 	}
 }
