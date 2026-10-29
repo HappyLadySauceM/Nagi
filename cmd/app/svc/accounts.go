@@ -204,3 +204,13 @@ func (a *Accounts) Snapshot() []AccountStatus {
 	}
 	return out
 }
+
+// GroupAdmin implements the moderation tools' account-scoped port.
+// GroupAdmin 实现管理工具所需的按账号解析端口。
+func (a *Accounts) GroupAdmin(botID int64) (obcontracts.GroupAdmin, bool) {
+	conn, ok := a.Lookup(botID)
+	if !ok {
+		return nil, false
+	}
+	return conn.Client, true
+}
