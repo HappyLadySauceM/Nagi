@@ -231,6 +231,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				builtin.NewTimeProvider(),
 				builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
 				builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry}),
+				builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry}),
 			}
 			if cfg.Tools.AllowSendCurrent {
 				providers = append(providers, replytool.NewProvider(replytool.Options{
@@ -396,6 +397,16 @@ func (r groupInfoResolver) GroupMemberReader(botID int64) (builtin.MemberInfoRea
 		return nil, false
 	}
 	return reader, true
+}
+
+// GroupBanner resolves the moderation surface of one account.
+// GroupBanner 解析单个账号的管理能力。
+func (r groupInfoResolver) GroupBanner(botID int64) (builtin.GroupBanner, bool) {
+	admin, ok := r.accounts.GroupAdmin(botID)
+	if !ok {
+		return nil, false
+	}
+	return admin, true
 }
 
 // replySenders adapts the account registry to the reply tool's narrow sender port.
