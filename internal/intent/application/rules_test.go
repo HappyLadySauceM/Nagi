@@ -133,6 +133,96 @@ func TestReplyPolicyContinuationAndInterjection(t *testing.T) {
 	}
 }
 
+// TestGroupAlwaysReplyFallsBackToJevUnavailable pins the current behavior of
+// group always_reply: without explicit addressing the rules neither pass an
+// explicit mention nor request semantics, so the policy treats the absent
+// semantic answer as jev_unavailable and stays silent. P4 makes always_reply a
+// real unconditional reply; update this test together with that change.
+// TestGroupAlwaysReplyFallsBackToJevUnavailable 固定群聊 always_reply 的当前行为：
+// 未被明确指向时，规则既不判定为明确指向也不请求语义判定，因此策略把缺失的语义
+// 回答视为 jev_unavailable 并保持沉默。P4 会把 always_reply 改为真正的无条件回复，
+// 届时同步修改本测试。
+func TestGroupAlwaysReplyFallsBackToJevUnavailable(t *testing.T) {
+	in := baseInput(scopedomain.ModeAlwaysReply)
+	rule := EvaluateRules(in)
+	if rule.Blocked || rule.Explicit || rule.NeedSemantic {
+		t.Fatalf("rules = %+v, want unblocked without explicit or semantic", rule)
+	}
+	// The pipeline only calls Jev when NeedSemantic is set, so the policy always
+	// sees an unavailable answer in this mode.
+	// 流水线仅在 NeedSemantic 置位时调用 Jev，因此该模式下策略只会看到不可用回答。
+	if d := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}, thresholds); d.Decision != domain.DecisionSilent || d.ReasonCode != "jev_unavailable" {
+		t.Fatalf("decision = %+v, want silent/jev_unavailable", d)
+	}
+
+	// Explicit addressing still replies in this mode.
+	// 明确指向在本模式下仍然回复。
+	in.Task.Segments = []obdomain.Segment{domainSegmentAt("100")}
+	rule = EvaluateRules(in)
+	if !rule.Explicit {
+		t.Fatalf("explicit mention should set Explicit: %+v", rule)
+	}
+	if d := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}, thresholds); d.Decision != domain.DecisionReply || d.ReasonCode != "explicit_mention" {
+		t.Fatalf("decision = %+v, want reply/explicit_mention", d)
+	}
+}
+
+// TestPrivateReplyModesShareTheSameDecision pins that private conversations
+// return early in both the rules gate and the reply policy, so intent_based,
+// always_reply and mention_only produce identical decisions whether or not the
+// bot is explicitly addressed. observe_only is excluded because it is blocked
+// before the private branch. P4 reintroduces private semantic judgment; update
+// this test together with that change.
+// TestPrivateReplyModesShareTheSameDecision 固定私聊在规则闸门与回复策略中均提前返回：
+// intent_based、always_reply 与 mention_only 无论是否明确指向机器人都产出相同决策。
+// observe_only 在进入私聊分支前已被拦截，因此不在比较范围内。P4 会重新引入私聊语义
+// 判定，届时同步修改本测试。
+func TestPrivateReplyModesShareTheSameDecision(t *testing.T) {
+	modes := []scopedomain.ReplyMode{
+		scopedomain.ModeIntentBased,
+		scopedomain.ModeAlwaysReply,
+		scopedomain.ModeMentionOnly,
+	}
+	for _, addressed := range []bool{false, true} {
+		name := "unaddressed"
+		if addressed {
+			name = "addressed"
+		}
+		t.Run(name, func(t *testing.T) {
+			var want domain.FinalDecision
+			for i, mode := range modes {
+				in := baseInput(mode)
+				in.Task.Kind = "private"
+				in.Task.TargetID = 200
+				in.Policy.ScopeType = scopedomain.ScopePrivate
+				in.Policy.ScopeID = 200
+				if addressed {
+					in.Task.Segments = []obdomain.Segment{domainSegmentAt("100")}
+				}
+				rule := EvaluateRules(in)
+				if rule.Blocked || rule.NeedSemantic {
+					t.Fatalf("mode %s: rules = %+v, want unblocked without semantic", mode, rule)
+				}
+				got := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}, thresholds)
+				if i == 0 {
+					want = got
+					wantReason := "private_direct"
+					if addressed {
+						wantReason = "explicit_mention"
+					}
+					if want.Decision != domain.DecisionReply || want.ReasonCode != wantReason {
+						t.Fatalf("mode %s: decision = %+v, want reply/%s", mode, want, wantReason)
+					}
+					continue
+				}
+				if got.Decision != want.Decision || got.ReasonCode != want.ReasonCode {
+					t.Fatalf("mode %s: decision = %+v, want same as %s: reply/%s", mode, got, modes[0], want.ReasonCode)
+				}
+			}
+		})
+	}
+}
+
 // TestReplyPolicyPrivateDirect verifies that private chats reply without semantics.
 // TestReplyPolicyPrivateDirect 验证私聊无需语义判定直接回复。
 func TestReplyPolicyPrivateDirect(t *testing.T) {
