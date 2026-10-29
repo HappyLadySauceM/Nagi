@@ -89,7 +89,8 @@ agent:
 tools:
   # 启用的工具提供方 ID；为空时不向模型暴露任何工具。
   # 写错 ID 会导致启动失败，错误信息会列出已知提供方。
-  # builtin.time: system.current_time；builtin.qq: qq.get_group_info（仅当前群）
+  # builtin.time: system.current_time；builtin.qq: qq.get_group_info（仅当前群）；
+  # builtin.qq.member: qq.get_group_member_info（仅当前群，只读）
   enabled: [builtin.time, builtin.qq]
   # 按权限标识覆盖默认基线；未列出的权限保持兜底规则（只读允许、其余拒绝）。
   # 作用域策略中的 tool_permissions 优先级更高。

@@ -230,6 +230,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 			providers := []pluginscontracts.ToolProvider{
 				builtin.NewTimeProvider(),
 				builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
+				builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry}),
 			}
 			if cfg.Tools.AllowSendCurrent {
 				providers = append(providers, replytool.NewProvider(replytool.Options{
@@ -379,6 +380,17 @@ type groupInfoResolver struct {
 // GroupInfoReader resolves the query client of one account.
 // GroupInfoReader 解析单个账号的查询客户端。
 func (r groupInfoResolver) GroupInfoReader(botID int64) (builtin.GroupInfoReader, bool) {
+	reader, ok := r.accounts.InfoReader(botID)
+	if !ok {
+		return nil, false
+	}
+	return reader, true
+}
+
+// GroupMemberReader resolves the member reader of one account; the same
+// InfoReader backs both group and member queries.
+// GroupMemberReader 解析单个账号的成员读取器；群信息与成员查询共用同一个 InfoReader。
+func (r groupInfoResolver) GroupMemberReader(botID int64) (builtin.MemberInfoReader, bool) {
 	reader, ok := r.accounts.InfoReader(botID)
 	if !ok {
 		return nil, false
