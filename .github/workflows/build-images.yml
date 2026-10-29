@@ -7,10 +7,12 @@ on:
       - "cmd/**"
       - "internal/**"
       - "pkg/**"
+      - "migrations/**"
       - "web/**"
       - "go.mod"
       - "go.sum"
       - "Dockerfile"
+      - ".dockerignore"
       - ".github/workflows/build-images.yml"
   workflow_dispatch:
 
@@ -25,7 +27,56 @@ env:
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
+  # 按镜像维度判定变更来源：只有对应代码变化时才重建该镜像，
+  # 避免 web 改动顺带推一个没变的 api 镜像、让 Image Updater 白滚一次。
+  changes:
+    runs-on: hls-standard
+    permissions:
+      contents: read
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+      images: ${{ steps.matrix.outputs.images }}
+    steps:
+      # push 到主分支时 paths-filter 用 git diff 对比 push 前的提交，需要完整历史。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # workflow_dispatch 没有可比对的 base，跳过判定，由下一步按全量处理。
+      # 只改本工作流时两个 filter 都不命中：不重建镜像，构建链路靠 workflow_dispatch 验证。
+      - if: github.event_name != 'workflow_dispatch'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            api:
+              - "cmd/**"
+              - "internal/**"
+              - "pkg/**"
+              - "migrations/**"
+              - "go.mod"
+              - "go.sum"
+              - "Dockerfile"
+              - ".dockerignore"
+            web:
+              - "web/**"
+
+      - name: 汇总待构建镜像
+        id: matrix
+        env:
+          EVENT: ${{ github.event_name }}
+          CHANGED: ${{ steps.filter.outputs.changes }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo 'images=["api","web"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "images=${CHANGED:-[]}" >> "$GITHUB_OUTPUT"
+          fi
+
   verify:
+    needs: changes
     runs-on: hls-builder
     steps:
       - uses: actions/checkout@v7
@@ -45,6 +96,7 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
 
       - name: Go 校验
+        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
         run: |
           set -euo pipefail
           go env -w GOPROXY=https://goproxy.cn,direct
@@ -52,6 +104,7 @@ jobs:
           git diff --exit-code
 
       - name: 前端依赖与测试
+        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
         working-directory: web
         run: |
           set -euo pipefail
@@ -62,17 +115,20 @@ jobs:
           pnpm build
 
       - name: 编译二进制
+        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
         run: |
           set -euo pipefail
           go build -trimpath -ldflags="-s -w" -o bin/nagi ./cmd
 
       - uses: actions/upload-artifact@v7
+        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
         with:
           name: nagi-api
           path: bin/nagi
           retention-days: 1
 
       - uses: actions/upload-artifact@v7
+        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
         with:
           name: nagi-web
           path: web/dist
@@ -80,7 +136,9 @@ jobs:
 
   build:
     name: Build Nagi-${{ matrix.name }}
-    needs: verify
+    needs: [changes, verify]
+    # 只跑变更过的镜像；images 为空时整体跳过（job 级 if 不认 matrix，故用动态矩阵）。
+    if: needs.changes.outputs.images != '[]'
     runs-on: hls-builder
     permissions:
       contents: read
@@ -88,13 +146,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: api
-            context: .
-            dockerfile: Dockerfile
-          - name: web
-            context: web
-            dockerfile: web/Dockerfile
+        name: ${{ fromJSON(needs.changes.outputs.images) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -132,8 +184,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: ${{ matrix.name == 'api' && '.' || 'web' }}
+          file: ${{ matrix.name == 'api' && 'Dockerfile' || 'web/Dockerfile' }}
           push: true
           cache-from: type=gha,scope=nagi-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=nagi-${{ matrix.name }}
