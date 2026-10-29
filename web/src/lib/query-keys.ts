@@ -42,6 +42,9 @@ export const queryKeys = {
   decisions: (botId: number | undefined, conversationId: string) =>
     ['intent', 'decisions', botId ?? null, conversationId] as const,
   decision: (id: number) => ['intent', 'decision', id] as const,
+  rulesets: (scope: { botId: number; scopeType: string; scopeId: number } | null) =>
+    ['intent', 'rulesets', scope] as const,
+  ruleset: (id: number) => ['intent', 'ruleset', id] as const,
 } as const
 
 /** Keys invalidated after a directory sync; members refresh separately. */
