@@ -723,3 +723,37 @@ func TestSanitizeReplyRejectsLinksAndAtAllVariants(t *testing.T) {
 		t.Fatalf("fullwidth mixed sanitize = %q err=%v", out, err)
 	}
 }
+
+// TestReplierUsesPerScopeLimits verifies a scope-specific policy overrides the
+// static sending budget before the reservation is made.
+// TestReplierUsesPerScopeLimits 验证按作用域策略会在预留前覆盖静态发送预算。
+func TestReplierUsesPerScopeLimits(t *testing.T) {
+	fake := &fakeRuntime{text: "好的"}
+	sender := &fakeSender{msgID: 7}
+	rec := &fakeRecorder{}
+	ledger := &fakeLedger{}
+	r, err := NewReplier(Options{
+		Runtime: fake, Scopes: &replierScopes{policies: map[string]scopedomain.Policy{
+			"100:group:700": {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
+		}},
+		Senders: sender, Recorder: rec, Outbound: ledger,
+		Sending: outbounddomain.Limits{MaxMessages: 3, MaxCharsPerMessage: 500, MaxTotalChars: 1500},
+		SendingLimits: func(context.Context, int64, string, int64) outbounddomain.Limits {
+			return outbounddomain.Limits{MaxMessages: 1, MaxCharsPerMessage: 80, MaxTotalChars: 100}
+		},
+		Logger: replierLogger(),
+	})
+	if err != nil {
+		t.Fatalf("new replier: %v", err)
+	}
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(ledger.reserved) != 1 {
+		t.Fatalf("reserved = %d", len(ledger.reserved))
+	}
+	got := ledger.reserved[0].Limits
+	if got.MaxMessages != 1 || got.MaxCharsPerMessage != 80 || got.MaxTotalChars != 100 {
+		t.Fatalf("limits = %+v, want policy limits", got)
+	}
+}
