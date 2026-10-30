@@ -457,6 +457,46 @@ func (r *Repo) DeliveryError(ctx context.Context, jobID int64) error {
 	return nil
 }
 
+// PurgeBefore deletes one batch of expired messages. Message jobs reference
+// their inbound message without a cascade, so they are removed first; their
+// intent decisions, outbound records and run budgets cascade from the job.
+// 删除一批过期消息。message_jobs 对入站消息没有级联，因此先删任务；
+// 意图决策、出站记录与运行预算再随任务级联删除。
+func (r *Repo) PurgeBefore(ctx context.Context, before time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, fmt.Errorf("conversation: purge limit must be positive")
+	}
+	// The two statements run in one transaction and select the same ordered
+	// batch, so no live job can lose its inbound message in between.
+	// 两条语句在同一事务内选中同一批有序记录，进行中的任务不会失去入站消息。
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("conversation: begin purge: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `
+		WITH expired AS (
+			SELECT id FROM messages WHERE created_at < $1 ORDER BY created_at, id LIMIT $2
+		)
+		DELETE FROM message_jobs WHERE incoming_message_id IN (SELECT id FROM expired)
+	`, before, limit); err != nil {
+		return 0, fmt.Errorf("conversation: purge expired jobs: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+		WITH expired AS (
+			SELECT id FROM messages WHERE created_at < $1 ORDER BY created_at, id LIMIT $2
+		)
+		DELETE FROM messages WHERE id IN (SELECT id FROM expired)
+	`, before, limit)
+	if err != nil {
+		return 0, fmt.Errorf("conversation: purge expired messages: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("conversation: commit purge: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ReconcileOutgoing repairs acknowledged message history without sending again.
 // ReconcileOutgoing 补齐已有回执的历史记录，不会再次发送。
 func (r *Repo) ReconcileOutgoing(ctx context.Context) error {

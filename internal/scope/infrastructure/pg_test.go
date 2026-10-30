@@ -159,16 +159,19 @@ func TestExplicitZeroPolicyLimitsRoundTrip(t *testing.T) {
 	policy := domain.Default(domain.ScopePrivate, 155)
 	policy.MinReplyIntervalMS = 0
 	policy.MaxRepliesPerHour = 0
-	policy.RetentionDays = 0
+	policy.MaxMessagesPerRun = 0
+	policy.MaxTotalCharsPerRun = 0
 	if err := service.Upsert(ctx, botID, policy); err != nil {
 		t.Fatal(err)
 	}
 	persisted, found, err := repo.Get(ctx, botID, domain.ScopePrivate, 155)
-	if err != nil || !found || persisted.MinReplyIntervalMS != 0 || persisted.MaxRepliesPerHour != 0 || persisted.RetentionDays != 0 {
+	if err != nil || !found || persisted.MinReplyIntervalMS != 0 || persisted.MaxRepliesPerHour != 0 ||
+		persisted.MaxMessagesPerRun != 0 || persisted.MaxTotalCharsPerRun != 0 || persisted.MaxCharsPerMessage != 4500 {
 		t.Fatalf("zero values changed in storage: %+v %v", persisted, err)
 	}
 	resolved, err := service.Resolve(ctx, botID, domain.ScopePrivate, 155)
-	if err != nil || resolved.MinReplyIntervalMS != 0 || resolved.MaxRepliesPerHour != 0 || resolved.RetentionDays != 0 {
+	if err != nil || resolved.MinReplyIntervalMS != 0 || resolved.MaxRepliesPerHour != 0 ||
+		resolved.MaxMessagesPerRun != 0 || resolved.MaxTotalCharsPerRun != 0 {
 		t.Fatalf("zero values changed in resolution: %+v %v", resolved, err)
 	}
 }

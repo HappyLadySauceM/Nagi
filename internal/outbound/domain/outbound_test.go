@@ -4,6 +4,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +72,23 @@ func TestCheckBudgetCountsRunes(t *testing.T) {
 	}
 	if err := CheckBudget(limits, Usage{}, "一二三四五"); !errors.Is(err, ErrBudgetExceeded) {
 		t.Fatalf("five runes must exceed the limit: %v", err)
+	}
+}
+
+// TestCheckBudgetTreatsZeroAsUnlimited verifies a zero limit never rejects a
+// message, so the permissive defaults cannot turn into a send ban.
+// TestCheckBudgetTreatsZeroAsUnlimited 验证零上限不会拒绝消息，
+// 宽松默认因此不会变成禁发。
+func TestCheckBudgetTreatsZeroAsUnlimited(t *testing.T) {
+	limits := Limits{MaxMessages: 0, MaxCharsPerMessage: 4500, MaxTotalChars: 0}
+	if err := CheckBudget(limits, Usage{Messages: 100, Chars: 1_000_000}, "一条很长的消息"); err != nil {
+		t.Fatalf("zero limits must be unlimited: %v", err)
+	}
+	if err := CheckBudget(Limits{MaxCharsPerMessage: 4500}, Usage{}, strings.Repeat("字", 4500)); err != nil {
+		t.Fatalf("exactly 4500 runes must fit the QQ cap: %v", err)
+	}
+	if err := CheckBudget(Limits{MaxCharsPerMessage: 4500}, Usage{}, strings.Repeat("字", 4501)); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("4501 runes must exceed the QQ cap: %v", err)
 	}
 }
 

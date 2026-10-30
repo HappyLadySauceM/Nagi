@@ -24,6 +24,10 @@ type Repository interface {
 	ReleaseJob(ctx context.Context, jobID int64) error
 	RecoverStaleJobs(ctx context.Context) error
 	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error
+	// PurgeBefore deletes at most limit messages created before the cutoff and
+	// reports how many rows were removed.
+	// PurgeBefore 删除最多 limit 条早于截止时间的消息，并返回删除行数。
+	PurgeBefore(ctx context.Context, before time.Time, limit int) (int, error)
 }
 
 // Ingestor is the minimal ingest port used by the AI ingress handler.
@@ -102,6 +106,21 @@ func (s *Service) BotReplyMeta(ctx context.Context, conversationID string) (time
 		return time.Time{}, 0, fmt.Errorf("conversation: bot reply meta requires conversation id")
 	}
 	return s.repo.BotReplyMeta(ctx, conversationID)
+}
+
+// PurgeBefore removes expired messages in batches; jobs and delivery records
+// that reference them are removed in the same statement. Message text is never
+// logged.
+// PurgeBefore 分批清理过期消息；引用它们的任务与投递记录在同一条语句中删除，
+// 且不记录消息正文。
+func (s *Service) PurgeBefore(ctx context.Context, before time.Time, limit int) (int, error) {
+	if before.IsZero() {
+		return 0, fmt.Errorf("conversation: purge requires a cutoff")
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	return s.repo.PurgeBefore(ctx, before, limit)
 }
 
 // RecordOutgoing persists one bot reply so later context can see what it said;

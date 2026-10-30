@@ -21,8 +21,9 @@ func validSettings() Settings {
 		},
 		Agent: Agent{
 			MaxSteps: 6, MaxToolCalls: 5, MaxRunDurationSeconds: 30,
-			Sending: Sending{MaxMessagesPerRun: 3, MaxCharsPerMessage: 500, MaxTotalCharsPerRun: 1500},
+			Sending: Sending{MaxMessagesPerRun: 0, MaxCharsPerMessage: 4500, MaxTotalCharsPerRun: 0},
 		},
+		Messages: Messages{RetentionDays: 30},
 		Tools: Tools{
 			TimeoutSeconds: 5, MaxResultBytes: 8192,
 			PermissionDefaults: map[string]bool{"qq.reply.current": true},
@@ -81,13 +82,31 @@ func TestValidateRejectsThresholdOutOfRange(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsUnknownPermission(t *testing.T) {
-	// 未知权限属于配置错误，必须报出具体字段。
+func TestValidateAllowsStalePermissionKeys(t *testing.T) {
+	// 权限默认值是内部基线：提供方下线留下的陈旧键不得阻塞保存。
 	settings := validSettings()
 	settings.Tools.PermissionDefaults["qq.unknown"] = true
-	fields := fieldsOf(t, settings.Validate(map[string]bool{"qq.reply.current": true}))
-	if fields["Tools.PermissionDefaults"] == "" {
+	if err := settings.Validate(map[string]bool{"qq.reply.current": true}); err != nil {
+		t.Fatalf("stale permission key must not fail validation: %v", err)
+	}
+}
+
+func TestValidateRejectsBadRetention(t *testing.T) {
+	// 留存天数必须在 0-3650 之间，0 表示不清理。
+	settings := validSettings()
+	settings.Messages.RetentionDays = -1
+	fields := fieldsOf(t, settings.Validate(nil))
+	if fields["Messages.RetentionDays"] == "" {
 		t.Fatalf("fields = %+v", fields)
+	}
+}
+
+func TestValidateAllowsUnlimitedSending(t *testing.T) {
+	// 0 表示不限：整轮为 0 时不再比较单条与整轮。
+	settings := validSettings()
+	settings.Agent.Sending = Sending{MaxMessagesPerRun: 0, MaxCharsPerMessage: 4500, MaxTotalCharsPerRun: 0}
+	if err := settings.Validate(nil); err != nil {
+		t.Fatalf("unlimited sending must be valid: %v", err)
 	}
 }
 

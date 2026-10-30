@@ -657,3 +657,73 @@ func TestReplyActivityExcludesFailedAndCountsUncertainDeliveryOnce(t *testing.T)
 		t.Fatalf("legacy sent activity lost: %d %v", count, err)
 	}
 }
+
+// TestPurgeBeforeDeletesExpiredMessagesAndJobs verifies the retention sweep
+// removes an expired message together with its job, while fresh rows survive.
+// TestPurgeBeforeDeletesExpiredMessagesAndJobs 验证留存清理会连同任务一起删除
+// 过期消息，而未过期消息保持不动。
+func TestPurgeBeforeDeletesExpiredMessagesAndJobs(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	const botID, senderID = 991003, 991007
+	target := base % 1_000_000_000
+	old, err := repo.Ingest(ctx, domain.IngestInput{
+		BotID: botID, Kind: domain.KindGroup, TargetID: target,
+		PlatformMessageID: base, SenderID: senderID, Text: "过期消息",
+		Segments: []obdomain.Segment{obdomain.Text("过期消息")},
+	})
+	if err != nil {
+		t.Fatalf("ingest expired: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE messages SET created_at = now() - interval '40 days' WHERE id = $1`, old.MessageID,
+	); err != nil {
+		t.Fatalf("age message: %v", err)
+	}
+	cutoff := time.Now().AddDate(0, 0, -30)
+	if _, err := repo.PurgeBefore(ctx, cutoff, 100_000); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)`, old.MessageID).Scan(&exists); err != nil {
+		t.Fatalf("read message: %v", err)
+	}
+	if exists {
+		t.Fatal("expired message survived the sweep")
+	}
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM message_jobs WHERE id = $1)`, old.JobID).Scan(&exists); err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if exists {
+		t.Fatal("expired job survived the sweep")
+	}
+
+	fresh, err := repo.Ingest(ctx, domain.IngestInput{
+		BotID: botID, Kind: domain.KindGroup, TargetID: target,
+		PlatformMessageID: base + 1, SenderID: senderID, Text: "新消息",
+		Segments: []obdomain.Segment{obdomain.Text("新消息")},
+	})
+	if err != nil {
+		t.Fatalf("ingest fresh: %v", err)
+	}
+	if _, err := repo.PurgeBefore(ctx, cutoff, 100_000); err != nil {
+		t.Fatalf("second purge: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)`, fresh.MessageID).Scan(&exists); err != nil {
+		t.Fatalf("read fresh message: %v", err)
+	}
+	if !exists {
+		t.Fatal("fresh message was deleted")
+	}
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM message_jobs WHERE id = $1)`, fresh.JobID).Scan(&exists); err != nil {
+		t.Fatalf("read fresh job: %v", err)
+	}
+	if !exists {
+		t.Fatal("fresh job was deleted")
+	}
+}

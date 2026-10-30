@@ -48,6 +48,8 @@ func (s *stubRepo) RecordOutgoing(context.Context, string, int64, string, int64,
 	return nil
 }
 
+func (s *stubRepo) PurgeBefore(context.Context, time.Time, int) (int, error) { return 0, nil }
+
 func newTestService(t *testing.T) (*Service, *stubRepo) {
 	t.Helper()
 	repo := &stubRepo{}

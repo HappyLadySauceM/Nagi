@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/HappyLadySauceM/Nagi/pkg/logging"
+	"github.com/HappyLadySauceM/Nagi/pkg/qq"
 )
 
 // Duration 支持在 YAML 中书写 "10s" 字符串或纳秒整数。
@@ -163,17 +164,27 @@ type Agent struct {
 }
 
 // Sending 是单次 Agent 运行的出站消息预算；字符数按 Unicode 字符计。
+// 零值表示不限制，因此默认预算保持宽松。
 // Sending is the outbound budget of one agent run; character counts are runes.
+// Zero means unlimited, so the built-in budget stays permissive.
 type Sending struct {
-	// MaxMessagesPerRun 限制一次运行的消息条数。
-	// MaxMessagesPerRun bounds the message count of one run.
+	// MaxMessagesPerRun 限制一次运行的消息条数；0 表示不限。
+	// MaxMessagesPerRun bounds the message count of one run; 0 means unlimited.
 	MaxMessagesPerRun int `yaml:"max-messages-per-run"`
-	// MaxCharsPerMessage 限制单条消息的字符数。
-	// MaxCharsPerMessage bounds one message in runes.
+	// MaxCharsPerMessage 限制单条消息的字符数；0 表示不限。
+	// MaxCharsPerMessage bounds one message in runes; 0 means unlimited.
 	MaxCharsPerMessage int `yaml:"max-chars-per-message"`
-	// MaxTotalCharsPerRun 限制一次运行的字符总数。
-	// MaxTotalCharsPerRun bounds the summed rune count of one run.
+	// MaxTotalCharsPerRun 限制一次运行的字符总数；0 表示不限。
+	// MaxTotalCharsPerRun bounds the summed rune count of one run; 0 means unlimited.
 	MaxTotalCharsPerRun int `yaml:"max-total-chars-per-run"`
+}
+
+// Messages 是全局消息留存配置。
+// Messages is the global message retention configuration.
+type Messages struct {
+	// RetentionDays 是消息在库中的保留天数；0 表示不清理。
+	// RetentionDays keeps messages for this many days; 0 disables cleanup.
+	RetentionDays int `yaml:"retention-days"`
 }
 
 // Tools 是工具调用的初始限制与权限默认值；提供方启动时全部注册，
@@ -241,6 +252,7 @@ type Config struct {
 	Worker        Worker        `yaml:"worker"`
 	AI            AI            `yaml:"ai"`
 	Agent         Agent         `yaml:"agent"`
+	Messages      Messages      `yaml:"messages"`
 	Tools         Tools         `yaml:"tools"`
 	Intent        Intent        `yaml:"intent"`
 	Observability Observability `yaml:"observability"`
@@ -275,14 +287,24 @@ func defaults() Config {
 			MaxToolCalls:   5,
 			MaxRunDuration: Duration(30 * time.Second),
 			Sending: Sending{
-				MaxMessagesPerRun:   3,
-				MaxCharsPerMessage:  500,
-				MaxTotalCharsPerRun: 1500,
+				// Zero means unlimited; only the single-message cap is bounded by
+				// the QQ text limit so one bubble can never be rejected on arrival.
+				// 0 表示不限；只有单条上限取 QQ 文本上限，避免单条消息被客户端拒收。
+				MaxMessagesPerRun:   0,
+				MaxCharsPerMessage:  qq.MaxTextRunes,
+				MaxTotalCharsPerRun: 0,
 			},
+		},
+		Messages: Messages{
+			RetentionDays: 30,
 		},
 		Tools: Tools{
 			Timeout:        Duration(5 * time.Second),
 			MaxResultBytes: 8192,
+			// The reply tool is the product's core capability, so it is granted
+			// by default; per-scope grants can still revoke it.
+			// 连续回复是核心能力，默认授予；仍可按会话撤销。
+			PermissionDefaults: map[string]bool{"qq.reply.current": true},
 		},
 		Observability: Observability{
 			ExportRawContent: true,
@@ -457,12 +479,23 @@ func (c *Config) Validate() error {
 	if c.Agent.MaxRunDuration.D() <= 0 {
 		return fmt.Errorf("config: agent.max-run-duration 必须为正数")
 	}
-	if c.Agent.Sending.MaxMessagesPerRun <= 0 || c.Agent.Sending.MaxCharsPerMessage <= 0 ||
-		c.Agent.Sending.MaxTotalCharsPerRun <= 0 {
-		return fmt.Errorf("config: agent.sending 的各项上限必须为正数")
+	// Sending limits accept zero as "unlimited"; only negative or absurd values
+	// are configuration errors.
+	// 发送上限允许 0 表示不限；只有负值或明显越界才视为配置错误。
+	if c.Agent.Sending.MaxMessagesPerRun < 0 || c.Agent.Sending.MaxMessagesPerRun > 100 {
+		return fmt.Errorf("config: agent.sending.max-messages-per-run 必须在 0-100 之间（0 为不限）")
 	}
-	if c.Agent.Sending.MaxCharsPerMessage > c.Agent.Sending.MaxTotalCharsPerRun {
+	if c.Agent.Sending.MaxCharsPerMessage < 0 || c.Agent.Sending.MaxCharsPerMessage > 100000 {
+		return fmt.Errorf("config: agent.sending.max-chars-per-message 必须在 0-100000 之间（0 为不限）")
+	}
+	if c.Agent.Sending.MaxTotalCharsPerRun < 0 || c.Agent.Sending.MaxTotalCharsPerRun > 1000000 {
+		return fmt.Errorf("config: agent.sending.max-total-chars-per-run 必须在 0-1000000 之间（0 为不限）")
+	}
+	if c.Agent.Sending.MaxTotalCharsPerRun > 0 && c.Agent.Sending.MaxCharsPerMessage > c.Agent.Sending.MaxTotalCharsPerRun {
 		return fmt.Errorf("config: agent.sending.max-chars-per-message 不得大于 max-total-chars-per-run")
+	}
+	if c.Messages.RetentionDays < 0 || c.Messages.RetentionDays > 3650 {
+		return fmt.Errorf("config: messages.retention-days 必须在 0-3650 之间（0 为不清理）")
 	}
 	if c.Tools.Timeout.D() <= 0 || c.Tools.MaxResultBytes <= 0 {
 		return fmt.Errorf("config: tools.timeout 与 tools.max-result-bytes 必须为正数")

@@ -58,8 +58,9 @@ func defaults() settingsdomain.Settings {
 		},
 		Agent: settingsdomain.Agent{
 			MaxSteps: 6, MaxToolCalls: 5, MaxRunDurationSeconds: 30,
-			Sending: settingsdomain.Sending{MaxMessagesPerRun: 3, MaxCharsPerMessage: 500, MaxTotalCharsPerRun: 1500},
+			Sending: settingsdomain.Sending{MaxMessagesPerRun: 0, MaxCharsPerMessage: 4500, MaxTotalCharsPerRun: 0},
 		},
+		Messages: settingsdomain.Messages{RetentionDays: 30},
 		Tools: settingsdomain.Tools{
 			TimeoutSeconds: 5, MaxResultBytes: 8192,
 			PermissionDefaults: map[string]bool{},

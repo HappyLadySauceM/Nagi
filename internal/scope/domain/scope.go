@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"time"
+
+	"github.com/HappyLadySauceM/Nagi/pkg/qq"
 )
 
 // ScopeType is the kind of conversation a policy applies to.
@@ -47,10 +48,12 @@ func (m ReplyMode) Valid() bool {
 	return false
 }
 
-// Policy is one scope policy row; zero-value numeric fields are replaced by defaults.
-// Policy 是一条作用域策略；数值字段的零值会由默认值替代。
+// ErrTemplateConflict reports a stale expected template version.
+// ErrTemplateConflict 表示预期模板版本已过期。
 var ErrTemplateConflict = errors.New("scope: template version conflict")
 
+// Policy is one scope policy row. A zero sending limit means unlimited.
+// Policy 是一条作用域策略；发送上限的零值表示不限。
 type Policy struct {
 	ExpectedTemplateVersion *int64
 	ScopeType               ScopeType
@@ -67,7 +70,6 @@ type Policy struct {
 
 	MinReplyIntervalMS int
 	MaxRepliesPerHour  int
-	RetentionDays      int
 
 	// ToolPermissions holds explicit overrides of tool permission grants for
 	// this scope. A missing key means "use the configured default", so changing
@@ -81,46 +83,30 @@ type Policy struct {
 	MessageIntervalMS   int
 }
 
-// Default returns the safe default policy for a scope: everything off.
-// Default 返回一个作用域的安全默认策略：全部关闭。
+// Default returns the default policy of a scope. Message storage is on by
+// default, and every sending limit is unlimited except the single-message cap,
+// which follows the QQ text limit.
+// Default 返回作用域的默认策略。消息存储默认开启；除单条上限取 QQ 文本上限外，
+// 其余发送上限默认不限制。
 func Default(t ScopeType, scopeID int64) Policy {
 	return Policy{
 		ScopeType:          t,
 		ScopeID:            scopeID,
 		ReplyMode:          ModeMentionOnly,
+		StoreMessages:      true,
 		MinReplyIntervalMS: 10000,
-		MaxRepliesPerHour:  20,
-		RetentionDays:      30,
-		MaxMessagesPerRun:  3, MaxCharsPerMessage: 500, MaxTotalCharsPerRun: 1500, MessageIntervalMS: 700,
+		MaxRepliesPerHour:  0,
+		MaxMessagesPerRun:  0, MaxCharsPerMessage: qq.MaxTextRunes, MaxTotalCharsPerRun: 0, MessageIntervalMS: 700,
 	}
 }
 
-// WithDefaults fills missing sending limits and legacy policies with no reply mode.
-// Explicit zero cooldown, hourly quota and retention values remain unlimited.
-// WithDefaults 补齐发送上限及缺少回复模式的旧策略。
-// 显式的零冷却、小时额度和留存期限保留不限语义。
+// WithDefaults fills legacy policies that carry no reply mode. Zero is a real
+// value now (unlimited), so sending limits are never overwritten here.
+// WithDefaults 仅补齐缺少回复模式的旧策略。零值现在是有效取值（表示不限），
+// 因此不会在此覆盖发送上限。
 func (p Policy) WithDefaults() Policy {
-	legacyNumbers := !p.ReplyMode.Valid()
-	if p.MaxMessagesPerRun == 0 {
-		p.MaxMessagesPerRun = 3
-	}
-	if p.MaxCharsPerMessage == 0 {
-		p.MaxCharsPerMessage = 500
-	}
-	if p.MaxTotalCharsPerRun == 0 {
-		p.MaxTotalCharsPerRun = 1500
-	}
 	if !p.ReplyMode.Valid() {
 		p.ReplyMode = ModeMentionOnly
-	}
-	if legacyNumbers && p.MinReplyIntervalMS <= 0 {
-		p.MinReplyIntervalMS = 10000
-	}
-	if legacyNumbers && p.MaxRepliesPerHour <= 0 {
-		p.MaxRepliesPerHour = 20
-	}
-	if legacyNumbers && p.RetentionDays <= 0 {
-		p.RetentionDays = 30
 	}
 	return p
 }
@@ -137,7 +123,7 @@ func (p Policy) Validate() error {
 	if !p.ReplyMode.Valid() {
 		return fmt.Errorf("scope: invalid reply mode %q", p.ReplyMode)
 	}
-	if p.MinReplyIntervalMS < 0 || p.MaxRepliesPerHour < 0 || p.RetentionDays < 0 {
+	if p.MinReplyIntervalMS < 0 || p.MaxRepliesPerHour < 0 {
 		return fmt.Errorf("scope: policy numbers must not be negative")
 	}
 	if p.MaxMessagesPerRun < 0 || p.MaxCharsPerMessage < 0 || p.MaxTotalCharsPerRun < 0 || p.MessageIntervalMS < 0 || p.MessageIntervalMS > 60000 {
@@ -181,13 +167,4 @@ func validateToolPermissions(overrides map[string]bool) error {
 		}
 	}
 	return nil
-}
-
-// ExpiresAt derives the retention deadline from the policy; zero means no expiry.
-// ExpiresAt 按策略推导留存期限；零值表示不过期。
-func (p Policy) ExpiresAt(from time.Time) time.Time {
-	if p.RetentionDays <= 0 {
-		return time.Time{}
-	}
-	return from.AddDate(0, 0, p.RetentionDays)
 }
