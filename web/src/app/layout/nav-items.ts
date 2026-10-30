@@ -3,6 +3,7 @@ import {
   BrainCircuit,
   LayoutDashboard,
   ScrollText,
+  Settings2,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -14,6 +15,7 @@ export type NavPath =
   | '/rules'
   | '/accounts'
   | '/memories'
+  | '/settings'
 
 export interface NavItem {
   to: NavPath
@@ -50,6 +52,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '配置',
     items: [
       { to: '/accounts', label: '账号连接', hint: '端点、身份与运行时', icon: Bot },
+      { to: '/settings', label: '系统配置', hint: '模型、限额与工具开关', icon: Settings2 },
     ],
   },
 ]

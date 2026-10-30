@@ -190,7 +190,84 @@ export interface ToolsCatalog {
   providers: string[]
   tools: ToolCatalogEntry[]
   permissions: ToolPermission[]
-  allowSideEffects: boolean
+}
+
+/** Generation model section of the system settings. */
+export interface SettingsAI {
+  enabled: boolean
+  baseURL: string
+  model: string
+  maxOutputTokens: number
+  generationTimeoutSeconds: number
+}
+
+/** Intent pipeline section of the system settings. */
+export interface SettingsIntent {
+  enabled: boolean
+  provider: 'jev' | 'openai' | ''
+  endpoint: string
+  model: string
+  botName: string
+  timeoutSeconds: number
+  continuationThreshold: number
+  interjectionThreshold: number
+  addressedOtherMax: number
+  historyLimit: number
+}
+
+/** Outbound budget of one agent run. */
+export interface SettingsSending {
+  maxMessagesPerRun: number
+  maxCharsPerMessage: number
+  maxTotalCharsPerRun: number
+}
+
+/** Agent runtime limits. */
+export interface SettingsAgent {
+  maxSteps: number
+  maxToolCalls: number
+  maxRunDurationSeconds: number
+  sending: SettingsSending
+}
+
+/**
+ * Tool call limits and permission defaults. Providers are always registered, so
+ * there is no enable list; a conversation's grant decides what the model sees.
+ * 工具调用限制与权限默认值。提供方始终注册，因此没有启用列表；
+ * 会话的授权决定模型能看到什么。
+ */
+export interface SettingsTools {
+  timeoutSeconds: number
+  maxResultBytes: number
+  permissionDefaults: Record<string, boolean>
+}
+
+/** Mutable, process-wide configuration managed from the console. */
+export interface SystemSettings {
+  ai: SettingsAI
+  intent: SettingsIntent
+  agent: SettingsAgent
+  tools: SettingsTools
+}
+
+/** Secret-bearing sections only report presence; values never leave the server. */
+export interface SettingsCredentials {
+  ai: boolean
+  intent: boolean
+}
+
+/** `GET /api/v1/settings`: current revision plus the restore-defaults baseline. */
+export interface SystemSettingsView {
+  settings: SystemSettings
+  defaults: SystemSettings
+  version: number
+  updatedAt?: string
+  updatedBy: string
+  /** False when the backend runs without a database: changes are memory-only. */
+  persisted: boolean
+  credentials: SettingsCredentials
+  /** Registered tool provider ids, in display order. */
+  providers: string[]
 }
 
 /** Form-shaped policy; `PUT` always writes every field. */

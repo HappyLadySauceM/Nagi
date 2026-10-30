@@ -22,7 +22,7 @@ it('saves an unchanged inherited template as an independent snapshot and freezes
       writes.push(JSON.parse(String(init.body)))
       return new Promise<Response>(resolve => { finish = resolve })
     }
-    if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], AllowSideEffects: false }))
+    if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], }))
     return Promise.resolve(response({ ...policy, ScopeID: String(input).includes('/default') ? 0 : 123 }))
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -46,7 +46,7 @@ it('saves an unchanged inherited template as an independent snapshot and freezes
 it('shows permission changes before restoring the default template', async () => {
   vi.stubGlobal('ResizeObserver', class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn() })
   vi.stubGlobal('fetch', vi.fn((input: string) => {
-    if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], AllowSideEffects: false }))
+    if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], }))
     return Promise.resolve(response({ ...policy, ScopeID: String(input).includes('/default') ? 0 : 123, Source: 'independent', StoreMessages: String(input).includes('/default') }))
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

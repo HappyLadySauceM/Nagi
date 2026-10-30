@@ -35,7 +35,6 @@ function catalogOf(tools: ToolCatalogEntry[], defaultGranted = true): ToolsCatal
     permissions: [
       { id: 'qq.group.read', tools: tools.map((entry) => entry.id), defaultGranted },
     ],
-    allowSideEffects: false,
   }
 }
 
@@ -64,12 +63,15 @@ describe('ScopeFormFields capability switches', () => {
     expect(screen.queryByRole('switch', { name: '查询当前群信息' })).toBeNull()
   })
 
-  it.each([true, false])('keeps side effects blocked for grant %s', (granted) => {
-    renderCatalog(catalogOf([tool({ id: 'qq.send_message', sideEffect: true })], granted))
+  it.each([true, false])('grants a side-effect tool directly for grant %s', (granted) => {
+    // There is no process-level side-effect switch any more: the conversation
+    // grant is the only decision, so the switch stays operable.
+    // 进程级副作用开关已被移除：会话授权是唯一判定，因此开关始终可操作。
+    renderCatalog(catalogOf([tool({ id: 'qq.send_message', sideEffect: true, readOnly: false })], granted))
     const control = screen.getByRole('switch', { name: 'qq.send_message' })
-    expect(control).toBeDisabled()
+    expect(control).toBeEnabled()
     expect(control).toHaveAttribute('aria-checked', String(granted))
-    expect(screen.getByText(/包含有副作用的工具/)).toBeInTheDocument()
+    expect(screen.queryByText(/包含有副作用的工具/)).toBeNull()
   })
 
   it('allows revoking an applicable read tool', () => {

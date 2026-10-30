@@ -25,7 +25,6 @@ const CATALOG = {
     },
   ],
   Permissions: [{ ID: 'qq.group.read', Tools: ['qq.get_group_info'], DefaultGranted: true }],
-  AllowSideEffects: false,
 }
 
 describe('tools adapter', () => {
@@ -36,7 +35,6 @@ describe('tools adapter', () => {
     expect(catalog.tools[0].permission).toBe('qq.group.read')
     expect(catalog.tools[1].permission).toBe('')
     expect(catalog.permissions[0].tools).toEqual(['qq.get_group_info'])
-    expect(catalog.allowSideEffects).toBe(false)
   })
 
   it('rejects a tool entry without an id instead of inventing one', () => {

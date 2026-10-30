@@ -147,6 +147,15 @@ const scopeEditRedirectRoute = createRoute({
   },
 })
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  component: lazyRouteComponent(
+    () => import('../features/settings/settings-page'),
+    'SettingsPage',
+  ),
+})
+
 const memoriesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/memories',
@@ -179,6 +188,7 @@ const routeTree = rootRoute.addChildren([
   scopesRedirectRoute,
   scopeEditRedirectRoute,
   memoriesRoute,
+  settingsRoute,
 ])
 
 export const router = createRouter({

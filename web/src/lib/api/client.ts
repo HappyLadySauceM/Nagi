@@ -23,6 +23,8 @@ interface ApiErrorInit {
   code?: number
   /** Machine-readable hint, e.g. `unregistered` or a failing field name. */
   detail?: string
+  /** Per-field validation messages from a 400 response. */
+  fields?: Record<string, string>
 }
 
 export class ApiError extends Error {
@@ -31,6 +33,8 @@ export class ApiError extends Error {
   readonly status?: number
   readonly code?: number
   readonly detail?: string
+  /** Field path to message, populated by a validation failure. */
+  readonly fields?: Record<string, string>
 
   constructor(init: ApiErrorInit) {
     super(init.message)
@@ -40,6 +44,7 @@ export class ApiError extends Error {
     this.status = init.status
     this.code = init.code
     this.detail = init.detail
+    this.fields = init.fields
   }
 }
 
@@ -118,6 +123,20 @@ function translateTransportError(error: unknown, endpoint: string): ApiError {
   })
 }
 
+/** Reads `data.errors` from a validation failure; other payloads are ignored. */
+function extractFields(data: unknown): Record<string, string> | undefined {
+  if (!isRecord(data) || !isRecord(data.errors)) {
+    return undefined
+  }
+  const fields: Record<string, string> = {}
+  for (const [key, value] of Object.entries(data.errors)) {
+    if (typeof value === 'string' && value !== '') {
+      fields[key] = value
+    }
+  }
+  return Object.keys(fields).length > 0 ? fields : undefined
+}
+
 function buildHttpError(
   status: number,
   endpoint: string,
@@ -131,6 +150,7 @@ function buildHttpError(
       endpoint,
       status,
       message: backendMessage ?? '提交内容未通过后端校验',
+      fields: extractFields(envelope?.data),
     })
   }
   if (status === 401) {
