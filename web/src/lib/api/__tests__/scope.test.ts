@@ -20,8 +20,7 @@ const POLICY = {
   AllowMemoryWrite: false,
   AllowHistoryRead: true,
   MinReplyIntervalMS: 10000,
-  MaxRepliesPerHour: 20,
-  RetentionDays: 30,
+  MaxRepliesPerHour: 0,
   ToolPermissions: { 'qq.group.read': false },
 }
 
@@ -36,7 +35,7 @@ describe('scope adapter', () => {
     expect(toScopePolicy(POLICY)).toEqual({
       scopeType: 'group',
       scopeId: 555,
-      maxMessagesPerRun: 3, maxCharsPerMessage: 500, maxTotalCharsPerRun: 1500, messageIntervalMs: 700,
+      maxMessagesPerRun: 0, maxCharsPerMessage: 4500, maxTotalCharsPerRun: 0, messageIntervalMs: 700,
       source: 'independent',
       version: 0,
       templateVersion: 0,
@@ -46,8 +45,7 @@ describe('scope adapter', () => {
       allowMemoryWrite: false,
       allowHistoryRead: true,
       minReplyIntervalMs: 10000,
-      maxRepliesPerHour: 20,
-      retentionDays: 30,
+      maxRepliesPerHour: 0,
       toolPermissions: { 'qq.group.read': false },
     })
   })
@@ -68,21 +66,24 @@ describe('scope adapter', () => {
       ReplyMode: '',
       MinReplyIntervalMS: 0,
       MaxRepliesPerHour: 0,
-      RetentionDays: 0,
     })
 
     expect(policy.replyMode).toBe('mention_only')
     expect(policy.minReplyIntervalMs).toBe(10000)
-    expect(policy.maxRepliesPerHour).toBe(20)
-    expect(policy.retentionDays).toBe(30)
+    expect(policy.maxRepliesPerHour).toBe(0)
   })
 
-  it('preserves explicit zero cooldown, hourly limit and retention', () => {
-    const policy=toScopePolicy({...POLICY,MinReplyIntervalMS:0,MaxRepliesPerHour:0,RetentionDays:0})
+  it('preserves explicit zero cooldown and hourly limit', () => {
+    const policy = toScopePolicy({ ...POLICY, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0 })
     expect(policy.minReplyIntervalMs).toBe(0)
     expect(policy.maxRepliesPerHour).toBe(0)
-    expect(policy.retentionDays).toBe(0)
-    expect(toScopePutBody(toScopeForm(policy))).toMatchObject({min_reply_interval_ms:0,max_replies_per_hour:0,retention_days:0})
+    expect(toScopePutBody(toScopeForm(policy))).toMatchObject({ min_reply_interval_ms: 0, max_replies_per_hour: 0 })
+  })
+
+  it('forces message storage on even when a stale row says off', () => {
+    const policy = toScopePolicy({ ...POLICY, StoreMessages: false })
+    expect(policy.storeMessages).toBe(true)
+    expect(toScopePutBody(toScopeForm(policy)).store_messages).toBe(true)
   })
 
   it('rejects an unknown scope type', () => {
@@ -107,8 +108,7 @@ describe('scope adapter', () => {
       allowHistoryRead: false,
       allowMemoryWrite: false,
       minReplyIntervalMs: 10000,
-      maxRepliesPerHour: 20,
-      retentionDays: 30,
+      maxRepliesPerHour: 0,
       toolPermissions: {},
     })
 
@@ -121,12 +121,13 @@ describe('scope adapter', () => {
         'max_messages_per_run', 'max_chars_per_message', 'max_total_chars_per_run', 'message_interval_ms',
         'min_reply_interval_ms',
         'reply_mode',
-        'retention_days',
         'store_messages',
         'tool_permissions',
       ].sort(),
     )
     expect(body.reply_mode).toBe('observe_only')
+    expect(body.store_messages).toBe(true)
+    expect(body.max_chars_per_message).toBe(4500)
   })
 
   it('round-trips a policy into the form shape', () => {
@@ -143,10 +144,10 @@ describe('scope adapter', () => {
 
   it('lists the risky capabilities that need confirmation', () => {
     const baseline: ScopeForm = { ...DEFAULT_SCOPE_FORM }
-    const flags = scopeDangerFlags({ ...baseline, storeMessages: true }, baseline)
+    const flags = scopeDangerFlags({ ...baseline, allowHistoryRead: true }, baseline)
 
     expect(flags).toHaveLength(1)
-    expect(flags[0]).toContain('消息内容')
+    expect(flags[0]).toContain('聊天历史')
   })
 
   it('treats permission overrides as part of form equality', () => {

@@ -1,39 +1,23 @@
-import { ShieldCheck, Wrench } from 'lucide-react'
-import { Switch } from '../../../components/ui/switch'
+import { Wrench } from 'lucide-react'
 import { Label } from '../../../components/ui/label'
 import { NumberField } from './fields'
 import { SettingsCard } from './settings-card'
 import type { SectionProps } from './types'
 
 /**
- * Tool call limits and permission defaults. Providers carry no enable list:
+ * Agent runtime limits and tool call limits. Providers carry no enable list:
  * everything registered at startup is available, and the conversation's grant
  * decides whether the model ever sees a given tool.
- * 工具调用限制与权限默认值。提供方没有启用列表：
+ * 运行限制与工具调用限制。提供方没有启用列表：
  * 启动时注册的全部可用，会话的授权决定模型是否能看到某个工具。
  */
 export function ToolsSection({
   draft,
   errors,
+  updateAgent,
   updateTools,
   providers,
-  permissions,
 }: SectionProps) {
-  const togglePermission = (permission: string, granted: boolean) => {
-    updateTools({
-      permissionDefaults: { ...draft.tools.permissionDefaults, [permission]: granted },
-    })
-  }
-
-  // Permissions stored before a catalogue change stay editable instead of
-  // disappearing until the next successful load.
-  const permissionRows = [
-    ...permissions,
-    ...Object.keys(draft.tools.permissionDefaults)
-      .filter((id) => !permissions.some((permission) => permission.id === id))
-      .map((id) => ({ id, tools: [] as string[] })),
-  ]
-
   return (
     <div className="space-y-4">
       <SettingsCard
@@ -63,7 +47,36 @@ export function ToolsSection({
             这里没有启用开关：进程注册多少提供方就全部可用，模型能否调用只看对应会话是否授权。
           </p>
         </div>
-        <div className="grid gap-x-6 sm:grid-cols-2">
+        <div className="grid gap-x-6 sm:grid-cols-3">
+          <NumberField
+            id="agent-max-steps"
+            label="最大推理步数"
+            value={draft.agent.maxSteps}
+            onChange={(maxSteps) => updateAgent({ maxSteps })}
+            unit="步"
+            hint="ReAct 循环上限，防止工具调用反复自问自答。"
+            error={errors['Agent.MaxSteps']}
+          />
+          <NumberField
+            id="agent-max-tool-calls"
+            label="最大工具调用"
+            value={draft.agent.maxToolCalls}
+            onChange={(maxToolCalls) => updateAgent({ maxToolCalls })}
+            unit="次"
+            hint="单次运行内所有工具共享的调用预算。"
+            error={errors['Agent.MaxToolCalls']}
+          />
+          <NumberField
+            id="agent-max-run-duration"
+            label="单次运行时长"
+            value={draft.agent.maxRunDurationSeconds}
+            onChange={(maxRunDurationSeconds) => updateAgent({ maxRunDurationSeconds })}
+            unit="秒"
+            hint="包含模型与工具调用的总时长上限。"
+            error={errors['Agent.MaxRunDurationSeconds']}
+          />
+        </div>
+        <div className="mt-1 grid gap-x-6 sm:grid-cols-2">
           <NumberField
             id="tools-timeout"
             label="单次调用超时"
@@ -83,54 +96,6 @@ export function ToolsSection({
             error={errors['Tools.MaxResultBytes']}
           />
         </div>
-      </SettingsCard>
-
-      <SettingsCard
-        id="permissions"
-        title="权限默认值"
-        description="会话没有单独设置时使用的默认授权；只读工具默认允许，其余默认拒绝。"
-        icon={ShieldCheck}
-        tag="兜底授权"
-        warning="这里只是默认值。调整后不会覆盖已经单独保存过的会话策略。"
-      >
-        {permissionRows.length === 0 ? (
-          <p className="py-2 text-meta text-muted-foreground">
-            后端没有返回任何权限声明，先确认工具提供方已启用。
-          </p>
-        ) : (
-          <div className="divide-y divide-border/60">
-            {permissionRows.map((permission) => {
-              const granted = draft.tools.permissionDefaults[permission.id] ?? false
-              return (
-                <div
-                  key={permission.id}
-                  className="flex items-start justify-between gap-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <Label htmlFor={`permission-${permission.id}`} className="font-mono text-meta">
-                      {permission.id}
-                    </Label>
-                    <p className="mt-0.5 text-caption leading-relaxed text-muted-foreground">
-                      {permission.tools.length > 0
-                        ? `覆盖工具：${permission.tools.join('、')}`
-                        : '该权限对应的工具当前未注册'}
-                    </p>
-                  </div>
-                  <Switch
-                    id={`permission-${permission.id}`}
-                    checked={granted}
-                    onCheckedChange={(next) => togglePermission(permission.id, next)}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        )}
-        {errors['Tools.PermissionDefaults'] ? (
-          <p role="alert" className="mt-1 text-meta text-destructive">
-            {errors['Tools.PermissionDefaults']}
-          </p>
-        ) : null}
       </SettingsCard>
     </div>
   )

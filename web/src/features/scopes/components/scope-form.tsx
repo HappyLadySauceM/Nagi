@@ -233,17 +233,8 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
 
       <Section
         hidden={Boolean(section && section !== 'data')} title="数据权限"
-        description="这些开关决定机器人能读取和留下什么。开启前请确认群成员知情。"
+        description="消息内容默认入库，用于上下文与后续检索；这里控制机器人还能读取和留下什么。"
       >
-        <SwitchRow
-          id="storeMessages"
-          label="保存消息内容"
-          description="把该会话的消息写入数据库，用于上下文与后续检索。"
-          checked={watch('storeMessages')}
-          disabled={disabled}
-          onChange={(checked) => setValue('storeMessages', checked, { shouldDirty: true })}
-          warning="消息正文将落库，并按留存天数清理；请确认群内成员知晓。"
-        />
         <SwitchRow
           id="allowHistoryRead"
           label="允许读取聊天历史"
@@ -267,7 +258,7 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
       {catalog && catalog.permissions.length > 0 ? (
         <Section
           hidden={Boolean(section && section !== 'capabilities')} title="能力授权"
-          description="工具由后端注册并在「系统配置」中启用；这里只控制该会话能否使用对应能力，默认值来自服务端。"
+          description="工具随进程全部注册；这里只控制该会话能否使用对应能力，默认值来自服务端。"
         >
           {catalog.permissions.filter((permission) => catalog.tools.some((tool) => tool.applicable && permission.tools.includes(tool.id))).map((permission) => {
             const tools = catalog.tools.filter((tool) => tool.applicable && permission.tools.includes(tool.id))
@@ -283,17 +274,13 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
             const granted = grantedPermission(permission, overrides)
             // Collect every reason that applies. There is no process-level
             // side-effect switch any more, so only the session kind, the
-            // pipeline state and the message-store requirement can warn here.
+            // pipeline state and the scope switch can warn here.
             // 汇总所有适用的原因。进程级副作用开关已被移除，
-            // 因此这里只剩会话类型、流水线状态与消息存储要求会给出提示。
+            // 因此这里只剩会话类型、流水线状态与作用域开关会给出提示。
             const warnings: string[] = [...new Set(tools.flatMap(tool => tool.blockedReasons ?? []))]
-            if (tools.some(tool => tool.id === 'qq.send_current') && !watch('storeMessages')) warnings.push('连续发送需要保存消息以维护投递历史。')
             if (!enabled) warnings.push('当前策略尚未启用，会话不会参与对话。')
             if (allUnavailable) {
               warnings.push(`该能力${unavailableReasons.join('、')}，当前会话无法授权。`)
-            }
-            if (!permission.defaultGranted && granted) {
-              warnings.push('开启后模型可在该会话调用对应工具；撤销前请确认影响范围。')
             }
             return (
               <SwitchRow
@@ -325,16 +312,16 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
       ) : null}
 
       <Section
-        hidden={Boolean(section && section !== 'sending')} title="发送设置与留存"
-        description="数值由后端校验，0 表示不限制；留存天数 0 表示不设置过期时间。"
+        hidden={Boolean(section && section !== 'sending')} title="发送设置"
+        description="数值由后端校验，0 表示不限制。消息留存已在「系统配置」中统一设置。"
       >
         <div className="grid gap-3 sm:grid-cols-3">
           {([
-            ['maxMessagesPerRun', '每轮最多消息', '条'],
-            ['maxCharsPerMessage', '单条字数上限', '字'],
-            ['maxTotalCharsPerRun', '整轮字数上限', '字'],
-            ['messageIntervalMs', '气泡间隔', 'ms'],
-          ] as const).map(([name, label, unit]) => <NumberField key={name} id={name} label={label} unit={unit} hint={name === 'messageIntervalMs' ? '连续消息之间的最小间隔。' : '对工具发送和最终回复共同生效。'} error={errors[name]?.message} registration={register(name)} disabled={disabled} />)}
+            ['maxMessagesPerRun', '每轮最多消息', '条', '0 表示不限；对工具发送和最终回复共同生效。'],
+            ['maxCharsPerMessage', '单条字数上限', '字', '默认 4500，即 QQ 单条文本上限；0 表示不限。'],
+            ['maxTotalCharsPerRun', '整轮字数上限', '字', '0 表示不限；对工具发送和最终回复共同生效。'],
+            ['messageIntervalMs', '气泡间隔', 'ms', '连续消息之间的最小间隔。'],
+          ] as const).map(([name, label, unit, hint]) => <NumberField key={name} id={name} label={label} unit={unit} hint={hint} error={errors[name]?.message} registration={register(name)} disabled={disabled} />)}
           <NumberField
             id="minReplyIntervalMs"
             label="最小回复间隔"
@@ -348,18 +335,9 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
             id="maxRepliesPerHour"
             label="每小时上限"
             unit="次"
-            hint="防止刷屏，超出后停止主动回复。"
+            hint="防止刷屏，超出后停止主动回复；0 表示不限。"
             error={errors.maxRepliesPerHour?.message}
             registration={register('maxRepliesPerHour')}
-            disabled={disabled}
-          />
-          <NumberField
-            id="retentionDays"
-            label="消息留存"
-            unit="天"
-            hint="超过期限的消息可被清理。"
-            error={errors.retentionDays?.message}
-            registration={register('retentionDays')}
             disabled={disabled}
           />
         </div>

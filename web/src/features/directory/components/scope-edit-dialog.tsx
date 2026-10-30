@@ -151,13 +151,13 @@ export function ScopeEditDialog({
     submitSave(values)
   }, (errors) => {
     const key=Object.keys(errors)[0]
-    setSection(['maxMessagesPerRun','maxCharsPerMessage','maxTotalCharsPerRun','messageIntervalMs','minReplyIntervalMs','maxRepliesPerHour','retentionDays'].includes(key) ? 'sending' : key==='toolPermissions' ? 'capabilities' : 'participation')
+    setSection(['maxMessagesPerRun','maxCharsPerMessage','maxTotalCharsPerRun','messageIntervalMs','minReplyIntervalMs','maxRepliesPerHour'].includes(key) ? 'sending' : key==='toolPermissions' ? 'capabilities' : ['allowHistoryRead','allowMemoryWrite'].includes(key) ? 'data' : 'participation')
     toast.error('请检查表单中的字段')
   })
 
   const restoreChanges: string[] = []
   if (scope.data && template.data && tools.data) {
-    for (const [key, label] of [['storeMessages', '保存消息内容'], ['allowHistoryRead', '读取聊天历史'], ['allowMemoryWrite', '写入长期记忆']] as const) {
+    for (const [key, label] of [['allowHistoryRead', '读取聊天历史'], ['allowMemoryWrite', '写入长期记忆']] as const) {
       if (scope.data[key] !== template.data[key]) restoreChanges.push(`${label}：${scope.data[key] ? '允许' : '关闭'} → ${template.data[key] ? '允许' : '关闭'}`)
     }
     for (const permission of tools.data.permissions.filter(permission => tools.data!.tools.some(tool => tool.applicable && permission.tools.includes(tool.id)))) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BrainCircuit, Gauge, RefreshCw, Wrench } from 'lucide-react'
+import { Archive, BrainCircuit, RefreshCw, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { FeedbackState } from '../../components/feedback-state'
@@ -11,9 +11,8 @@ import { ApiError } from '../../lib/api/client'
 import type { SystemSettings } from '../../lib/api/contracts'
 import { describeError } from '../../lib/errors'
 import { formatDateTime } from '../../lib/format'
-import { useToolsCatalog } from '../scopes/queries'
-import { LimitsSection } from './components/limits-section'
 import { ModelSection } from './components/model-section'
+import { RetentionSection } from './components/retention-section'
 import { SaveBar } from './components/save-bar'
 import { SectionNav, type SectionNavItem } from './components/section-nav'
 import { ToolsSection } from './components/tools-section'
@@ -24,8 +23,8 @@ import { useResetSystemSettings, useSaveSystemSettings, useSystemSettings } from
 
 const SECTIONS: SectionNavItem[] = [
   { id: 'model', label: '模型与意图', hint: '生成模型与决策阈值', icon: BrainCircuit },
-  { id: 'limits', label: '发送与限额', hint: '单轮步数、时长与气泡预算', icon: Gauge },
-  { id: 'tools', label: '工具与能力', hint: '提供方、调用限制与默认授权', icon: Wrench },
+  { id: 'tools', label: '工具与能力', hint: '提供方、运行限制与调用预算', icon: Wrench },
+  { id: 'retention', label: '消息与留存', hint: '全局消息保留期限', icon: Archive },
 ]
 
 /**
@@ -88,23 +87,9 @@ export function SettingsPage() {
     return () => observer.disconnect()
   }, [ready])
 
-  // The catalogue supplies permission ids and their tools for the defaults table.
-  // 工具清单提供权限标识与对应工具，供默认授权表格使用。
-  const catalogQuery = useToolsCatalog('group')
-  const permissions = useMemo(
-    () => (catalogQuery.data?.permissions ?? []).map((p) => ({ id: p.id, tools: p.tools })),
-    [catalogQuery.data],
-  )
-
   const clientErrors = useMemo(
-    () =>
-      draft && data
-        ? validateSettings(
-            draft,
-            permissions.map((permission) => permission.id),
-          )
-        : {},
-    [draft, data, permissions],
+    () => (draft && data ? validateSettings(draft) : {}),
+    [draft, data],
   )
   const errors = Object.keys(serverErrors).length > 0 ? serverErrors : clientErrors
   const dirtyCount = draft && data ? countChanges(data.settings, draft) : 0
@@ -194,12 +179,11 @@ export function SettingsPage() {
     errors,
     credentials: data.credentials,
     providers: data.providers,
-    permissions,
     updateAI: (patch: Partial<SystemSettings['ai']>) => update((next) => Object.assign(next.ai, patch)),
     updateIntent: (patch: Partial<SystemSettings['intent']>) => update((next) => Object.assign(next.intent, patch)),
     updateAgent: (patch: Partial<SystemSettings['agent']>) => update((next) => Object.assign(next.agent, patch)),
-    updateSending: (patch: Partial<SystemSettings['agent']['sending']>) =>
-      update((next) => Object.assign(next.agent.sending, patch)),
+    updateMessages: (patch: Partial<SystemSettings['messages']>) =>
+      update((next) => Object.assign(next.messages, patch)),
     updateTools: (patch: Partial<SystemSettings['tools']>) => update((next) => Object.assign(next.tools, patch)),
   }
 
@@ -207,7 +191,7 @@ export function SettingsPage() {
     <div className="space-y-4 pb-4">
       <PageHeader
         title="系统配置"
-        description="集中管理模型、意图、发送预算与工具能力；保存后立即生效，无需重启进程。密钥类配置仍由配置文件或环境变量维护。"
+        description="集中管理模型、意图、运行限制与全局消息留存；保存后立即生效，无需重启进程。密钥类配置仍由配置文件或环境变量维护。"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={data.credentials.ai ? 'success' : 'warning'}>
@@ -238,9 +222,11 @@ export function SettingsPage() {
             <ModelSection {...sectionProps} />
           </div>
           <div data-field="Agent.MaxSteps">
-            <LimitsSection {...sectionProps} />
+            <ToolsSection {...sectionProps} />
           </div>
-          <ToolsSection {...sectionProps} />
+          <div data-field="Messages.RetentionDays">
+            <RetentionSection {...sectionProps} />
+          </div>
 
           <SaveBar
             dirtyCount={dirtyCount}

@@ -37,8 +37,9 @@ function settingsView(overrides: Record<string, unknown> = {}) {
       MaxSteps: 6,
       MaxToolCalls: 5,
       MaxRunDurationSeconds: 30,
-      Sending: { MaxMessagesPerRun: 3, MaxCharsPerMessage: 500, MaxTotalCharsPerRun: 1500 },
+      Sending: { MaxMessagesPerRun: 0, MaxCharsPerMessage: 4500, MaxTotalCharsPerRun: 0 },
     },
+    Messages: { RetentionDays: 30 },
     Tools: {
       TimeoutSeconds: 5,
       MaxResultBytes: 8192,
@@ -108,8 +109,11 @@ describe('SettingsPage', () => {
     expect(await screen.findByText('生成模型')).toBeInTheDocument()
     // The label appears in both the section nav and the card title.
     // 该文案同时出现在分区导航与卡片标题中。
-    expect(screen.getAllByText('发送与限额').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('消息与留存').length).toBeGreaterThan(0)
     expect(screen.getAllByText('工具与能力').length).toBeGreaterThan(0)
+    // The permission defaults card was removed from the console.
+    // 权限默认值卡片已从控制台移除。
+    expect(screen.queryByText('权限默认值')).toBeNull()
     expect(screen.getByText('已是最新配置')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('switch', { name: '启用生成模型' }))
