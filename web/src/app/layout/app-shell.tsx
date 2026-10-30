@@ -25,12 +25,12 @@ export function AppShell() {
       <div
         className={cn(
           'flex min-h-screen flex-col transition-[padding-left] duration-200 ease-quiet',
-          collapsed ? 'lg:pl-[72px]' : 'lg:pl-[248px]',
+          collapsed ? 'lg:pl-[72px]' : 'lg:pl-[232px]',
         )}
       >
         <Topbar />
 
-        <main className="flex-1 px-4 pb-16 pt-6 sm:px-6 lg:px-8">
+        <main className="flex-1 px-4 pb-10 pt-7 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-[1680px]">
             {reduceMotion ? (
               <Outlet />

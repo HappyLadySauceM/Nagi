@@ -1,28 +1,26 @@
 import { useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { RefreshCw, UserRoundSearch, UsersRound } from 'lucide-react'
+import { RefreshCw, Settings2, UserRoundSearch, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '../../components/avatar'
 import { FeedbackState } from '../../components/feedback-state'
 import { PageHeader } from '../../components/page-header'
 import { Pagination } from '../../components/pagination'
-import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { Skeleton } from '../../components/ui/skeleton'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../components/ui/dropdown-menu'
 import { indexScopes } from '../../lib/api/adapters/scope'
-import { REPLY_MODE_LABELS } from '../../lib/api/contracts'
 import type { Contact, Group, ScopePolicy } from '../../lib/api/contracts'
 import { describeError } from '../../lib/errors'
 import { formatCount, formatRelativeTime } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useAccountContext } from '../accounts/account-context'
-import { useToolsCatalog, useScope, useScopeIndex } from '../scopes/queries'
+import { useScope, useScopeIndex } from '../scopes/queries'
 import { ContactDetailPanel, type DirectorySelection } from './components/contact-detail-panel'
 import { ScopeEditDialog } from './components/scope-edit-dialog'
 import { DirectoryTabs } from './components/directory-tabs'
 import { DirectoryToolbar } from './components/directory-toolbar'
-import { ScopeStatusBadge } from './components/scope-status-badge'
 import { useContacts, useGroups, useSyncDirectory } from './queries'
 import type { DirectoryTab } from '../../lib/search-params'
 
@@ -80,8 +78,8 @@ function FriendRow({
       onClick={onSelect}
       aria-current={active ? 'true' : undefined}
       className={cn(
-        'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150',
-        active ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-secondary/60',
+        'flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-3 text-left transition-colors duration-150',
+        active ? 'bg-secondary ring-1 ring-border' : 'hover:bg-secondary/60',
       )}
     >
       <Avatar id={contact.userId} name={name} size="sm" />
@@ -119,8 +117,8 @@ function GroupRow({
       onClick={onSelect}
       aria-current={active ? 'true' : undefined}
       className={cn(
-        'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150',
-        active ? 'bg-primary/10 ring-1 ring-primary/25' : 'hover:bg-secondary/60',
+        'flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-3 text-left transition-colors duration-150',
+        active ? 'bg-secondary ring-1 ring-border' : 'hover:bg-secondary/60',
       )}
     >
       <Avatar id={group.groupId} kind="group" name={name} size="sm" />
@@ -157,8 +155,6 @@ export function DirectoryPage() {
   const scopeIndex = useScopeIndex(selectedBotId)
   const friendDefault = useScope(selectedBotId, 'private', 0)
   const groupDefault = useScope(selectedBotId, 'group', 0)
-  const friendTools=useToolsCatalog('private')
-  const groupTools=useToolsCatalog('group')
   const [editingDefault, setEditingDefault] = useState<'private' | 'group' | null>(null)
   const sync = useSyncDirectory(selectedBotId)
 
@@ -237,11 +233,24 @@ export function DirectoryPage() {
         title="联系人"
         description={
           selectedAccount
-            ? `当前账号 ${selectedAccount.nickname || selectedAccount.botId}，好友与群聊统一在这里查看。未独立配置的会话跟随好友或群聊默认策略。`
-            : '好友与群聊统一在这里查看。未独立配置的会话跟随好友或群聊默认策略。'
+            ? `${selectedAccount.nickname || selectedAccount.botId} · 管理好友、群聊与机器人的参与策略。`
+            : '管理好友、群聊与机器人的参与策略。'
         }
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedBotId !== undefined ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button variant="outline" size="sm"><Settings2 aria-hidden />默认策略</Button></DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel>未独立配置的会话跟随默认策略</DropdownMenuLabel>
+                  {([{ kind: 'private' as const, title: '好友默认策略', query: friendDefault }, { kind: 'group' as const, title: '群聊默认策略', query: groupDefault }]).map(({ kind, title, query }) => (
+                    <DropdownMenuItem key={kind} disabled={query.isLoading} onSelect={() => query.isError ? void query.refetch() : setEditingDefault(kind)} className="flex items-center justify-between gap-3 py-3">
+                      <span>{title}</span><span className="text-meta text-muted-foreground">{query.isLoading ? '加载中' : query.isError ? '读取失败 · 重试' : query.data?.enabled ? '已启用' : '已关闭'}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <Button variant="outline" size="sm" onClick={() => void activeQuery.refetch()}>
               <RefreshCw
                 className={cn('size-3.5', activeQuery.isFetching && 'animate-spin')}
@@ -257,12 +266,6 @@ export function DirectoryPage() {
         }
       />
 
-      {selectedBotId !== undefined ? <div className="grid gap-3 md:grid-cols-2">
-        {([{ kind: 'private' as const, title: '默认好友策略', query: friendDefault }, { kind: 'group' as const, title: '默认群聊策略', query: groupDefault }]).map(({ kind, title, query }) => <Card key={kind} className="flex items-center justify-between gap-4 border-primary/20 bg-primary/5 p-4">
-          <div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-sm text-muted-foreground">{query.isLoading ? '加载中…' : query.isError ? '读取失败，请重试' : `${query.data?.enabled ? '已启用' : '已关闭'} · ${REPLY_MODE_LABELS[query.data?.replyMode ?? 'mention_only']} · ${(kind==='private'?friendTools:groupTools).data?.permissions.filter(permission=>(kind==='private'?friendTools:groupTools).data?.tools.some(tool=>tool.applicable && permission.tools.includes(tool.id)) && (query.data?.toolPermissions[permission.id] ?? permission.defaultGranted)).length ?? 0} 项能力授权`}</p><p className="mt-1 text-xs text-muted-foreground">用于没有独立策略的现有及新增会话</p></div>
-          <Button variant="outline" disabled={query.isLoading} onClick={() => query.isError ? void query.refetch() : setEditingDefault(kind)}>{query.isError ? '重试' : '编辑模板'}</Button>
-        </Card>)}
-      </div> : null}
       {selectedBotId !== undefined && editingDefault ? <ScopeEditDialog key={`${selectedBotId}:${editingDefault}`} open onOpenChange={(open) => { if (!open) setEditingDefault(null) }} botId={selectedBotId} scopeType={editingDefault} scopeId={0} targetLabel={editingDefault === 'private' ? '默认好友策略' : '默认群聊策略'} /> : null}
 
       {accountsError ? (
@@ -282,8 +285,8 @@ export function DirectoryPage() {
           />
         </Card>
       ) : (
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-          <Card className={cn('min-h-[520px] flex-col overflow-hidden', mobileDetail ? 'hidden xl:flex' : 'flex')}>
+        <div className="grid overflow-hidden rounded-lg border border-border bg-card lg:h-[calc(100dvh-13rem)] lg:min-h-[560px] lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+          <div className={cn('min-h-[520px] flex-col overflow-hidden lg:min-h-0', mobileDetail ? 'hidden lg:flex' : 'flex')}>
             <div className="space-y-3 border-b border-border/60 px-4 py-4">
               <DirectoryTabs
                 tab={tab}
@@ -406,24 +409,12 @@ export function DirectoryPage() {
                 }
               />
             </div>
-          </Card>
+          </div>
 
-          <div className={cn('min-w-0',mobileDetail ? 'block' : 'hidden xl:block')}>
-            <Button className="mb-3 xl:hidden" variant="outline" onClick={()=>setMobileDetail(false)}>返回联系人列表</Button>
+          <div className={cn('min-h-0 min-w-0 overflow-y-auto lg:border-l lg:border-border',mobileDetail ? 'block' : 'hidden lg:block')}>
+            <Button className="m-4 lg:hidden" variant="outline" onClick={()=>setMobileDetail(false)}>返回联系人列表</Button>
             <ContactDetailPanel key={`${selectedBotId}:${tab}:${selection?.id}`} selection={selection} />
-            {selection ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
-                <Badge variant="secondary">
-                  {tab === 'friends' ? '私聊作用域' : '群聊作用域'}
-                </Badge>
-                <span>
-                  {selection.policy
-                    ? selection.policy.source === 'default' ? '当前跟随默认模板；保存编辑后将生成独立策略。' : '当前使用独立策略。'
-                    : '正在读取有效策略。'}
-                </span>
-                <ScopeStatusBadge policy={selection.policy} />
-              </div>
-            ) : null}
+
           </div>
         </div>
       )}

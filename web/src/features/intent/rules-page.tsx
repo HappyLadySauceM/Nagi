@@ -1,3 +1,4 @@
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '../../components/ui/sheet'
 import { useEditGuard } from './edit-guard'
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Save, Send, Trash2, Upload } from 'lucide-react'
@@ -44,22 +45,23 @@ const EMPTY_ENTRY: RuleEntry = {
   action: { type: 'silent', reasonCode: '' },
 }
 
-export function RulesPage() {
+export function RulesPage({ embedded = false }: { embedded?: boolean }) {
   const { selectedBotId } = useAccountContext()
-  return <RulesEditor key={selectedBotId ?? 'none'} />
+  return <RulesEditor key={selectedBotId ?? 'none'} embedded={embedded} />
 }
 
-function RulesEditor() {
+function RulesEditor({ embedded }: { embedded: boolean }) {
   const { selectedBotId } = useAccountContext()
   const [scopeType, setScopeType] = useState<ScopeType>(() => new URLSearchParams(location.search).get('scope_type') === 'private' ? 'private' : 'group')
   const [scopeId, setScopeId] = useState(() => new URLSearchParams(location.search).get('scope_id') ?? '0')
   useEffect(() => {
+    if (embedded) return
     const url = new URL(window.location.href)
     url.searchParams.set('scope_type', scopeType)
     if (scopeId) url.searchParams.set('scope_id', scopeId)
     else url.searchParams.delete('scope_id')
     window.history.replaceState(window.history.state, '', url)
-  }, [scopeType, scopeId])
+  }, [embedded, scopeType, scopeId])
   const scope = useMemo(() => {
     const parsed = Number(scopeId)
     if (!selectedBotId || !Number.isInteger(parsed) || parsed < 0) return null
@@ -119,11 +121,12 @@ function RulesEditor() {
   }
 
   return (
-    <div className="space-y-4">
-      <PageHeader
+    <div className="space-y-5">
+      {!embedded ? <PageHeader
         title="规则管理"
         description="指定适用会话并维护版本化规则：草稿可编辑，发布后不可改，可回滚到历史版本；模拟只做求值，不会发送。"
-      />
+        className="xl:col-span-2"
+      /> : null}
 
       <Card className="p-4">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -193,7 +196,7 @@ function RulesEditor() {
             <TableBody>
               {versions.data?.map((set) => (
                 <TableRow key={set.id} className="cursor-pointer" onClick={() => selectVersion(set.id)}>
-                  <TableCell>v{set.version}</TableCell>
+                  <TableCell><button type="button" className="font-medium hover:underline" onClick={event => { event.stopPropagation(); selectVersion(set.id) }}>v{set.version}</button></TableCell>
                   <TableCell>
                     <Badge variant={set.status === 'published' ? 'success' : 'secondary'}>
                       {RULESET_STATUS_LABELS[set.status]}
@@ -223,16 +226,111 @@ function RulesEditor() {
         </Card>
       )}
 
+      <Sheet open={selectedId !== null} onOpenChange={open => {
+        if (open || busy || (dirty && !window.confirm('放弃未保存的修改并关闭？'))) return
+        setDirty(false)
+        setSelectedId(null)
+      }}>
+        <SheetContent side="right" className="h-dvh w-full gap-0 overflow-hidden bg-background p-0 sm:max-w-[960px]">
+          <header className="shrink-0 border-b border-border px-6 py-5 pr-14">
+            <SheetTitle className="text-lg font-semibold">规则编辑{current ? ` · v${current.version}` : ''}</SheetTitle>
+            <SheetDescription className="mt-2">草稿可编辑；发布及历史版本只读，可从当前版本创建草稿。</SheetDescription>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
+
       {detail.isLoading && selectedId ? <p role="status">正在读取规则详情…</p> : null}
       {detail.isError ? <FeedbackState variant="error" title="读取规则详情失败" error={detail.error} onRetry={() => void detail.refetch()} /> : null}
       {current ? (
-        <Card className="space-y-3 p-4">
+        <div className="min-w-0 space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-medium">
               v{current.version} 规则条目
               {isDraft ? <span className="ml-2 text-meta text-muted-foreground">草稿可编辑</span> : null}
             </div>
-            <div className="flex gap-2">
+
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+            <label className="flex items-center justify-between gap-3"><span>适用于所有会话</span><Switch checked={allTargets} disabled={!isDraft || busy} onCheckedChange={value => { setAllTargets(value); setDirty(true) }} /></label>
+            {!allTargets ? <label className="block space-y-1 text-sm"><span>指定会话（逗号分隔，例如 private:1552089234, group:123456）</span><Input aria-label="规则适用会话" value={targetText} disabled={!isDraft || busy} onChange={event => { setTargetText(event.target.value); setDirty(true) }} /></label> : null}
+            {!allTargets && isDraft ? <div className="space-y-2">
+              <div className="flex gap-2"><Select aria-label="搜索目标类型" value={targetKind} onChange={event=>setTargetKind(event.target.value as ScopeType)}><option value="private">好友</option><option value="group">群聊</option></Select><Input aria-label="搜索规则目标" placeholder="搜索昵称、备注或号码" value={targetSearch} onChange={event=>setTargetSearch(event.target.value)}/></div>
+              {targetQuery.isError?<FeedbackState variant="error" error={targetQuery.error} onRetry={()=>void targetQuery.refetch()} compact/>:targetQuery.isFetching?<p className="text-xs">搜索中…</p>:<div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">{choices.map(row=><Button type="button" size="sm" variant="outline" key={row.id} onClick={()=>{const value=`${targetKind}:${row.id}`;setTargetText(old=>[...new Set([...old.split(/[,，\s]+/).filter(Boolean),value])].join(', '));setDirty(true)}}>{row.name || '未命名'} · {row.id}</Button>)}</div>}
+            </div>:null}
+            <p className="text-xs text-muted-foreground">指定会话规则优先；未命中再执行全局规则。发布时检查目标冲突。</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {Object.entries({ closing: '告别时保持安静', continuation: '延续机器人话题', directed_to_bot: '识别对机器人发言', addressed_to_other: '避免打断其他人', interjection: '判断是否适合插话' }).map(([key,label]) => <label key={key} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"><span className="text-sm">{label}{builtinRules[key] === undefined ? <span className="ml-2 text-xs text-muted-foreground">{allTargets ? '内置默认' : '继承全局'}</span> : null}</span><Switch aria-label={label} checked={builtinRules[key] ?? (!allTargets ? globalBuiltinRules[key] : undefined) ?? true} disabled={!isDraft || busy} onCheckedChange={value => { setBuiltinRules(old => ({...old,[key]:value})); setDirty(true) }} /></label>)}
+          </div>
+          <p className="text-xs text-muted-foreground">参与授权、观察模式、回复模式、冷却和小时额度始终生效。</p>
+
+          {entries.length === 0 ? (
+            <p className="text-meta text-muted-foreground">尚未添加条目；命中优先级最小的规则先生效。</p>
+          ) : (
+            <div className="space-y-2">
+              {entries.map((entry, index) => (
+                <div key={index} className="grid gap-2 rounded-md border border-border/60 p-3 sm:grid-cols-2 2xl:grid-cols-3">
+                  <label className="flex items-center gap-2 text-xs"><Switch aria-label="启用规则条目" checked={entry.enabled ?? true} disabled={!isDraft || busy} onCheckedChange={enabled => updateEntry(index, { enabled })} />启用</label>
+                  <Input
+                    value={String(entry.priority)}
+                    disabled={!isDraft || busy}
+                    onChange={(e) => updateEntry(index, { priority: Number(e.target.value) || 0 })}
+                    aria-label="优先级"
+                  />
+                  <Input
+                    value={entry.match.textContains ?? ''}
+                    disabled={!isDraft || busy}
+                    aria-label="包含文本"
+                    placeholder="包含文本"
+                    onChange={(e) => updateEntry(index, { match: { ...entry.match, textContains: e.target.value || undefined } })}
+                  />
+                  <Select
+                    aria-label="规则会话类型"
+                    value={entry.match.kind ?? ''}
+                    disabled={!isDraft || busy}
+                    onChange={(e) => updateEntry(index, { match: { ...entry.match, kind: e.target.value || undefined } })}
+                  >
+                    <option value="">任意会话</option>
+                    <option value="group">仅群聊</option>
+                    <option value="private">仅私聊</option>
+                  </Select>
+                  <Select
+                    aria-label="规则动作"
+                    value={entry.action.type}
+                    disabled={!isDraft || busy}
+                    onChange={(e) => updateEntry(index, { action: { ...entry.action, type: e.target.value as RuleEntry['action']['type'] } })}
+                  >
+                    {Object.entries(RULE_ACTION_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </Select>
+                  <Input
+                    aria-label="规则原因码"
+                    value={entry.action.reasonCode}
+                    disabled={!isDraft || busy}
+                    placeholder="原因码"
+                    onChange={(e) => updateEntry(index, { action: { ...entry.action, reasonCode: e.target.value } })}
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    disabled={!isDraft || busy}
+                    onClick={() => { setEntries(entries.filter((_, i) => i !== index)); setDirty(true) }}
+                    aria-label="删除条目"
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+          {current ? <SimulateCard key={current.id} scope={{ botId: current.botId, scopeType: current.targets?.[0]?.kind ?? current.scopeType, scopeId: current.targets?.[0]?.id ?? 0 }} entries={entries} builtinRules={builtinRules} previewGlobal={allTargets} /> : null}
+          </div>
+          <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-4">
+            {current ? <Button variant="outline" disabled={busy} onClick={() => current && (!dirty || window.confirm('放弃未保存的修改并新建草稿？')) && createDraft.mutate({ note: '', cloneActive: true, cloneFromId: current.id }, { onSuccess: set => { setDirty(false); setSelectedId(set.id); toast.success(`已创建 v${set.version} 草稿`) }, onError: error => toast.error(describeError(error).title) })}>从此版本创建草稿</Button> : null}
+{current ? (            <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => { setEntries([...entries, { ...EMPTY_ENTRY, priority: Math.max(-1, ...entries.map(entry => entry.priority)) + 1 }]); setDirty(true) }} disabled={!isDraft || busy}>
                 <Plus />
                 添加条目
@@ -263,83 +361,10 @@ function RulesEditor() {
                 <Upload />
                 发布
               </Button>
-            </div>
-          </div>
-
-          <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
-            <label className="flex items-center justify-between gap-3"><span>适用于所有会话</span><Switch checked={allTargets} disabled={!isDraft || busy} onCheckedChange={value => { setAllTargets(value); setDirty(true) }} /></label>
-            {!allTargets ? <label className="block space-y-1 text-sm"><span>指定会话（逗号分隔，例如 private:1552089234, group:123456）</span><Input aria-label="规则适用会话" value={targetText} disabled={!isDraft || busy} onChange={event => { setTargetText(event.target.value); setDirty(true) }} /></label> : null}
-            {!allTargets && isDraft ? <div className="space-y-2">
-              <div className="flex gap-2"><Select aria-label="搜索目标类型" value={targetKind} onChange={event=>setTargetKind(event.target.value as ScopeType)}><option value="private">好友</option><option value="group">群聊</option></Select><Input aria-label="搜索规则目标" placeholder="搜索昵称、备注或号码" value={targetSearch} onChange={event=>setTargetSearch(event.target.value)}/></div>
-              {targetQuery.isError?<FeedbackState variant="error" error={targetQuery.error} onRetry={()=>void targetQuery.refetch()} compact/>:targetQuery.isFetching?<p className="text-xs">搜索中…</p>:<div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">{choices.map(row=><Button type="button" size="sm" variant="outline" key={row.id} onClick={()=>{const value=`${targetKind}:${row.id}`;setTargetText(old=>[...new Set([...old.split(/[,，\s]+/).filter(Boolean),value])].join(', '));setDirty(true)}}>{row.name || '未命名'} · {row.id}</Button>)}</div>}
-            </div>:null}
-            <p className="text-xs text-muted-foreground">指定会话规则优先；未命中再执行全局规则。发布时检查目标冲突。</p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {Object.entries({ closing: '告别时保持安静', continuation: '延续机器人话题', directed_to_bot: '识别对机器人发言', addressed_to_other: '避免打断其他人', interjection: '判断是否适合插话' }).map(([key,label]) => <label key={key} className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 p-3"><span className="text-sm">{label}{builtinRules[key] === undefined ? <span className="ml-2 text-xs text-muted-foreground">{allTargets ? '内置默认' : '继承全局'}</span> : null}</span><Switch aria-label={label} checked={builtinRules[key] ?? (!allTargets ? globalBuiltinRules[key] : undefined) ?? true} disabled={!isDraft || busy} onCheckedChange={value => { setBuiltinRules(old => ({...old,[key]:value})); setDirty(true) }} /></label>)}
-          </div>
-          <p className="text-xs text-muted-foreground">参与授权、观察模式、回复模式、冷却和小时额度始终生效。</p>
-
-          {entries.length === 0 ? (
-            <p className="text-meta text-muted-foreground">尚未添加条目；命中优先级最小的规则先生效。</p>
-          ) : (
-            <div className="space-y-2">
-              {entries.map((entry, index) => (
-                <div key={index} className="grid gap-2 rounded-md border border-border/60 p-2 sm:grid-cols-6">
-                  <label className="flex items-center gap-2 text-xs"><Switch aria-label="启用规则条目" checked={entry.enabled ?? true} disabled={!isDraft || busy} onCheckedChange={enabled => updateEntry(index, { enabled })} />启用</label>
-                  <Input
-                    value={String(entry.priority)}
-                    disabled={!isDraft || busy}
-                    onChange={(e) => updateEntry(index, { priority: Number(e.target.value) || 0 })}
-                    aria-label="优先级"
-                  />
-                  <Input
-                    value={entry.match.textContains ?? ''}
-                    disabled={!isDraft || busy}
-                    placeholder="包含文本"
-                    onChange={(e) => updateEntry(index, { match: { ...entry.match, textContains: e.target.value || undefined } })}
-                  />
-                  <Select
-                    value={entry.match.kind ?? ''}
-                    disabled={!isDraft || busy}
-                    onChange={(e) => updateEntry(index, { match: { ...entry.match, kind: e.target.value || undefined } })}
-                  >
-                    <option value="">任意会话</option>
-                    <option value="group">仅群聊</option>
-                    <option value="private">仅私聊</option>
-                  </Select>
-                  <Select
-                    value={entry.action.type}
-                    disabled={!isDraft || busy}
-                    onChange={(e) => updateEntry(index, { action: { ...entry.action, type: e.target.value as RuleEntry['action']['type'] } })}
-                  >
-                    {Object.entries(RULE_ACTION_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </Select>
-                  <Input
-                    value={entry.action.reasonCode}
-                    disabled={!isDraft || busy}
-                    placeholder="原因码"
-                    onChange={(e) => updateEntry(index, { action: { ...entry.action, reasonCode: e.target.value } })}
-                  />
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    disabled={!isDraft || busy}
-                    onClick={() => { setEntries(entries.filter((_, i) => i !== index)); setDirty(true) }}
-                    aria-label="删除条目"
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      ) : null}
-
-      {scope ? <SimulateCard key={`${scope.botId}:${scope.scopeType}:${scope.scopeId}:${selectedId}`} scope={current ? {botId:current.botId,scopeType:current.targets?.[0]?.kind ?? current.scopeType,scopeId:current.targets?.[0]?.id ?? 0} : scope} entries={current ? entries : undefined} builtinRules={builtinRules} previewGlobal={allTargets} /> : null}
+            </div>) : null}
+          </footer>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 
@@ -360,7 +385,8 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal }: { 
   const [replyMode, setReplyMode] = useState('intent_based')
   const [seconds, setSeconds] = useState('60')
   return (
-    <Card className="space-y-3 p-4">
+    <Card className="grid min-w-0 gap-6 p-5 lg:grid-cols-2">
+      <div className="min-w-0 space-y-4">
       <div className="grid gap-2 sm:grid-cols-2"><Select aria-label="模拟实际会话类型" value={simulationKind} onChange={event=>{setSimulationKind(event.target.value as ScopeType);simulate.reset()}}><option value="private">好友私聊</option><option value="group">群聊</option></Select><Input aria-label="模拟实际目标号码" placeholder="输入用于判断范围的 QQ 号或群号" value={simulationTarget} onChange={event=>{setSimulationTarget(event.target.value);simulate.reset()}}/></div>
       <div className="text-xs text-muted-foreground">实际模拟对象：{simulationKind==='private'?'好友':'群聊'} {simulationTarget || '未选择'}</div>
       <div className="text-sm font-medium">只读规则模拟 · {entries ? '当前编辑内容' : '当前生效版本'}</div>
@@ -386,6 +412,10 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal }: { 
           模拟
         </Button>
       </div>
+      </div>
+      <section aria-label="模拟结果" className="min-w-0 border-t border-border pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+      <h3 className="mb-4 text-sm font-medium">验证结果</h3>
+      {simulate.isPending ? <p role="status" className="text-muted-foreground">正在验证…</p> : null}
       {simulate.data ? (
         <div className="rounded-md bg-muted/40 p-3 text-meta">
           <div>最终判断：{simulate.data.decision ?? '规则验证尚未进行语义判断'}</div>
@@ -397,18 +427,13 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal }: { 
           <div>原因码：{simulate.data.reasonCode || '—'}</div>
           <div>规则版本：{simulate.data.rulesetVersion || '内置规则'}</div>
         </div>
-      ) : null}
+      ) : !simulate.isPending ? <p className="text-sm text-muted-foreground">填写测试消息并运行模拟后，在这里查看判断、语义分数与规则结果。</p> : null}
+      </section>
     </Card>
   )
 }
 
 export function SimulationPanel() {
- const {selectedBotId}=useAccountContext()
- const [kind,setKind]=useState<ScopeType>('private')
- const [target,setTarget]=useState('')
- const id=Number(target)
- return <div className="space-y-3">
-  <div className="grid gap-3 sm:grid-cols-2"><Select aria-label="模拟会话类型" value={kind} onChange={e=>setKind(e.target.value as ScopeType)}><option value="private">好友私聊</option><option value="group">群聊</option></Select><Input aria-label="模拟目标号码" placeholder="输入用于验证规则范围的 QQ 号或群号" value={target} onChange={e=>setTarget(e.target.value)}/></div>
-  {selectedBotId && Number.isSafeInteger(id) && id>0?<SimulateCard key={`${kind}:${id}`} scope={{botId:selectedBotId,scopeType:kind,scopeId:id}}/>:<p className="text-sm text-muted-foreground">选择一个会话以验证它实际匹配的规则。</p>}
- </div>
+ const { selectedBotId } = useAccountContext()
+ return selectedBotId ? <SimulateCard scope={{ botId: selectedBotId, scopeType: 'private', scopeId: 0 }} /> : <FeedbackState variant="empty" title="先选择机器人账号" />
 }
