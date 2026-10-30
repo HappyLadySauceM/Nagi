@@ -1,3 +1,4 @@
+import { AnimatedNavIcon } from '../../components/animated-nav-icon'
 import { useState } from 'react'
 import { Link, useMatchRoute } from '@tanstack/react-router'
 import { Menu } from 'lucide-react'
@@ -27,11 +28,11 @@ export function MobileNav() {
           className="lg:hidden"
           aria-label="打开导航菜单"
         >
-          <Menu className="size-4" aria-hidden />
+          <Menu className="size-4" />
         </Button>
       </SheetTrigger>
       <SheetContent side="left">
-        <div className="flex h-16 items-center border-b border-sidebar-border px-4">
+        <div className="flex h-14 items-center border-b border-sidebar-border px-4">
           <Brand />
         </div>
         <SheetTitle className="sr-only">主导航</SheetTitle>
@@ -39,12 +40,12 @@ export function MobileNav() {
         <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <p className="px-2.5 pb-1.5 text-caption font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+              <p className="px-2.5 pb-1.5 text-caption font-medium tracking-wide text-muted-foreground/70">
                 {group.label}
               </p>
               <div className="space-y-1">
                 {group.items.map((item) => {
-                  const isActive = Boolean(matchRoute({ to: item.to, fuzzy: false }))
+                  const isActive = Boolean(matchRoute({ to: item.to, fuzzy: item.to === '/decisions' }))
                   const Icon = item.icon
                   return (
                     <SheetClose asChild key={item.to}>
@@ -58,12 +59,11 @@ export function MobileNav() {
                             : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
                         )}
                       >
-                        <Icon
+                        <AnimatedNavIcon icon={Icon}
                           className={cn(
                             'size-4 shrink-0',
                             isActive ? 'text-primary' : 'text-muted-foreground',
                           )}
-                          aria-hidden
                         />
                         <span className="min-w-0 flex-1 truncate">{item.label}</span>
                         <span className="truncate text-caption text-muted-foreground">{item.hint}</span>

@@ -37,7 +37,7 @@ export function SettingsCard({
     <Card id={id} className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-border/60 bg-surface/40">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
+          <span className={cn('mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border', id === 'tools' ? 'border-cyan-500/20 bg-cyan-500/10 text-cyan-700 dark:text-cyan-400' : id === 'retention' ? 'border-border bg-secondary text-muted-foreground' : 'border-violet-500/20 bg-violet-500/10 text-violet-600 dark:text-violet-400')}>
             <Icon className="size-4" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">

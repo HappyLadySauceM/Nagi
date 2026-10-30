@@ -1,18 +1,18 @@
+import { AnimatedNavIcon } from '../../../components/animated-nav-icon'
 import { useEffect, useRef, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { useEditGuard } from '../../intent/edit-guard'
-import { Save, Trash2 } from 'lucide-react'
+import { Save, Trash2, MessageCircle, ShieldCheck, Send, Database } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '../../../components/ui/badge'
 import { Button } from '../../../components/ui/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '../../../components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '../../../components/ui/sheet'
 import { ConfirmDialog } from '../../../components/confirm-dialog'
 import { FeedbackState } from '../../../components/feedback-state'
 import { Skeleton } from '../../../components/ui/skeleton'
@@ -55,11 +55,11 @@ interface ScopeEditDialogProps {
 }
 
 /**
- * In-dialog policy editor for the contacts page. Reuses the same form fields
+ * Policy editing workspace for the contacts page. Reuses the same form fields
  * and confirmations as the former standalone edit page: risky capability
  * switches need an explicit confirmation, and unsaved edits prompt before the
  * dialog closes.
- * 联系人页内嵌的策略编辑对话框。复用原独立编辑页的表单与确认流程：
+ * 联系人页内嵌的策略编辑工作区。复用原独立编辑页的表单与确认流程：
  * 敏感开关需二次确认，未保存的修改在关闭对话框前会先询问。
  */
 export function ScopeEditDialog({
@@ -191,19 +191,19 @@ export function ScopeEditDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={requestClose}>
-        <DialogContent className="flex max-w-4xl flex-col overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>
+      <Sheet open={open} onOpenChange={requestClose}>
+        <SheetContent side="right" className="h-dvh w-full gap-0 overflow-hidden bg-background p-0 sm:max-w-[960px]">
+          <header className="shrink-0 border-b border-border px-5 py-5 pr-14 sm:px-6 sm:pr-14">
+            <SheetTitle className="text-lg font-semibold">
               {scopeId === 0 ? '编辑默认策略' : '编辑策略'} · {targetLabel}
-            </DialogTitle>
-            <DialogDescription>
+            </SheetTitle>
+            <SheetDescription className="mt-2 leading-relaxed">
               {scopeId === 0 ? (scopeType === 'private' ? '默认好友策略' : '默认群聊策略') : `${SCOPE_TYPE_LABELS[scopeType]} ${scopeId}`} ·{' '}
               {scopeId === 0 ? '保存后用于未独立配置的新旧会话。' : scope.data?.source === 'default' ? '当前跟随默认模板，保存后成为独立策略。' : '独立策略，保存后立即生效。'}
-            </DialogDescription>
-          </DialogHeader>
+            </SheetDescription>
+          </header>
 
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-secondary/40 px-3 py-2">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3 sm:px-6">
             <span className="text-meta text-muted-foreground">生效状态</span>
             {scope.isLoading ? (
               <Skeleton className="h-5 w-16" />
@@ -216,9 +216,15 @@ export function ScopeEditDialog({
             )}
           </div>
 
-          <div role="tablist" aria-label="策略设置分区" className="flex shrink-0 flex-wrap gap-1 rounded-lg bg-secondary/40 p-1">
-            {[['participation','参与控制'],['capabilities','能力授权'],['sending','发送设置'],['data','数据权限']].map(([value,label])=><Button type="button" size="sm" role="tab" aria-selected={section===value} key={value} variant={section===value?'default':'ghost'} onClick={()=>setSection(value)}>{label}</Button>)}
-          </div>
+          <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+            <nav aria-label="策略设置分区" className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-card p-3 md:w-44 md:flex-col md:border-b-0 md:border-r md:p-4">
+              {([['participation', '参与控制', MessageCircle], ['capabilities', '能力授权', ShieldCheck], ['sending', '发送设置', Send], ['data', '数据权限', Database]] as const).map(([value, label, Icon]) => (
+                <Button type="button" size="sm" key={value} aria-current={section === value ? 'page' : undefined}
+                  className={`shrink-0 justify-start ${section === value ? 'bg-secondary text-foreground' : 'text-muted-foreground'}`}
+                  variant="ghost" onClick={() => setSection(value)}><AnimatedNavIcon icon={Icon} className="text-cyan-600 dark:text-cyan-400" />{label}</Button>
+              ))}
+            </nav>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-5 sm:p-6">
           {section==='capabilities' && tools.isError ? <FeedbackState variant="error" error={tools.error} onRetry={()=>void tools.refetch()} compact /> : null}
           {scope.isLoading ? (
             <div className="space-y-3">
@@ -231,7 +237,9 @@ export function ScopeEditDialog({
             </form>
           )}
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            </div>
+          </div>
+          <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-5 py-4 sm:px-6">
             {scopeId !== 0 && savedPolicy?.source !== 'default' && savedPolicy ? (
               <Button
                 type="button"
@@ -268,9 +276,9 @@ export function ScopeEditDialog({
                 {save.isPending ? '保存中…' : '保存策略'}
               </Button>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </footer>
+        </SheetContent>
+      </Sheet>
 
       <ConfirmDialog
         open={pendingSave !== null}

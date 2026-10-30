@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import { Avatar } from '../../../components/avatar'
 import { Badge } from '../../../components/ui/badge'
 import { Button } from '../../../components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { InfoRow } from '../../../components/info-row'
 import type { ScopePolicy } from '../../../lib/api/contracts'
 import { REPLY_MODE_LABELS } from '../../../lib/api/contracts'
@@ -44,13 +43,7 @@ export function ContactDetailPanel({ selection }: { selection?: DirectorySelecti
   const { selectedBotId } = useAccountContext()
 
   if (!selection) {
-    return (
-      <Card className="flex min-h-[320px] items-center justify-center">
-        <p className="max-w-xs text-center text-body leading-relaxed text-muted-foreground">
-          从左侧选择一个好友或群聊，查看资料、同步时间与作用域策略。
-        </p>
-      </Card>
-    )
+    return <div className="flex min-h-[320px] items-center justify-center p-8"><p className="max-w-xs text-center text-sm leading-relaxed text-muted-foreground">从左侧选择一个好友或群聊，查看资料与参与策略。</p></div>
   }
 
   const isGroup = selection.kind === 'group'
@@ -59,92 +52,39 @@ export function ContactDetailPanel({ selection }: { selection?: DirectorySelecti
 
   return (
     <>
-      <Card className="flex flex-col">
-      <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">
-        <div className="flex min-w-0 items-center gap-3">
-          <Avatar id={selection.id} kind={isGroup ? 'group' : 'user'} name={title} size="lg" />
-          <div className="min-w-0">
-            <CardTitle className="truncate text-title">{title}</CardTitle>
-            <p className="mt-1 font-mono text-meta text-muted-foreground tabular-nums">
-              {isGroup ? '群号' : 'QQ'} {selection.id}
-            </p>
+      <div className="p-5 sm:p-7">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
+          <div className="flex min-w-0 items-center gap-4">
+            <Avatar id={selection.id} kind={isGroup ? 'group' : 'user'} name={title} size="lg" />
+            <div className="min-w-0"><h2 className="break-words text-xl font-semibold">{title}</h2><p className="mt-1 font-mono text-meta text-muted-foreground">{isGroup ? '群号' : 'QQ'} {selection.id}</p></div>
           </div>
-        </div>
-        <Badge variant={isGroup ? 'accent' : 'secondary'}>{isGroup ? '群聊' : '好友'}</Badge>
-      </CardHeader>
-
-      <CardContent className="pt-2">
-        <InfoRow label="策略来源" value={selection.policy?.source === 'default' ? (isGroup ? '跟随群聊默认' : '跟随好友默认') : '独立策略'} />
-        <InfoRow label="回复模式" value={selection.policy ? REPLY_MODE_LABELS[selection.policy.replyMode] : '未加载'} />
-        <InfoRow label="显式授权能力" value={String(Object.values(selection.policy?.toolPermissions ?? {}).filter(Boolean).length)} />
-        <InfoRow label="发送预算" value={selection.policy ? `每轮 ${selection.policy.maxMessagesPerRun ?? 3} 条 · 单条 ${selection.policy.maxCharsPerMessage ?? 500} 字 · 整轮 ${selection.policy.maxTotalCharsPerRun ?? 1500} 字` : '未加载'} />
-        <InfoRow label="气泡间隔" value={`${selection.policy?.messageIntervalMs ?? 700} ms`} />
-        <InfoRow label={isGroup ? '群名称' : '昵称'} value={selection.name || '未记录'} />
-        {isGroup ? (
-          <InfoRow
-            label="成员数"
-            value={selection.memberCount === undefined ? '未知' : formatCount(selection.memberCount)}
-            mono
-          />
-        ) : (
-          <InfoRow label="备注" value={selection.remark || '未设置'} />
-        )}
-        <InfoRow
-          label="最近同步"
-          value={
-            selection.lastSeenAt
-              ? formatRelativeTime(selection.lastSeenAt)
-              : '尚无同步记录'
-          }
-        />
-        <div className="flex items-center justify-between gap-3 border-b border-border/60 py-2.5">
-          <span className="text-meta text-muted-foreground">作用域策略</span>
-          <ScopeStatusBadge policy={selection.policy} />
-        </div>
-
-        {!selection.policy?.enabled ? (
-          <p className="mt-3 rounded-lg border border-border/70 bg-secondary/40 px-3 py-2 text-meta leading-relaxed text-muted-foreground">
-            该目标当前关闭：机器人不会回复、不保存消息，也不写入记忆。需要回复时先保存一份启用的策略。
-          </p>
-        ) : null}
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            disabled={selectedBotId === undefined}
-            onClick={() => setEditOpen(true)}
-          >
-            <ShieldCheck aria-hidden />
-            编辑策略
-          </Button>
-          {isGroup ? (
-            <Button asChild variant="outline" size="sm">
-              <Link
-                to="/directory/$groupId"
-                params={{ groupId: String(selection.id) }}
-                search={{ search: '', page: 1, limit: 20, name: selection.name }}
-              >
-                <UsersRound aria-hidden />
-                查看成员
-              </Link>
-            </Button>
-          ) : null}
-          <Button variant="ghost" size="sm" onClick={() => copyId(selection.id)}>
-            <Copy aria-hidden />
-            复制号码
-          </Button>
-        </div>
-
-        {selection.lastSeenAt ? (
-          <p className="mt-3 text-caption text-muted-foreground">
-            最近一次同步：{formatDateTime(selection.lastSeenAt)}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
-      {selectedBotId !== undefined ? (
+          <Badge variant="secondary">{isGroup ? '群聊' : '好友'}</Badge>
+        </header>
+        <section className="py-6" aria-label="联系人资料">
+          <h3 className="mb-3 text-sm font-medium">基本资料</h3>
+          <InfoRow label={isGroup ? '群名称' : '名称'} value={selection.name || '未记录'} />
+          {isGroup ? <InfoRow label="成员数" value={selection.memberCount === undefined ? '未知' : formatCount(selection.memberCount)} mono /> : <InfoRow label="昵称" value={selection.remark || '未设置'} />}
+          <InfoRow label="最近同步" value={selection.lastSeenAt ? formatRelativeTime(selection.lastSeenAt) : '尚无同步记录'} />
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => copyId(selection.id)}><Copy aria-hidden />复制号码</Button>
+            {isGroup ? <Button asChild variant="outline" size="sm"><Link to="/directory/$groupId" params={{ groupId: String(selection.id) }} search={{ search: '', page: 1, limit: 20, name: selection.name }}><UsersRound aria-hidden />查看成员</Link></Button> : null}
+          </div>
+        </section>
+        <section className="border-t border-border py-6" aria-label="参与策略">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h3 className="text-sm font-medium">参与策略</h3><ScopeStatusBadge policy={selection.policy} /></div>
+          <InfoRow label="策略来源" value={!selection.policy ? '正在读取' : selection.policy.source === 'default' ? (isGroup ? '跟随群聊默认' : '跟随好友默认') : '独立策略'} />
+          <InfoRow label="回复模式" value={selection.policy ? REPLY_MODE_LABELS[selection.policy.replyMode] : '未加载'} />
+          <InfoRow label="显式授权能力" value={selection.policy ? String(Object.values(selection.policy.toolPermissions).filter(Boolean).length) : '未加载'} />
+          <InfoRow label="发送预算" value={selection.policy ? `每轮 ${selection.policy.maxMessagesPerRun ?? 3} 条 · 单条 ${selection.policy.maxCharsPerMessage ?? 500} 字 · 整轮 ${selection.policy.maxTotalCharsPerRun ?? 1500} 字` : '未加载'} />
+          <InfoRow label="气泡间隔" value={selection.policy ? `${selection.policy.messageIntervalMs ?? 700} ms` : '未加载'} />
+          {selection.policy && !selection.policy.enabled ? <p className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-meta leading-relaxed text-muted-foreground">当前会话已关闭：机器人不会回复、不保存消息，也不写入记忆。编辑并启用策略后开始参与。</p> : null}
+          <Button className="mt-5" size="sm" disabled={selectedBotId === undefined} onClick={() => setEditOpen(true)}><ShieldCheck aria-hidden />编辑策略</Button>
+        </section>
+        {selection.lastSeenAt ? <p className="text-caption text-muted-foreground">最近一次同步：{formatDateTime(selection.lastSeenAt)}</p> : null}
+      </div>
+      {selectedBotId !== undefined && editOpen ? (
         <ScopeEditDialog
-          open={editOpen}
+          open
           onOpenChange={setEditOpen}
           botId={selectedBotId}
           scopeType={scopeType}

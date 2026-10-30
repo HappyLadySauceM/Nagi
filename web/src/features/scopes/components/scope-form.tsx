@@ -1,6 +1,5 @@
 import { type ReactNode } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card'
 import { FormField } from '../../../components/form-field'
 import { Input } from '../../../components/ui/input'
 import { Label } from '../../../components/ui/label'
@@ -126,13 +125,13 @@ function Section({
   children: ReactNode
 }) {
   return (
-    <Card hidden={hidden} className={hidden ? 'hidden' : undefined}>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription className="mt-1">{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="pt-1">{children}</CardContent>
-    </Card>
+    <section hidden={hidden} className={hidden ? 'hidden' : 'space-y-5'}>
+      <header>
+        <h2 className="text-base font-semibold">{title}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
+      </header>
+      <div>{children}</div>
+    </section>
   )
 }
 

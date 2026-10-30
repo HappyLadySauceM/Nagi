@@ -57,3 +57,28 @@ it('shows permission changes before restoring the default template', async () =>
   expect(screen.getByText('读取聊天历史：关闭 → 允许')).toBeVisible()
   client.clear()
 })
+
+it('keeps edits across workspace sections and asks before closing', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn() })
+  vi.stubGlobal('fetch', vi.fn((input: string) => Promise.resolve(response(
+    String(input).includes('/tools') ? { Providers: [], Tools: [], Permissions: [] } : policy,
+  ))))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  function Harness() {
+    const [open, setOpen] = useState(true)
+    return <ScopeEditDialog open={open} onOpenChange={setOpen} botId={1} scopeType="private" scopeId={123} targetLabel="测试好友" />
+  }
+  render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>)
+  await waitFor(() => expect(screen.getByRole('button', { name: '保存策略' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '发送设置' }))
+  const interval = screen.getByLabelText('气泡间隔')
+  fireEvent.change(interval, { target: { value: '900' } })
+  fireEvent.click(screen.getByRole('button', { name: '参与控制' }))
+  fireEvent.click(screen.getByRole('button', { name: '发送设置' }))
+  expect(screen.getByLabelText('气泡间隔')).toHaveValue('900')
+  fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
+  expect(await screen.findByText('放弃未保存的修改？')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '放弃并关闭' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  client.clear()
+})

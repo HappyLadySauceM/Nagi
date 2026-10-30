@@ -1,3 +1,4 @@
+import { AnimatedNavIcon } from '../../components/animated-nav-icon'
 import { Link, useMatchRoute } from '@tanstack/react-router'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
@@ -14,10 +15,10 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       <span
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60 text-body font-semibold text-primary-foreground shadow-[0_6px_18px_-8px_hsl(var(--primary))]"
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-primary text-body font-semibold text-primary-foreground"
         aria-hidden
       >
-        Q
+        N
       </span>
       {compact ? null : (
         <span className="min-w-0">
@@ -42,7 +43,7 @@ function SidebarLink({
 }) {
   const matchRoute = useMatchRoute()
   const reduceMotion = useReducedMotion()
-  const isActive = Boolean(matchRoute({ to: item.to, fuzzy: false }))
+  const isActive = Boolean(matchRoute({ to: item.to, fuzzy: item.to === '/decisions' }))
   const Icon = item.icon
 
   const link = (
@@ -50,7 +51,7 @@ function SidebarLink({
       to={item.to}
       aria-current={isActive ? 'page' : undefined}
       className={cn(
-        'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-body transition-colors duration-150',
+        'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-body transition-colors duration-150',
         isActive
           ? 'bg-sidebar-accent text-sidebar-foreground'
           : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
@@ -60,13 +61,12 @@ function SidebarLink({
       {isActive ? (
         <motion.span
           layoutId={reduceMotion ? undefined : 'sidebar-active-indicator'}
-          className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-primary"
+          className="absolute left-0 top-[calc(50%-8px)] h-4 w-[2px] rounded-full bg-primary"
           aria-hidden
         />
       ) : null}
-      <Icon
+      <AnimatedNavIcon icon={Icon}
         className={cn('size-4 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')}
-        aria-hidden
       />
       {collapsed ? null : <span className="truncate">{item.label}</span>}
     </Link>
@@ -96,13 +96,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <aside
       className={cn(
         'fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-quiet lg:flex',
-        collapsed ? 'w-[72px]' : 'w-[248px]',
+        collapsed ? 'w-[72px]' : 'w-[232px]',
       )}
       aria-label="主导航"
     >
       <div
         className={cn(
-          'flex h-16 items-center border-b border-sidebar-border',
+          'flex h-14 items-center border-b border-sidebar-border',
           collapsed ? 'justify-center px-2' : 'px-4',
         )}
       >
@@ -113,9 +113,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {NAV_GROUPS.map((group) => (
           <div key={group.label}>
             {collapsed ? (
-              <div className="mx-auto mb-2 h-px w-6 bg-sidebar-border" aria-hidden />
+              <div className="mx-auto mb-2 h-px w-6 bg-sidebar-border" />
             ) : (
-              <p className="px-2.5 pb-1.5 text-caption font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+              <p className="px-2.5 pb-1.5 text-caption font-medium tracking-wide text-muted-foreground/70">
                 {group.label}
               </p>
             )}
@@ -147,9 +147,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               className="text-muted-foreground hover:text-sidebar-foreground"
             >
               {collapsed ? (
-                <PanelLeftOpen className="size-4" aria-hidden />
+                <PanelLeftOpen className="size-4" />
               ) : (
-                <PanelLeftClose className="size-4" aria-hidden />
+                <PanelLeftClose className="size-4" />
               )}
             </Button>
           </TooltipTrigger>

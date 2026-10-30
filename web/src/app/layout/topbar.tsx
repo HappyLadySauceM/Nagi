@@ -16,6 +16,10 @@ const PAGE_TITLES: Record<string, string> = {
   '/directory': '联系人',
   '/accounts': '账号连接',
   '/memories': '知识与记忆',
+  '/decisions': '意图识别',
+  '/decisions/history': '决策记录',
+  '/rules': '规则管理',
+  '/settings': '系统配置',
 }
 
 function resolveTitle(pathname: string): string {
@@ -85,8 +89,8 @@ export function Topbar() {
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border/80 bg-background/85 backdrop-blur-md">
-      <div className="flex h-16 items-center gap-2 px-3 sm:px-5 lg:px-7">
+    <header className="sticky top-0 z-30 border-b border-border bg-background">
+      <div className="flex h-14 items-center gap-2 px-3 sm:px-5 lg:px-7">
         <MobileNav />
 
         <div className="hidden min-w-0 items-center gap-1.5 text-meta text-muted-foreground sm:flex">

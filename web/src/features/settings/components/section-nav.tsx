@@ -1,3 +1,4 @@
+import { AnimatedNavIcon } from '../../../components/animated-nav-icon'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '../../../lib/utils'
 
@@ -41,12 +42,11 @@ export function SectionNav({ items, activeId, onSelect }: SectionNavProps) {
                   : 'border-transparent hover:border-border hover:bg-secondary/50',
               )}
             >
-              <item.icon
+              <AnimatedNavIcon icon={item.icon}
                 className={cn(
                   'mt-0.5 size-4 shrink-0',
                   active ? 'text-primary' : 'text-muted-foreground',
                 )}
-                aria-hidden
               />
               <span className="min-w-0">
                 <span
@@ -82,7 +82,7 @@ export function SectionNav({ items, activeId, onSelect }: SectionNavProps) {
                   : 'border-border bg-card text-muted-foreground',
               )}
             >
-              <item.icon className="size-3.5" aria-hidden />
+              <AnimatedNavIcon icon={item.icon} className="size-3.5" />
               {item.label}
             </button>
           )
