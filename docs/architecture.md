@@ -139,10 +139,16 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   未授权的工具不会进入模型工具列表，执行前 Guard 用同一份授予集合再校验，并上报 `ToolRun`。
   `infrastructure` 提供内置只读工具与 Eino 工具适配。工具调用产生的 `nagi.tool` span 记录
   `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据处理，不进入系统提示。
-  注册表同时提供 `Enabled`/`Known`/`Unknown`，`tools.enabled` 写错提供方 ID 会让启动失败。
+  注册表在启动时加载全部提供方，没有启用列表；可用性完全由会话的权限授予决定。
   `internal/agent/infrastructure/replytool` 提供 `qq.send_current`：目标固定为当前会话，
-  复用输出净化与投递台账，受 `tools.allow-send-current`（还需 `allow-side-effects` 与
-  scope 的 `qq.reply.current` 授权）三重限制；未打开该开关时工具对模型不可见。
+  复用输出净化与投递台账；是否可用只取决于该会话是否授予 `qq.reply.current`，
+  进程级 `allow-send-current`/`allow-side-effects` 已移除。
+- `internal/settings`：运行时可编辑配置。单行 `system_settings` 表保存 `AI`/`Intent`/`Agent`/`Tools`
+  四个分区与版本号，`application.Provider` 以原子快照供每次运行读取，保存后立即替换、
+  多副本每 30s 轮询版本；`domain` 负责范围、URL 与跨字段校验，密钥类配置不进入该模型。
+  `GET/PUT /api/v1/settings` 与 `POST /api/v1/settings/reset` 提供读取、乐观锁保存与恢复默认；
+  工具解析器、发送预算、意图阈值与模型客户端都按快照取值，因此控制台改动无需重启。
+  提供方清单在接口中只读展示，模型可调用哪些工具由会话的「能力授权」决定。
 - `internal/memory`：长期记忆。候选 → 去重 → 管理员审批 → 激活；检索先按
   `bot_id + visibility + owner_key + status` 过滤（bot_shared / group / private_user /
   conversation），embedding 向量列留待选定模型后添加。
