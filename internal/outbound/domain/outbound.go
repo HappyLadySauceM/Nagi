@@ -145,21 +145,24 @@ func (e *BudgetError) Unwrap() error { return ErrBudgetExceeded }
 // 使同一规则既可在事务前调用，也可在事务内使用。
 func CheckBudget(limits Limits, used Usage, text string) error {
 	runes := utf8.RuneCountInString(text)
-	if runes > limits.MaxCharsPerMessage {
+	// A zero limit means unlimited, so it must short-circuit instead of
+	// rejecting every message.
+	// 上限为 0 表示不限，必须短路，否则会拒绝所有消息。
+	if limits.MaxCharsPerMessage > 0 && runes > limits.MaxCharsPerMessage {
 		return &BudgetError{
 			Dimension: DimensionMessageChars,
 			Limit:     limits.MaxCharsPerMessage,
 			Requested: runes,
 		}
 	}
-	if used.Messages+1 > limits.MaxMessages {
+	if limits.MaxMessages > 0 && used.Messages+1 > limits.MaxMessages {
 		return &BudgetError{
 			Dimension: DimensionMessages,
 			Limit:     limits.MaxMessages,
 			Requested: used.Messages + 1,
 		}
 	}
-	if used.Chars+runes > limits.MaxTotalChars {
+	if limits.MaxTotalChars > 0 && used.Chars+runes > limits.MaxTotalChars {
 		return &BudgetError{
 			Dimension: DimensionTotalChars,
 			Limit:     limits.MaxTotalChars,

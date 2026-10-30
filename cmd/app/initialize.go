@@ -20,8 +20,10 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/router"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
+	conversationapp "github.com/HappyLadySauceM/Nagi/internal/conversation/application"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	"github.com/HappyLadySauceM/Nagi/migrations"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
@@ -36,6 +38,14 @@ const defaultConfigFile = "configs/config.yaml"
 // settingsWatchInterval is the cross-replica poll of the settings revision.
 // settingsWatchInterval 是跨副本同步配置修订的轮询间隔。
 const settingsWatchInterval = 30 * time.Second
+
+// retentionSweepInterval bounds how often the global retention cleanup runs;
+// each sweep deletes in small batches to avoid long transactions.
+// retentionSweepInterval 控制全局留存清理的频率；每次按小批次删除以避免长事务。
+const (
+	retentionSweepInterval = time.Hour
+	retentionBatchSize     = 1000
+)
 
 // Run loads config, assembles the runtime and blocks until graceful shutdown.
 // Run 装载配置、装配运行时并阻塞直至优雅退出。
@@ -161,6 +171,13 @@ func Run(ctx context.Context, opts options.Options) error {
 		go rt.Settings.Watch(runCtx, settingsWatchInterval)
 	}
 
+	// Retention is process-wide now; the loop reads the live settings snapshot
+	// so a console edit applies to the next sweep without a restart.
+	// 留存改为进程级配置；循环读取实时快照，控制台修改在下一轮清理生效，无需重启。
+	if rt.Conversation != nil && rt.SettingsProvider != nil {
+		go runRetentionSweep(runCtx, logger, rt.Conversation, rt.SettingsProvider)
+	}
+
 	apiDone := make(chan struct{})
 	apiErrs := make(chan error, 1)
 	if cfg.Server.Enabled {
@@ -275,6 +292,49 @@ func identifyAccount(ctx context.Context, logger *slog.Logger, account *assembly
 		}
 		verifyIdentity(logger, account, int64(login.UserID), login.Nickname)
 		return
+	}
+}
+
+// runRetentionSweep periodically deletes messages older than the configured
+// retention window. Zero disables cleanup; each batch keeps the transaction
+// short, and only counts are logged (never message content or QQ numbers).
+// runRetentionSweep 定期删除超过全局留存期的消息。0 表示不清理；
+// 每批保持短事务，日志只记录条数，绝不输出消息正文或 QQ 号。
+func runRetentionSweep(ctx context.Context, logger *slog.Logger, conversation *conversationapp.Service, settings *settingsapp.Provider) {
+	sweep := func() {
+		days := settings.Settings().Messages.RetentionDays
+		if days <= 0 {
+			return
+		}
+		cutoff := time.Now().AddDate(0, 0, -days)
+		total := 0
+		for {
+			deleted, err := conversation.PurgeBefore(ctx, cutoff, retentionBatchSize)
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Warn("message retention sweep failed", "retention_days", days, "error", err)
+				}
+				return
+			}
+			total += deleted
+			if deleted < retentionBatchSize || ctx.Err() != nil {
+				break
+			}
+		}
+		if total > 0 {
+			logger.Info("expired messages purged", "deleted", total, "retention_days", days)
+		}
+	}
+	sweep()
+	ticker := time.NewTicker(retentionSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweep()
+		}
 	}
 }
 

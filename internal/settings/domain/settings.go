@@ -26,10 +26,11 @@ type Revision struct {
 // Settings 是运维可在控制台修改且无需重启的进程级配置。
 // 密钥类配置绝不进入这里：API Key、数据库 DSN 与管理令牌仍由配置文件或环境变量提供。
 type Settings struct {
-	AI     AI     `json:"AI"`
-	Intent Intent `json:"Intent"`
-	Agent  Agent  `json:"Agent"`
-	Tools  Tools  `json:"Tools"`
+	AI       AI       `json:"AI"`
+	Intent   Intent   `json:"Intent"`
+	Agent    Agent    `json:"Agent"`
+	Messages Messages `json:"Messages"`
+	Tools    Tools    `json:"Tools"`
 }
 
 // AI is the generation model section; api-key is intentionally absent.
@@ -75,11 +76,22 @@ type Agent struct {
 }
 
 // Sending is the outbound budget shared by the final reply and the send tool.
-// Sending 是最终回复与发送工具共享的出站预算。
+// Zero means unlimited for every field.
+// Sending 是最终回复与发送工具共享的出站预算，各字段 0 表示不限。
 type Sending struct {
 	MaxMessagesPerRun   int `json:"MaxMessagesPerRun"`
 	MaxCharsPerMessage  int `json:"MaxCharsPerMessage"`
 	MaxTotalCharsPerRun int `json:"MaxTotalCharsPerRun"`
+}
+
+// Messages is the global message retention section; retention is no longer
+// configured per conversation.
+// Messages 是全局消息留存分区；留存不再按会话配置。
+type Messages struct {
+	// RetentionDays keeps stored messages for this many days; 0 disables
+	// cleanup entirely.
+	// RetentionDays 是消息在库中的保留天数；0 表示不清理。
+	RetentionDays int `json:"RetentionDays"`
 }
 
 // Tools is the tool registry section. Disabled providers keep their tools out
@@ -104,18 +116,22 @@ type Tools struct {
 // shows next to every number input.
 // 字段边界同时作为接口校验规则与界面上的数值提示。
 const (
-	MaxStepsMin            = 1
-	MaxStepsMax            = 50
-	MaxToolCallsMin        = 1
-	MaxToolCallsMax        = 100
-	MaxRunDurationMin      = 1
-	MaxRunDurationMax      = 600
-	MaxMessagesPerRunMin   = 1
-	MaxMessagesPerRunMax   = 20
-	MaxCharsPerMessageMin  = 1
-	MaxCharsPerMessageMax  = 4000
-	MaxTotalCharsPerRunMin = 1
-	MaxTotalCharsPerRunMax = 20000
+	MaxStepsMin       = 1
+	MaxStepsMax       = 50
+	MaxToolCallsMin   = 1
+	MaxToolCallsMax   = 100
+	MaxRunDurationMin = 1
+	MaxRunDurationMax = 600
+	// Sending limits use 0 as "unlimited", so their minimums are 0.
+	// 发送上限用 0 表示不限，因此下限为 0。
+	MaxMessagesPerRunMin   = 0
+	MaxMessagesPerRunMax   = 100
+	MaxCharsPerMessageMin  = 0
+	MaxCharsPerMessageMax  = 100000
+	MaxTotalCharsPerRunMin = 0
+	MaxTotalCharsPerRunMax = 1000000
+	RetentionDaysMin       = 0
+	RetentionDaysMax       = 3650
 	ToolTimeoutMin         = 1
 	ToolTimeoutMax         = 120
 	MaxResultBytesMin      = 256
@@ -195,6 +211,7 @@ func (s Settings) Validate(knownPermissions map[string]bool) error {
 	s.validateAI(problems)
 	s.validateIntent(problems)
 	s.validateAgent(problems)
+	s.validateMessages(problems)
 	s.validateTools(problems, knownPermissions)
 	if len(problems.Fields) > 0 {
 		return problems
@@ -274,24 +291,31 @@ func (s Settings) validateAgent(problems *ValidationError) {
 	if !inRange(s.Agent.Sending.MaxTotalCharsPerRun, MaxTotalCharsPerRunMin, MaxTotalCharsPerRunMax) {
 		problems.Add("Agent.Sending.MaxTotalCharsPerRun", rangeHint(MaxTotalCharsPerRunMin, MaxTotalCharsPerRunMax))
 	}
-	if s.Agent.Sending.MaxCharsPerMessage > s.Agent.Sending.MaxTotalCharsPerRun {
+	// A zero run budget means unlimited, so the cross-field rule only applies
+	// when the run is actually bounded.
+	// 整轮预算为 0 表示不限，因此只有存在整轮上限时才校验单条上限。
+	if s.Agent.Sending.MaxTotalCharsPerRun > 0 &&
+		s.Agent.Sending.MaxCharsPerMessage > s.Agent.Sending.MaxTotalCharsPerRun {
 		problems.Add("Agent.Sending.MaxCharsPerMessage", "单条字数不得超过整轮字数")
 	}
 }
 
-func (s Settings) validateTools(problems *ValidationError, knownPermissions map[string]bool) {
+func (s Settings) validateMessages(problems *ValidationError) {
+	if !inRange(s.Messages.RetentionDays, RetentionDaysMin, RetentionDaysMax) {
+		problems.Add("Messages.RetentionDays", rangeHint(RetentionDaysMin, RetentionDaysMax))
+	}
+}
+
+func (s Settings) validateTools(problems *ValidationError, _ map[string]bool) {
 	if !inRange(s.Tools.TimeoutSeconds, ToolTimeoutMin, ToolTimeoutMax) {
 		problems.Add("Tools.TimeoutSeconds", rangeHint(ToolTimeoutMin, ToolTimeoutMax))
 	}
 	if !inRange(s.Tools.MaxResultBytes, MaxResultBytesMin, MaxResultBytesMax) {
 		problems.Add("Tools.MaxResultBytes", rangeHint(MaxResultBytesMin, MaxResultBytesMax))
 	}
-	for permission := range s.Tools.PermissionDefaults {
-		if knownPermissions != nil && !knownPermissions[permission] {
-			problems.Add("Tools.PermissionDefaults", fmt.Sprintf("未知的权限 %q", permission))
-			break
-		}
-	}
+	// Permission defaults are an internal baseline now; stale keys from a
+	// provider that is no longer registered must not block saving settings.
+	// 权限默认值现在是内部基线；提供方下线留下的陈旧键不应阻塞保存。
 }
 
 func inRange(value, min, max int) bool { return value >= min && value <= max }

@@ -368,13 +368,15 @@ func (r *Repo) ValidateReserved(ctx context.Context, id string, limits domain.Li
 	if err != nil {
 		return err
 	}
-	if sequence > limits.MaxMessages {
+	// Zero means unlimited; only positive limits are enforced.
+	// 0 表示不限，只对正数上限做校验。
+	if limits.MaxMessages > 0 && sequence > limits.MaxMessages {
 		return &domain.BudgetError{Dimension: domain.DimensionMessages, Limit: limits.MaxMessages, Requested: sequence}
 	}
-	if chars > limits.MaxCharsPerMessage {
+	if limits.MaxCharsPerMessage > 0 && chars > limits.MaxCharsPerMessage {
 		return &domain.BudgetError{Dimension: domain.DimensionMessageChars, Limit: limits.MaxCharsPerMessage, Requested: chars}
 	}
-	if total > limits.MaxTotalChars {
+	if limits.MaxTotalChars > 0 && total > limits.MaxTotalChars {
 		return &domain.BudgetError{Dimension: domain.DimensionTotalChars, Limit: limits.MaxTotalChars, Requested: total}
 	}
 	if limits.MaxPerHour > 0 {

@@ -124,20 +124,23 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // policyUpdate is the accepted JSON body of PUT /api/v1/scopes/{type}/{id}.
 // policyUpdate 是 PUT /api/v1/scopes/{type}/{id} 接受的 JSON 请求体。
 type policyUpdate struct {
-	MaxMessagesPerRun       int             `json:"max_messages_per_run"`
-	MaxCharsPerMessage      int             `json:"max_chars_per_message"`
-	MaxTotalCharsPerRun     int             `json:"max_total_chars_per_run"`
-	MessageIntervalMS       *int            `json:"message_interval_ms"`
-	ExpectedTemplateVersion *int64          `json:"expected_template_version"`
-	Enabled                 bool            `json:"enabled"`
-	ReplyMode               string          `json:"reply_mode"`
-	StoreMessages           bool            `json:"store_messages"`
-	AllowMemoryWrite        bool            `json:"allow_memory_write"`
-	AllowHistoryRead        bool            `json:"allow_history_read"`
-	MinReplyIntervalMS      int             `json:"min_reply_interval_ms"`
-	MaxRepliesPerHour       int             `json:"max_replies_per_hour"`
-	RetentionDays           int             `json:"retention_days"`
-	ToolPermissions         map[string]bool `json:"tool_permissions"`
+	MaxMessagesPerRun       int    `json:"max_messages_per_run"`
+	MaxCharsPerMessage      int    `json:"max_chars_per_message"`
+	MaxTotalCharsPerRun     int    `json:"max_total_chars_per_run"`
+	MessageIntervalMS       *int   `json:"message_interval_ms"`
+	ExpectedTemplateVersion *int64 `json:"expected_template_version"`
+	Enabled                 bool   `json:"enabled"`
+	ReplyMode               string `json:"reply_mode"`
+	// StoreMessages is optional: storage is a product baseline, so an absent
+	// field keeps it on while an explicit false still works for scripts.
+	// StoreMessages 可选：消息存储是产品基线，字段缺省时保持开启；
+	// 显式 false 仍可用于脚本。
+	StoreMessages      *bool           `json:"store_messages"`
+	AllowMemoryWrite   bool            `json:"allow_memory_write"`
+	AllowHistoryRead   bool            `json:"allow_history_read"`
+	MinReplyIntervalMS int             `json:"min_reply_interval_ms"`
+	MaxRepliesPerHour  int             `json:"max_replies_per_hour"`
+	ToolPermissions    map[string]bool `json:"tool_permissions"`
 }
 
 // Put creates or updates one scope policy; changes take effect immediately.
@@ -185,6 +188,10 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 	if body.MessageIntervalMS != nil {
 		interval = *body.MessageIntervalMS
 	}
+	storeMessages := true
+	if body.StoreMessages != nil {
+		storeMessages = *body.StoreMessages
+	}
 	policy := scopedomain.Policy{
 		MaxMessagesPerRun: body.MaxMessagesPerRun, MaxCharsPerMessage: body.MaxCharsPerMessage,
 		MaxTotalCharsPerRun: body.MaxTotalCharsPerRun, MessageIntervalMS: interval,
@@ -193,12 +200,11 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		ScopeID:                 id,
 		Enabled:                 body.Enabled,
 		ReplyMode:               scopedomain.ReplyMode(body.ReplyMode),
-		StoreMessages:           body.StoreMessages,
+		StoreMessages:           storeMessages,
 		AllowMemoryWrite:        body.AllowMemoryWrite,
 		AllowHistoryRead:        body.AllowHistoryRead,
 		MinReplyIntervalMS:      body.MinReplyIntervalMS,
 		MaxRepliesPerHour:       body.MaxRepliesPerHour,
-		RetentionDays:           body.RetentionDays,
 		ToolPermissions:         body.ToolPermissions,
 	}
 	if err := h.svcCtx.Scope.Upsert(r.Context(), botID, policy); err != nil {

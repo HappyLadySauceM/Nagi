@@ -28,12 +28,19 @@ func TestLoadUsesDefaultsWithoutFileOrEnv(t *testing.T) {
 	if !cfg.Echo.Enabled || cfg.Echo.Prefix != "/echo" {
 		t.Fatalf("unexpected default echo: %+v", cfg.Echo)
 	}
-	// The outbound budget must have a usable default even without a config file.
-	// 即使没有配置文件，出站预算也必须有可用默认值。
-	if cfg.Agent.Sending.MaxMessagesPerRun != 3 ||
-		cfg.Agent.Sending.MaxCharsPerMessage != 500 ||
-		cfg.Agent.Sending.MaxTotalCharsPerRun != 1500 {
+	// The outbound budget defaults to unlimited except the QQ single-message
+	// cap, and retention is a process-wide setting.
+	// 出站预算默认不限，仅单条取 QQ 文本上限；留存是进程级配置。
+	if cfg.Agent.Sending.MaxMessagesPerRun != 0 ||
+		cfg.Agent.Sending.MaxCharsPerMessage != 4500 ||
+		cfg.Agent.Sending.MaxTotalCharsPerRun != 0 {
 		t.Fatalf("unexpected default sending budget: %+v", cfg.Agent.Sending)
+	}
+	if cfg.Messages.RetentionDays != 30 {
+		t.Fatalf("default retention = %d", cfg.Messages.RetentionDays)
+	}
+	if !cfg.Tools.PermissionDefaults["qq.reply.current"] {
+		t.Fatalf("reply tool must be granted by default: %+v", cfg.Tools.PermissionDefaults)
 	}
 }
 
@@ -281,11 +288,24 @@ func TestLoadRejectsContradictorySendingBudget(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsNonPositiveSendingBudget(t *testing.T) {
-	// 验证显式写入的零值不会被默认值掩盖，而是在启动阶段报错。
-	file := writeTempConfig(t, "agent:\n  sending:\n    max-messages-per-run: 0\n")
+func TestLoadRejectsNegativeSendingBudget(t *testing.T) {
+	// 0 表示不限，只有负值属于配置错误。
+	file := writeTempConfig(t, "agent:\n  sending:\n    max-messages-per-run: -1\n")
 	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
-		t.Fatal("a zero message budget must be rejected")
+		t.Fatal("a negative message budget must be rejected")
+	}
+}
+
+func TestLoadAcceptsUnlimitedSendingBudget(t *testing.T) {
+	// 显式写入的零值表示不限，不得被默认值掩盖或报错。
+	file := writeTempConfig(t, "agent:\n  sending:\n    max-messages-per-run: 0\n    max-chars-per-message: 0\n    max-total-chars-per-run: 0\n")
+	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Agent.Sending.MaxMessagesPerRun != 0 || cfg.Agent.Sending.MaxCharsPerMessage != 0 ||
+		cfg.Agent.Sending.MaxTotalCharsPerRun != 0 {
+		t.Fatalf("sending budget = %+v", cfg.Agent.Sending)
 	}
 }
 
@@ -297,8 +317,8 @@ func TestLoadReadsSendingBudgetFromYaml(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	if cfg.Agent.Sending.MaxMessagesPerRun != 5 ||
-		cfg.Agent.Sending.MaxCharsPerMessage != 500 ||
-		cfg.Agent.Sending.MaxTotalCharsPerRun != 1500 {
+		cfg.Agent.Sending.MaxCharsPerMessage != 4500 ||
+		cfg.Agent.Sending.MaxTotalCharsPerRun != 0 {
 		t.Fatalf("sending budget = %+v", cfg.Agent.Sending)
 	}
 }

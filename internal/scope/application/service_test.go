@@ -175,7 +175,7 @@ func TestCacheExpiryPicksUpOutOfBandChanges(t *testing.T) {
 // TestDeleteEvictsCacheAndFallsBackToDeny verifies a deleted policy takes effect
 // immediately, without waiting for the 30s cache TTL.
 // TestDeleteEvictsCacheAndFallsBackToDeny 验证删除立即生效，无需等待 30s 缓存过期。
-func TestDeleteEvictsCacheAndFallsBackToDeny(t *testing.T) {
+func TestDeleteEvictsCacheAndFallsBackToDefault(t *testing.T) {
 	repo := newFakeRepo()
 	svc, err := NewService(repo)
 	if err != nil {
@@ -207,8 +207,11 @@ func TestDeleteEvictsCacheAndFallsBackToDeny(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve after delete: %v", err)
 	}
-	if after.Enabled || after.StoreMessages {
-		t.Fatalf("expected default deny after delete: %+v", after)
+	if after.Enabled {
+		t.Fatalf("expected participation off after delete: %+v", after)
+	}
+	if !after.StoreMessages {
+		t.Fatalf("storage is a baseline and must stay on: %+v", after)
 	}
 }
 

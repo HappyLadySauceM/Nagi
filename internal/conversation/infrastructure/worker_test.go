@@ -81,6 +81,7 @@ func (f *fakeJobRepo) BotReplyMeta(context.Context, string) (time.Time, int, err
 func (f *fakeJobRepo) RecordOutgoing(context.Context, string, int64, string, int64, string, string) error {
 	return nil
 }
+func (f *fakeJobRepo) PurgeBefore(context.Context, time.Time, int) (int, error) { return 0, nil }
 
 // trackingProcessor records execution and detects same-conversation overlap.
 // trackingProcessor 记录执行并检测同会话并发重叠。

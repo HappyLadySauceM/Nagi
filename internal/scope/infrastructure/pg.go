@@ -30,7 +30,7 @@ func NewRepo(pool *pgxpool.Pool) (*Repo, error) {
 }
 
 const policyColumns = `enabled, reply_mode, store_messages, allow_memory_write, allow_history_read,
-	min_reply_interval_ms, max_replies_per_hour, retention_days, tool_permissions, version, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms`
+	min_reply_interval_ms, max_replies_per_hour, tool_permissions, version, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms`
 
 // Get loads one stored policy; found is false when the scope has no row.
 // Get 读取单条已存储策略；作用域无行时 found 为 false。
@@ -96,7 +96,7 @@ func scanPolicy(scan rowScanner) (domain.Policy, error) {
 	var replyMode string
 	var rawPermissions []byte
 	dest := []any{&p.Enabled, &replyMode, &p.StoreMessages, &p.AllowMemoryWrite, &p.AllowHistoryRead,
-		&p.MinReplyIntervalMS, &p.MaxRepliesPerHour, &p.RetentionDays, &rawPermissions, &p.Version, &p.MaxMessagesPerRun, &p.MaxCharsPerMessage, &p.MaxTotalCharsPerRun, &p.MessageIntervalMS}
+		&p.MinReplyIntervalMS, &p.MaxRepliesPerHour, &rawPermissions, &p.Version, &p.MaxMessagesPerRun, &p.MaxCharsPerMessage, &p.MaxTotalCharsPerRun, &p.MessageIntervalMS}
 	if err := scan(dest...); err != nil {
 		return domain.Policy{}, err
 	}
@@ -171,20 +171,19 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 	_, err = tx.Exec(ctx, `
 		INSERT INTO scope_policies
 			(bot_id, scope_type, scope_id, enabled, reply_mode, store_messages, allow_memory_write,
-			 allow_history_read, min_reply_interval_ms, max_replies_per_hour, retention_days,
+			 allow_history_read, min_reply_interval_ms, max_replies_per_hour,
 			 tool_permissions, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
 		ON CONFLICT (bot_id, scope_type, scope_id) DO UPDATE SET
 			enabled = EXCLUDED.enabled, reply_mode = EXCLUDED.reply_mode,
 			store_messages = EXCLUDED.store_messages, allow_memory_write = EXCLUDED.allow_memory_write,
 			allow_history_read = EXCLUDED.allow_history_read,
 			min_reply_interval_ms = EXCLUDED.min_reply_interval_ms,
 			max_replies_per_hour = EXCLUDED.max_replies_per_hour,
-			retention_days = EXCLUDED.retention_days,
 			max_messages_per_run = EXCLUDED.max_messages_per_run, max_chars_per_message = EXCLUDED.max_chars_per_message, max_total_chars_per_run = EXCLUDED.max_total_chars_per_run, message_interval_ms = EXCLUDED.message_interval_ms, tool_permissions = EXCLUDED.tool_permissions, version = scope_policies.version + 1, updated_at = now()
 	`, botID, string(policy.ScopeType), policy.ScopeID, policy.Enabled, string(policy.ReplyMode),
 		policy.StoreMessages, policy.AllowMemoryWrite, policy.AllowHistoryRead,
-		policy.MinReplyIntervalMS, policy.MaxRepliesPerHour, policy.RetentionDays, permissions, policy.MaxMessagesPerRun, policy.MaxCharsPerMessage, policy.MaxTotalCharsPerRun, policy.MessageIntervalMS)
+		policy.MinReplyIntervalMS, policy.MaxRepliesPerHour, permissions, policy.MaxMessagesPerRun, policy.MaxCharsPerMessage, policy.MaxTotalCharsPerRun, policy.MessageIntervalMS)
 	if err != nil {
 		return fmt.Errorf("scope: upsert policy: %w", err)
 	}

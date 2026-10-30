@@ -45,6 +45,9 @@ func FromConfig(cfg *config.Config) settingsdomain.Settings {
 				MaxTotalCharsPerRun: cfg.Agent.Sending.MaxTotalCharsPerRun,
 			},
 		},
+		Messages: settingsdomain.Messages{
+			RetentionDays: cfg.Messages.RetentionDays,
+		},
 		Tools: settingsdomain.Tools{
 			// Providers are always registered, so the seed only carries limits
 			// and permission defaults.

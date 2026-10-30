@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// TestDefaultPolicyDeniesEverything verifies that Default disables participation,
-// uses mention_only and leaves storage and memory off.
-// TestDefaultPolicyDeniesEverything 验证 Default 关闭参与、使用 mention_only
-// 且不开启存储与记忆。
-func TestDefaultPolicyDeniesEverything(t *testing.T) {
+// TestDefaultPolicyKeepsStorageOn verifies that Default keeps participation
+// off but stores messages, and that sending limits default to unlimited.
+// TestDefaultPolicyKeepsStorageOn 验证 Default 保持参与关闭但开启消息存储，
+// 且发送上限默认不限制。
+func TestDefaultPolicyKeepsStorageOn(t *testing.T) {
 	p := Default(ScopeGroup, 10086)
 	if p.Enabled {
 		t.Fatal("default policy must not be enabled")
@@ -19,12 +19,21 @@ func TestDefaultPolicyDeniesEverything(t *testing.T) {
 	if p.ReplyMode != ModeMentionOnly {
 		t.Fatalf("default reply mode = %q, want mention_only", p.ReplyMode)
 	}
-	if p.StoreMessages || p.AllowMemoryWrite || p.AllowHistoryRead {
-		t.Fatal("default policy must not store messages or allow memory")
+	if !p.StoreMessages {
+		t.Fatal("default policy must store messages")
+	}
+	if p.AllowMemoryWrite || p.AllowHistoryRead {
+		t.Fatal("default policy must not allow memory or history")
+	}
+	if p.MaxRepliesPerHour != 0 || p.MaxMessagesPerRun != 0 || p.MaxTotalCharsPerRun != 0 {
+		t.Fatalf("default limits must be unlimited: %+v", p)
+	}
+	if p.MaxCharsPerMessage != 4500 {
+		t.Fatalf("default single message cap = %d, want QQ text limit", p.MaxCharsPerMessage)
 	}
 	filled := p.WithDefaults()
-	if filled.MinReplyIntervalMS != 10000 || filled.MaxRepliesPerHour != 20 || filled.RetentionDays != 30 {
-		t.Fatalf("WithDefaults numbers = %d/%d/%d", filled.MinReplyIntervalMS, filled.MaxRepliesPerHour, filled.RetentionDays)
+	if filled.MaxRepliesPerHour != 0 || filled.MaxCharsPerMessage != 4500 {
+		t.Fatalf("WithDefaults changed zero limits: %+v", filled)
 	}
 }
 
@@ -39,7 +48,7 @@ func TestPolicyValidateRejectsInvalidValues(t *testing.T) {
 		{"invalid type", Policy{ScopeType: "channel", ScopeID: 1, ReplyMode: ModeMentionOnly}},
 		{"negative id", Policy{ScopeType: ScopeGroup, ScopeID: -1, ReplyMode: ModeMentionOnly}},
 		{"invalid mode", Policy{ScopeType: ScopePrivate, ScopeID: 1, ReplyMode: "shout"}},
-		{"negative numbers", Policy{ScopeType: ScopePrivate, ScopeID: 1, ReplyMode: ModeMentionOnly, RetentionDays: -1}},
+		{"negative numbers", Policy{ScopeType: ScopePrivate, ScopeID: 1, ReplyMode: ModeMentionOnly, MaxMessagesPerRun: -1}},
 	}
 	for _, c := range cases {
 		if err := c.policy.Validate(); err == nil {
