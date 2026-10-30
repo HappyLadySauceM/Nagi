@@ -176,24 +176,17 @@ type Sending struct {
 	MaxTotalCharsPerRun int `yaml:"max-total-chars-per-run"`
 }
 
-// Tools 是工具注册与调用限制。
-// Tools configures tool registration and per-call limits.
+// Tools 是工具调用的初始限制与权限默认值；提供方启动时全部注册，
+// 是否可用只由会话的能力授权决定。
+// Tools seeds the per-call limits and permission defaults; every provider is
+// registered at startup and availability follows the per-scope grant.
 type Tools struct {
-	// Enabled 列出启用的提供方 ID（如 builtin.time）；为空时不暴露任何工具。
-	// Enabled lists provider IDs (e.g. builtin.time); empty exposes no tools.
-	Enabled []string `yaml:"enabled"`
 	// PermissionDefaults 按权限标识覆盖描述符兜底；未列出的权限保持兜底规则
 	// （只读允许、其余拒绝），作用域覆盖的优先级更高。
 	// PermissionDefaults overrides the descriptor fallback per permission;
 	// unlisted permissions keep the fallback rule (read-only allowed, others
 	// denied), and scope overrides take precedence.
 	PermissionDefaults map[string]bool `yaml:"permission-defaults"`
-	// AllowSendCurrent 为 true 时才暴露 qq.send_current；默认 false。
-	// AllowSendCurrent exposes qq.send_current at all; false keeps it hidden.
-	AllowSendCurrent bool `yaml:"allow-send-current"`
-	// AllowSideEffects 为 true 时才可能暴露非只读工具；默认 false。
-	// AllowSideEffects exposes non read-only tools at all; false keeps them hidden.
-	AllowSideEffects bool `yaml:"allow-side-effects"`
 	// Timeout 限制单次工具调用，默认 5s。
 	// Timeout bounds one tool call; defaults to 5s.
 	Timeout Duration `yaml:"timeout"`
@@ -385,23 +378,6 @@ func applyOverrides(cfg *Config, o Overrides) {
 }
 
 // Validate 校验配置，并规范化 OneBot URL 的协议头（http/https 视作 ws/wss）。
-// replyProviderID mirrors the reply tool provider id. Config validation must not
-// import the tool package, which would invert the dependency direction.
-// replyProviderID 与回复工具提供方 ID 保持一致；配置校验不能导入工具包，
-// 否则会颠倒依赖方向。
-const replyProviderID = "builtin.reply"
-
-// containsString reports whether list holds want.
-// containsString 报告列表中是否包含目标值。
-func containsString(list []string, want string) bool {
-	for _, item := range list {
-		if item == want {
-			return true
-		}
-	}
-	return false
-}
-
 func (c *Config) Validate() error {
 	if err := c.Onebot.normalizeEndpoints(); err != nil {
 		return err
@@ -487,9 +463,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Agent.Sending.MaxCharsPerMessage > c.Agent.Sending.MaxTotalCharsPerRun {
 		return fmt.Errorf("config: agent.sending.max-chars-per-message 不得大于 max-total-chars-per-run")
-	}
-	if c.Tools.AllowSendCurrent && !containsString(c.Tools.Enabled, replyProviderID) {
-		return fmt.Errorf("config: tools.allow-send-current 需要 %s 出现在 tools.enabled 中", replyProviderID)
 	}
 	if c.Tools.Timeout.D() <= 0 || c.Tools.MaxResultBytes <= 0 {
 		return fmt.Errorf("config: tools.timeout 与 tools.max-result-bytes 必须为正数")

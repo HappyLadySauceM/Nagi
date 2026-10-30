@@ -37,7 +37,7 @@ func (f fakeProvider) Close(context.Context) error { return nil }
 // catalogRegistry 构建一个注册表，包含一个只读 QQ 工具与一个无权限的时间工具。
 func catalogRegistry(t *testing.T) *pluginsapp.Registry {
 	t.Helper()
-	registry := pluginsapp.NewRegistry([]string{"builtin.qq", "builtin.time"})
+	registry := pluginsapp.NewRegistry()
 	providers := []contracts.ToolProvider{
 		fakeProvider{
 			manifest: contracts.Manifest{ID: "builtin.time"},
@@ -74,7 +74,7 @@ func catalogRegistry(t *testing.T) *pluginsapp.Registry {
 // riskLevelRegistry 构建省略 RiskLevel 的描述符，返回的级别只能由 ReadOnly 推导。
 func riskLevelRegistry(t *testing.T) *pluginsapp.Registry {
 	t.Helper()
-	registry := pluginsapp.NewRegistry([]string{"builtin.risk"})
+	registry := pluginsapp.NewRegistry()
 	provider := fakeProvider{
 		manifest: contracts.Manifest{ID: "builtin.risk"},
 		tools: []contracts.RegisteredTool{

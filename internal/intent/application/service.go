@@ -61,6 +61,25 @@ type RulesProvider interface {
 	Active(ctx context.Context, botID int64, scopeType string, scopeID int64) (domain.Ruleset, bool, error)
 }
 
+// RuntimeConfig is the per-call view of the editable settings. The decider
+// reads it on every task so a saved change applies to the next decision
+// without restarting the process.
+// RuntimeConfig 是可编辑配置的单次调用视图。决策器在每个任务上读取它，
+// 保存后的改动因此对下一次决策生效，无需重启进程。
+type RuntimeConfig struct {
+	Enabled      bool
+	AIEnabled    bool
+	HistoryLimit int
+	Provider     string
+	Model        string
+	Thresholds   domain.Thresholds
+}
+
+// RuntimeConfigProvider reports the current runtime configuration; nil means
+// the static options are authoritative.
+// RuntimeConfigProvider 报告当前运行配置；nil 表示以静态 Options 为准。
+type RuntimeConfigProvider func() RuntimeConfig
+
 type Options struct {
 	Semantic SemanticDecider
 	// Rules is optional; without it the built-in ruleset applies.
@@ -75,7 +94,10 @@ type Options struct {
 	HistoryLimit int
 	Provider     string
 	Model        string
-	Logger       *slog.Logger
+	// Dynamic optionally overrides the static values above per task.
+	// Dynamic 可选地按任务覆盖上面的静态取值。
+	Dynamic RuntimeConfigProvider
+	Logger  *slog.Logger
 }
 
 // Decider orchestrates rules, optional semantic judgment, reply policy and recording.
@@ -92,6 +114,7 @@ type Decider struct {
 	historyLimit int
 	provider     string
 	model        string
+	dynamic      RuntimeConfigProvider
 	logger       *slog.Logger
 }
 
@@ -109,14 +132,43 @@ func NewDecider(opts Options) (*Decider, error) {
 		semantic: opts.Semantic,
 		rules:    opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
 		th: opts.Thresholds, historyLimit: opts.HistoryLimit,
-		provider: opts.Provider, model: opts.Model, logger: opts.Logger,
+		provider: opts.Provider, model: opts.Model, dynamic: opts.Dynamic, logger: opts.Logger,
 	}, nil
+}
+
+// runtime resolves the current configuration, falling back to the static
+// options when no dynamic provider is wired.
+// runtime 解析当前配置；未接入动态提供者时回退到静态选项。
+func (d *Decider) runtime() RuntimeConfig {
+	if d.dynamic == nil {
+		return RuntimeConfig{
+			Enabled:      true,
+			AIEnabled:    true,
+			HistoryLimit: d.historyLimit,
+			Provider:     d.provider,
+			Model:        d.model,
+			Thresholds:   d.th,
+		}
+	}
+	cfg := d.dynamic()
+	if cfg.HistoryLimit <= 0 {
+		cfg.HistoryLimit = d.historyLimit
+	}
+	return cfg
 }
 
 // ProcessTask resolves the policy fresh, applies rules, optionally the semantic
 // decider, records the final decision and dispatches replies.
 // ProcessTask 即时解析策略，应用规则与可选语义判定，记录最终决策并分发回复。
 func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
+	runtime := d.runtime()
+	if !runtime.Enabled {
+		// The worker keeps consuming jobs while the pipeline is off so nothing
+		// piles up in the queue; the decision itself is skipped.
+		// 关闭流水线期间工作器仍消费任务，避免队列堆积；决策本身被跳过。
+		d.logger.Debug("intent pipeline disabled; job skipped", "job_id", task.JobID)
+		return nil
+	}
 	policy, err := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if err != nil {
 		// Retryable infrastructure failure: hand the error back to the worker.
@@ -146,7 +198,10 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		"job_id", task.JobID, "decision", string(decision.Decision),
 		"reason", decision.ReasonCode, "latency_ms", latency)
 
-	if decision.Decision == domain.DecisionReply && d.executor != nil {
+	// A disabled generation model records the decision but never sends: the
+	// console explains that replies need both switches on.
+	// 关闭生成模型时仍记录决策但不发送；控制台的说明是回复需要两个开关同时开启。
+	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled {
 		return d.executor.ExecuteReply(ctx, task, history)
 	}
 	return nil
@@ -163,16 +218,17 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	// History bodies stay out of the payload: they can be dozens of messages,
 	// and the count is enough to explain the decision.
 	// 历史正文不进入载荷：它可能包含几十条消息，条数已足以解释决策。
+	historyLimit := d.runtime().HistoryLimit
 	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
 		"conversation_id": task.ConversationID,
-		"history_limit":   d.historyLimit,
+		"history_limit":   historyLimit,
 		"history_allowed": policy.AllowHistoryRead,
 	})
 
 	var history []domain.Message
 	if policy.AllowHistoryRead && d.history != nil {
 		var err error
-		history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, d.historyLimit)
+		history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, historyLimit)
 		if err != nil {
 			// Degrade to current-message-only instead of failing the job.
 			// 降级为仅使用当前消息，而不是让任务失败。
@@ -370,15 +426,16 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 ) domain.FinalDecision {
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
-	decision := EvaluateReplyPolicy(in, rule, semantic, d.th)
-	decision.Provider = d.provider
-	decision.Model = d.model
+	runtime := d.runtime()
+	decision := EvaluateReplyPolicy(in, rule, semantic, runtime.Thresholds)
+	decision.Provider = runtime.Provider
+	decision.Model = runtime.Model
 	decision.LatencyMS = latency
 	span.SetAttributes(
 		attribute.String("nagi.decision", string(decision.Decision)),
 		attribute.String("nagi.reason_code", decision.ReasonCode),
-		attribute.String("nagi.provider", d.provider),
-		attribute.String("nagi.model", d.model),
+		attribute.String("nagi.provider", runtime.Provider),
+		attribute.String("nagi.model", runtime.Model),
 		attribute.Int64("nagi.latency_ms", latency),
 	)
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
@@ -407,7 +464,7 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 		semantic, latency = d.decideSemantic(ctx, in)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
-	return decision, decisionSteps(in.Policy, rule, semantic, decision, latency, called, d.th)
+	return decision, decisionSteps(in.Policy, rule, semantic, decision, latency, called, d.runtime().Thresholds)
 }
 
 // PrepareSimulation loads the same authorized context and activity as live decisions.

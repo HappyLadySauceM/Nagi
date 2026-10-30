@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	settingsroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/settings"
+
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	agentroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/agent"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/directory"
@@ -40,6 +42,12 @@ func New(svcCtx *svc.ServiceContext, logger *slog.Logger) http.Handler {
 	if svcCtx.Tools != nil {
 		toolsroutes.NewHandler(svcCtx).Register(mux)
 	}
+	// The settings route is always registered: a missing database must surface
+	// as 503 "database not configured", never as an unregistered 404 that looks
+	// like an old binary or a typo.
+	// 配置路由始终注册：缺少数据库必须表现为 503「database not configured」，
+	// 而不是与旧二进制或拼写错误混淆的 404。
+	settingsroutes.NewHandler(svcCtx).Register(mux)
 	if svcCtx.Decisions != nil {
 		intentroutes.NewHandler(svcCtx).Register(mux)
 	}

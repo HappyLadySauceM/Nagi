@@ -21,6 +21,7 @@ import (
 	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 	"github.com/HappyLadySauceM/Nagi/pkg/version"
 )
@@ -71,6 +72,15 @@ type ServiceContext struct {
 	// SendingPolicies stores per-scope outbound switches; nil without a database.
 	// SendingPolicies 存储按作用域的出站开关；未配置数据库时为 nil。
 	SendingPolicies *outboundinfra.PoliciesRepo
+	// Settings is the runtime-editable configuration service; nil without a
+	// database because edits must be persisted.
+	// Settings 是运行时可编辑配置服务；未配置数据库时为 nil，因为改动必须持久化。
+	Settings *settingsapp.Service
+	// SettingsProvider is the live snapshot every run reads; it exists even
+	// without a database and then only carries the config-file baseline.
+	// SettingsProvider 是每次运行读取的实时快照；即使没有数据库也存在，
+	// 此时仅承载配置文件基线。
+	SettingsProvider *settingsapp.Provider
 }
 
 // KnownToolPermissions returns the permission identifiers declared by the

@@ -32,21 +32,24 @@ func (h *Handler) RegisterPolicy(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/agent/sending-policy", h.GetSendingPolicy)
 }
 
-// GetSendingPolicy returns the stored policy, or the process defaults when the
-// scope has no row yet.
-// GetSendingPolicy 返回已存策略；作用域尚无记录时返回进程默认值。
+// GetSendingPolicy returns the stored policy, or the live settings when the scope
+// has no row yet. There is no process-level switch any more: the conversation's
+// own grant is the only sending permission.
+// GetSendingPolicy 返回已存策略；作用域尚无记录时返回实时配置。
+// 进程级总开关已被移除：会话自身的授权就是唯一的发送许可。
 func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 	botID, scopeType, scopeID, ok := policyQuery(w, r)
 	if !ok {
 		return
 	}
+	live := h.svcCtx.SettingsProvider.Settings()
 	info := policyInfo{
 		BotID: botID, ScopeType: scopeType, ScopeID: scopeID,
 		MinIntervalMS:       700,
 		BlockedReasons:      make([]string, 0),
-		MaxMessagesPerRun:   h.svcCtx.Config.Agent.Sending.MaxMessagesPerRun,
-		MaxCharsPerMessage:  h.svcCtx.Config.Agent.Sending.MaxCharsPerMessage,
-		MaxTotalCharsPerRun: h.svcCtx.Config.Agent.Sending.MaxTotalCharsPerRun,
+		MaxMessagesPerRun:   live.Agent.Sending.MaxMessagesPerRun,
+		MaxCharsPerMessage:  live.Agent.Sending.MaxCharsPerMessage,
+		MaxTotalCharsPerRun: live.Agent.Sending.MaxTotalCharsPerRun,
 	}
 	policy, exists, err := h.svcCtx.SendingPolicies.Get(r.Context(), botID, scopeType, scopeID)
 	if err != nil {
@@ -56,16 +59,9 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 	if exists {
 		info.Exists = true
 		info.MinIntervalMS = policy.MinIntervalMS
-		info.AllowSendCurrent = policy.AllowSendCurrent
 		info.MaxMessagesPerRun = policy.MaxMessagesPerRun
 		info.MaxCharsPerMessage = policy.MaxCharsPerMessage
 		info.MaxTotalCharsPerRun = policy.MaxTotalCharsPerRun
-	}
-	if !h.svcCtx.Config.Tools.AllowSendCurrent {
-		info.BlockedReasons = append(info.BlockedReasons, "进程未启用自主发送")
-	}
-	if !info.AllowSendCurrent {
-		info.BlockedReasons = append(info.BlockedReasons, "该会话未开启自主发送")
 	}
 	if h.svcCtx.Scope != nil {
 		p, e := h.svcCtx.Scope.Resolve(r.Context(), botID, scopedomain.ScopeType(scopeType), scopeID)
@@ -76,18 +72,19 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 		if !p.Enabled || !p.StoreMessages || p.ReplyMode == scopedomain.ModeObserveOnly {
 			info.BlockedReasons = append(info.BlockedReasons, "会话参与或消息存储未授权")
 		}
-		granted := h.svcCtx.Config.Tools.PermissionDefaults["qq.reply.current"]
+		granted := live.Tools.PermissionDefaults["qq.reply.current"]
 		if v, ok := p.ToolPermissions["qq.reply.current"]; ok {
 			granted = v
 		}
+		info.AllowSendCurrent = granted
 		if !granted {
 			info.BlockedReasons = append(info.BlockedReasons, "未授予当前会话回复工具权限")
 		}
 	}
-	if !h.svcCtx.Config.AI.Enabled {
+	if !live.AI.Enabled {
 		info.BlockedReasons = append(info.BlockedReasons, "未启用生成模型")
 	}
-	if !h.svcCtx.Config.Intent.Enabled {
+	if !live.Intent.Enabled {
 		info.BlockedReasons = append(info.BlockedReasons, "未启用意图流水线")
 	}
 	registered := false
@@ -99,7 +96,7 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !registered {
-		info.BlockedReasons = append(info.BlockedReasons, "当前进程未加载回复工具")
+		info.BlockedReasons = append(info.BlockedReasons, "当前进程未注册连续发送工具")
 	}
 	online := false
 	if h.svcCtx.Accounts != nil {

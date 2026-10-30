@@ -20,6 +20,7 @@ import (
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -45,7 +46,7 @@ func (fakeProvider) Close(context.Context) error { return nil }
 // TestBuildToolsResolverFiltersAndBudgets 验证被撤销的权限隐藏对应工具、
 // 允许的工具上报运行，且单次运行预算会阻止继续调用。
 func TestBuildToolsResolverFiltersAndBudgets(t *testing.T) {
-	registry := pluginsapp.NewRegistry([]string{"test.fake"})
+	registry := pluginsapp.NewRegistry()
 	calls := 0
 	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{
 		{
@@ -79,7 +80,7 @@ func TestBuildToolsResolverFiltersAndBudgets(t *testing.T) {
 			MaxResultBytes: 1024,
 		},
 	}
-	resolver := buildToolsResolver(cfg, registry, nil)
+	resolver := buildToolsResolver(settingsForTest(cfg), registry)
 
 	var runs []agentcontracts.ToolRun
 	tools := resolver(context.Background(), agentcontracts.Request{
@@ -157,7 +158,7 @@ func TestToolScopeKindsMatchDomainKinds(t *testing.T) {
 // 被隐藏，而省略 ScopeKinds 的工具在两种会话中都保持原有可见性；
 // 空会话类型对限定范围的工具保持关闭式失败。
 func TestBuildToolsResolverFiltersByConversationKind(t *testing.T) {
-	registry := pluginsapp.NewRegistry([]string{"test.fake"})
+	registry := pluginsapp.NewRegistry()
 	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{
 		{
 			Descriptor: plugincontracts.ToolDescriptor{
@@ -180,7 +181,7 @@ func TestBuildToolsResolverFiltersByConversationKind(t *testing.T) {
 	t.Cleanup(func() { _ = registry.Close(context.Background()) })
 
 	cfg := &config.Config{}
-	resolver := buildToolsResolver(cfg, registry, nil)
+	resolver := buildToolsResolver(settingsForTest(cfg), registry)
 
 	cases := []struct {
 		name string
@@ -211,56 +212,13 @@ func TestBuildToolsResolverFiltersByConversationKind(t *testing.T) {
 	}
 }
 
-// TestReplyToolRequiresDedicatedSwitch verifies the send tool stays hidden when
-// only the generic side-effect flag is on, and becomes visible once the
-// dedicated switch and the scope grant are both present.
-// TestReplyToolRequiresDedicatedSwitch 验证只打开通用副作用开关时发送工具仍不可见，
-// 只有专用开关与作用域授权同时具备才暴露。
-func TestReplyToolRequiresDedicatedSwitch(t *testing.T) {
-	registry := pluginsapp.NewRegistry([]string{"test.fake"})
-	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
-		Descriptor: plugincontracts.ToolDescriptor{
-			ID: "qq.send_current", Description: "发送", ReadOnly: false, SideEffect: true,
-			RiskLevel: plugincontracts.RiskWrite, Permission: "qq.reply.current",
-		},
-		Invoke: func(context.Context, string) (string, error) { return "sent", nil },
-	}}}
-	if err := registry.Register(context.Background(), provider); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	t.Cleanup(func() { _ = registry.Close(context.Background()) })
-
-	overrides := map[string]bool{"qq.reply.current": true}
-	sideEffectsOnly := &config.Config{}
-	sideEffectsOnly.Tools.AllowSideEffects = true
-	if got := exposedToolNames(t, buildToolsResolver(sideEffectsOnly, registry, nil)(
-		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup, PermissionOverrides: overrides},
-	)); len(got) != 0 {
-		t.Fatalf("side effects alone exposed %v, want none", got)
-	}
-
-	full := &config.Config{}
-	full.Tools.AllowSideEffects = true
-	full.Tools.AllowSendCurrent = true
-	if got := exposedToolNames(t, buildToolsResolver(full, registry, func(context.Context, int64, string, int64) (bool, bool) { return true, true })(
-		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup, PermissionOverrides: overrides},
-	)); !reflect.DeepEqual(got, []string{"qq_send_current"}) {
-		t.Fatalf("exposed = %v, want qq_send_current", got)
-	}
-
-	// Without the scope grant the tool stays denied even with both switches on.
-	if got := exposedToolNames(t, buildToolsResolver(full, registry, func(context.Context, int64, string, int64) (bool, bool) { return true, true })(
-		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup},
-	)); len(got) != 0 {
-		t.Fatalf("missing grant exposed %v, want none", got)
-	}
-}
-
-// TestSendingPolicyVetoesReplyTool verifies a per-scope policy row can hide the
-// reply tool even when the global switch is on.
-// TestSendingPolicyVetoesReplyTool 验证按作用域的策略行能在全局开关打开时隐藏回复工具。
-func TestSendingPolicyVetoesReplyTool(t *testing.T) {
-	registry := pluginsapp.NewRegistry([]string{"test.fake"})
+// TestReplyToolFollowsScopeGrant verifies the send tool is visible exactly when
+// the conversation granted its permission; there is no process-level switch and
+// no provider enable list any more.
+// TestReplyToolFollowsScopeGrant 验证发送工具是否可见只取决于会话是否授予了
+// 对应权限；进程级开关与提供方启用列表都已移除。
+func TestReplyToolFollowsScopeGrant(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
 	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
 		Descriptor: plugincontracts.ToolDescriptor{
 			ID: "qq.send_current", Description: "发送", ReadOnly: false, SideEffect: true,
@@ -274,19 +232,23 @@ func TestSendingPolicyVetoesReplyTool(t *testing.T) {
 	t.Cleanup(func() { _ = registry.Close(context.Background()) })
 
 	cfg := &config.Config{}
-	cfg.Tools.AllowSideEffects = true
-	cfg.Tools.AllowSendCurrent = true
-	req := agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup,
-		PermissionOverrides: map[string]bool{"qq.reply.current": true}}
+	granted := agentcontracts.Request{
+		Kind:                plugincontracts.ScopeKindGroup,
+		PermissionOverrides: map[string]bool{"qq.reply.current": true},
+	}
+	if got := exposedToolNames(t, buildToolsResolver(settingsForTest(cfg), registry)(context.Background(), granted)); !reflect.DeepEqual(got, []string{"qq_send_current"}) {
+		t.Fatalf("grant exposed %v, want qq_send_current", got)
+	}
+	// Without the scope grant the tool stays hidden.
+	if got := exposedToolNames(t, buildToolsResolver(settingsForTest(cfg), registry)(context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup})); len(got) != 0 {
+		t.Fatalf("missing grant exposed %v, want none", got)
+	}
+}
 
-	veto := func(context.Context, int64, string, int64) (bool, bool) { return false, true }
-	if got := exposedToolNames(t, buildToolsResolver(cfg, registry, veto)(context.Background(), req)); len(got) != 0 {
-		t.Fatalf("policy veto exposed %v, want none", got)
-	}
-	allow := func(context.Context, int64, string, int64) (bool, bool) { return true, true }
-	if got := exposedToolNames(t, buildToolsResolver(cfg, registry, allow)(context.Background(), req)); !reflect.DeepEqual(got, []string{"qq_send_current"}) {
-		t.Fatalf("policy allow exposed %v", got)
-	}
+// settingsForTest builds a live snapshot from the file-level configuration.
+// settingsForTest 依据文件配置构建实时快照。
+func settingsForTest(cfg *config.Config) *settingsapp.Provider {
+	return settingsapp.NewProvider(settingsapp.Snapshot{Settings: settingsapp.FromConfig(cfg)})
 }
 
 type replyRefusedError struct{}
@@ -295,7 +257,7 @@ func (replyRefusedError) Error() string      { return "reply refused" }
 func (replyRefusedError) ToolStatus() string { return "denied" }
 
 func TestReplyRunStaysStoppedAfterRefusal(t *testing.T) {
-	registry := pluginsapp.NewRegistry([]string{"test.fake"})
+	registry := pluginsapp.NewRegistry()
 	calls := 0
 	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
 		Descriptor: plugincontracts.ToolDescriptor{ID: "qq.send_current", Description: "send", ReplyCurrent: true, SideEffect: true, RiskLevel: plugincontracts.RiskWrite, Permission: "qq.reply.current"},
@@ -312,10 +274,9 @@ func TestReplyRunStaysStoppedAfterRefusal(t *testing.T) {
 	}
 	defer registry.Close(context.Background())
 	cfg := &config.Config{}
-	cfg.Tools.AllowSendCurrent = true
 	var runs []agentcontracts.ToolRun
 	req := agentcontracts.Request{Kind: "private", PermissionOverrides: map[string]bool{"qq.reply.current": true}, OnToolRun: func(run agentcontracts.ToolRun) { runs = append(runs, run) }}
-	tools := buildToolsResolver(cfg, registry, func(context.Context, int64, string, int64) (bool, bool) { return true, true })(context.Background(), req)
+	tools := buildToolsResolver(settingsForTest(cfg), registry)(context.Background(), req)
 	if len(tools) != 1 {
 		t.Fatalf("reply tool missing: %d", len(tools))
 	}

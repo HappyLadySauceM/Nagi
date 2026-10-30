@@ -1,5 +1,5 @@
-// Per-scope sending policies that gate autonomous replies.
-// 门控自主回复的按作用域出站策略。
+// Per-scope sending budgets used by the outbound ledger.
+// 出站台账使用的按作用域发送预算。
 package infrastructure
 
 import (
@@ -13,13 +13,14 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
 
-// Policy is one scope's sending configuration.
-// Policy 是单个作用域的出站配置。
+// Policy is one scope's sending configuration. Whether autonomous sending is
+// allowed is no longer stored here: it follows the scope's capability grant.
+// Policy 是单个作用域的出站配置。是否允许自主发送不再存放在这里：
+// 它跟随该作用域的能力授权。
 type Policy struct {
 	BotID               int64
 	ScopeType           string
 	ScopeID             int64
-	AllowSendCurrent    bool
 	MinIntervalMS       int
 	MaxMessagesPerRun   int
 	MaxCharsPerMessage  int
@@ -39,24 +40,17 @@ func (p Policy) Limits() domain.Limits {
 
 // PoliciesRepo stores per-scope sending policies.
 // PoliciesRepo 存储按作用域的出站策略。
-type SendingAuthorizer func(context.Context, int64, string, int64) (bool, error)
-
 type PoliciesRepo struct {
-	authorize SendingAuthorizer
-	pool      *pgxpool.Pool
+	pool *pgxpool.Pool
 }
 
 // NewPoliciesRepo builds the repository.
 // NewPoliciesRepo 构建仓储。
-func NewPoliciesRepo(pool *pgxpool.Pool, authorize ...SendingAuthorizer) (*PoliciesRepo, error) {
+func NewPoliciesRepo(pool *pgxpool.Pool) (*PoliciesRepo, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("outbound: pool required")
 	}
-	repo := &PoliciesRepo{pool: pool}
-	if len(authorize) > 0 {
-		repo.authorize = authorize[0]
-	}
-	return repo, nil
+	return &PoliciesRepo{pool: pool}, nil
 }
 
 // Get loads one policy; the boolean reports whether it exists.
@@ -75,12 +69,6 @@ func (r *PoliciesRepo) Get(ctx context.Context, botID int64, scopeType string, s
 	}
 	if err != nil {
 		return Policy{}, false, fmt.Errorf("outbound: get policy: %w", err)
-	}
-	if r.authorize != nil {
-		p.AllowSendCurrent, err = r.authorize(ctx, botID, scopeType, scopeID)
-		if err != nil {
-			return Policy{}, false, err
-		}
 	}
 	return p, true, nil
 }

@@ -303,25 +303,11 @@ func TestLoadReadsSendingBudgetFromYaml(t *testing.T) {
 	}
 }
 
-func TestValidateAllowsDedicatedReplyWithoutOtherSideEffects(t *testing.T) {
-	file := writeTempConfig(t, "tools:\n  allow-send-current: true\n  enabled: [builtin.reply]\n")
-	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestValidateRejectsSendCurrentWithoutProvider(t *testing.T) {
-	// 验证打开 allow-send-current 但 enabled 缺少 builtin.reply 时启动失败。
+func TestLoadAcceptsDeprecatedSideEffectSwitches(t *testing.T) {
+	// 废弃的 allow-send-current / allow-side-effects 仍可解析但不再参与校验，
+	// 旧配置文件因此不会导致启动失败。
 	file := writeTempConfig(t, "tools:\n  allow-send-current: true\n  allow-side-effects: true\n  enabled: [builtin.time]\n")
-	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
-		t.Fatal("expected error when builtin.reply is not enabled")
-	}
-}
-
-func TestValidateAcceptsSendCurrentFullyEnabled(t *testing.T) {
-	// 验证三个条件齐备时可以通过校验。
-	file := writeTempConfig(t, "tools:\n  allow-send-current: true\n  allow-side-effects: true\n  enabled: [builtin.reply]\n")
 	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err != nil {
-		t.Fatalf("load: %v", err)
+		t.Fatalf("deprecated switches must not fail the load: %v", err)
 	}
 }

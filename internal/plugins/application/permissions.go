@@ -41,14 +41,11 @@ func ResolvePermissions(tools []contracts.RegisteredTool, configDefaults, overri
 }
 
 // Allowed reports whether one tool may be exposed to the model and executed.
-// A granted permission is not enough for tools with side effects: they stay
-// hidden until the process explicitly enables them.
+// There is no process-level side-effect switch any more: a write tool is
+// available exactly when its permission is granted for the conversation.
 // Allowed 报告单个工具是否可以暴露给模型并执行。
-// 对带副作用的工具，仅有授予权限还不够：在进程显式开启前它们始终不可见。
-func Allowed(descriptor contracts.ToolDescriptor, granted map[string]bool, allowSideEffects bool) bool {
-	if !descriptor.ReadOnly && !allowSideEffects {
-		return false
-	}
+// 进程级的副作用总开关已被移除：写工具是否可用，只取决于该会话是否授予了对应权限。
+func Allowed(descriptor contracts.ToolDescriptor, granted map[string]bool) bool {
 	if descriptor.Permission == "" {
 		return true
 	}

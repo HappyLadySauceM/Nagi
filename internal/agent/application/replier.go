@@ -76,7 +76,13 @@ type Options struct {
 	SendingLimits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits
 	BotName       string
 	MaxTokens     int
-	Logger        *slog.Logger
+	// BotNameProvider and MaxTokensProvider optionally override the static
+	// values per run so console edits apply without a restart.
+	// BotNameProvider 与 MaxTokensProvider 可选地按次覆盖静态值，
+	// 控制台的改动因此无需重启即可生效。
+	BotNameProvider   func() string
+	MaxTokensProvider func() int
+	Logger            *slog.Logger
 }
 
 // Replier generates, checks, sends and records replies for intent decisions.
@@ -91,6 +97,8 @@ type Replier struct {
 	sendingLimits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits
 	botName       string
 	maxTokens     int
+	botNameNow    func() string
+	maxTokensNow  func() int
 	logger        *slog.Logger
 }
 
@@ -107,8 +115,31 @@ func NewReplier(opts Options) (*Replier, error) {
 	return &Replier{
 		runtime: opts.Runtime, scopes: opts.Scopes, senders: opts.Senders,
 		recorder: opts.Recorder, outbound: opts.Outbound, sending: opts.Sending, sendingLimits: opts.SendingLimits,
-		botName: opts.BotName, maxTokens: opts.MaxTokens, logger: opts.Logger,
+		botName: opts.BotName, maxTokens: opts.MaxTokens,
+		botNameNow: opts.BotNameProvider, maxTokensNow: opts.MaxTokensProvider,
+		logger: opts.Logger,
 	}, nil
+}
+
+// currentMaxTokens resolves the output budget of one run, preferring the live
+// settings over the startup value.
+// currentMaxTokens 解析单次运行的输出预算，优先使用实时配置。
+func (r *Replier) currentMaxTokens() int {
+	if r.maxTokensNow != nil {
+		if value := r.maxTokensNow(); value > 0 {
+			return value
+		}
+	}
+	return r.maxTokens
+}
+
+// currentBotName resolves the display name of one run, preferring live settings.
+// currentBotName 解析单次运行的展示名，优先使用实时配置。
+func (r *Replier) currentBotName() string {
+	if r.botNameNow != nil {
+		return r.botNameNow()
+	}
+	return r.botName
 }
 
 // ExecuteReply re-checks the scope, builds context, generates, sanitizes and
@@ -162,7 +193,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		JobID:               task.JobID,
 		Messages:            toRuntimeMessages(messages),
 		PermissionOverrides: policy.ToolPermissions,
-		MaxOutputTokens:     r.maxTokens,
+		MaxOutputTokens:     r.currentMaxTokens(),
 		OnToolRun: func(run agentcontracts.ToolRun) {
 			toolMu.Lock()
 			toolRuns = append(toolRuns, run)
@@ -399,7 +430,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 // buildMessages 组装系统提示、授权历史与当前消息。本阶段刻意不注入长期记忆。
 func (r *Replier) buildMessages(task intentdomain.Task, history []intentdomain.Message) []domain.ChatMessage {
 	var b strings.Builder
-	name := r.botName
+	name := r.currentBotName()
 	if name == "" {
 		name = "助手"
 	}

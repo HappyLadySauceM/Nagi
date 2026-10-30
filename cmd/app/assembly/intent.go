@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +35,7 @@ import (
 	einoTools "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -119,51 +119,37 @@ func (a activityReader) ConversationIDForScope(ctx context.Context, botID int64,
 	return conversation.ID, nil
 }
 
-// sendPolicyLookup reports whether one scope has a policy row and its verdict.
-// sendPolicyLookup 报告某作用域是否存在策略行及其结论。
-type sendPolicyLookup func(ctx context.Context, botID int64, scopeType string, scopeID int64) (allow bool, exists bool)
-
-// buildToolsResolver returns the per-run tool snapshot filtered by the
-// conversation kind and the granted permissions. The registry is static after
-// startup, so the snapshot is a cheap copy; the guard binds each call to the
-// message scope and the granted permissions.
+// buildToolsResolver returns the per-run tool snapshot filtered by the live
+// settings, the conversation kind and the granted permissions. The registry is
+// static after startup, so the snapshot is a cheap copy; the settings provider
+// is read on every run, which is what makes console toggles effective without
+// a restart.
 // buildToolsResolver 返回单次运行的工具快照，按会话类型与已授予权限过滤。
-// 注册表在启动后是静态的，快照只是廉价复制；
-// 守卫把每次调用绑定到消息作用域与已授予权限。
-func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
-	policies sendPolicyLookup, fresh ...*scopeapp.Service,
+// 注册表在启动后是静态的，快照只是廉价复制；配置提供者每次运行都会读取，
+// 控制台的开关因此无需重启即可生效。
+func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Registry,
+	fresh ...*scopeapp.Service,
 ) func(context.Context, agentcontracts.Request) []tool.BaseTool {
 	return func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool {
-		snapshot := registry.Snapshot()
-		if len(snapshot) == 0 {
+		live := settings.Settings()
+		visible := registry.Snapshot()
+		if len(visible) == 0 {
 			return nil
 		}
 		// The granted set comes from the scope policy, never from the snapshot
 		// itself: deriving it from the tools would make the guard self-approving.
 		// 授予集合来自作用域策略，绝不来自工具快照本身：
 		// 由工具推导会让守卫变成自证。
-		granted := pluginsapp.ResolvePermissions(snapshot, cfg.Tools.PermissionDefaults, req.PermissionOverrides)
-		// Per-scope gray release: a policy row can veto the dedicated switch.
-		// 按作用域灰度：策略行可以否决专用开关。
-		sendAllowed := cfg.Tools.AllowSendCurrent
-		if sendAllowed {
-			sendAllowed = false
-			if policies != nil {
-				allow, exists := policies(ctx, req.BotID, req.Kind, req.TargetID)
-				sendAllowed = exists && allow
-			}
-		}
+		granted := pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, req.PermissionOverrides)
 		var replyStopped atomic.Bool
 		scope := pluginsapp.Scope{
-			BotID:             req.BotID,
-			JobID:             req.JobID,
-			ConversationID:    req.ConversationID,
-			Kind:              req.Kind,
-			TargetID:          req.TargetID,
-			SenderID:          req.SenderID,
-			Permissions:       granted,
-			AllowSideEffects:  cfg.Tools.AllowSideEffects,
-			AllowReplyCurrent: sendAllowed,
+			BotID:          req.BotID,
+			JobID:          req.JobID,
+			ConversationID: req.ConversationID,
+			Kind:           req.Kind,
+			TargetID:       req.TargetID,
+			SenderID:       req.SenderID,
+			Permissions:    granted,
 			Record: func(run pluginscontracts.ToolRun) {
 				if run.ToolID == replytool.ToolID && run.Status != pluginsapp.StatusOK {
 					replyStopped.Store(true)
@@ -179,14 +165,18 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
 					Bytes:     run.Bytes,
 				})
 			},
-			Timeout:        cfg.Tools.Timeout.D(),
-			MaxResultBytes: cfg.Tools.MaxResultBytes,
+			Timeout:        time.Duration(live.Tools.TimeoutSeconds) * time.Second,
+			MaxResultBytes: live.Tools.MaxResultBytes,
 		}
 		{
 			scope.Reauthorize = func(ctx context.Context, descriptor pluginscontracts.ToolDescriptor) error {
 				if descriptor.ReplyCurrent && replyStopped.Load() {
 					return fmt.Errorf("reply run already stopped")
 				}
+				// Settings are re-read here too, so revoking a permission takes
+				// effect inside a running turn.
+				// 这里同样重新读取配置：撤销权限对进行中的回合立即生效。
+				latest := settings.Settings()
 				if len(fresh) == 0 || fresh[0] == nil {
 					return nil
 				}
@@ -197,8 +187,8 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
 				if !current.Enabled || current.ReplyMode == scopedomain.ModeObserveOnly {
 					return fmt.Errorf("scope authorization revoked")
 				}
-				grants := pluginsapp.ResolvePermissions(snapshot, cfg.Tools.PermissionDefaults, current.ToolPermissions)
-				if !pluginsapp.Allowed(descriptor, grants, cfg.Tools.AllowSideEffects || descriptor.ReplyCurrent && cfg.Tools.AllowSendCurrent) {
+				grants := pluginsapp.ResolvePermissions(visible, latest.Tools.PermissionDefaults, current.ToolPermissions)
+				if !pluginsapp.Allowed(descriptor, grants) {
 					return fmt.Errorf("tool authorization revoked")
 				}
 				return nil
@@ -207,9 +197,9 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
 		// The budget is per run and shared by every tool the model may call.
 		// 调用预算按单次运行计算，并由模型可调用的全部工具共享。
 		var calls atomic.Int64
-		budget := int64(cfg.Agent.MaxToolCalls)
-		wrapped := make([]pluginscontracts.RegisteredTool, 0, len(snapshot))
-		for _, registered := range snapshot {
+		budget := int64(live.Agent.MaxToolCalls)
+		wrapped := make([]pluginscontracts.RegisteredTool, 0, len(visible))
+		for _, registered := range visible {
 			// A tool that does not apply to the conversation kind never reaches
 			// the model, so it cannot even request it; the execution-time check
 			// inside the tool stays as the second line of defence.
@@ -218,16 +208,9 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
 			if !registered.Descriptor.AppliesTo(req.Kind) {
 				continue
 			}
-			// The reply tool stays hidden unless the dedicated switch is on;
-			// widening the generic side-effect flag must not expose it.
-			// 未打开专用开关时回复工具不可见；
-			// 放开通用副作用开关不得连带暴露它。
-			if registered.Descriptor.ID == replytool.ToolID && !sendAllowed {
-				continue
-			}
 			// Revoked tools never reach the model, so it cannot even request them.
 			// 已撤销的工具不会到达模型，模型连请求它的机会都没有。
-			if !pluginsapp.Allowed(registered.Descriptor, granted, cfg.Tools.AllowSideEffects || (registered.Descriptor.ReplyCurrent && sendAllowed)) {
+			if !pluginsapp.Allowed(registered.Descriptor, granted) {
 				continue
 			}
 			guarded := pluginsapp.Guard(scope, registered.Descriptor, registered.Invoke)
@@ -256,7 +239,11 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
 // 即使正文导出关闭，模型与工具 span 仍属于 trace：此时回调脱敏取值，
 // 而不是整体消失。
 func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sdktrace.TracerProvider) *langfusecb.CallbackHandler {
-	if provider == nil || !cfg.AI.Enabled || !cfg.Observability.Enabled {
+	// Generation may be switched on later from the console, so the callback is
+	// wired whenever telemetry is on; an idle callback costs nothing.
+	// 生成模型可能稍后在控制台开启，因此只要遥测开启就接入回调；
+	// 空闲的回调没有额外开销。
+	if provider == nil || !cfg.Observability.Enabled {
 		return nil
 	}
 	if !cfg.Observability.ExportRawContent {
@@ -277,101 +264,81 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 	return handler
 }
 
-// buildReplyExecutor wires the Eino-backed reply executor when generation is
-// enabled. Long-term memory is deliberately not part of this stage.
-// ai.enabled 时装配 Eino 驱动的回复执行器；本阶段刻意不接入长期记忆。
-func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
+// buildReplyExecutor wires the Eino-backed reply executor. The runtime is built
+// lazily from the live settings so enabling generation or switching the model in
+// the console needs no restart; long-term memory is deliberately out of scope.
+// buildReplyExecutor 装配 Eino 驱动的回复执行器。运行时按实时配置惰性构建，
+// 控制台开启生成或切换模型因此无需重启；本阶段刻意不接入长期记忆。
+func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
+	settings *settingsapp.Provider,
 	scope *scopeapp.Service, conv *conversationapp.Service, senders agentapp.SenderResolver,
 	handler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
 	limits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits,
 	tools func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool,
 ) (intentcontracts.ReplyExecutor, error) {
-	if !cfg.AI.Enabled || pool == nil || scope == nil || conv == nil {
+	if pool == nil || scope == nil || conv == nil || ledger == nil {
 		return nil, nil
 	}
-	runtimeCfg := einoinfra.Config{
-		BaseURL:         cfg.AI.BaseURL,
-		APIKey:          cfg.AI.APIKey,
-		Model:           cfg.AI.Model,
-		MaxOutputTokens: cfg.AI.MaxOutputTokens,
-		Timeout:         cfg.Agent.MaxRunDuration.D(),
-		HTTPTimeout:     cfg.AI.GenerationTimeout.D(),
-		MaxSteps:        cfg.Agent.MaxSteps,
-		Tools:           tools,
-	}
+	var handlers []callbacks.Handler
 	if handler != nil {
 		// Register per run so the callback never becomes global state.
 		// 按 Run 注册，避免回调变成全局状态。
-		runtimeCfg.Handlers = []callbacks.Handler{handler}
+		handlers = []callbacks.Handler{handler}
 	}
-	runtime, err := einoinfra.NewRuntime(ctx, runtimeCfg)
-	if err != nil {
-		return nil, err
-	}
-	if ledger == nil {
-		return nil, nil
-	}
+	live := settings.Settings()
 	return agentapp.NewReplier(agentapp.Options{
-		Runtime:  runtime,
+		Runtime:  newModelRuntime(settings, cfg.AI.APIKey, tools, handlers, logger),
 		Scopes:   scope,
 		Senders:  senders,
 		Recorder: conv,
 		Outbound: ledger,
 		Sending: outbounddomain.Limits{
-			MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
-			MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
-			MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
+			MaxMessages:        live.Agent.Sending.MaxMessagesPerRun,
+			MaxCharsPerMessage: live.Agent.Sending.MaxCharsPerMessage,
+			MaxTotalChars:      live.Agent.Sending.MaxTotalCharsPerRun,
 		},
 		SendingLimits: limits,
-		BotName:       cfg.Intent.BotName,
-		MaxTokens:     cfg.AI.MaxOutputTokens,
-		Logger:        logger,
+		BotName:       live.Intent.BotName,
+		MaxTokens:     live.AI.MaxOutputTokens,
+		BotNameProvider: func() string {
+			return settings.Settings().Intent.BotName
+		},
+		MaxTokensProvider: func() int {
+			return settings.Settings().AI.MaxOutputTokens
+		},
+		Logger: logger,
 	})
 }
 
-// buildWorker wires the decision pipeline and bounded worker when intent is enabled.
-// intent 启用时装配决策流水线与有界工作器。
+// buildWorker wires the decision pipeline and the bounded worker. The worker is
+// created whenever the database exists: with intent disabled it still consumes
+// jobs (skipping the decision), so the console can switch the pipeline on later
+// without a restart and without a backlog.
+// buildWorker 装配决策流水线与有界工作器。只要数据库存在就创建工作器：
+// 流水线关闭时它仍消费任务（跳过决策），
+// 控制台因此可以在不重启、不积压的情况下随后启用。
 func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
+	settings *settingsapp.Provider,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities, rules *intentinfra.RulesetsRepo,
 ) (*conversationinfra.Worker, intentcontracts.DecisionReader, intentcontracts.SimulationEvaluator, error) {
-	if pool == nil {
+	if pool == nil || scope == nil || conv == nil {
 		return nil, nil, nil, nil
 	}
-	if !cfg.Intent.Enabled {
-		// The ingress handler is registered whenever a database exists, so
-		// disabling the pipeline turns every stored message into an unconsumed job.
-		// 只要配置了数据库就会注册入站处理器，关闭流水线会让每条消息变成永不被消费的任务。
-		logger.Warn("intent pipeline disabled; messages are stored but jobs are never consumed",
-			"hint", "set intent.enabled=true to activate the decision worker")
-		return nil, nil, nil, nil
+	if !settings.Settings().Intent.Enabled {
+		logger.Info("intent pipeline starts disabled; stored messages are consumed without a decision",
+			"hint", "enable the pipeline in 系统配置 to start replying")
 	}
-	if scope == nil || conv == nil {
-		return nil, nil, nil, nil
-	}
-	jevKey := cfg.Intent.APIKey
-	if cfg.Intent.Provider == "jev" && jevKey == "" {
+	if cfg.Intent.APIKey == "" && settings.Settings().Intent.Provider == "jev" {
 		logger.Warn("jev api-key missing; semantic decisions degrade to explicit mentions only",
 			"hint", "set intent.api-key in the config file")
 	}
-	jev, err := intentinfra.NewJevClient(intentinfra.JevConfig{
-		Endpoint: cfg.Intent.Endpoint,
-		APIKey:   jevKey,
-		Model:    cfg.Intent.Model,
-		BotName:  cfg.Intent.BotName,
-		Timeout:  cfg.Intent.Timeout.D(),
-	}, logger)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	semantic := newSemanticRouter(settings, cfg.Intent.APIKey, logger)
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	var semantic intentapp.SemanticDecider = jev
-	if cfg.Intent.Provider == "openai" {
-		semantic = &intentinfra.LocalClient{Config: intentinfra.JevConfig{Endpoint: cfg.Intent.Endpoint, APIKey: cfg.Intent.APIKey, Model: cfg.Intent.Model, BotName: cfg.Intent.BotName, Timeout: cfg.Intent.Timeout.D()}, Client: &http.Client{Timeout: cfg.Intent.Timeout.D(), Transport: &http.Transport{Proxy: nil}}}
-	}
+	live := settings.Settings()
 	decider, err := intentapp.NewDecider(intentapp.Options{
 		Semantic: semantic,
 		History:  historyReader{svc: conv},
@@ -381,14 +348,32 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		Rules:    rules,
 		Executor: executor,
 		Thresholds: intentdomain.Thresholds{
-			Continuation:      cfg.Intent.ContinuationThreshold,
-			Interjection:      cfg.Intent.InterjectionThreshold,
-			AddressedOtherMax: cfg.Intent.AddressedOtherMax,
+			Continuation:      live.Intent.ContinuationThreshold,
+			Interjection:      live.Intent.InterjectionThreshold,
+			AddressedOtherMax: live.Intent.AddressedOtherMax,
 		},
-		HistoryLimit: cfg.Intent.HistoryLimit,
-		Provider:     cfg.Intent.Provider,
-		Model:        cfg.Intent.Model,
-		Logger:       logger,
+		HistoryLimit: live.Intent.HistoryLimit,
+		Provider:     live.Intent.Provider,
+		Model:        live.Intent.Model,
+		// The console changes these without a restart, so the decider reads
+		// them per task instead of freezing the startup values.
+		// 控制台可不停机修改这些值，因此决策器按任务读取，而不是固化启动值。
+		Dynamic: func() intentapp.RuntimeConfig {
+			current := settings.Settings()
+			return intentapp.RuntimeConfig{
+				Enabled:      current.Intent.Enabled,
+				AIEnabled:    current.AI.Enabled,
+				HistoryLimit: current.Intent.HistoryLimit,
+				Provider:     current.Intent.Provider,
+				Model:        current.Intent.Model,
+				Thresholds: intentdomain.Thresholds{
+					Continuation:      current.Intent.ContinuationThreshold,
+					Interjection:      current.Intent.InterjectionThreshold,
+					AddressedOtherMax: current.Intent.AddressedOtherMax,
+				},
+			}
+		},
+		Logger: logger,
 	})
 	if err != nil {
 		return nil, nil, nil, err

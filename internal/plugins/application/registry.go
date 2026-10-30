@@ -1,12 +1,14 @@
-// Registry owns the startup registration, enable list and immutable snapshots
-// of tool providers.
-// Registry 负责工具提供方的启动注册、启用列表与不可变快照。
+// Registry owns the startup registration and immutable snapshots of tool
+// providers. Every provider supplied at startup is loaded: availability is
+// decided per conversation by the capability grant, never by a process switch.
+// Registry 负责工具提供方的启动注册与不可变快照。
+// 启动时提供的每个提供方都会被加载：可用性按会话的能力授权判定，
+// 不存在进程级开关。
 package application
 
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
@@ -17,7 +19,6 @@ import (
 // Registry 持有已注册工具。它不支持并发修改：注册只在启动时发生，
 // 之后只读取快照。
 type Registry struct {
-	enabled    map[string]bool
 	registered map[string]bool
 	providers  []contracts.ToolProvider
 	manifests  []contracts.Manifest
@@ -25,18 +26,11 @@ type Registry struct {
 	byID       map[string]contracts.RegisteredTool
 }
 
-// NewRegistry builds an empty registry; an empty enabled list exposes nothing.
-// NewRegistry 构建空注册表；启用列表为空时不暴露任何工具。
-func NewRegistry(enabled []string) *Registry {
-	allow := make(map[string]bool, len(enabled))
-	for _, id := range enabled {
-		id = strings.TrimSpace(id)
-		if id != "" {
-			allow[id] = true
-		}
-	}
+// NewRegistry builds an empty registry; every provider registered afterwards is
+// immediately available.
+// NewRegistry 构建空注册表；此后注册的每个提供方都会立即可用。
+func NewRegistry() *Registry {
 	return &Registry{
-		enabled:    allow,
 		registered: make(map[string]bool),
 		byID:       make(map[string]contracts.RegisteredTool),
 	}
@@ -57,16 +51,7 @@ func (r *Registry) Register(ctx context.Context, provider contracts.ToolProvider
 	if r.registered[manifest.ID] {
 		return fmt.Errorf("plugins: duplicate provider %q", manifest.ID)
 	}
-	// Record every supplied provider, including disabled ones, so callers can
-	// tell "configured but disabled" from "configured but unknown".
-	// 记录所有已提供的提供方（含未启用的），使调用方能区分
-	// "已配置但未启用"与"已配置但不存在"。
 	r.registered[manifest.ID] = true
-	if !r.enabled[manifest.ID] {
-		// A disabled provider is never opened, so there is nothing to close.
-		// 未启用的提供方不会被打开，因此无需关闭。
-		return nil
-	}
 	tools, err := provider.Tools(ctx)
 	if err != nil {
 		_ = provider.Close(ctx)
@@ -140,51 +125,11 @@ func (r *Registry) Snapshot() []contracts.RegisteredTool {
 	return out
 }
 
-// Enabled returns the configured provider ids in sorted order, whether or not
-// they exist in the binary.
-// Enabled 按排序返回配置的提供方 ID，无论它是否存在于二进制中。
-func (r *Registry) Enabled() []string {
-	out := make([]string, 0, len(r.enabled))
-	for id := range r.enabled {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// Known returns every supplied provider id in sorted order, including disabled
-// ones, so startup errors can list valid alternatives.
-// Known 按排序返回所有已提供的提供方 ID（含未启用的），
-// 供启动错误列出可选值。
-func (r *Registry) Known() []string {
-	out := make([]string, 0, len(r.registered))
-	for id := range r.registered {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // Manifests returns the manifests of providers that were actually registered.
 // Manifests 返回实际注册成功的提供方清单。
 func (r *Registry) Manifests() []contracts.Manifest {
 	out := make([]contracts.Manifest, len(r.manifests))
 	copy(out, r.manifests)
-	return out
-}
-
-// Unknown returns enabled provider ids that no supplied provider matched; a
-// typo in tools.enabled would otherwise silently expose nothing.
-// Unknown 返回已启用但没有任何提供方匹配的 ID；
-// 否则 tools.enabled 中的拼写错误会静默地不暴露任何工具。
-func (r *Registry) Unknown() []string {
-	out := make([]string, 0)
-	for id := range r.enabled {
-		if !r.registered[id] {
-			out = append(out, id)
-		}
-	}
-	sort.Strings(out)
 	return out
 }
 

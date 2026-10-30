@@ -85,28 +85,28 @@ func TestResolvePermissionsIgnoresUnknownOverrides(t *testing.T) {
 	}
 }
 
-// TestAllowedHonorsSideEffects verifies exposure rules: side effects stay hidden
-// until enabled, and a granted permission is required for permission-gated tools.
-// TestAllowedHonorsSideEffects 验证暴露规则：副作用工具在开启前始终隐藏，
-// 需要权限的工具必须已授予权限。
-func TestAllowedHonorsSideEffects(t *testing.T) {
+// TestAllowedFollowsGrants verifies exposure rules: a tool is available exactly
+// when its permission is granted, and permission-less tools are always available.
+// TestAllowedFollowsGrants 验证暴露规则：工具在其权限被授予时可用，
+// 无权限声明的工具始终可用。
+func TestAllowedFollowsGrants(t *testing.T) {
 	readOnly := contracts.ToolDescriptor{ID: "qq.get_group_info", ReadOnly: true, Permission: "qq.group.read"}
 	writer := contracts.ToolDescriptor{ID: "qq.send_message", Permission: "qq.message.write"}
 	granted := map[string]bool{"qq.group.read": true, "qq.message.write": true}
 
-	if !Allowed(readOnly, granted, false) {
+	if !Allowed(readOnly, granted) {
 		t.Fatal("granted read-only tool must be exposed")
 	}
-	if Allowed(readOnly, map[string]bool{"qq.group.read": false}, false) {
+	if Allowed(readOnly, map[string]bool{"qq.group.read": false}) {
 		t.Fatal("revoked read-only tool must stay hidden")
 	}
-	if Allowed(writer, granted, false) {
-		t.Fatal("side-effecting tool must stay hidden while side effects are disabled")
+	if !Allowed(writer, granted) {
+		t.Fatal("granted write tool must be exposed without a process switch")
 	}
-	if !Allowed(writer, granted, true) {
-		t.Fatal("side-effecting tool must be exposed once side effects are enabled and granted")
+	if Allowed(writer, map[string]bool{"qq.message.write": false}) {
+		t.Fatal("write tool must stay hidden without its permission")
 	}
-	if Allowed(writer, map[string]bool{"qq.message.write": false}, true) {
-		t.Fatal("side-effecting tool must stay hidden without its permission")
+	if !Allowed(contracts.ToolDescriptor{ID: "system.current_time", ReadOnly: true}, granted) {
+		t.Fatal("permission-less tool must always be exposed")
 	}
 }
