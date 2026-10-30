@@ -100,16 +100,19 @@ curl -s http://$BOT/api/v1/accounts -H "Authorization: Bearer $TOKEN"
 # 同步某个账号的目录
 curl -s -X POST http://$BOT/api/v1/accounts/10001/sync -H "Authorization: Bearer $TOKEN"
 
-# 开启某个群：仅响应 @ 与引用，持久化消息并允许读取历史
+# 开启某个群：仅响应 @ 与引用，允许读取历史
+# 消息存储是产品基线，无需也不能在界面关闭；0 表示不限。
 curl -s -X PUT "http://$BOT/api/v1/scopes/group/123456789?bot_id=10001" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"enabled":true,"reply_mode":"mention_only","store_messages":true,
+  -d '{"enabled":true,"reply_mode":"mention_only",
        "allow_history_read":true,"allow_memory_write":true,
-       "min_reply_interval_ms":10000,"max_replies_per_hour":20,"retention_days":30}'
+       "min_reply_interval_ms":10000,"max_replies_per_hour":0,
+       "max_messages_per_run":0,"max_chars_per_message":4500,"max_total_chars_per_run":0}'
 ```
 
 `reply_mode` 可选 `mention_only`（只回 @/引用，最可控）、`intent_based`（Jev 判定是否插话）、
-`always_reply`、`observe_only`（只记录不回复）。
+`always_reply`、`observe_only`（只记录不回复）。消息留存改为 `messages.retention-days`
+（系统配置 → 消息与留存），不再按会话配置。
 
 ## 配置要点
 
@@ -147,7 +150,7 @@ curl -s -X PUT "http://$BOT/api/v1/scopes/group/123456789?bot_id=10001" \
 | --- | --- |
 | 日志 `onebot: connect failed: websocket: bad handshake` | access-token 缺失或与 SnowLuma 不一致 |
 | `/readyz` 返回 503 | WS 未连上；先确认 SnowLuma 中 QQ 账号已登录、WS 服务端已启用 |
-| 消息不回复 | 依次检查：作用域是否 `enabled` + `store_messages`、`reply_mode` 是否匹配（群聊非 @ 需 `intent_based`）、`ai.api-key` 是否填写、`message_jobs` 是否停在 `pending` |
+| 消息不回复 | 依次检查：作用域是否 `enabled`、`reply_mode` 是否匹配（群聊非 @ 需 `intent_based`）、是否获得 `qq.reply.current`（默认授予，可能被按会话撤销）、`ai.api-key` 是否填写、`message_jobs` 是否停在 `pending` |
 | 日志里连 `ai ingress` 都没有 | 多半是作用域被重置为默认关闭（例如跑过集成测试清空了表）：`GET /api/v1/scopes/group/{id}` 确认 `enabled`，必要时重新 PUT |
 | 启动报 `ai.enabled 必须同时设置 intent.enabled=true` | 两者需同时开启 |
 | `GET /groups/{id}/members?refresh=true` 返回 409 | 该账号还没同步过目录，先 `POST /api/v1/accounts/{bot_id}/sync` 再重试 |
@@ -195,9 +198,17 @@ agent:
   max-steps: 6            # ReAct 循环上限（含工具轮次）
   max-tool-calls: 5       # 单次运行的累计工具调用上限
   max-run-duration: 30s   # 单次运行总超时（含模型与工具）
+  sending:                # 出站预算，0 表示不限
+    max-messages-per-run: 0
+    max-chars-per-message: 4500   # QQ 单条文本上限
+    max-total-chars-per-run: 0
+
+messages:
+  retention-days: 30      # 全局消息留存，0 表示不清理
 
 tools:
-  permission-defaults: {} # 首次启动写入数据库的初始权限基线
+  permission-defaults:    # 首次启动写入数据库的初始权限基线
+    qq.reply.current: true
   timeout: 5s             # 首次启动写入数据库的初始调用超时
   max-result-bytes: 8192  # 首次启动写入数据库的初始结果上限
 ```
@@ -205,14 +216,15 @@ tools:
 工具提供方没有启用列表：启动时注册多少就全部可用，模型能否调用某个工具只取决于
 该会话的「能力授权」。
 
-`ai`、`intent`、`agent` 与 `tools` 这几个分区在首次启动时写入数据库，此后由控制台的
-「系统配置」页面维护，保存即生效、无需重启；`onebot`、`server`、`database`、`observability`
-以及各类 `api-key` 仍只从配置文件或环境变量读取，不在界面展示。
+`ai`、`intent`、`agent`、`messages` 与 `tools` 这几个分区在首次启动时写入数据库，此后由控制台的
+「系统配置」页面维护，保存即生效、无需重启；`tools.permission-defaults` 作为内部基线不再由界面编辑，
+`onebot`、`server`、`database`、`observability` 以及各类 `api-key` 仍只从配置文件或环境变量读取，不在界面展示。
 
 内置工具分三类：只读的 `system.current_time`、`qq.get_group_info`（`qq.group.read`）与
 `qq.get_group_member_info`（`qq.group.member.read`）；回合内发送 `qq.send_current`
 （`qq.reply.current`）；群管理的禁言/名片/移出（`qq.group.admin.mute`、`qq.group.admin.card`、
-`qq.group.admin.kick`）。只读工具默认允许，其余默认拒绝，全部由会话的「能力授权」决定。
+`qq.group.admin.kick`）。只读工具与连续回复（`qq.reply.current`）默认允许，其余默认拒绝，
+全部由会话的「能力授权」决定。
 模型无法传入任意群号或跨会话目标，工具调用在服务端做权限、账号与目标绑定校验，
 结果按不可信数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace。
 
@@ -223,12 +235,12 @@ tools:
 1. **会话类型层**：描述符的 `ScopeKinds` 限定工具适用的会话类型；`qq.get_group_info` 仅群聊可用，
    私聊运行的工具列表中不会出现它。省略 `ScopeKinds` 表示所有会话类型可用。
 2. **权限基线层**：`system_settings` 的 `tools.permission-defaults` 覆盖描述符兜底；
-   未配置时只读工具默认允许，写操作/群管理默认拒绝。
-3. **作用域授权层**：`scope_policies.tool_permissions` 保存每个群/私聊的授权（如 `{"qq.reply.current": true}`），
+   内置基线授予 `qq.reply.current`，其余只读工具默认允许，写操作/群管理默认拒绝。
+3. **作用域授权层**：`scope_policies.tool_permissions` 保存每个群/私聊的授权（如撤销 `qq.reply.current`），
    优先级最高；被撤销的工具不会出现在模型工具列表中，执行前 Guard 还会再校验一次。
 
-控制台的「系统配置 → 工具与能力」维护调用超时、结果上限与权限默认值，并只读展示
-当前进程注册的提供方；联系人页的「能力授权」维护单个会话的授权。
+控制台的「系统配置 → 工具与能力」维护运行限制、调用超时与结果上限，并只读展示
+当前进程注册的提供方；「消息与留存」维护全局留存天数；联系人页的「能力授权」维护单个会话的授权。
 
 `GET /api/v1/tools` 返回真正注册成功的全部工具与权限项（含默认授予状态），控制台的作用域弹窗据此渲染
 「能力授权」区块；提交未知权限会被拒绝，避免存入无效策略。

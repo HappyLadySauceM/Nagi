@@ -390,7 +390,7 @@ ${BOLD}下一步 / Next steps${NC}
   2. 开启一个作用域（默认拒绝，需显式授权；多账号时带 bot_id）:
      curl -X PUT "http://127.0.0.1:${BOT_PORT}/api/v1/scopes/group/<群号>" \\
        -H 'Content-Type: application/json' \\
-       -d '{"enabled":true,"reply_mode":"intent_based","store_messages":true,"allow_history_read":true,"min_reply_interval_ms":3000,"max_replies_per_hour":30,"retention_days":30}'
+       -d '{"enabled":true,"reply_mode":"intent_based","allow_history_read":true,"min_reply_interval_ms":3000,"max_replies_per_hour":0,"max_messages_per_run":0,"max_chars_per_message":4500,"max_total_chars_per_run":0}'
   3. Langfuse: http://127.0.0.1:3010  账号 admin@nagi.local / nagi-local-2026
   4. 清理开发数据: scripts/dev-env.sh clean --yes
 EOF

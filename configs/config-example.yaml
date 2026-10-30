@@ -78,13 +78,19 @@ agent:
   max-run-duration: 30s
   # 单次运行的出站消息预算；字符数按 Unicode 字符计。
   # 超预算的发送会被拒绝，不会截断后发出，任务正常结束。
+  # 0 表示不限；单条默认取 QQ 文本上限，整轮为 0 时不再校验单条与整轮的大小关系。
   sending:
-    # 一次运行最多发送的消息条数
-    max-messages-per-run: 3
-    # 单条消息的字符上限
-    max-chars-per-message: 500
-    # 一次运行的字符总数上限，必须不小于单条上限
-    max-total-chars-per-run: 1500
+    # 一次运行最多发送的消息条数（0 为不限）
+    max-messages-per-run: 0
+    # 单条消息的字符上限（0 为不限，默认 4500 即 QQ 单条文本上限）
+    max-chars-per-message: 4500
+    # 一次运行的字符总数上限（0 为不限）
+    max-total-chars-per-run: 0
+
+messages:
+  # 全局消息留存天数，0 表示不清理。
+  # 清理只作用于超过期限的消息，日志只记录删除条数。
+  retention-days: 30
 
 tools:
   # 所有提供方在启动时自动注册，没有启用列表；模型能否调用某个工具
@@ -99,9 +105,9 @@ tools:
   #   qq.leave_current_group 让机器人退群（不可逆，权限 qq.group.admin.leave）
   # 按权限标识覆盖默认基线；未列出的权限保持兜底规则（只读允许、其余拒绝）。
   # 作用域策略中的 tool_permissions 优先级更高。
-  # 例：permission-defaults:
-  #       qq.group.read: true
-  permission-defaults: {}
+  # 连续回复（qq.send_current）默认授予，可在联系人页按会话撤销。
+  permission-defaults:
+    qq.reply.current: true
   # 单次工具调用超时
   timeout: 5s
   # 回给模型的结果字节上限，超出即拒绝
