@@ -215,7 +215,7 @@ export interface SettingsIntent {
   historyLimit: number
 }
 
-/** Outbound budget of one agent run. */
+/** Outbound budget of one agent run; zero means unlimited. */
 export interface SettingsSending {
   maxMessagesPerRun: number
   maxCharsPerMessage: number
@@ -231,10 +231,18 @@ export interface SettingsAgent {
 }
 
 /**
- * Tool call limits and permission defaults. Providers are always registered, so
- * there is no enable list; a conversation's grant decides what the model sees.
- * 工具调用限制与权限默认值。提供方始终注册，因此没有启用列表；
- * 会话的授权决定模型能看到什么。
+ * Global message retention. Retention is no longer configured per conversation;
+ * zero disables cleanup.
+ * 全局消息留存。留存不再按会话配置；0 表示不清理。
+ */
+export interface SettingsMessages {
+  retentionDays: number
+}
+
+/**
+ * Tool call limits. Permission defaults stay in the payload as an internal
+ * baseline but are no longer editable from the console.
+ * 工具调用限制。权限默认值作为内部基线保留在载荷中，但不再由控制台编辑。
  */
 export interface SettingsTools {
   timeoutSeconds: number
@@ -247,6 +255,7 @@ export interface SystemSettings {
   ai: SettingsAI
   intent: SettingsIntent
   agent: SettingsAgent
+  messages: SettingsMessages
   tools: SettingsTools
 }
 
@@ -283,7 +292,6 @@ export interface ScopeForm {
   allowMemoryWrite: boolean
   minReplyIntervalMs: number
   maxRepliesPerHour: number
-  retentionDays: number
   toolPermissions: ToolPermissionOverrides
 }
 

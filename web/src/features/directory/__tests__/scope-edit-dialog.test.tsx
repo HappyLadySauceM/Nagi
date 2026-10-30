@@ -8,7 +8,7 @@ const response = (data: unknown) => new Response(JSON.stringify({ code: 200, mes
 const policy = {
   ScopeType: 'private', ScopeID: 123, Source: 'default', TemplateVersion: 1, Version: 1,
   Enabled: false, ReplyMode: 'mention_only', StoreMessages: false, AllowHistoryRead: false, AllowMemoryWrite: false,
-  MinReplyIntervalMS: 10000, MaxRepliesPerHour: 20, RetentionDays: 30, ToolPermissions: {},
+  MinReplyIntervalMS: 10000, MaxRepliesPerHour: 20, ToolPermissions: {},
   MaxMessagesPerRun: 3, MaxCharsPerMessage: 500, MaxTotalCharsPerRun: 1500, MessageIntervalMS: 700,
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
@@ -47,13 +47,13 @@ it('shows permission changes before restoring the default template', async () =>
   vi.stubGlobal('ResizeObserver', class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn() })
   vi.stubGlobal('fetch', vi.fn((input: string) => {
     if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], }))
-    return Promise.resolve(response({ ...policy, ScopeID: String(input).includes('/default') ? 0 : 123, Source: 'independent', StoreMessages: String(input).includes('/default') }))
+    return Promise.resolve(response({ ...policy, ScopeID: String(input).includes('/default') ? 0 : 123, Source: 'independent', AllowHistoryRead: String(input).includes('/default') }))
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><ScopeEditDialog open onOpenChange={() => {}} botId={1} scopeType="private" scopeId={123} targetLabel="测试好友" savedPolicy={{ source: 'independent' } as never} /></QueryClientProvider>)
   const restore = screen.getByRole('button', { name: '恢复跟随默认' })
   await waitFor(() => expect(restore).toBeEnabled())
   fireEvent.click(restore)
-  expect(screen.getByText('保存消息内容：关闭 → 允许')).toBeVisible()
+  expect(screen.getByText('读取聊天历史：关闭 → 允许')).toBeVisible()
   client.clear()
 })

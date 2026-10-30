@@ -18,23 +18,30 @@ const REPLY_MODES: readonly ReplyMode[] = [
 
 const SCOPE_TYPES: readonly ScopeType[] = ['group', 'private']
 
-/** Server-side defaults mirror `scope/domain.Default` for unknown scopes. */
+/**
+ * Server-side defaults mirror `scope/domain.Default`: storage and the reply
+ * tool are on, per-run and hourly limits are unlimited, and one bubble is
+ * capped by the QQ text limit. Zero means unlimited.
+ * 服务端默认值对应 `scope/domain.Default`：存储与连续回复默认开启，
+ * 每轮与每小时不限，单条取 QQ 文本上限；0 表示不限。
+ */
 export const DEFAULT_SCOPE_FORM: ScopeForm = {
   enabled: false,
-  maxMessagesPerRun: 3, maxCharsPerMessage: 500, maxTotalCharsPerRun: 1500, messageIntervalMs: 700,
+  maxMessagesPerRun: 0, maxCharsPerMessage: 4500, maxTotalCharsPerRun: 0, messageIntervalMs: 700,
   replyMode: 'mention_only',
-  storeMessages: false,
+  storeMessages: true,
   allowHistoryRead: false,
   allowMemoryWrite: false,
   minReplyIntervalMs: 10_000,
-  maxRepliesPerHour: 20,
-  retentionDays: 30,
+  maxRepliesPerHour: 0,
   toolPermissions: {},
 }
 
 const DEFAULT_MIN_REPLY_INTERVAL_MS = 10_000
-const DEFAULT_MAX_REPLIES_PER_HOUR = 20
-const DEFAULT_RETENTION_DAYS = 30
+const DEFAULT_MAX_REPLIES_PER_HOUR = 0
+const DEFAULT_MAX_MESSAGES_PER_RUN = 0
+const DEFAULT_MAX_CHARS_PER_MESSAGE = 4500
+const DEFAULT_MAX_TOTAL_CHARS_PER_RUN = 0
 
 export interface ScopeIdentity {
   scopeType: ScopeType
@@ -124,21 +131,23 @@ export function toScopePolicy(raw: unknown): ScopePolicy {
   return {
     scopeType,
     scopeId,
-    maxMessagesPerRun: readNumber(record, 'MaxMessagesPerRun', SCOPE_ENDPOINT, 3),
-    maxCharsPerMessage: readNumber(record, 'MaxCharsPerMessage', SCOPE_ENDPOINT, 500),
-    maxTotalCharsPerRun: readNumber(record, 'MaxTotalCharsPerRun', SCOPE_ENDPOINT, 1500),
+    maxMessagesPerRun: readNumber(record, 'MaxMessagesPerRun', SCOPE_ENDPOINT, DEFAULT_MAX_MESSAGES_PER_RUN),
+    maxCharsPerMessage: readNumber(record, 'MaxCharsPerMessage', SCOPE_ENDPOINT, DEFAULT_MAX_CHARS_PER_MESSAGE),
+    maxTotalCharsPerRun: readNumber(record, 'MaxTotalCharsPerRun', SCOPE_ENDPOINT, DEFAULT_MAX_TOTAL_CHARS_PER_RUN),
     messageIntervalMs: readNumber(record, 'MessageIntervalMS', SCOPE_ENDPOINT, 700),
     source: readString(record, 'Source', SCOPE_ENDPOINT, scopeId === 0 ? 'default' : 'independent'),
     version: readNumber(record, 'Version', SCOPE_ENDPOINT, 0),
     templateVersion: readNumber(record, 'TemplateVersion', SCOPE_ENDPOINT, 0),
     enabled: readBoolean(record, 'Enabled', SCOPE_ENDPOINT),
     replyMode,
-    storeMessages: readBoolean(record, 'StoreMessages', SCOPE_ENDPOINT),
+    // Storage is a product baseline now; a stale false row must not silently
+    // drop the conversation's messages.
+    // 消息存储已是产品基线；陈旧的 false 行不得让会话消息被静默丢弃。
+    storeMessages: true,
     allowMemoryWrite: readBoolean(record, 'AllowMemoryWrite', SCOPE_ENDPOINT),
     allowHistoryRead: readBoolean(record, 'AllowHistoryRead', SCOPE_ENDPOINT),
     minReplyIntervalMs: policyNumber('MinReplyIntervalMS',DEFAULT_MIN_REPLY_INTERVAL_MS),
     maxRepliesPerHour: policyNumber('MaxRepliesPerHour',DEFAULT_MAX_REPLIES_PER_HOUR),
-    retentionDays: policyNumber('RetentionDays',DEFAULT_RETENTION_DAYS),
     toolPermissions: readToolPermissions(record, SCOPE_ENDPOINT),
   }
 }
@@ -150,15 +159,14 @@ export function toScopePolicyList(raw: unknown): ScopePolicy[] {
 
 export function toScopeForm(policy: ScopePolicy): ScopeForm {
   return {
-    maxMessagesPerRun: policy.maxMessagesPerRun ?? 3, maxCharsPerMessage: policy.maxCharsPerMessage ?? 500, maxTotalCharsPerRun: policy.maxTotalCharsPerRun ?? 1500, messageIntervalMs: policy.messageIntervalMs ?? 700,
+    maxMessagesPerRun: policy.maxMessagesPerRun ?? DEFAULT_MAX_MESSAGES_PER_RUN, maxCharsPerMessage: policy.maxCharsPerMessage ?? DEFAULT_MAX_CHARS_PER_MESSAGE, maxTotalCharsPerRun: policy.maxTotalCharsPerRun ?? DEFAULT_MAX_TOTAL_CHARS_PER_RUN, messageIntervalMs: policy.messageIntervalMs ?? 700,
     enabled: policy.enabled,
     replyMode: policy.replyMode,
-    storeMessages: policy.storeMessages,
+    storeMessages: true,
     allowHistoryRead: policy.allowHistoryRead,
     allowMemoryWrite: policy.allowMemoryWrite,
     minReplyIntervalMs: policy.minReplyIntervalMs,
     maxRepliesPerHour: policy.maxRepliesPerHour,
-    retentionDays: policy.retentionDays,
     toolPermissions: { ...policy.toolPermissions },
   }
 }
@@ -169,15 +177,16 @@ export function toScopeForm(policy: ScopePolicy): ScopeForm {
  */
 export function toScopePutBody(form: ScopeForm): Record<string, unknown> {
   return {
-    max_messages_per_run: form.maxMessagesPerRun ?? 3, max_chars_per_message: form.maxCharsPerMessage ?? 500, max_total_chars_per_run: form.maxTotalCharsPerRun ?? 1500, message_interval_ms: form.messageIntervalMs ?? 700,
+    max_messages_per_run: form.maxMessagesPerRun ?? DEFAULT_MAX_MESSAGES_PER_RUN, max_chars_per_message: form.maxCharsPerMessage ?? DEFAULT_MAX_CHARS_PER_MESSAGE, max_total_chars_per_run: form.maxTotalCharsPerRun ?? DEFAULT_MAX_TOTAL_CHARS_PER_RUN, message_interval_ms: form.messageIntervalMs ?? 700,
     enabled: form.enabled,
     reply_mode: form.replyMode,
-    store_messages: form.storeMessages,
+    // Storage is always submitted as on; the switch was removed from the UI.
+    // 存储恒为开启提交；该开关已从界面移除。
+    store_messages: true,
     allow_history_read: form.allowHistoryRead,
     allow_memory_write: form.allowMemoryWrite,
     min_reply_interval_ms: form.minReplyIntervalMs,
     max_replies_per_hour: form.maxRepliesPerHour,
-    retention_days: form.retentionDays,
     tool_permissions: form.toolPermissions,
   }
 }
@@ -200,7 +209,6 @@ export function isScopeEqual(left: ScopeForm, right: ScopeForm): boolean {
     left.allowMemoryWrite === right.allowMemoryWrite &&
     left.minReplyIntervalMs === right.minReplyIntervalMs &&
     left.maxRepliesPerHour === right.maxRepliesPerHour &&
-    left.retentionDays === right.retentionDays &&
     isPermissionMapEqual(left.toolPermissions, right.toolPermissions)
   )
 }
@@ -208,12 +216,9 @@ export function isScopeEqual(left: ScopeForm, right: ScopeForm): boolean {
 /** Risky capabilities that need an explicit confirmation before saving. */
 export function scopeDangerFlags(form: ScopeForm, baseline?: ScopeForm): string[] {
   const flags: string[] = []
-  const turnedOn = (key: 'storeMessages' | 'allowHistoryRead' | 'allowMemoryWrite') =>
+  const turnedOn = (key: 'allowHistoryRead' | 'allowMemoryWrite') =>
     form[key] && (!baseline || !baseline[key])
 
-  if (turnedOn('storeMessages')) {
-    flags.push('保存群聊/私聊消息内容（按留存天数清理）')
-  }
   if (turnedOn('allowHistoryRead')) {
     flags.push('允许机器人读取该会话的聊天历史')
   }

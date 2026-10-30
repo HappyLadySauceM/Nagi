@@ -3,7 +3,7 @@ import type { SystemSettings } from '../../lib/api/contracts'
 /**
  * Field paths mirror the backend's validation keys, so a 400 response can be
  * rendered on exactly the same inputs the client already checked.
- * 字段路径与后端的校验键一致，400 响应因此可以落在客户端已校验的同一批输入上。
+ * 字段路径与后端的校验键一致，400 响应因此能落在客户端已校验的同一批输入上。
  */
 export type SettingsErrors = Record<string, string>
 
@@ -15,11 +15,9 @@ const RANGES = {
   'Agent.MaxSteps': [1, 50, '取值范围 1-50'],
   'Agent.MaxToolCalls': [1, 100, '取值范围 1-100'],
   'Agent.MaxRunDurationSeconds': [1, 600, '取值范围 1-600 秒'],
-  'Agent.Sending.MaxMessagesPerRun': [1, 20, '取值范围 1-20'],
-  'Agent.Sending.MaxCharsPerMessage': [1, 4000, '取值范围 1-4000'],
-  'Agent.Sending.MaxTotalCharsPerRun': [1, 20000, '取值范围 1-20000'],
   'Tools.TimeoutSeconds': [1, 120, '取值范围 1-120 秒'],
   'Tools.MaxResultBytes': [256, 1048576, '取值范围 256-1048576'],
+  'Messages.RetentionDays': [0, 3650, '取值范围 0-3650（0 为不清理）'],
 } as const
 
 function add(errors: SettingsErrors, field: string, message: string) {
@@ -45,10 +43,11 @@ function isHttpURL(value: string): boolean {
 /**
  * Validates the draft before it is sent. The backend validates again; this copy
  * only exists to point at the input immediately instead of after a round trip.
+ * Outbound budgets are no longer edited here, so they are not client-validated.
  * 发送前校验草稿。后端会再次校验；这里的副本只是让错误立刻落在输入框旁，
- * 而不是等一次往返。
+ * 而不是等一次往返。出站预算已不在此编辑，因此客户端不再校验。
  */
-export function validateSettings(draft: SystemSettings, permissions: string[]): SettingsErrors {
+export function validateSettings(draft: SystemSettings): SettingsErrors {
   const errors: SettingsErrors = {}
 
   if (draft.ai.enabled) {
@@ -91,21 +90,10 @@ export function validateSettings(draft: SystemSettings, permissions: string[]): 
   checkRange(errors, 'Agent.MaxSteps', draft.agent.maxSteps)
   checkRange(errors, 'Agent.MaxToolCalls', draft.agent.maxToolCalls)
   checkRange(errors, 'Agent.MaxRunDurationSeconds', draft.agent.maxRunDurationSeconds)
-  checkRange(errors, 'Agent.Sending.MaxMessagesPerRun', draft.agent.sending.maxMessagesPerRun)
-  checkRange(errors, 'Agent.Sending.MaxCharsPerMessage', draft.agent.sending.maxCharsPerMessage)
-  checkRange(errors, 'Agent.Sending.MaxTotalCharsPerRun', draft.agent.sending.maxTotalCharsPerRun)
-  if (draft.agent.sending.maxCharsPerMessage > draft.agent.sending.maxTotalCharsPerRun) {
-    add(errors, 'Agent.Sending.MaxCharsPerMessage', '单条字数不得超过整轮字数')
-  }
 
   checkRange(errors, 'Tools.TimeoutSeconds', draft.tools.timeoutSeconds)
   checkRange(errors, 'Tools.MaxResultBytes', draft.tools.maxResultBytes)
-  for (const permission of Object.keys(draft.tools.permissionDefaults)) {
-    if (permissions.length > 0 && !permissions.includes(permission)) {
-      add(errors, 'Tools.PermissionDefaults', `未知的权限 ${permission}`)
-      break
-    }
-  }
+  checkRange(errors, 'Messages.RetentionDays', draft.messages.retentionDays)
 
   return errors
 }

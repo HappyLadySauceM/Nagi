@@ -3,13 +3,13 @@ import type {
   SettingsAI,
   SettingsCredentials,
   SettingsIntent,
-  SettingsSending,
+  SettingsMessages,
   SettingsTools,
   SystemSettings,
 } from '../../../lib/api/contracts'
 import type { SettingsErrors } from '../schema'
 
-/** Props shared by the three settings sections. */
+/** Props shared by the settings sections. */
 export interface SectionProps {
   draft: SystemSettings
   errors: SettingsErrors
@@ -17,10 +17,8 @@ export interface SectionProps {
   updateAI: (patch: Partial<SettingsAI>) => void
   updateIntent: (patch: Partial<SettingsIntent>) => void
   updateAgent: (patch: Partial<SettingsAgent>) => void
-  updateSending: (patch: Partial<SettingsSending>) => void
+  updateMessages: (patch: Partial<SettingsMessages>) => void
   updateTools: (patch: Partial<SettingsTools>) => void
   /** Registered provider ids from the backend. */
   providers: string[]
-  /** Known permissions with the tools they gate, from the tool catalogue. */
-  permissions: Array<{ id: string; tools: string[] }>
 }

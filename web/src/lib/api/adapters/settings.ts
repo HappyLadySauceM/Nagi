@@ -2,6 +2,7 @@ import type {
   SettingsAgent,
   SettingsAI,
   SettingsIntent,
+  SettingsMessages,
   SettingsTools,
   SystemSettings,
   SystemSettingsView,
@@ -54,6 +55,7 @@ export function toSettings(raw: unknown): SystemSettings {
     ai: toAI(record.AI),
     intent: toIntent(record.Intent),
     agent: toAgent(record.Agent),
+    messages: toMessages(record.Messages),
     tools: toTools(record.Tools),
   }
 }
@@ -98,6 +100,13 @@ function toAgent(raw: unknown): SettingsAgent {
       maxCharsPerMessage: readNumber(sending, 'MaxCharsPerMessage', SETTINGS_ENDPOINT),
       maxTotalCharsPerRun: readNumber(sending, 'MaxTotalCharsPerRun', SETTINGS_ENDPOINT),
     },
+  }
+}
+
+function toMessages(raw: unknown): SettingsMessages {
+  const record = asRecord(raw, SETTINGS_ENDPOINT, 'Messages')
+  return {
+    retentionDays: readNumber(record, 'RetentionDays', SETTINGS_ENDPOINT),
   }
 }
 
@@ -156,6 +165,9 @@ export function toSettingsPutBody(settings: SystemSettings, version: number): un
           MaxCharsPerMessage: settings.agent.sending.maxCharsPerMessage,
           MaxTotalCharsPerRun: settings.agent.sending.maxTotalCharsPerRun,
         },
+      },
+      Messages: {
+        RetentionDays: settings.messages.retentionDays,
       },
       Tools: {
         TimeoutSeconds: settings.tools.timeoutSeconds,
