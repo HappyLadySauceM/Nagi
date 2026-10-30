@@ -4,6 +4,7 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -136,4 +137,77 @@ func TestListFiltersByConversation(t *testing.T) {
 	if _, err := repo.Get(ctx, 1<<60); err == nil {
 		t.Fatalf("get missing decision should fail")
 	}
+}
+
+func TestRulesetMultiTargetPublishConflictAndRollback(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRulesetsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const botID = 993077
+	defer func() {
+		pool.Exec(ctx, "DELETE FROM intent_rule_activations WHERE bot_id=$1", botID)
+		pool.Exec(ctx, "DELETE FROM intent_rulesets WHERE bot_id=$1", botID)
+	}()
+	first, err := repo.CreateDraft(ctx, botID, "group", 901, "first", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []domain.RuleTarget{{Kind: "group", ID: 901}, {Kind: "private", ID: 902}}
+	off := false
+	entries := []domain.RuleEntry{{Priority: 0, Enabled: &off, Action: domain.RuleAction{Type: domain.ActionSilent, ReasonCode: "disabled"}}}
+	if err := repo.ReplaceEntries(ctx, first.ID, entries, RuleOptions{BuiltinRules: map[string]bool{"closing": false}, Targets: &targets}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Publish(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	active, found, err := repo.Active(ctx, botID, "private", 902)
+	if err != nil || !found || active.ID != first.ID || active.BuiltinRules["closing"] || active.Entries[0].Enabled == nil || *active.Entries[0].Enabled {
+		t.Fatalf("multi-target metadata: %+v %v %v", active, found, err)
+	}
+	second, err := repo.CreateDraft(ctx, botID, "group", 901, "second", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := []domain.RuleTarget{{Kind: "group", ID: 903}}
+	if err := repo.ReplaceEntries(ctx, second.ID, nil, RuleOptions{Targets: &replacement}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Publish(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := repo.Active(ctx, botID, "private", 902); err != nil || found {
+		t.Fatalf("stale binding: %v %v", found, err)
+	}
+	conflict, err := repo.CreateDraft(ctx, botID, "group", 904, "conflict", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReplaceEntries(ctx, conflict.ID, nil, RuleOptions{Targets: &replacement}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Publish(ctx, conflict.ID); !errors.Is(err, ErrTargetConflict) {
+		t.Fatalf("conflict accepted: %v", err)
+	}
+	if err := repo.Rollback(ctx, botID, "group", 901, first.Version); err != nil {
+		t.Fatal(err)
+	}
+	restored, found, err := repo.Active(ctx, botID, "private", 902)
+	if err != nil || !found || restored.ID != first.ID {
+		t.Fatalf("rollback: %+v %v %v", restored, found, err)
+	}
+	if _, found, err := repo.Active(ctx, botID, "group", 903); err != nil || found {
+		t.Fatalf("rollback stale binding: %v %v", found, err)
+	}
+	clone, err := repo.CreateDraft(ctx, botID, "group", 901, "selected archived", true, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clone.Targets) != 1 || clone.Targets[0].ID != 903 {
+		t.Fatalf("clone used active version instead of selected archived version: %+v", clone.Targets)
+	}
+
 }

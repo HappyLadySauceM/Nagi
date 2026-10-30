@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -106,9 +107,10 @@ func (r *DecisionsRepo) List(ctx context.Context, q contracts.DecisionQuery) ([]
 		WHERE m.bot_id = $1
 		  AND ($2 = '' OR m.conversation_id = $2::uuid)
 		  AND ($3 = 0 OR d.id < $3)
+ AND ($5 = '' OR d.reason_code=$5)
 		ORDER BY d.id DESC
 		LIMIT $4
-	`, q.BotID, q.ConversationID, q.BeforeID, limit)
+	`, q.BotID, q.ConversationID, q.BeforeID, limit, q.ReasonCode)
 	if err != nil {
 		return nil, fmt.Errorf("intent: list decisions: %w", err)
 	}
@@ -191,4 +193,23 @@ func scanDecision(row pgx.Row) (contracts.DecisionRecord, error) {
 		}
 	}
 	return record, nil
+}
+
+func (r *DecisionsRepo) Stats(ctx context.Context, botID int64, since time.Time) (contracts.DecisionStats, error) {
+	var result contracts.DecisionStats
+	err := r.pool.QueryRow(ctx, `
+ WITH decisions AS (
+ SELECT d.decision,d.latency_ms,
+ EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic') AS called,
+ EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic' AND s.detail->>'available'='true') AS success
+ FROM intent_decisions d
+ JOIN message_jobs j ON j.id=d.job_id
+ JOIN messages m ON m.id=j.incoming_message_id
+ WHERE m.bot_id=$1 AND d.created_at >= $2
+ )
+ SELECT count(*),count(*) FILTER(WHERE called),count(*) FILTER(WHERE success),
+ count(*) FILTER(WHERE called AND NOT success),count(*) FILTER(WHERE decision='reply'),
+ count(*) FILTER(WHERE decision='silent'),COALESCE(avg(latency_ms) FILTER(WHERE called),0)
+ FROM decisions`, botID, since).Scan(&result.Total, &result.SemanticCalls, &result.SemanticSuccess, &result.Degraded, &result.Replies, &result.Silent, &result.AverageLatencyMS)
+	return result, err
 }

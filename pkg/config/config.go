@@ -488,9 +488,6 @@ func (c *Config) Validate() error {
 	if c.Agent.Sending.MaxCharsPerMessage > c.Agent.Sending.MaxTotalCharsPerRun {
 		return fmt.Errorf("config: agent.sending.max-chars-per-message 不得大于 max-total-chars-per-run")
 	}
-	if c.Tools.AllowSendCurrent && !c.Tools.AllowSideEffects {
-		return fmt.Errorf("config: tools.allow-send-current 需要同时打开 tools.allow-side-effects")
-	}
 	if c.Tools.AllowSendCurrent && !containsString(c.Tools.Enabled, replyProviderID) {
 		return fmt.Errorf("config: tools.allow-send-current 需要 %s 出现在 tools.enabled 中", replyProviderID)
 	}
@@ -498,8 +495,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("config: tools.timeout 与 tools.max-result-bytes 必须为正数")
 	}
 	if c.Intent.Enabled {
-		if c.Intent.Provider != "jev" {
-			return fmt.Errorf("config: intent.provider 仅支持 jev")
+		if c.Intent.Provider != "jev" && c.Intent.Provider != "openai" {
+			return fmt.Errorf("config: intent.provider must be jev or openai")
 		}
 		if strings.TrimSpace(c.Intent.Endpoint) == "" || strings.TrimSpace(c.Intent.Model) == "" {
 			return fmt.Errorf("config: intent.enabled 时 endpoint 与 model 不能为空")

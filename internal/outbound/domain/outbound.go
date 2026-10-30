@@ -52,6 +52,7 @@ func (s Status) Settleable() bool {
 // Record is one persisted delivery record.
 // Record 是一条已持久化的投递记录。
 type Record struct {
+	NotBefore         time.Time
 	ID                string
 	JobID             int64
 	ConversationID    string
@@ -70,6 +71,9 @@ type Record struct {
 // Limits bounds the outbound messages of one agent run.
 // Limits 限定一次 Agent 运行的出站消息。
 type Limits struct {
+	MaxPerHour       int
+	StopAfterFailure bool
+	MinIntervalMS    int
 	// MaxMessages bounds how many messages one run may send.
 	// MaxMessages 限定单次运行可发送的消息条数。
 	MaxMessages int
@@ -186,3 +190,7 @@ type TransitionError struct {
 func (e *TransitionError) Error() string {
 	return fmt.Sprintf("outbound: record %s cannot move from %s to %s", e.RecordID, e.From, e.To)
 }
+
+// ToolStatus classifies a budget refusal independently of transport errors.
+// ToolStatus 独立于传输错误标记预算拒绝。
+func (e *BudgetError) ToolStatus() string { return "denied" }

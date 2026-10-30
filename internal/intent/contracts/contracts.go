@@ -18,6 +18,7 @@ type ReplyExecutor interface {
 // DecisionQuery filters the recorded decisions of one account.
 // DecisionQuery 过滤某个账号的决策记录。
 type DecisionQuery struct {
+	ReasonCode string
 	// BotID is required; decisions never span accounts.
 	// BotID 必填；决策不跨账号返回。
 	BotID int64
@@ -65,4 +66,25 @@ type DecisionRecord struct {
 type DecisionReader interface {
 	List(ctx context.Context, q DecisionQuery) ([]DecisionRecord, error)
 	Get(ctx context.Context, id int64) (DecisionRecord, error)
+}
+
+type DecisionStats struct {
+	Total            int64
+	SemanticCalls    int64
+	SemanticSuccess  int64
+	Degraded         int64
+	Replies          int64
+	Silent           int64
+	AverageLatencyMS float64
+}
+
+type DecisionStatsReader interface {
+	Stats(ctx context.Context, botID int64, since time.Time) (DecisionStats, error)
+}
+
+// SimulationEvaluator evaluates a supplied rule result without recording or delivering messages.
+// SimulationEvaluator 对给定规则结果求值，不记录决策或投递消息。
+type SimulationEvaluator interface {
+	PrepareSimulation(context.Context, domain.Input) (domain.Input, error)
+	EvaluateSimulation(context.Context, domain.Input, domain.RuleResult, bool) (domain.FinalDecision, []domain.Step)
 }

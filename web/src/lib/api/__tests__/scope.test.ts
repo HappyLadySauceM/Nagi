@@ -26,10 +26,20 @@ const POLICY = {
 }
 
 describe('scope adapter', () => {
+  it('reads a default template and its version', () => {
+    expect(toScopePolicy({ ...POLICY, ScopeID: 0, Source: 'default', Version: 4, TemplateVersion: 4 })).toMatchObject({
+      scopeId: 0, source: 'default', version: 4, templateVersion: 4,
+    })
+  })
+
   it('maps the PascalCase effective policy', () => {
     expect(toScopePolicy(POLICY)).toEqual({
       scopeType: 'group',
       scopeId: 555,
+      maxMessagesPerRun: 3, maxCharsPerMessage: 500, maxTotalCharsPerRun: 1500, messageIntervalMs: 700,
+      source: 'independent',
+      version: 0,
+      templateVersion: 0,
       enabled: true,
       replyMode: 'mention_only',
       storeMessages: true,
@@ -67,6 +77,14 @@ describe('scope adapter', () => {
     expect(policy.retentionDays).toBe(30)
   })
 
+  it('preserves explicit zero cooldown, hourly limit and retention', () => {
+    const policy=toScopePolicy({...POLICY,MinReplyIntervalMS:0,MaxRepliesPerHour:0,RetentionDays:0})
+    expect(policy.minReplyIntervalMs).toBe(0)
+    expect(policy.maxRepliesPerHour).toBe(0)
+    expect(policy.retentionDays).toBe(0)
+    expect(toScopePutBody(toScopeForm(policy))).toMatchObject({min_reply_interval_ms:0,max_replies_per_hour:0,retention_days:0})
+  })
+
   it('rejects an unknown scope type', () => {
     expect(() => toScopePolicy({ ...POLICY, ScopeType: 'channel' })).toThrowError(ApiError)
   })
@@ -100,6 +118,7 @@ describe('scope adapter', () => {
         'allow_memory_write',
         'enabled',
         'max_replies_per_hour',
+        'max_messages_per_run', 'max_chars_per_message', 'max_total_chars_per_run', 'message_interval_ms',
         'min_reply_interval_ms',
         'reply_mode',
         'retention_days',

@@ -50,107 +50,42 @@ function renderCatalog(catalog: ToolsCatalog) {
 }
 
 describe('ScopeFormFields capability switches', () => {
-  it('keeps the switch usable when only some of its tools apply', () => {
-    renderCatalog(
-      catalogOf([
-        tool({ id: 'qq.get_group_info' }),
-        tool({
-          id: 'qq.get_private_info',
-          applicable: false,
-          unavailableReason: 'scope_kind_mismatch',
-        }),
-      ]),
-    )
-
-    expect(screen.getByRole('switch', { name: 'qq.group.read' })).toBeEnabled()
-    expect(screen.getByText(/qq\.get_private_info（仅适用于群聊）/)).toBeInTheDocument()
-    expect(screen.queryByText(/当前会话无法授权/)).toBeNull()
+  it('shows only tools applicable to the edited conversation', () => {
+    renderCatalog(catalogOf([
+      tool({ id: 'qq.get_group_info' }),
+      tool({ id: 'qq.get_private_info', applicable: false, unavailableReason: 'scope_kind_mismatch' }),
+    ]))
+    expect(screen.getByRole('switch', { name: '查询当前群信息' })).toBeEnabled()
+    expect(screen.queryByText(/qq.get_private_info/)).toBeNull()
   })
 
-  it('disables and explains a default-denied capability when every tool is inapplicable', () => {
-    renderCatalog(
-      catalogOf(
-        [
-          tool({
-            id: 'qq.get_group_info',
-            applicable: false,
-            unavailableReason: 'scope_kind_mismatch',
-          }),
-          tool({
-            id: 'qq.get_group_members',
-            applicable: false,
-            unavailableReason: 'scope_kind_mismatch',
-          }),
-        ],
-        false,
-      ),
-    )
+  it('hides an inapplicable permission even when previously granted', () => {
+    renderCatalog(catalogOf([tool({ id: 'qq.get_group_info', applicable: false })], true))
+    expect(screen.queryByRole('switch', { name: '查询当前群信息' })).toBeNull()
+  })
 
-    const control = screen.getByRole('switch', { name: 'qq.group.read' })
-    expect(control).not.toBeChecked()
+  it.each([true, false])('keeps side effects blocked for grant %s', (granted) => {
+    renderCatalog(catalogOf([tool({ id: 'qq.send_message', sideEffect: true })], granted))
+    const control = screen.getByRole('switch', { name: 'qq.send_message' })
     expect(control).toBeDisabled()
-    // Both tools share one reason, so it must be listed once.
-    expect(screen.getByText('该能力仅适用于群聊，当前会话无法授权。')).toBeInTheDocument()
-    expect(control).toHaveAccessibleDescription(/当前会话无法授权/)
+    expect(control).toHaveAttribute('aria-checked', String(granted))
+    expect(screen.getByText(/包含有副作用的工具/)).toBeInTheDocument()
   })
 
-  it('keeps a granted side-effecting capability disabled', () => {
-    renderCatalog(catalogOf([tool({ id: 'qq.send_message', sideEffect: true })], true))
-
-    const control = screen.getByRole('switch', { name: 'qq.group.read' })
+  it('allows revoking an applicable read tool', () => {
+    renderCatalog(catalogOf([tool({ id: 'qq.get_group_info' })], true))
+    const control = screen.getByRole('switch', { name: '查询当前群信息' })
     expect(control).toBeChecked()
-    expect(control).toBeDisabled()
-    expect(screen.getByText(/包含有副作用的工具/)).toBeInTheDocument()
-  })
-
-  it('explains both reasons when a capability is blocked and inapplicable', () => {
-    renderCatalog(
-      catalogOf(
-        [
-          tool({
-            id: 'qq.send_message',
-            sideEffect: true,
-            applicable: false,
-            unavailableReason: 'scope_kind_mismatch',
-          }),
-        ],
-        false,
-      ),
-    )
-
-    const control = screen.getByRole('switch', { name: 'qq.group.read' })
-    expect(control).toBeDisabled()
-    expect(screen.getByText(/当前会话无法授权/)).toBeInTheDocument()
-    expect(screen.getByText(/包含有副作用的工具/)).toBeInTheDocument()
-    expect(control).toHaveAccessibleDescription(/当前会话无法授权.*包含有副作用的工具/)
-  })
-
-  it('disables a side-effecting capability and explains why even when unchecked', () => {
-    renderCatalog(
-      catalogOf([tool({ id: 'qq.send_message', sideEffect: true })], false),
-    )
-
-    const control = screen.getByRole('switch', { name: 'qq.group.read' })
-    expect(control).not.toBeChecked()
-    expect(control).toBeDisabled()
-    expect(screen.getByText(/包含有副作用的工具/)).toBeInTheDocument()
-  })
-
-  it('keeps a previously granted switch enabled so it can be revoked', () => {
-    renderCatalog(
-      catalogOf([
-        tool({ id: 'qq.get_group_info', applicable: false, unavailableReason: 'scope_kind_mismatch' }),
-      ]),
-    )
-
-    const control = screen.getByRole('switch', { name: 'qq.group.read' })
-    expect(control).toBeChecked()
-    expect(control).toBeEnabled()
-    expect(screen.getByText('该能力仅适用于群聊，当前会话无法授权。')).toBeInTheDocument()
-
     fireEvent.click(control)
-
     expect(control).not.toBeChecked()
-    expect(control).toBeDisabled()
+    expect(control).toBeEnabled()
+  })
+
+  it('allows dedicated replies without enabling group administration side effects', () => {
+    renderCatalog(catalogOf([tool({ id: 'qq.send_current', sideEffect: true, readOnly: false })], false))
+    const control = screen.getByRole('switch', { name: '连续回复当前会话' })
+    expect(control).toBeEnabled()
+    fireEvent.click(control)
+    expect(control).toBeChecked()
   })
 })

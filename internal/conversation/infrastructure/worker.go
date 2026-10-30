@@ -95,9 +95,18 @@ func (w *Worker) Run(ctx context.Context) error {
 		wg.Wait()
 	}()
 
+	nextReconcile := time.Time{}
 	for {
 		if ctx.Err() != nil {
 			return nil
+		}
+		if time.Now().After(nextReconcile) {
+			nextReconcile = time.Now().Add(30 * time.Second)
+			if repair, ok := w.repo.(interface{ ReconcileOutgoing(context.Context) error }); ok {
+				if err := repair.ReconcileOutgoing(ctx); err != nil {
+					w.logger.Warn("reconcile outgoing history failed", "error", err)
+				}
+			}
 		}
 		w.dispatchBatch(ctx, &qmu, queues, &wg, sem)
 		select {
@@ -220,6 +229,15 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		})
 		w.finish(jobCtx, job.ID, "failed", "process_error")
 		return
+	}
+	if reader, ok := w.repo.(interface {
+		DeliveryError(context.Context, int64) error
+	}); ok {
+		if err := reader.DeliveryError(jobCtx, job.ID); err != nil {
+			span.RecordError(err)
+			w.finish(jobCtx, job.ID, "failed", "delivery_incomplete")
+			return
+		}
 	}
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"status": "done",

@@ -55,6 +55,7 @@ func (p profileProvider) Tools(context.Context) ([]contracts.RegisteredTool, err
 		{
 			Descriptor: contracts.ToolDescriptor{
 				ID:          "qq.set_group_card",
+				Parameters:  map[string]contracts.Parameter{"user_id": {Type: "integer", Required: true}, "card": {Type: "string", Required: true}},
 				Description: "修改当前群某位成员的群名片；参数 user_id 与 card（传空串表示清除名片）",
 				Category:    contracts.CategoryGroup,
 				ScopeKinds:  []string{contracts.ScopeKindGroup},
@@ -68,6 +69,7 @@ func (p profileProvider) Tools(context.Context) ([]contracts.RegisteredTool, err
 		{
 			Descriptor: contracts.ToolDescriptor{
 				ID:          "qq.kick_group_member",
+				Parameters:  map[string]contracts.Parameter{"user_id": {Type: "integer", Required: true}},
 				Description: "把当前群某位成员移出群聊；参数 user_id。这是不可撤销操作，仅在明确要求时使用",
 				Category:    contracts.CategoryGroup,
 				ScopeKinds:  []string{contracts.ScopeKindGroup},

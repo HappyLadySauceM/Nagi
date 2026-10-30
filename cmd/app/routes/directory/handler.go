@@ -13,6 +13,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
 	"github.com/HappyLadySauceM/Nagi/internal/directory/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // Handler serves the directory sync and listing endpoints.
@@ -108,6 +109,27 @@ func (h *Handler) Contacts(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "list contacts failed")
 		return
 	}
+	if h.svcCtx.Scope != nil {
+		ids := make([]int64, 0, len(page.Items))
+		for _, row := range page.Items {
+			ids = append(ids, row.UserID)
+		}
+		policies, err := h.svcCtx.Scope.ResolveMany(r.Context(), botID, scopedomain.ScopePrivate, ids)
+		if err != nil {
+			common.WriteFailure(w, 500, "read contact policies failed")
+			return
+		}
+		type item struct {
+			domain.Contact
+			Policy scopedomain.Policy
+		}
+		items := make([]item, 0, len(page.Items))
+		for _, row := range page.Items {
+			items = append(items, item{row, policies[row.UserID]})
+		}
+		common.WriteSuccess(w, map[string]any{"Items": items, "Total": page.Total, "Page": page.Page, "Limit": page.Limit})
+		return
+	}
 	common.WriteSuccess(w, page)
 }
 
@@ -124,6 +146,27 @@ func (h *Handler) Groups(w http.ResponseWriter, r *http.Request) {
 	page, err := h.svcCtx.Directory.Groups(r.Context(), botID, pageQuery(r))
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "list groups failed")
+		return
+	}
+	if h.svcCtx.Scope != nil {
+		ids := make([]int64, 0, len(page.Items))
+		for _, row := range page.Items {
+			ids = append(ids, row.GroupID)
+		}
+		policies, err := h.svcCtx.Scope.ResolveMany(r.Context(), botID, scopedomain.ScopeGroup, ids)
+		if err != nil {
+			common.WriteFailure(w, 500, "read group policies failed")
+			return
+		}
+		type item struct {
+			domain.Group
+			Policy scopedomain.Policy
+		}
+		items := make([]item, 0, len(page.Items))
+		for _, row := range page.Items {
+			items = append(items, item{row, policies[row.GroupID]})
+		}
+		common.WriteSuccess(w, map[string]any{"Items": items, "Total": page.Total, "Page": page.Page, "Limit": page.Limit})
 		return
 	}
 	common.WriteSuccess(w, page)

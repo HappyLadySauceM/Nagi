@@ -118,13 +118,15 @@ function Section({
   title,
   description,
   children,
+  hidden = false,
 }: {
+  hidden?: boolean
   title: string
   description: string
   children: ReactNode
 }) {
   return (
-    <Card>
+    <Card hidden={hidden} className={hidden ? 'hidden' : undefined}>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription className="mt-1">{description}</CardDescription>
@@ -142,6 +144,7 @@ interface ScopeFormProps {
    * hides the section.
    * 启动时注册成功的工具，已按当前编辑的会话类型过滤；未加载时隐藏该区块。
    */
+  section?: string
   catalog?: ToolsCatalog
 }
 
@@ -171,7 +174,7 @@ function unavailableLabel(tool: ToolCatalogEntry): string {
   return '不适用于当前会话'
 }
 
-export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormProps) {
+export function ScopeFormFields({ form, disabled = false, catalog, section }: ScopeFormProps) {
   const { register, formState, watch, setValue } = form
   const errors = formState.errors
   const enabled = watch('enabled')
@@ -194,7 +197,7 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
   return (
     <div className="space-y-3">
       <Section
-        title="参与控制"
+        hidden={Boolean(section && section !== 'participation')} title="参与控制"
         description="关闭时该好友/群完全不参与对话；开启后按回复模式决定何时发言。"
       >
         <SwitchRow
@@ -229,7 +232,7 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
       </Section>
 
       <Section
-        title="数据权限"
+        hidden={Boolean(section && section !== 'data')} title="数据权限"
         description="这些开关决定机器人能读取和留下什么。开启前请确认群成员知情。"
       >
         <SwitchRow
@@ -263,12 +266,12 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
 
       {catalog && catalog.permissions.length > 0 ? (
         <Section
-          title="能力授权"
+          hidden={Boolean(section && section !== 'capabilities')} title="能力授权"
           description="工具在启动时由后端注册；这里只控制该会话能否使用对应能力，默认值来自服务端。"
         >
-          {catalog.permissions.map((permission) => {
-            const tools = catalog.tools.filter((tool) => permission.tools.includes(tool.id))
-            const blocked = !catalog.allowSideEffects && tools.some((tool) => tool.sideEffect)
+          {catalog.permissions.filter((permission) => catalog.tools.some((tool) => tool.applicable && permission.tools.includes(tool.id))).map((permission) => {
+            const tools = catalog.tools.filter((tool) => tool.applicable && permission.tools.includes(tool.id))
+            const blocked = !catalog.allowSideEffects && tools.some((tool) => tool.sideEffect && tool.id !== 'qq.send_current')
             const unavailable = tools.filter((tool) => !tool.applicable)
             const allUnavailable = tools.length > 0 && unavailable.length === tools.length
             const unavailableReasons = [...new Set(unavailable.map(unavailableLabel))]
@@ -284,7 +287,9 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
             // operator needs both to understand the disabled switch.
             // 汇总所有适用的原因：会话类型与副作用可能同时禁用同一能力，
             // 两个原因都要展示，用户才能理解开关为何不可用。
-            const warnings: string[] = []
+            const warnings: string[] = [...new Set(tools.flatMap(tool => tool.blockedReasons ?? []))]
+            if (tools.some(tool => tool.id === 'qq.send_current') && !watch('storeMessages')) warnings.push('连续发送需要保存消息以维护投递历史。')
+            if (!enabled) warnings.push('当前策略尚未启用，会话不会参与对话。')
             if (allUnavailable) {
               warnings.push(`该能力${unavailableReasons.join('、')}，当前会话无法授权。`)
             }
@@ -298,9 +303,9 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
               <SwitchRow
                 key={permission.id}
                 id={`tool-${permission.id}`}
-                label={permission.id}
+                label={tools.map((tool) => ({ "system.current_time": "查询当前时间", "qq.send_current": "连续回复当前会话", "qq.get_group_info": "查询当前群信息", "qq.get_group_member_info": "查询群成员", "qq.mute_group_member": "禁言群成员", "qq.set_group_whole_ban": "全员禁言", "qq.set_group_card": "修改群名片", "qq.kick_group_member": "移出群成员", "qq.leave_current_group": "退出当前群" }[tool.id] ?? tool.id)).join("、")}
                 description={
-                  `${descriptions || '无工具声明'} · ${
+                  `授权：${granted ? '开启' : '关闭'} · 实际状态：${!granted ? '未授权' : warnings.length ? '被阻断' : '可用'} · ${tools.map((tool) => tool.id).join('、')} · ${descriptions || '无工具声明'} · ${
                     permission.defaultGranted ? '默认允许' : '默认拒绝'
                   }`
                 }
@@ -324,10 +329,16 @@ export function ScopeFormFields({ form, disabled = false, catalog }: ScopeFormPr
       ) : null}
 
       <Section
-        title="限流与留存"
+        hidden={Boolean(section && section !== 'sending')} title="发送设置与留存"
         description="数值由后端校验，0 表示不限制；留存天数 0 表示不设置过期时间。"
       >
         <div className="grid gap-3 sm:grid-cols-3">
+          {([
+            ['maxMessagesPerRun', '每轮最多消息', '条'],
+            ['maxCharsPerMessage', '单条字数上限', '字'],
+            ['maxTotalCharsPerRun', '整轮字数上限', '字'],
+            ['messageIntervalMs', '气泡间隔', 'ms'],
+          ] as const).map(([name, label, unit]) => <NumberField key={name} id={name} label={label} unit={unit} hint={name === 'messageIntervalMs' ? '连续消息之间的最小间隔。' : '对工具发送和最终回复共同生效。'} error={errors[name]?.message} registration={register(name)} disabled={disabled} />)}
           <NumberField
             id="minReplyIntervalMs"
             label="最小回复间隔"

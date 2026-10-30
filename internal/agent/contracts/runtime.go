@@ -50,10 +50,11 @@ type Request struct {
 // ToolRun summarizes one tool execution for tracing and logs.
 // ToolRun 汇总一次工具执行，供追踪与日志使用。
 type ToolRun struct {
-	ToolID   string
-	Status   string
-	Duration time.Duration
-	Bytes    int
+	ErrorCode string
+	ToolID    string
+	Status    string
+	Duration  time.Duration
+	Bytes     int
 }
 
 // Result is the generated reply plus the metadata worth persisting or tracing.

@@ -49,8 +49,10 @@ const (
 type ToolDescriptor struct {
 	// ID is the namespaced identifier, e.g. qq.get_group_info.
 	// ID 是带命名空间的标识，例如 qq.get_group_info。
-	ID          string
-	Description string
+	ID           string
+	Description  string
+	Parameters   map[string]Parameter
+	ReplyCurrent bool
 	// Category groups tools for a later catalog API and the frontend.
 	// Category 为后续目录 API 与前端分组归类工具。
 	Category string
@@ -121,10 +123,11 @@ type RegisteredTool struct {
 // ToolRun summarizes one tool execution for tracing and logs.
 // ToolRun 汇总一次工具执行，供追踪与日志使用。
 type ToolRun struct {
-	ToolID   string
-	Status   string
-	Duration time.Duration
-	Bytes    int
+	ErrorCode string
+	ToolID    string
+	Status    string
+	Duration  time.Duration
+	Bytes     int
 }
 
 // RunRecorder receives the terminal state of every tool execution in one run.
@@ -139,4 +142,12 @@ type ToolProvider interface {
 	// Close releases provider resources; implementations must be idempotent.
 	// Close 释放提供方资源；实现必须幂等。
 	Close(ctx context.Context) error
+}
+
+// Parameter is a framework-independent tool input definition.
+// Parameter 是与框架无关的工具参数定义。
+type Parameter struct {
+	Type        string
+	Description string
+	Required    bool
 }

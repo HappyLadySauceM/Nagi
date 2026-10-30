@@ -16,6 +16,10 @@ function numericField(label: string, max: number) {
 }
 
 export const scopeFormSchema = z.object({
+  maxMessagesPerRun: numericField('每轮消息条数', 100).refine((v) => Number(v) > 0, '必须大于 0'),
+  maxCharsPerMessage: numericField('单条字数', 100000).refine((v) => Number(v) > 0, '必须大于 0'),
+  maxTotalCharsPerRun: numericField('整轮字数', 1000000).refine((v) => Number(v) > 0, '必须大于 0'),
+  messageIntervalMs: numericField('气泡间隔', 60000),
   enabled: z.boolean(),
   replyMode: z.enum(['mention_only', 'intent_based', 'always_reply', 'observe_only']),
   storeMessages: z.boolean(),
@@ -27,12 +31,13 @@ export const scopeFormSchema = z.object({
   // Only explicit overrides are stored; an absent key means "backend default".
   // 只存显式覆盖；缺少键表示「后端默认」。
   toolPermissions: z.record(z.string(), z.boolean()),
-})
+}).refine(values => Number(values.maxCharsPerMessage) <= Number(values.maxTotalCharsPerRun), { message: '整轮字数不得小于单条字数', path: ['maxTotalCharsPerRun'] })
 
 export type ScopeFormValues = z.infer<typeof scopeFormSchema>
 
 export function toScopeFormValues(form: ScopeForm): ScopeFormValues {
   return {
+    maxMessagesPerRun: String(form.maxMessagesPerRun ?? 3), maxCharsPerMessage: String(form.maxCharsPerMessage ?? 500), maxTotalCharsPerRun: String(form.maxTotalCharsPerRun ?? 1500), messageIntervalMs: String(form.messageIntervalMs ?? 700),
     enabled: form.enabled,
     replyMode: form.replyMode,
     storeMessages: form.storeMessages,
@@ -47,6 +52,7 @@ export function toScopeFormValues(form: ScopeForm): ScopeFormValues {
 
 export function fromScopeFormValues(values: ScopeFormValues): ScopeForm {
   return {
+    maxMessagesPerRun: Number(values.maxMessagesPerRun), maxCharsPerMessage: Number(values.maxCharsPerMessage), maxTotalCharsPerRun: Number(values.maxTotalCharsPerRun), messageIntervalMs: Number(values.messageIntervalMs),
     enabled: values.enabled,
     replyMode: values.replyMode,
     storeMessages: values.storeMessages,

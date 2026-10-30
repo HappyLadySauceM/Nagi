@@ -34,7 +34,8 @@ const (
 // Scope 是单次 Agent 运行的消息级安全上下文；由回复流水线注入，
 // 绝不进入提示词。
 type Scope struct {
-	BotID int64
+	Reauthorize func(context.Context, contracts.ToolDescriptor) error
+	BotID       int64
 	// JobID identifies the message job that produced this run; sending tools
 	// write their delivery records against it.
 	// JobID 标识产生本次运行的消息任务；发送类工具据此写投递记录。
@@ -51,7 +52,8 @@ type Scope struct {
 	// AllowSideEffects keeps tools with side effects hidden unless the process
 	// explicitly enables them.
 	// AllowSideEffects 在进程显式开启前持续隐藏带副作用的工具。
-	AllowSideEffects bool
+	AllowSideEffects  bool
+	AllowReplyCurrent bool
 	// Record receives the terminal state of every tool execution; nil disables
 	// reporting.
 	// Record 接收每次工具执行的终态；nil 表示不上报。
@@ -95,13 +97,18 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		})
 		started := time.Now()
 
-		if !descriptor.ReadOnly && !scope.AllowSideEffects {
+		if !descriptor.ReadOnly && !(descriptor.ReplyCurrent && scope.AllowReplyCurrent) && !scope.AllowSideEffects {
 			return finish(span, scope, descriptor, started, StatusDenied, 0,
-				"error: tool is not available for this conversation")
+				"error: tool is not available for this conversation", "authorization_revoked")
 		}
 		if descriptor.Permission != "" && !scope.Permissions[descriptor.Permission] {
 			return finish(span, scope, descriptor, started, StatusDenied, 0,
-				"error: permission denied for "+descriptor.ID)
+				"error: permission denied for "+descriptor.ID, "authorization_revoked")
+		}
+		if scope.Reauthorize != nil {
+			if err := scope.Reauthorize(ctx, descriptor); err != nil {
+				return finish(span, scope, descriptor, started, StatusDenied, 0, "error: current tool authorization denied", "authorization_revoked")
+			}
 		}
 		timeout := scope.Timeout
 		if timeout <= 0 {
@@ -117,6 +124,10 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		span.SetAttributes(attribute.Int64("nagi.tool_duration_ms", time.Since(started).Milliseconds()))
 		if err != nil {
 			status := StatusError
+			var classified interface{ ToolStatus() string }
+			if errors.As(err, &classified) && classified.ToolStatus() == StatusDenied {
+				status = StatusDenied
+			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				status = StatusTimeout
 			}
@@ -153,7 +164,7 @@ func toolArguments(raw string) any {
 // text shown to the model.
 // finish 记录终态、上报运行摘要，并返回给模型看的文本。
 func finish(span trace.Span, scope Scope, descriptor contracts.ToolDescriptor, started time.Time,
-	status string, bytes int, text string,
+	status string, bytes int, text string, codes ...string,
 ) (string, error) {
 	span.SetAttributes(
 		attribute.String("nagi.tool_status", status),
@@ -165,12 +176,29 @@ func finish(span trace.Span, scope Scope, descriptor contracts.ToolDescriptor, s
 		"result": text,
 	})
 	if scope.Record != nil {
+		code := ""
+		if len(codes) > 0 {
+			code = codes[0]
+		}
 		scope.Record(contracts.ToolRun{
-			ToolID:   descriptor.ID,
-			Status:   status,
-			Duration: time.Since(started),
-			Bytes:    bytes,
+			ErrorCode: code,
+			ToolID:    descriptor.ID,
+			Status:    status,
+			Duration:  time.Since(started),
+			Bytes:     bytes,
 		})
 	}
 	return text, nil
 }
+
+type toolCallIDKey struct{}
+
+// WithToolCallID binds the framework call identity without exposing framework types.
+// WithToolCallID 绑定框架调用标识，不暴露框架类型。
+func WithToolCallID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, toolCallIDKey{}, id)
+}
+
+// ToolCallID reads the current tool invocation identity.
+// ToolCallID 读取当前工具调用标识。
+func ToolCallID(ctx context.Context) string { id, _ := ctx.Value(toolCallIDKey{}).(string); return id }

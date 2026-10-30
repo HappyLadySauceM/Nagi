@@ -34,6 +34,7 @@ func replierLogger() *slog.Logger {
 // fakeRuntime returns canned text and records the request.
 // fakeRuntime 返回预置文本并记录请求。
 type fakeRuntime struct {
+	onRun        func(agentcontracts.Request)
 	req          agentcontracts.Request
 	text         string
 	err          error
@@ -45,6 +46,9 @@ type fakeRuntime struct {
 func (f *fakeRuntime) Run(_ context.Context, req agentcontracts.Request) (agentcontracts.Result, error) {
 	f.calls++
 	f.req = req
+	if f.onRun != nil {
+		f.onRun(req)
+	}
 	if f.err != nil {
 		return agentcontracts.Result{}, f.err
 	}
@@ -110,6 +114,7 @@ func (f *fakeRecorder) RecordOutgoing(_ context.Context, conversationID string, 
 // fakeLedger stands in for the outbound coordinator and records each step.
 // fakeLedger 替代出站协调器并记录每一步。
 type fakeLedger struct {
+	denied       []string
 	reserved     []outboundapp.Request
 	sending      []string
 	settled      []outboundapp.Outcome
@@ -185,6 +190,9 @@ func newReplierWithLedger(t *testing.T, fake *fakeRuntime, sender *fakeSender, r
 	policies map[string]scopedomain.Policy, ledger *fakeLedger,
 ) *Replier {
 	t.Helper()
+	if sender.err == nil && sender.msgID == 0 {
+		sender.msgID = 1
+	}
 	r, err := NewReplier(Options{
 		Runtime: fake, Scopes: &replierScopes{policies: policies},
 		Senders: sender, Recorder: rec, Outbound: ledger,
@@ -207,7 +215,7 @@ func groupTaskForAgent() intentdomain.Task {
 func enabledGroupPolicy() map[string]scopedomain.Policy {
 	return map[string]scopedomain.Policy{
 		scopeKey(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700,
-			Enabled: true, ReplyMode: scopedomain.ModeIntentBased,
+			StoreMessages: true, Enabled: true, ReplyMode: scopedomain.ModeIntentBased,
 			ToolPermissions: map[string]bool{"qq.group.read": false}},
 	}
 }
@@ -284,7 +292,7 @@ func TestReplierDropsWhenScopeDisabled(t *testing.T) {
 // TestReplierRecordsFailedSend 验证发送失败会被记录而非盲目重试。
 func TestReplierRecordsFailedSend(t *testing.T) {
 	fake := &fakeRuntime{text: "回复内容"}
-	sender := &fakeSender{err: fmt.Errorf("onebot: action failed retcode=1200")}
+	sender := &fakeSender{err: definiteSendError{}}
 	rec := &fakeRecorder{}
 	ledger := &fakeLedger{}
 	r := newReplierWithLedger(t, fake, sender, rec, enabledGroupPolicy(), ledger)
@@ -420,7 +428,7 @@ func TestReplierAttributesSentStatusOnSpan(t *testing.T) {
 		want    string
 	}{
 		{name: "sent", want: "sent"},
-		{name: "failed", sendErr: fmt.Errorf("onebot: action failed retcode=1200"), want: "failed"},
+		{name: "failed", sendErr: definiteSendError{}, want: "failed"},
 		{name: "unknown", sendErr: fmt.Errorf("onebot: wait: %w", obcontracts.ErrActionTimeout), want: "unknown"},
 	}
 	for _, tc := range cases {
@@ -734,7 +742,7 @@ func TestReplierUsesPerScopeLimits(t *testing.T) {
 	ledger := &fakeLedger{}
 	r, err := NewReplier(Options{
 		Runtime: fake, Scopes: &replierScopes{policies: map[string]scopedomain.Policy{
-			"100:group:700": {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
+			"100:group:700": {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, StoreMessages: true, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
 		}},
 		Senders: sender, Recorder: rec, Outbound: ledger,
 		Sending: outbounddomain.Limits{MaxMessages: 3, MaxCharsPerMessage: 500, MaxTotalChars: 1500},
@@ -755,5 +763,60 @@ func TestReplierUsesPerScopeLimits(t *testing.T) {
 	got := ledger.reserved[0].Limits
 	if got.MaxMessages != 1 || got.MaxCharsPerMessage != 80 || got.MaxTotalChars != 100 {
 		t.Fatalf("limits = %+v, want policy limits", got)
+	}
+}
+
+func TestSendToolAttemptSuppressesFinalFallback(t *testing.T) {
+	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_current", Status: "error"}}}
+	sender := &fakeSender{}
+	r := newReplier(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy())
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.texts) != 0 {
+		t.Fatal("tool attempt triggered final fallback")
+	}
+}
+
+type definiteSendError struct{}
+
+func (definiteSendError) Error() string         { return "platform action rejected" }
+func (definiteSendError) DefiniteFailure() bool { return true }
+
+func (f *fakeLedger) RecordDenied(_ context.Context, _ int64, reason string) error {
+	f.denied = append(f.denied, reason)
+	return nil
+}
+
+func TestLaterSendRefusalIsNotLostAfterEarlierSend(t *testing.T) {
+	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_current", Status: "ok"}, {ToolID: "qq.send_current", Status: "denied", ErrorCode: "tool_call_budget"}}}
+	sender := &fakeSender{}
+	ledger := &fakeLedger{}
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(ledger.denied) != 1 || ledger.denied[0] != "tool_call_budget" || len(sender.texts) != 0 {
+		t.Fatalf("later refusal lost: %+v", ledger.denied)
+	}
+}
+
+func TestGuardRefusalIsRecordedBeforeGenerationCompletes(t *testing.T) {
+	ledger := &fakeLedger{}
+	runtime := &fakeRuntime{text: "must not send final"}
+	runtime.onRun = func(req agentcontracts.Request) {
+		req.OnToolRun(agentcontracts.ToolRun{ToolID: "qq.send_current", Status: "ok"})
+		req.OnToolRun(agentcontracts.ToolRun{ToolID: "qq.send_current", Status: "denied", ErrorCode: "authorization_revoked"})
+		if len(ledger.denied) != 1 || ledger.denied[0] != "authorization_revoked" {
+			t.Fatalf("refusal was deferred until run end: %+v", ledger.denied)
+		}
+	}
+	sender := &fakeSender{}
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(ledger.denied) != 1 || len(sender.texts) != 0 {
+		t.Fatalf("duplicate refusal or fallback: denied=%v sends=%v", ledger.denied, sender.texts)
 	}
 }

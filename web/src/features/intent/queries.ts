@@ -10,9 +10,9 @@ import { queryKeys } from '../../lib/query-keys'
  * 决策记录按账号隔离：切换账号不得复用上一个账号的数据，
  * 因此 bot id 是 query key 的一部分。
  */
-export function useDecisions(botId: number | undefined, conversationId: string, limit = 20) {
+export function useDecisions(botId: number | undefined, conversationId: string, limit = 20, beforeId = 0, reasonCode = '') {
   return useQuery({
-    queryKey: queryKeys.decisions(botId, conversationId),
+    queryKey: [...queryKeys.decisions(botId, conversationId), limit, beforeId, reasonCode],
     enabled: typeof botId === 'number' && botId > 0,
     queryFn: ({ signal }) =>
       apiRequest(
@@ -20,6 +20,8 @@ export function useDecisions(botId: number | undefined, conversationId: string, 
           bot_id: botId,
           conversation_id: conversationId || undefined,
           limit,
+ before_id: beforeId || undefined,
+ reason_code:reasonCode || undefined,
         })}`,
         { signal },
       ).then(toDecisionList),

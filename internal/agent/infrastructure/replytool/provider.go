@@ -10,9 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	agentdomain "github.com/HappyLadySauceM/Nagi/internal/agent/domain"
-	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
@@ -62,10 +62,11 @@ type Recorder interface {
 // Options wires the tool dependencies.
 // Options 装配工具依赖。
 type Options struct {
-	Senders  SenderResolver
-	Ledger   Ledger
-	Recorder Recorder
-	Limits   outbounddomain.Limits
+	Senders   SenderResolver
+	Ledger    Ledger
+	Recorder  Recorder
+	Limits    outbounddomain.Limits
+	Authorize func(context.Context, pluginsapp.Scope) (outbounddomain.Limits, error)
 }
 
 // provider exposes qq.send_current.
@@ -95,13 +96,15 @@ func (provider) Close(context.Context) error { return nil }
 func (p provider) Tools(context.Context) ([]contracts.RegisteredTool, error) {
 	return []contracts.RegisteredTool{{
 		Descriptor: contracts.ToolDescriptor{
-			ID:          ToolID,
-			Description: "在当前会话发送一条消息（仅本会话、受单轮预算限制）；返回第几条与发送状态",
-			Category:    contracts.CategoryReply,
-			RiskLevel:   contracts.RiskWrite,
-			ReadOnly:    false,
-			SideEffect:  true,
-			Permission:  Permission,
+			ID:           ToolID,
+			ReplyCurrent: true,
+			Parameters:   map[string]contracts.Parameter{"text": {Type: "string", Description: "当前会话内要发送的一条消息", Required: true}},
+			Description:  "在当前会话发送一条消息（仅本会话、受单轮预算限制）；返回第几条与发送状态",
+			Category:     contracts.CategoryReply,
+			RiskLevel:    contracts.RiskWrite,
+			ReadOnly:     false,
+			SideEffect:   true,
+			Permission:   Permission,
 		},
 		Invoke: p.send,
 	}}, nil
@@ -124,11 +127,7 @@ type receipt struct {
 
 // send reserves, sends and settles one message of the current turn.
 // send 预留、发送并落定当前回合的一条消息。
-func (p provider) send(ctx context.Context, argumentsInJSON string) (string, error) {
-	var args sendArgs
-	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
-		return "error: 参数必须是 JSON 对象且包含 text", nil
-	}
+func (p provider) send(ctx context.Context, argumentsInJSON string) (result string, returnErr error) {
 	scope, ok := pluginsapp.ScopeFrom(ctx)
 	if !ok {
 		return "", fmt.Errorf("reply tool: missing run scope")
@@ -136,52 +135,116 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (string, err
 	if scope.JobID <= 0 || scope.ConversationID == "" || scope.TargetID <= 0 {
 		return "error: 当前运行缺少会话信息，无法发送", nil
 	}
+	denied := false
+	var denialRecordErr error
+	defer func() {
+		if denialRecordErr != nil {
+			returnErr = denialRecordErr
+		}
+	}()
+	deny := func(reason string) {
+		denied = true
+		if recorder, ok := p.opts.Ledger.(interface {
+			RecordDenied(context.Context, int64, string) error
+		}); ok {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			denialRecordErr = recorder.RecordDenied(cleanup, scope.JobID, reason)
+		}
+	}
+	var args sendArgs
+	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
+		deny("invalid_arguments")
+		return "", fmt.Errorf("reply tool: invalid arguments")
+	}
 	text, err := agentdomain.SanitizeReply(args.Text)
 	if err != nil {
-		return "error: 回复未通过输出检查：" + err.Error(), nil
+		deny("output_rejected")
+		return "", err
 	}
 	sender, ok := p.opts.Senders.ReceiptSender(scope.BotID)
 	if !ok {
-		return "error: 当前机器人账号不可用", nil
+		deny("account_offline")
+		return "", fmt.Errorf("reply tool: account offline")
 	}
 
+	limits := p.opts.Limits
+	if p.opts.Authorize != nil {
+		limits, err = p.opts.Authorize(ctx, scope)
+		if err != nil {
+			deny("authorization_revoked")
+			return "", err
+		}
+	}
 	record, err := p.opts.Ledger.Reserve(ctx, outboundapp.Request{
 		JobID:          scope.JobID,
 		BotID:          scope.BotID,
 		ConversationID: scope.ConversationID,
 		Text:           text,
-		Limits:         p.opts.Limits,
+		Limits:         limits,
+		RunID:          fmt.Sprintf("job-%d", scope.JobID),
+		ToolCallID:     pluginsapp.ToolCallID(ctx),
 	})
 	if err != nil {
 		var budget *outbounddomain.BudgetError
 		if errors.As(err, &budget) {
 			// A exhausted budget ends this turn's sending without failing the job.
 			// 预算用尽只结束本回合的发送，不让任务失败。
-			return fmt.Sprintf("error: 本轮发送预算已用尽（%s）", budget.Dimension), nil
+			deny("budget_" + string(budget.Dimension))
+			return fmt.Sprintf("error: 本轮发送预算已用尽（%s）", budget.Dimension), err
 		}
 		return "", fmt.Errorf("reply tool: reserve: %w", err)
 	}
-	if err := p.opts.Ledger.MarkSending(ctx, record.ID); err != nil {
-		return "", fmt.Errorf("reply tool: mark sending: %w", err)
+	platformStarted := record.Status != outbounddomain.StatusPrepared
+	defer func() {
+		if !platformStarted && !denied {
+			deny("cancelled_before_send")
+		}
+		if ledger, ok := p.opts.Ledger.(interface {
+			Cancel(context.Context, string) error
+		}); ok {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			_ = ledger.Cancel(cleanup, record.ID)
+		}
+	}()
+	if record.Status.Delivered() {
+		return jsonString(receipt{Sequence: record.Sequence, Status: string(record.Status), PlatformMessageID: record.PlatformMessageID}), nil
 	}
-
-	status := outbounddomain.StatusSent
-	errorCode := ""
-	messageID, sendErr := p.deliver(ctx, sender, scope, text)
-	if sendErr != nil {
-		errorCode = "send_failed"
-		status = outbounddomain.StatusFailed
-		if errors.Is(sendErr, obcontracts.ErrActionTimeout) {
-			status = outbounddomain.StatusUnknown
-			errorCode = "timeout"
+	if !record.NotBefore.IsZero() {
+		timer := time.NewTimer(time.Until(record.NotBefore))
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return "", ctx.Err()
 		}
 	}
-	if err := p.opts.Ledger.Settle(ctx, record.ID, outboundapp.Outcome{
-		Status: status, PlatformMessageID: messageID, ErrorCode: errorCode,
-	}); err != nil {
-		return "", fmt.Errorf("reply tool: settle: %w", err)
+	if p.opts.Authorize != nil {
+		if limits, err = p.opts.Authorize(ctx, scope); err != nil {
+			deny("authorization_revoked")
+			return "", err
+		}
 	}
-	if recordErr := p.opts.Recorder.RecordOutgoing(ctx, scope.ConversationID, scope.BotID,
+	if validator, ok := p.opts.Ledger.(interface {
+		ValidateReserved(context.Context, string, outbounddomain.Limits) error
+	}); ok {
+		if err := validator.ValidateReserved(ctx, record.ID, limits); err != nil {
+			deny("budget_changed")
+			return "", err
+		}
+	}
+	outcome, sendErr := outboundapp.Deliver(ctx, p.opts.Ledger, record.ID, func(sendCtx context.Context) (int64, error) {
+		platformStarted = true
+		return p.deliver(sendCtx, sender, scope, text)
+	})
+	status, errorCode, messageID := outcome.Status, outcome.ErrorCode, outcome.PlatformMessageID
+	if !status.Settleable() {
+		return "", sendErr
+	}
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	if recordErr := p.opts.Recorder.RecordOutgoing(cleanup, scope.ConversationID, scope.BotID,
 		text, messageID, string(status), record.ID); recordErr != nil {
 		// The delivery already happened; failing the tool would make the model
 		// retry and duplicate the message.
@@ -189,7 +252,7 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (string, err
 		_ = recordErr
 	}
 	if sendErr != nil {
-		return jsonString(receipt{Sequence: record.Sequence, Status: string(status), Error: errorCode}), nil
+		return jsonString(receipt{Sequence: record.Sequence, Status: string(status), Error: errorCode}), sendErr
 	}
 	return jsonString(receipt{Sequence: record.Sequence, Status: string(status), PlatformMessageID: messageID}), nil
 }

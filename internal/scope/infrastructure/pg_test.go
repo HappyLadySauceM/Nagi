@@ -4,8 +4,10 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
@@ -92,5 +94,81 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	}
 	if deletedAgain, err := repo.Delete(ctx, botID, domain.ScopeGroup, groupID); err != nil || deletedAgain {
 		t.Fatalf("second delete should be a no-op: deleted=%v err=%v", deletedAgain, err)
+	}
+}
+
+func TestTemplateVersionConflictDoesNotCreateIndependentPolicy(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const botID = 990111
+	if _, err := pool.Exec(ctx, "INSERT INTO bot_accounts (bot_id, nickname) VALUES ($1, 'template-test') ON CONFLICT DO NOTHING", botID); err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM scope_policies WHERE bot_id=$1", botID)
+	template := domain.Default(domain.ScopePrivate, 0)
+	if err := repo.Upsert(ctx, botID, template); err != nil {
+		t.Fatal(err)
+	}
+	stored, _, err := repo.Get(ctx, botID, domain.ScopePrivate, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldVersion := stored.Version
+	if err := repo.Upsert(ctx, botID, template); err != nil {
+		t.Fatal(err)
+	}
+	independent := domain.Default(domain.ScopePrivate, 123)
+	independent.Enabled = true
+	independent.ExpectedTemplateVersion = &oldVersion
+	if err := repo.Upsert(ctx, botID, independent); !errors.Is(err, domain.ErrTemplateConflict) {
+		t.Fatalf("stale save: %v", err)
+	}
+	if _, found, err := repo.Get(ctx, botID, domain.ScopePrivate, 123); err != nil || found {
+		t.Fatalf("stale save persisted: %v %v", found, err)
+	}
+	latest, _, err := repo.Get(ctx, botID, domain.ScopePrivate, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	independent.ExpectedTemplateVersion = &latest.Version
+	if err := repo.Upsert(ctx, botID, independent); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExplicitZeroPolicyLimitsRoundTrip(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const botID = 990112
+	if _, err := pool.Exec(ctx, "INSERT INTO bot_accounts(bot_id,nickname) VALUES($1,'zero-limits') ON CONFLICT DO NOTHING", botID); err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM scope_policies WHERE bot_id=$1", botID)
+	policy := domain.Default(domain.ScopePrivate, 155)
+	policy.MinReplyIntervalMS = 0
+	policy.MaxRepliesPerHour = 0
+	policy.RetentionDays = 0
+	if err := service.Upsert(ctx, botID, policy); err != nil {
+		t.Fatal(err)
+	}
+	persisted, found, err := repo.Get(ctx, botID, domain.ScopePrivate, 155)
+	if err != nil || !found || persisted.MinReplyIntervalMS != 0 || persisted.MaxRepliesPerHour != 0 || persisted.RetentionDays != 0 {
+		t.Fatalf("zero values changed in storage: %+v %v", persisted, err)
+	}
+	resolved, err := service.Resolve(ctx, botID, domain.ScopePrivate, 155)
+	if err != nil || resolved.MinReplyIntervalMS != 0 || resolved.MaxRepliesPerHour != 0 || resolved.RetentionDays != 0 {
+		t.Fatalf("zero values changed in resolution: %+v %v", resolved, err)
 	}
 }

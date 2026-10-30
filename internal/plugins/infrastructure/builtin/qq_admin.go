@@ -53,6 +53,7 @@ func (p adminProvider) Tools(context.Context) ([]contracts.RegisteredTool, error
 	return []contracts.RegisteredTool{{
 		Descriptor: contracts.ToolDescriptor{
 			ID:          "qq.mute_group_member",
+			Parameters:  map[string]contracts.Parameter{"user_id": {Type: "integer", Required: true}, "duration_seconds": {Type: "integer", Required: true}},
 			Description: "在当前群禁言一位成员，duration_seconds 取 0（解除禁言）到 3600 秒；参数 user_id 为该成员 QQ 号",
 			Category:    contracts.CategoryGroup,
 			ScopeKinds:  []string{contracts.ScopeKindGroup},
@@ -65,6 +66,7 @@ func (p adminProvider) Tools(context.Context) ([]contracts.RegisteredTool, error
 	}, {
 		Descriptor: contracts.ToolDescriptor{
 			ID:          "qq.set_group_whole_ban",
+			Parameters:  map[string]contracts.Parameter{"enable": {Type: "boolean", Required: true}},
 			Description: "开启或关闭当前群的全员禁言；参数 enable 为 true 开启、false 关闭。可逆操作，但会影响所有成员",
 			Category:    contracts.CategoryGroup,
 			ScopeKinds:  []string{contracts.ScopeKindGroup},

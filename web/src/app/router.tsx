@@ -52,15 +52,6 @@ const decisionsRoute = createRoute({
   ),
 })
 
-const sendingRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/sending',
-  component: lazyRouteComponent(
-    () => import('../features/intent/sending-page'),
-    'SendingPage',
-  ),
-})
-
 const rulesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/rules',
@@ -180,7 +171,6 @@ const routeTree = rootRoute.addChildren([
   accountsRoute,
   decisionsRoute,
   rulesRoute,
-  sendingRoute,
   directoryRoute,
   groupDetailRoute,
   contactsRedirectRoute,

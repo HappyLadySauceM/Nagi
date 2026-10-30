@@ -38,6 +38,7 @@ function toToolEntry(raw: unknown): ToolCatalogEntry {
   // 适用性以响应为准，类型列表只用于展示；未知类型词汇不能覆盖服务端结果。
   const applicable = readBoolean(record, 'Applicable', TOOLS_ENDPOINT, true)
   return {
+    ...(record.BlockedReasons == null ? {} : { blockedReasons: asArray(record.BlockedReasons, TOOLS_ENDPOINT, 'BlockedReasons').map(value => { if(typeof value !== 'string') throw contractError(TOOLS_ENDPOINT, 'Invalid blocked reason'); return value }) }),
     id: readString(record, 'ID', TOOLS_ENDPOINT),
     provider: readString(record, 'Provider', TOOLS_ENDPOINT),
     description: readString(record, 'Description', TOOLS_ENDPOINT, ''),
@@ -103,6 +104,7 @@ function toRiskLevel(raw: unknown): ToolCatalogEntry['riskLevel'] {
 function toPermission(raw: unknown): ToolPermission {
   const record = asRecord(raw, TOOLS_ENDPOINT, 'permission')
   return {
+    ...(record.BlockedReasons == null ? {} : { blockedReasons: asArray(record.BlockedReasons, TOOLS_ENDPOINT, 'BlockedReasons').map(value => { if(typeof value !== 'string') throw contractError(TOOLS_ENDPOINT, 'Invalid blocked reason'); return value }) }),
     id: readString(record, 'ID', TOOLS_ENDPOINT),
     tools: asArray(record.Tools, TOOLS_ENDPOINT, 'Tools').map((tool) => {
       if (typeof tool !== 'string') {

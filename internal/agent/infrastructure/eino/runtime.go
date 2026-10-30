@@ -175,6 +175,7 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 		steps = r.cfg.MaxSteps
 	}
 	toolsConfig := adk.ToolsConfig{}
+	toolsConfig.ExecuteSequentially = true
 	exposed := 0
 	if r.cfg.Tools != nil {
 		if snapshot := r.cfg.Tools(runCtx, req); len(snapshot) > 0 {

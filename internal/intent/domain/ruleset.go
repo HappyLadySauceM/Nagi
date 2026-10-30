@@ -44,6 +44,7 @@ type RuleAction struct {
 // RuleEntry is one prioritized rule.
 // RuleEntry 是一条带优先级的规则。
 type RuleEntry struct {
+	Enabled  *bool      `json:"enabled,omitempty"`
 	Priority int        `json:"priority"`
 	Match    RuleMatch  `json:"match"`
 	Action   RuleAction `json:"action"`
@@ -51,15 +52,22 @@ type RuleEntry struct {
 
 // Ruleset is one stored version together with its entries.
 // Ruleset 是一个已存储版本及其条目。
+type RuleTarget struct {
+	Kind string `json:"kind"`
+	ID   int64  `json:"id"`
+}
+
 type Ruleset struct {
-	ID        int64
-	BotID     int64
-	ScopeType string
-	ScopeID   int64
-	Version   int
-	Status    string
-	Note      string
-	Entries   []RuleEntry
+	Targets      []RuleTarget
+	ID           int64
+	BotID        int64
+	ScopeType    string
+	ScopeID      int64
+	Version      int
+	Status       string
+	Note         string
+	Entries      []RuleEntry
+	BuiltinRules map[string]bool
 }
 
 // Validate rejects malformed entries before they reach storage or evaluation.
@@ -93,6 +101,23 @@ func (e RuleEntry) Validate() error {
 // Validate checks priorities, actions and duplicate priorities.
 // Validate 校验优先级、动作与重复优先级。
 func (r Ruleset) Validate() error {
+	seenTargets := make(map[RuleTarget]bool)
+	if len(r.Targets) > 200 {
+		return fmt.Errorf("%w: too many targets", ErrInvalidRule)
+	}
+	for _, target := range r.Targets {
+		if (target.Kind != "private" && target.Kind != "group") || target.ID <= 0 || seenTargets[target] {
+			return fmt.Errorf("%w: invalid or duplicate target", ErrInvalidRule)
+		}
+		seenTargets[target] = true
+	}
+	for key := range r.BuiltinRules {
+		switch key {
+		case "closing", "continuation", "directed_to_bot", "addressed_to_other", "interjection":
+		default:
+			return fmt.Errorf("%w: unknown builtin rule %q", ErrInvalidRule, key)
+		}
+	}
 	seen := make(map[int]bool, len(r.Entries))
 	for _, entry := range r.Entries {
 		if err := entry.Validate(); err != nil {

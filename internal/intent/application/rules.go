@@ -3,6 +3,7 @@
 package application
 
 import (
+	"fmt"
 	"strings"
 
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
@@ -117,20 +118,21 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 		"addressed_to_other":   semantic.AddressedToOther,
 		"appropriate_to_join":  semantic.AppropriateToJoin,
 	}
-	if semantic.IntentCategory == "closing" {
+	enabled := func(key string) bool { value, exists := rule.BuiltinRules[key]; return !exists || value }
+	if enabled("closing") && semantic.IntentCategory == "closing" {
 		return withScores(domain.DecisionSilent, "closing", scores)
 	}
-	if semantic.ContinuesBotThread >= th.Continuation && semantic.AddressedToOther < th.AddressedOtherMax {
+	if enabled("continuation") && semantic.ContinuesBotThread >= th.Continuation && (!enabled("addressed_to_other") || semantic.AddressedToOther < th.AddressedOtherMax) {
 		return withScores(domain.DecisionReply, "active_thread_continuation", scores)
 	}
-	if in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
+	if enabled("interjection") && in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
 		semantic.AppropriateToJoin >= th.Interjection {
 		return withScores(domain.DecisionReply, "interjection", scores)
 	}
-	if semantic.DirectedToBot >= th.Continuation && semantic.AddressedToOther < th.AddressedOtherMax {
+	if enabled("directed_to_bot") && semantic.DirectedToBot >= th.Continuation && (!enabled("addressed_to_other") || semantic.AddressedToOther < th.AddressedOtherMax) {
 		return withScores(domain.DecisionReply, "directed_to_bot", scores)
 	}
-	if semantic.AddressedToOther >= th.AddressedOtherMax {
+	if enabled("addressed_to_other") && semantic.AddressedToOther >= th.AddressedOtherMax {
 		return withScores(domain.DecisionSilent, "addressed_to_other", scores)
 	}
 	return withScores(domain.DecisionSilent, "ambiguous", scores)
@@ -158,18 +160,34 @@ func ApplyRuleset(rule domain.RuleResult, in domain.Input, entries []domain.Rule
 		return rule
 	}
 	for _, entry := range entries {
-		if !matchEntry(entry.Match, in) {
+		evaluation := domain.RuleEvaluation{Priority: entry.Priority, ReasonCode: entry.Action.ReasonCode, Status: "unmatched"}
+		if entry.Enabled != nil && !*entry.Enabled {
+			evaluation.Status = "disabled"
+			rule.Evaluations = append(rule.Evaluations, evaluation)
 			continue
 		}
+		if !matchEntry(entry.Match, in) {
+			rule.Evaluations = append(rule.Evaluations, evaluation)
+			continue
+		}
+		evaluation.Status = "matched"
+		rule.Evaluations = append(rule.Evaluations, evaluation)
+		rule.Matched = true
 		switch entry.Action.Type {
 		case domain.ActionReply:
-			return domain.RuleResult{
-				Explicit: rule.Explicit, ForceReply: true, ForceReason: entry.Action.ReasonCode,
-			}
+			rule.NeedSemantic = false
+			rule.ForceReply = true
+			rule.ForceReason = entry.Action.ReasonCode
+			return rule
 		case domain.ActionSilent:
-			return blocked(entry.Action.ReasonCode)
+			rule.Blocked = true
+			rule.ReasonCode = entry.Action.ReasonCode
+			return rule
 		case domain.ActionRequireSemantic:
 			rule.NeedSemantic = true
+			rule.Explicit = false
+			rule.AlwaysReply = false
+			rule.ForceReply = false
 			return rule
 		}
 	}
@@ -201,4 +219,42 @@ func matchEntry(m domain.RuleMatch, in domain.Input) bool {
 		}
 	}
 	return true
+}
+
+// EvaluateRuleChain evaluates specific rules before global rules and shares builtin settings.
+// EvaluateRuleChain 先执行指定会话规则，再执行全局规则，并合并内置判断设置。
+func EvaluateRuleChain(in domain.Input, specific, global *domain.Ruleset) (domain.RuleResult, string) {
+	rule := EvaluateRules(in)
+	rule.BuiltinRules = make(map[string]bool)
+	version := ""
+	for _, set := range []*domain.Ruleset{global, specific} {
+		if set != nil {
+			for key, value := range set.BuiltinRules {
+				rule.BuiltinRules[key] = value
+			}
+		}
+	}
+	if specific != nil {
+		before := len(rule.Evaluations)
+		rule = ApplyRuleset(rule, in, specific.Entries)
+		for i := before; i < len(rule.Evaluations); i++ {
+			rule.Evaluations[i].RulesetID = specific.ID
+			rule.Evaluations[i].Version = specific.Version
+			rule.Evaluations[i].Scope = "specific"
+		}
+		version = fmt.Sprintf("scope:%d@%d", specific.ID, specific.Version)
+	}
+	if global != nil {
+		version += fmt.Sprintf(";global:%d@%d", global.ID, global.Version)
+		if !rule.Matched {
+			before := len(rule.Evaluations)
+			rule = ApplyRuleset(rule, in, global.Entries)
+			for i := before; i < len(rule.Evaluations); i++ {
+				rule.Evaluations[i].RulesetID = global.ID
+				rule.Evaluations[i].Version = global.Version
+				rule.Evaluations[i].Scope = "global"
+			}
+		}
+	}
+	return rule, version
 }

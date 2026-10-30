@@ -50,6 +50,7 @@ func (p memberProvider) Tools(context.Context) ([]contracts.RegisteredTool, erro
 	return []contracts.RegisteredTool{{
 		Descriptor: contracts.ToolDescriptor{
 			ID:          "qq.get_group_member_info",
+			Parameters:  map[string]contracts.Parameter{"user_id": {Type: "integer", Required: true}},
 			Description: "查询当前群某位成员的名片、昵称、角色与入群时间；参数 user_id 为该成员 QQ 号",
 			Category:    contracts.CategoryGroup,
 			ScopeKinds:  []string{contracts.ScopeKindGroup},

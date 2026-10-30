@@ -13,7 +13,18 @@ import (
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
 
-type fakeReader struct{ rows []outbounddomain.Record }
+type fakeReader struct {
+	rows    []outbounddomain.Record
+	outcome string
+}
+
+func (f fakeReader) RunOutcome(context.Context, int64) (string, string, int, error) {
+	return f.outcome, "", 0, nil
+}
+
+func (f fakeReader) OwnsJob(_ context.Context, botID, jobID int64) (bool, error) {
+	return botID == 42 && jobID == 7, nil
+}
 
 func (f fakeReader) ListByJob(context.Context, int64) ([]outbounddomain.Record, error) {
 	return f.rows, nil
@@ -39,7 +50,7 @@ func TestListOutboundReturnsRecords(t *testing.T) {
 		{ID: "b", JobID: 7, Sequence: 2, Text: "第二条", Status: outbounddomain.StatusUnknown, ErrorCode: "timeout"},
 	})
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/agent/outbound?job_id=7", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/agent/outbound?job_id=7&bot_id=42", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -57,5 +68,21 @@ func TestListOutboundReturnsRecords(t *testing.T) {
 	}
 	if len(env.Data.Items) != 2 || env.Data.Items[0].Sequence != 1 || env.Data.Items[1].Status != "unknown" {
 		t.Fatalf("items = %+v", env.Data.Items)
+	}
+}
+
+func TestFailedJobWithOneSentMessageIsPartial(t *testing.T) {
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Outbound: fakeReader{outcome: "failed", rows: []outbounddomain.Record{{ID: "one", JobID: 7, Sequence: 1, Status: outbounddomain.StatusSent}}}}).Register(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/agent/outbound?job_id=7&bot_id=42", nil))
+	var body struct {
+		Data struct{ Summary struct{ Outcome string } }
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Summary.Outcome != "partial" {
+		t.Fatalf("failed job reported complete: %s", response.Body.String())
 	}
 }

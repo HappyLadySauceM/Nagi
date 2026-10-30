@@ -1,0 +1,2 @@
+UPDATE scope_policies SET tool_permissions = CASE WHEN previous_reply_permission IS NULL THEN tool_permissions - 'qq.reply.current' ELSE jsonb_set(tool_permissions, '{qq.reply.current}', previous_reply_permission) END;
+ALTER TABLE scope_policies DROP COLUMN previous_reply_permission, DROP COLUMN message_interval_ms, DROP COLUMN max_total_chars_per_run, DROP COLUMN max_chars_per_message, DROP COLUMN max_messages_per_run;

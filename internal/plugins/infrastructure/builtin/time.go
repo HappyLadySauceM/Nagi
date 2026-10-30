@@ -30,6 +30,7 @@ func (timeProvider) Tools(context.Context) ([]contracts.RegisteredTool, error) {
 	return []contracts.RegisteredTool{{
 		Descriptor: contracts.ToolDescriptor{
 			ID:          "system.current_time",
+			Permission:  "system.time.read",
 			Description: "返回服务器当前时间（RFC3339，含时区），不需要任何参数",
 			Category:    contracts.CategorySystem,
 			RiskLevel:   contracts.RiskRead,

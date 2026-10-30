@@ -5,6 +5,8 @@ package eino
 
 import (
 	"context"
+	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	"github.com/cloudwego/eino/compose"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -29,7 +31,7 @@ func (t invokableTool) Info(context.Context) (*schema.ToolInfo, error) { return 
 // InvokableRun 实现 tool.InvokableTool；参数保持 JSON 文本，
 // 守卫可在不解耦 schema 的情况下限流与记录。
 func (t invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
-	return t.invoke(ctx, argumentsInJSON)
+	return t.invoke(pluginsapp.WithToolCallID(ctx, compose.GetToolCallID(ctx)), argumentsInJSON)
 }
 
 // ToBaseTools converts registered tools into Eino tools. Dots are not allowed in
@@ -39,10 +41,15 @@ func (t invokableTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 func ToBaseTools(tools []contracts.RegisteredTool) []tool.BaseTool {
 	out := make([]tool.BaseTool, 0, len(tools))
 	for _, registered := range tools {
+		params := make(map[string]*schema.ParameterInfo)
+		for name, p := range registered.Descriptor.Parameters {
+			params[name] = &schema.ParameterInfo{Type: schema.DataType(p.Type), Desc: p.Description, Required: p.Required}
+		}
 		out = append(out, invokableTool{
 			info: &schema.ToolInfo{
-				Name: toolName(registered.Descriptor.ID),
-				Desc: registered.Descriptor.Description,
+				Name:        toolName(registered.Descriptor.ID),
+				Desc:        registered.Descriptor.Description,
+				ParamsOneOf: schema.NewParamsOneOfByParams(params),
 			},
 			invoke: registered.Invoke,
 		})

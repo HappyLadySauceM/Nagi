@@ -144,6 +144,7 @@ func (in Input) BotRepliesLastHour() int {
 // SemanticAnswer holds the Jev answer values; Available=false means unusable.
 // SemanticAnswer 持有 Jev 回答值；Available=false 表示不可用。
 type SemanticAnswer struct {
+	FailureCode        string
 	Available          bool
 	DirectedToBot      float64
 	ContinuesBotThread float64
@@ -162,7 +163,19 @@ type Thresholds struct {
 
 // RuleResult is the deterministic rules gate outcome.
 // RuleResult 是确定性规则闸门的结果。
+type RuleEvaluation struct {
+	RulesetID  int64
+	Version    int
+	Scope      string
+	Priority   int
+	Status     string
+	ReasonCode string
+}
+
 type RuleResult struct {
+	Evaluations  []RuleEvaluation
+	Matched      bool
+	BuiltinRules map[string]bool
 	Blocked      bool
 	ReasonCode   string
 	NeedSemantic bool

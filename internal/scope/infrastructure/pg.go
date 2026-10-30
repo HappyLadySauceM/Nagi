@@ -30,7 +30,7 @@ func NewRepo(pool *pgxpool.Pool) (*Repo, error) {
 }
 
 const policyColumns = `enabled, reply_mode, store_messages, allow_memory_write, allow_history_read,
-	min_reply_interval_ms, max_replies_per_hour, retention_days, tool_permissions`
+	min_reply_interval_ms, max_replies_per_hour, retention_days, tool_permissions, version, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms`
 
 // Get loads one stored policy; found is false when the scope has no row.
 // Get 读取单条已存储策略；作用域无行时 found 为 false。
@@ -96,7 +96,7 @@ func scanPolicy(scan rowScanner) (domain.Policy, error) {
 	var replyMode string
 	var rawPermissions []byte
 	dest := []any{&p.Enabled, &replyMode, &p.StoreMessages, &p.AllowMemoryWrite, &p.AllowHistoryRead,
-		&p.MinReplyIntervalMS, &p.MaxRepliesPerHour, &p.RetentionDays, &rawPermissions}
+		&p.MinReplyIntervalMS, &p.MaxRepliesPerHour, &p.RetentionDays, &rawPermissions, &p.Version, &p.MaxMessagesPerRun, &p.MaxCharsPerMessage, &p.MaxTotalCharsPerRun, &p.MessageIntervalMS}
 	if err := scan(dest...); err != nil {
 		return domain.Policy{}, err
 	}
@@ -145,16 +145,35 @@ func encodeToolPermissions(overrides map[string]bool) ([]byte, error) {
 // Upsert stores one policy row.
 // Upsert 存储一条策略行。
 func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) error {
+	policy = policy.WithDefaults()
 	permissions, err := encodeToolPermissions(policy.ToolPermissions)
 	if err != nil {
 		return err
 	}
-	_, err = r.pool.Exec(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", fmt.Sprintf("scope:%d:%s", botID, policy.ScopeType)); err != nil {
+		return err
+	}
+	if policy.ExpectedTemplateVersion != nil {
+		var version int64
+		err = tx.QueryRow(ctx, "SELECT version FROM scope_policies WHERE bot_id=$1 AND scope_type=$2 AND scope_id=0", botID, string(policy.ScopeType)).Scan(&version)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if version != *policy.ExpectedTemplateVersion {
+			return domain.ErrTemplateConflict
+		}
+	}
+	_, err = tx.Exec(ctx, `
 		INSERT INTO scope_policies
 			(bot_id, scope_type, scope_id, enabled, reply_mode, store_messages, allow_memory_write,
 			 allow_history_read, min_reply_interval_ms, max_replies_per_hour, retention_days,
-			 tool_permissions, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+			 tool_permissions, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
 		ON CONFLICT (bot_id, scope_type, scope_id) DO UPDATE SET
 			enabled = EXCLUDED.enabled, reply_mode = EXCLUDED.reply_mode,
 			store_messages = EXCLUDED.store_messages, allow_memory_write = EXCLUDED.allow_memory_write,
@@ -162,14 +181,14 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 			min_reply_interval_ms = EXCLUDED.min_reply_interval_ms,
 			max_replies_per_hour = EXCLUDED.max_replies_per_hour,
 			retention_days = EXCLUDED.retention_days,
-			tool_permissions = EXCLUDED.tool_permissions, updated_at = now()
+			max_messages_per_run = EXCLUDED.max_messages_per_run, max_chars_per_message = EXCLUDED.max_chars_per_message, max_total_chars_per_run = EXCLUDED.max_total_chars_per_run, message_interval_ms = EXCLUDED.message_interval_ms, tool_permissions = EXCLUDED.tool_permissions, version = scope_policies.version + 1, updated_at = now()
 	`, botID, string(policy.ScopeType), policy.ScopeID, policy.Enabled, string(policy.ReplyMode),
 		policy.StoreMessages, policy.AllowMemoryWrite, policy.AllowHistoryRead,
-		policy.MinReplyIntervalMS, policy.MaxRepliesPerHour, policy.RetentionDays, permissions)
+		policy.MinReplyIntervalMS, policy.MaxRepliesPerHour, policy.RetentionDays, permissions, policy.MaxMessagesPerRun, policy.MaxCharsPerMessage, policy.MaxTotalCharsPerRun, policy.MessageIntervalMS)
 	if err != nil {
 		return fmt.Errorf("scope: upsert policy: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // Delete removes one stored policy and reports whether a row was deleted.

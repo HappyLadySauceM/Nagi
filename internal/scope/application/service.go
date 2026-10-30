@@ -5,8 +5,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -22,29 +20,9 @@ type Repository interface {
 	Delete(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (bool, error)
 }
 
-// cacheTTL bounds how long a resolved policy — including the default-deny
-// result of unknown scopes — is served from memory. Expiry keeps out-of-band
-// database changes effective without a restart. Overridable in tests.
-// cacheTTL 限制解析结果（包括未知作用域的默认拒绝结果）在内存中的存留时间。
-// 过期后重新读库，保证绕过管理接口的数据库变更无需重启即生效。测试可覆盖。
-var cacheTTL = 30 * time.Second
-
-// cacheEntry pairs a policy with its expiry.
-// cacheEntry 将策略与其过期时间配对。
-type cacheEntry struct {
-	policy    domain.Policy
-	expiresAt time.Time
-}
-
-// Service resolves effective policies with a write-through cache, so management
-// updates take effect immediately for later resolutions.
-// Service 通过写穿缓存解析生效策略，管理端更新对后续解析立即生效。
-type Service struct {
-	repo Repository
-
-	mu    sync.RWMutex
-	cache map[string]cacheEntry
-}
+// Service resolves current policies from storage so revocations apply to subsequent calls.
+// Service 从存储解析当前策略，使撤销对后续调用立即生效。
+type Service struct{ repo Repository }
 
 // NewService validates dependencies and builds the service.
 // NewService 校验依赖并构建服务。
@@ -52,7 +30,7 @@ func NewService(repo Repository) (*Service, error) {
 	if repo == nil {
 		return nil, fmt.Errorf("scope: repository required")
 	}
-	return &Service{repo: repo, cache: make(map[string]cacheEntry)}, nil
+	return &Service{repo: repo}, nil
 }
 
 // Resolve returns the effective policy of one scope. Unknown or disabled scopes
@@ -60,19 +38,27 @@ func NewService(repo Repository) (*Service, error) {
 // Resolve 返回单个作用域的生效策略。未知或未配置的作用域解析为安全默认；
 // 下层只能收紧权限，不能放大上层禁令。
 func (s *Service) Resolve(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (domain.Policy, error) {
-	key := cacheKey(botID, scopeType, scopeID)
-	s.mu.RLock()
-	cached, ok := s.cache[key]
-	s.mu.RUnlock()
-	if ok && time.Now().Before(cached.expiresAt) {
-		return cached.policy, nil
-	}
 	stored, found, err := s.repo.Get(ctx, botID, scopeType, scopeID)
 	if err != nil {
 		return domain.Policy{}, err
 	}
+	source := "independent"
+	if scopeID == 0 {
+		source = "default"
+	}
+	if !found && scopeID != 0 {
+		stored, found, err = s.repo.Get(ctx, botID, scopeType, 0)
+		if err != nil {
+			return domain.Policy{}, err
+		}
+		source = "default"
+	}
 	if !found {
 		stored = domain.Default(scopeType, scopeID)
+	}
+	stored.Source = source
+	if source == "default" {
+		stored.TemplateVersion = stored.Version
 	}
 	effective := stored.WithDefaults()
 	// Stored rows may come from a scan that omits the identity columns; the
@@ -80,9 +66,6 @@ func (s *Service) Resolve(ctx context.Context, botID int64, scopeType domain.Sco
 	// 已存行可能来自不扫描身份列的查询；生效策略始终以请求的作用域为标识。
 	effective.ScopeType = scopeType
 	effective.ScopeID = scopeID
-	s.mu.Lock()
-	s.cache[key] = cacheEntry{policy: effective, expiresAt: time.Now().Add(cacheTTL)}
-	s.mu.Unlock()
 	return effective, nil
 }
 
@@ -98,27 +81,25 @@ func (s *Service) Get(ctx context.Context, botID int64, scopeType domain.ScopeTy
 	return s.Resolve(ctx, botID, scopeType, scopeID)
 }
 
-// Upsert validates and stores one policy, then refreshes the cache entry.
-// Upsert 校验并保存一条策略，然后刷新缓存。
+// Upsert validates and persists one complete policy.
+// Upsert 校验并持久化一份完整策略。
 func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy) error {
 	if err := policy.Validate(); err != nil {
 		return err
 	}
 	policy = policy.WithDefaults()
+	policy.Source = "independent"
+	if policy.ScopeID == 0 {
+		policy.Source = "default"
+	}
 	if err := s.repo.Upsert(ctx, botID, policy); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	s.cache[cacheKey(botID, policy.ScopeType, policy.ScopeID)] = cacheEntry{
-		policy: policy, expiresAt: time.Now().Add(cacheTTL),
-	}
-	s.mu.Unlock()
 	return nil
 }
 
-// Delete removes one stored policy and evicts its cache entry, so the scope
-// falls back to the default-deny policy immediately instead of after the TTL.
-// Delete 删除一条已存策略并驱逐缓存，使该作用域立即回到默认拒绝，而不是等缓存过期。
+// Delete removes an independent policy so subsequent reads use the default template.
+// Delete 删除独立策略，使后续读取使用默认模板。
 func (s *Service) Delete(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (bool, error) {
 	if !scopeType.Valid() || scopeID <= 0 || botID <= 0 {
 		return false, fmt.Errorf("scope: invalid scope identity")
@@ -127,12 +108,43 @@ func (s *Service) Delete(ctx context.Context, botID int64, scopeType domain.Scop
 	if err != nil {
 		return false, err
 	}
-	s.mu.Lock()
-	delete(s.cache, cacheKey(botID, scopeType, scopeID))
-	s.mu.Unlock()
 	return deleted, nil
 }
 
 func cacheKey(botID int64, scopeType domain.ScopeType, scopeID int64) string {
 	return fmt.Sprintf("%d:%s:%d", botID, scopeType, scopeID)
+}
+
+// ResolveMany resolves a directory page from one account-scoped policy snapshot.
+// ResolveMany 从一份账号策略快照解析整页目录。
+func (s *Service) ResolveMany(ctx context.Context, botID int64, kind domain.ScopeType, ids []int64) (map[int64]domain.Policy, error) {
+	rows, err := s.repo.List(ctx, &botID)
+	if err != nil {
+		return nil, err
+	}
+	stored := make(map[int64]domain.Policy)
+	for _, p := range rows {
+		if p.ScopeType == kind {
+			stored[p.ScopeID] = p
+		}
+	}
+	template, ok := stored[0]
+	if !ok {
+		template = domain.Default(kind, 0)
+	}
+	result := make(map[int64]domain.Policy, len(ids))
+	for _, id := range ids {
+		p, independent := stored[id]
+		if independent {
+			p.Source = "independent"
+		} else {
+			p = template
+			p.Source = "default"
+			p.TemplateVersion = template.Version
+		}
+		p.ScopeType = kind
+		p.ScopeID = id
+		result[id] = p.WithDefaults()
+	}
+	return result, nil
 }

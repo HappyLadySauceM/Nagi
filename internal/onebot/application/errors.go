@@ -37,3 +37,7 @@ type APIError struct {
 func (e *APIError) Error() string {
 	return fmt.Sprintf("onebot: action failed retcode=%d status=%s wording=%q", e.Retcode, e.Status, e.Wording)
 }
+
+// DefiniteFailure marks an explicit platform rejection as safe to classify.
+// DefiniteFailure 标记平台明确拒绝，供调用方区分结果不明。
+func (e *APIError) DefiniteFailure() bool { return true }

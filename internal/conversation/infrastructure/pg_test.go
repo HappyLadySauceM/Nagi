@@ -534,3 +534,126 @@ func TestFailJobDoesNotRetryInFlightSend(t *testing.T) {
 		t.Fatalf("job = %s/%s, want failed/partial", status, code)
 	}
 }
+
+func TestRecoveryDoesNotReplayFailedPlatformAttempt(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := ingestAndClaim(t, repo, 994015, 994016, "明确失败后崩溃")
+	insertLedgerRecord(t, pool, job.JobID, job.ConversationID, 994015, 1, "failed")
+	if err = repo.RecoverStaleJobs(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if status, _, _ := jobState(t, pool, job.JobID); status != "failed" {
+		t.Fatalf("attempted job replayed: %s", status)
+	}
+}
+
+func TestReconcileOutgoingUsesEffectiveDefaultPolicy(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	cases := []struct {
+		name               string
+		defaultEnabled     bool
+		defaultStore       bool
+		independent        bool
+		independentEnabled bool
+		independentStore   bool
+		want               int
+	}{
+		{"default permits", true, true, false, false, false, 1},
+		{"default denies", false, true, false, false, false, 0},
+		{"independent denies", true, true, true, false, true, 0},
+		{"independent forbids storage", true, true, true, true, false, 0},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			botID := int64(991670 + i)
+			targetID := int64(900 + i)
+			input, err := repo.Ingest(ctx, domain.IngestInput{BotID: botID, Kind: domain.KindPrivate, TargetID: targetID, SenderID: 991686, PlatformMessageID: time.Now().UnixNano(), Text: "history repair"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pool.Exec(ctx, "DELETE FROM scope_policies WHERE bot_id=$1", botID)
+			if _, err := pool.Exec(ctx, "INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,store_messages) VALUES($1,'private',0,$2,$3)", botID, tc.defaultEnabled, tc.defaultStore); err != nil {
+				t.Fatal(err)
+			}
+			if tc.independent {
+				if _, err := pool.Exec(ctx, "INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,store_messages) VALUES($1,'private',$2,$3,$4)", botID, targetID, tc.independentEnabled, tc.independentStore); err != nil {
+					t.Fatal(err)
+				}
+			}
+			recordID := insertLedgerRecord(t, pool, input.JobID, input.ConversationID, botID, 1, "sent")
+			if err := repo.ReconcileOutgoing(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.ReconcileOutgoing(ctx); err != nil {
+				t.Fatal(err)
+			}
+			var count int
+			if err := pool.QueryRow(ctx, "SELECT count(*) FROM messages WHERE outbound_id=$1", recordID).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != tc.want {
+				t.Fatalf("reconciled count=%d want=%d", count, tc.want)
+			}
+		})
+	}
+}
+
+func TestReplyActivityExcludesFailedAndCountsUncertainDeliveryOnce(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const botID = 991690
+	input, err := repo.Ingest(ctx, domain.IngestInput{BotID: botID, Kind: domain.KindPrivate, TargetID: time.Now().UnixNano() % 1_000_000_000, SenderID: 991691, PlatformMessageID: time.Now().UnixNano(), Text: "delivery activity"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM message_jobs WHERE id=$1", input.JobID)
+	if err := repo.RecordOutgoing(ctx, input.ConversationID, botID, "failed", 0, "failed", ""); err != nil {
+		t.Fatal(err)
+	}
+	last, count, err := repo.BotReplyMeta(ctx, input.ConversationID)
+	if err != nil || !last.IsZero() || count != 0 {
+		t.Fatalf("failed send consumed activity: %v %d %v", last, count, err)
+	}
+	unknown := insertLedgerRecord(t, pool, input.JobID, input.ConversationID, botID, 1, "unknown")
+	last, count, err = repo.BotReplyMeta(ctx, input.ConversationID)
+	if err != nil || last.IsZero() || count != 1 {
+		t.Fatalf("uncertain delivery was not counted: %v %d %v", last, count, err)
+	}
+	if err := repo.RecordOutgoing(ctx, input.ConversationID, botID, "unknown", 0, "unknown", unknown); err != nil {
+		t.Fatal(err)
+	}
+	_, count, err = repo.BotReplyMeta(ctx, input.ConversationID)
+	if err != nil || count != 1 {
+		t.Fatalf("ledger and history double counted: %d %v", count, err)
+	}
+	insertLedgerRecord(t, pool, input.JobID, input.ConversationID, botID, 2, "sent")
+	insertLedgerRecord(t, pool, input.JobID, input.ConversationID, botID, 3, "prepared")
+	failed := insertLedgerRecord(t, pool, input.JobID, input.ConversationID, botID, 4, "failed")
+	if _, err := pool.Exec(ctx, "UPDATE agent_outbound_messages SET updated_at=now()+interval '1 hour' WHERE id=$1", failed); err != nil {
+		t.Fatal(err)
+	}
+	last, count, err = repo.BotReplyMeta(ctx, input.ConversationID)
+	if err != nil || count != 3 || last.After(time.Now().Add(time.Minute)) {
+		t.Fatalf("failed/inflight activity incorrect: %v %d %v", last, count, err)
+	}
+	if err := repo.RecordOutgoing(ctx, input.ConversationID, botID, "legacy sent", 778899, "sent", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, count, err = repo.BotReplyMeta(ctx, input.ConversationID)
+	if err != nil || count != 4 {
+		t.Fatalf("legacy sent activity lost: %d %v", count, err)
+	}
+}

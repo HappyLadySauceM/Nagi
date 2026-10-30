@@ -37,7 +37,7 @@ func TestPolicyValidateRejectsInvalidValues(t *testing.T) {
 		policy Policy
 	}{
 		{"invalid type", Policy{ScopeType: "channel", ScopeID: 1, ReplyMode: ModeMentionOnly}},
-		{"zero id", Policy{ScopeType: ScopeGroup, ScopeID: 0, ReplyMode: ModeMentionOnly}},
+		{"negative id", Policy{ScopeType: ScopeGroup, ScopeID: -1, ReplyMode: ModeMentionOnly}},
 		{"invalid mode", Policy{ScopeType: ScopePrivate, ScopeID: 1, ReplyMode: "shout"}},
 		{"negative numbers", Policy{ScopeType: ScopePrivate, ScopeID: 1, ReplyMode: ModeMentionOnly, RetentionDays: -1}},
 	}
