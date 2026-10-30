@@ -87,27 +87,21 @@ agent:
     max-total-chars-per-run: 1500
 
 tools:
-  # 启用的工具提供方 ID；为空时不向模型暴露任何工具。
-  # 写错 ID 会导致启动失败，错误信息会列出已知提供方。
+  # 所有提供方在启动时自动注册，没有启用列表；模型能否调用某个工具
+  # 只取决于该会话的「能力授权」。
   # builtin.time: system.current_time；builtin.qq: qq.get_group_info（仅当前群）；
   # builtin.qq.member: qq.get_group_member_info（仅当前群，只读）
-  # builtin.qq.admin: qq.mute_group_member（仅当前群，写操作，需 allow-side-effects
-  #   与作用域授予 qq.group.admin.mute；单次最多 3600 秒，0 表示解除禁言）
+  # builtin.qq.admin: qq.mute_group_member（仅当前群，写操作，需作用域授予
+  #   qq.group.admin.mute；单次最多 3600 秒，0 表示解除禁言）
   #   qq.set_group_whole_ban 为全员禁言开关（权限 qq.group.admin.wholeban，可逆）
   # builtin.qq.profile: qq.set_group_card（名片，最多 30 字）与 qq.kick_group_member
   #   （移出群聊，不可撤销），分别需要 qq.group.admin.card / qq.group.admin.kick
   #   qq.leave_current_group 让机器人退群（不可逆，权限 qq.group.admin.leave）
-  enabled: [builtin.time, builtin.qq]
   # 按权限标识覆盖默认基线；未列出的权限保持兜底规则（只读允许、其余拒绝）。
   # 作用域策略中的 tool_permissions 优先级更高。
   # 例：permission-defaults:
   #       qq.group.read: true
   permission-defaults: {}
-  # 为 true 时才可能暴露非只读工具；默认 false，带副作用的工具始终不可见
-  allow-side-effects: false
-  # 为 true 时才暴露 qq.send_current（Agent 在回合内自主发送）。
-  # 需要 builtin.reply 出现在 enabled 中，并授予 qq.reply.current；不必放开群管理副作用。
-  allow-send-current: false
   # 单次工具调用超时
   timeout: 5s
   # 回给模型的结果字节上限，超出即拒绝

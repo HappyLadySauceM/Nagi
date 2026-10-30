@@ -11,6 +11,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 )
 
 // unavailableScopeKindMismatch is the stable reason returned when a tool does
@@ -75,10 +77,9 @@ type permissionInfo struct {
 // catalog is the response of GET /api/v1/tools.
 // catalog 是 GET /api/v1/tools 的响应体。
 type catalog struct {
-	Providers        []string
-	Tools            []toolInfo
-	Permissions      []permissionInfo
-	AllowSideEffects bool
+	Providers   []string
+	Tools       []toolInfo
+	Permissions []permissionInfo
 }
 
 // scopeKindFilter validates the optional scope_kind query parameter; an empty
@@ -94,6 +95,20 @@ func scopeKindFilter(raw string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// liveSettings returns the live snapshot, or the config-file baseline when the
+// process runs without a database (tests, database-less wiring).
+// liveSettings 返回实时快照；进程未配置数据库时（测试或无数据库装配）
+// 回落到配置文件基线。
+func (h *Handler) liveSettings() settingsdomain.Settings {
+	if h.svcCtx.SettingsProvider != nil {
+		return h.svcCtx.SettingsProvider.Settings()
+	}
+	if h.svcCtx.Config == nil {
+		return settingsdomain.Settings{}
+	}
+	return settingsapp.FromConfig(h.svcCtx.Config)
 }
 
 // List returns the tools that were actually registered at startup. Default
@@ -114,23 +129,30 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusServiceUnavailable, "tools are not enabled")
 		return
 	}
-	snapshot := registry.Snapshot()
-	granted := pluginsapp.ResolvePermissions(snapshot, h.svcCtx.Config.Tools.PermissionDefaults, nil)
-	allowSideEffects := h.svcCtx.Config.Tools.AllowSideEffects
+	// Every registered provider is available; the catalogue only mirrors the
+	// permission baseline the runtime uses.
+	// 每个已注册提供方都可用；清单只镜像运行时使用的权限基线。
+	visible := registry.Snapshot()
+	live := h.liveSettings()
+	granted := pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, nil)
 
 	out := catalog{
-		Providers:        make([]string, 0),
-		Tools:            make([]toolInfo, 0, len(snapshot)),
-		Permissions:      make([]permissionInfo, 0),
-		AllowSideEffects: allowSideEffects,
+		Providers:   make([]string, 0),
+		Tools:       make([]toolInfo, 0, len(visible)),
+		Permissions: make([]permissionInfo, 0),
 	}
-	for _, manifest := range registry.Manifests() {
-		out.Providers = append(out.Providers, manifest.ID)
+	seenProviders := make(map[string]bool, len(visible))
+	for _, registered := range visible {
+		if seenProviders[registered.ProviderID] {
+			continue
+		}
+		seenProviders[registered.ProviderID] = true
+		out.Providers = append(out.Providers, registered.ProviderID)
 	}
 	sort.Strings(out.Providers)
 
 	byPermission := make(map[string]*permissionInfo)
-	for _, registered := range snapshot {
+	for _, registered := range visible {
 		descriptor := registered.Descriptor
 		applicable := true
 		unavailableReason := ""
@@ -140,18 +162,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 				unavailableReason = unavailableScopeKindMismatch
 			}
 		}
+		// Only pipeline state can block a capability now; whether a write tool
+		// may run is decided by the conversation's own grant.
+		// 现在只有流水线状态会阻断能力；写工具能否执行由该会话自身的授权决定。
 		blocked := make([]string, 0)
-		if !h.svcCtx.Config.AI.Enabled {
+		if !live.AI.Enabled {
 			blocked = append(blocked, "未启用生成模型")
 		}
-		if !h.svcCtx.Config.Intent.Enabled {
+		if !live.Intent.Enabled {
 			blocked = append(blocked, "未启用意图流水线")
-		}
-		if descriptor.ReplyCurrent && !h.svcCtx.Config.Tools.AllowSendCurrent {
-			blocked = append(blocked, "服务总开关未启用连续发送")
-		}
-		if descriptor.SideEffect && !descriptor.ReplyCurrent && !allowSideEffects {
-			blocked = append(blocked, "服务未启用群管理副作用")
 		}
 		out.Tools = append(out.Tools, toolInfo{
 			BlockedReasons:    blocked,
@@ -164,7 +183,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			ReadOnly:          descriptor.ReadOnly,
 			SideEffect:        descriptor.SideEffect,
 			Permission:        descriptor.Permission,
-			DefaultGranted:    pluginsapp.Allowed(descriptor, granted, allowSideEffects),
+			DefaultGranted:    pluginsapp.Allowed(descriptor, granted),
 			Applicable:        applicable,
 			UnavailableReason: unavailableReason,
 		})

@@ -44,6 +44,8 @@ import (
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -110,6 +112,13 @@ type Runtime struct {
 	// Tools is the startup tool registry; nil when AI generation is disabled.
 	// Tools 是启动时的工具注册表；AI 生成关闭时为 nil。
 	Tools *pluginsapp.Registry
+	// Settings is the runtime-editable configuration service; nil without a
+	// database because edits must be persisted.
+	// Settings 是运行时可编辑配置服务；未配置数据库时为 nil，因为改动必须持久化。
+	Settings *settingsapp.Service
+	// SettingsProvider is the live snapshot every run reads.
+	// SettingsProvider 是每次运行读取的实时快照。
+	SettingsProvider *settingsapp.Provider
 }
 
 // Assemble wires one connection per configured endpoint, registers the shared
@@ -216,17 +225,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 			return nil, ledgerErr
 		}
 		rt.Outbound = outboundRepo
-		policiesRepo, policyErr := outboundinfra.NewPoliciesRepo(pool, func(ctx context.Context, botID int64, kind string, targetID int64) (bool, error) {
-			if rt.Tools == nil {
-				return false, nil
-			}
-			current, err := rt.Scope.Resolve(ctx, botID, scopedomain.ScopeType(kind), targetID)
-			if err != nil {
-				return false, err
-			}
-			grants := pluginsapp.ResolvePermissions(rt.Tools.Snapshot(), cfg.Tools.PermissionDefaults, current.ToolPermissions)
-			return grants[replytool.Permission], nil
-		})
+		policiesRepo, policyErr := outboundinfra.NewPoliciesRepo(pool)
 		if policyErr != nil {
 			return nil, policyErr
 		}
@@ -237,7 +236,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 		}
 		rt.Rulesets = rulesRepo
 		var toolsResolver func(context.Context, agentcontracts.Request) []tool.BaseTool
-		toolRegistry := pluginsapp.NewRegistry([]string{"builtin.time", "builtin.qq", "builtin.qq.member", "builtin.qq.admin", "builtin.qq.profile", replytool.ProviderID})
+		toolRegistry := pluginsapp.NewRegistry()
 		providers := []pluginscontracts.ToolProvider{
 			builtin.NewTimeProvider(),
 			builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
@@ -248,6 +247,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 		providers = append(providers, replytool.NewProvider(replytool.Options{
 			Senders: replySenders{accounts: rt.Registry},
 			Authorize: func(ctx context.Context, run pluginsapp.Scope) (outbounddomain.Limits, error) {
+				live := rt.SettingsProvider.Settings()
 				current, err := rt.Scope.Resolve(ctx, run.BotID, scopedomain.ScopeType(run.Kind), run.TargetID)
 				if err != nil {
 					return outbounddomain.Limits{}, err
@@ -255,18 +255,14 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				if !current.Enabled || !current.StoreMessages || current.ReplyMode == scopedomain.ModeObserveOnly {
 					return outbounddomain.Limits{}, fmt.Errorf("reply authorization revoked")
 				}
-				p, exists, err := policiesRepo.Get(ctx, run.BotID, run.Kind, run.TargetID)
-				if err != nil {
-					return outbounddomain.Limits{}, err
-				}
-				if !exists || !p.AllowSendCurrent {
-					return outbounddomain.Limits{}, fmt.Errorf("autonomous sending disabled")
-				}
-				permissions := pluginsapp.ResolvePermissions(rt.Tools.Snapshot(), cfg.Tools.PermissionDefaults, current.ToolPermissions)
+				permissions := pluginsapp.ResolvePermissions(rt.Tools.Snapshot(), live.Tools.PermissionDefaults, current.ToolPermissions)
 				if !permissions[replytool.Permission] {
 					return outbounddomain.Limits{}, fmt.Errorf("reply permission revoked")
 				}
-				limits := p.Limits()
+				limits, err := sendingLimitsFor(ctx, policiesRepo, live, run.BotID, run.Kind, run.TargetID)
+				if err != nil {
+					return outbounddomain.Limits{}, err
+				}
 				limits.StopAfterFailure = true
 				limits.MaxPerHour = current.MaxRepliesPerHour
 				return limits, nil
@@ -286,48 +282,31 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 				return nil, registerErr
 			}
 		}
-		// An enabled id that no provider matched is always a typo; failing
-		// fast beats starting with silently missing capabilities.
-		// 已启用但没有任何提供方匹配的 ID 一定是拼写错误；
-		// 直接启动失败胜过带着静默缺失的能力运行。
-		if unknown := toolRegistry.Unknown(); len(unknown) > 0 {
-			_ = toolRegistry.Close(context.Background())
-			return nil, fmt.Errorf("tools.enabled contains unknown providers %v; known providers: %v",
-				unknown, toolRegistry.Known())
-		}
 		rt.Tools = toolRegistry
 		rt.CloseTools = toolRegistry.Close
+		// Settings are assembled right after the registry: the provider list and
+		// the permission set come from what actually registered.
+		// 配置在注册表之后装配：提供方列表与权限集合都来自真正注册成功的结果。
+		settingsService, settingsProvider, settingsErr := buildSettings(cfg, logger, pool, toolRegistry)
+		if settingsErr != nil {
+			return nil, settingsErr
+		}
+		rt.Settings = settingsService
+		rt.SettingsProvider = settingsProvider
 		logger.Info("tools registered",
 			"count", len(toolRegistry.Snapshot()),
-			"providers", len(toolRegistry.Manifests()),
-			"enabled", cfg.Tools.Enabled)
-		toolsResolver = buildToolsResolver(cfg, toolRegistry, func(ctx context.Context, botID int64, scopeType string, scopeID int64) (bool, bool) {
-			policy, exists, err := policiesRepo.Get(ctx, botID, scopeType, scopeID)
-			if err != nil {
-				// A lookup failure keeps the global switch; the ledger still
-				// guards every send.
-				// 查询失败时沿用全局开关；投递台账仍会逐条把关。
-				return false, false
-			}
-			return policy.AllowSendCurrent, exists
-		}, rt.Scope)
-		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, ledger,
+			"providers", len(toolRegistry.Manifests()))
+		toolsResolver = buildToolsResolver(settingsProvider, toolRegistry, rt.Scope)
+		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, rt.Scope, rt.Conversation, registry, callbacks, ledger,
 			func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits {
-				policy, exists, err := policiesRepo.Get(ctx, botID, kind, targetID)
+				limits, err := sendingLimitsFor(ctx, policiesRepo, settingsProvider.Settings(), botID, kind, targetID)
 				if err != nil {
-					return outbounddomain.Limits{}
+					// A lookup failure must not widen the budget: fall back to a
+					// single short message instead of an empty (unlimited) set.
+					// 查询失败不得放宽预算：退回单条短消息，而不是空的（无限制）集合。
+					return outbounddomain.Limits{MaxMessages: 1, MaxCharsPerMessage: 500, MaxTotalChars: 500}
 				}
-				if exists {
-					limits := policy.Limits()
-					limits.StopAfterFailure = true
-					return limits
-				}
-				return outbounddomain.Limits{
-					MinIntervalMS:      700,
-					MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
-					MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
-					MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
-				}
+				return limits
 			}, toolsResolver)
 		if executorErr != nil {
 			return nil, executorErr
@@ -336,13 +315,25 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 			handler := callbacks
 			rt.ShutdownLangfuse = func(ctx context.Context) error { return handler.Shutdown(ctx) }
 		}
-		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
+		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, settingsProvider, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
 		if workerErr != nil {
 			return nil, workerErr
 		}
 		rt.Worker = worker
 		rt.Decisions = decisions
 		rt.IntentSimulator = simulator
+	}
+
+	// Without a database there is still a snapshot so every consumer can read
+	// settings unconditionally; it only carries the config-file baseline.
+	// 没有数据库时仍提供快照，各消费方因此可以无条件读取配置；
+	// 此时它只承载配置文件基线。
+	if rt.SettingsProvider == nil {
+		_, provider, settingsErr := buildSettings(cfg, logger, nil, nil)
+		if settingsErr != nil {
+			return nil, settingsErr
+		}
+		rt.SettingsProvider = provider
 	}
 
 	// Every connection shares the same handler set; the dispatcher supplies the
@@ -473,4 +464,31 @@ func (s replySenders) ReceiptSender(botID int64) (replytool.Sender, bool) {
 		return nil, false
 	}
 	return sender, true
+}
+
+// sendingLimitsFor resolves the outbound budget of one send: the per-scope
+// policy wins, the live settings provide the fallback. Reading the settings
+// here is what makes console edits apply to the next send.
+// sendingLimitsFor 解析单次发送的出站预算：按作用域策略优先，
+// 实时配置提供兜底。在此读取配置，控制台的改动因此对下一次发送生效。
+func sendingLimitsFor(ctx context.Context, policies *outboundinfra.PoliciesRepo,
+	live settingsdomain.Settings, botID int64, kind string, targetID int64,
+) (outbounddomain.Limits, error) {
+	if policies != nil {
+		policy, exists, err := policies.Get(ctx, botID, kind, targetID)
+		if err != nil {
+			return outbounddomain.Limits{}, err
+		}
+		if exists {
+			limits := policy.Limits()
+			limits.StopAfterFailure = true
+			return limits, nil
+		}
+	}
+	return outbounddomain.Limits{
+		MinIntervalMS:      700,
+		MaxMessages:        live.Agent.Sending.MaxMessagesPerRun,
+		MaxCharsPerMessage: live.Agent.Sending.MaxCharsPerMessage,
+		MaxTotalChars:      live.Agent.Sending.MaxTotalCharsPerRun,
+	}, nil
 }

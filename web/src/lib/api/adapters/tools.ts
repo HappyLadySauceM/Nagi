@@ -26,7 +26,6 @@ export function toToolsCatalog(raw: unknown): ToolsCatalog {
     }),
     tools: asArray(record.Tools, TOOLS_ENDPOINT, 'Tools').map(toToolEntry),
     permissions: asArray(record.Permissions, TOOLS_ENDPOINT, 'Permissions').map(toPermission),
-    allowSideEffects: readBoolean(record, 'AllowSideEffects', TOOLS_ENDPOINT),
   }
 }
 

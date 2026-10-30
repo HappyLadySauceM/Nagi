@@ -267,11 +267,10 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
       {catalog && catalog.permissions.length > 0 ? (
         <Section
           hidden={Boolean(section && section !== 'capabilities')} title="能力授权"
-          description="工具在启动时由后端注册；这里只控制该会话能否使用对应能力，默认值来自服务端。"
+          description="工具由后端注册并在「系统配置」中启用；这里只控制该会话能否使用对应能力，默认值来自服务端。"
         >
           {catalog.permissions.filter((permission) => catalog.tools.some((tool) => tool.applicable && permission.tools.includes(tool.id))).map((permission) => {
             const tools = catalog.tools.filter((tool) => tool.applicable && permission.tools.includes(tool.id))
-            const blocked = !catalog.allowSideEffects && tools.some((tool) => tool.sideEffect && tool.id !== 'qq.send_current')
             const unavailable = tools.filter((tool) => !tool.applicable)
             const allUnavailable = tools.length > 0 && unavailable.length === tools.length
             const unavailableReasons = [...new Set(unavailable.map(unavailableLabel))]
@@ -282,19 +281,16 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
               })
               .join('；')
             const granted = grantedPermission(permission, overrides)
-            // Collect every reason that applies: a capability can be blocked by
-            // the session kind and by side effects at the same time, and the
-            // operator needs both to understand the disabled switch.
-            // 汇总所有适用的原因：会话类型与副作用可能同时禁用同一能力，
-            // 两个原因都要展示，用户才能理解开关为何不可用。
+            // Collect every reason that applies. There is no process-level
+            // side-effect switch any more, so only the session kind, the
+            // pipeline state and the message-store requirement can warn here.
+            // 汇总所有适用的原因。进程级副作用开关已被移除，
+            // 因此这里只剩会话类型、流水线状态与消息存储要求会给出提示。
             const warnings: string[] = [...new Set(tools.flatMap(tool => tool.blockedReasons ?? []))]
             if (tools.some(tool => tool.id === 'qq.send_current') && !watch('storeMessages')) warnings.push('连续发送需要保存消息以维护投递历史。')
             if (!enabled) warnings.push('当前策略尚未启用，会话不会参与对话。')
             if (allUnavailable) {
               warnings.push(`该能力${unavailableReasons.join('、')}，当前会话无法授权。`)
-            }
-            if (blocked) {
-              warnings.push('该能力包含有副作用的工具，当前版本未启用副作用工具，无法在此授权。')
             }
             if (!permission.defaultGranted && granted) {
               warnings.push('开启后模型可在该会话调用对应工具；撤销前请确认影响范围。')
@@ -315,9 +311,9 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
                 // disables the switch, so it cannot be re-enabled here.
                 // 撤销「默认允许但当前不适用」的能力会写入显式 false 覆盖；
                 // 本对话框随即禁用开关，因此本会话内无法再开启。
-                disabled={disabled || blocked || (allUnavailable && !granted)}
+                disabled={disabled || (allUnavailable && !granted)}
                 onChange={(next) => togglePermission(permission, next)}
-                showWarningWhenUnchecked={allUnavailable || blocked}
+                showWarningWhenUnchecked={allUnavailable}
                 warning={warnings.length > 0 ? warnings.join(' ') : undefined}
               />
             )

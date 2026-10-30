@@ -17,7 +17,7 @@ import (
 // TestRegistryRegistersBuiltinProviders 验证随二进制发布的内置描述符满足
 // 命名空间、风险级别与会话类型校验，避免更严格的契约在启动时静默拒绝它们。
 func TestRegistryRegistersBuiltinProviders(t *testing.T) {
-	registry := application.NewRegistry([]string{"builtin.qq", "builtin.time"})
+	registry := application.NewRegistry()
 	t.Cleanup(func() { _ = registry.Close(context.Background()) })
 
 	providers := []contracts.ToolProvider{

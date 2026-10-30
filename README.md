@@ -77,7 +77,9 @@ SnowLuma 的 WS 服务端强制校验 token，不带或填错会被拒绝握手�
 | POST | `/api/v1/intent/rulesets/{id}/publish` `/rollback` | 发布与回滚规则版本 |
 | POST | `/api/v1/intent/simulate` | 只读模拟：不写库、不发送 |
 | GET | `/api/v1/agent/outbound?job_id=` | 单次运行的投递记录 |
-| GET/PUT | `/api/v1/agent/sending-policy` | 按作用域的发送开关与预算 |
+| GET/PUT | `/api/v1/agent/sending-policy` | 按作用域的发送授权与预算 |
+| GET/PUT | `/api/v1/settings` | 读取/保存系统配置（乐观锁，冲突返回 409） |
+| POST | `/api/v1/settings/reset` | 恢复配置文件基线 |
 
 `GET /api/v1/tools` 支持可选参数 `scope_kind=private|group`，按该会话类型返回每个工具的
 `Category`、`ScopeKinds`、`RiskLevel`、`Applicable` 与 `UnavailableReason`；不带参数时
@@ -195,33 +197,40 @@ agent:
   max-run-duration: 30s   # 单次运行总超时（含模型与工具）
 
 tools:
-  enabled: [builtin.time, builtin.qq]   # 为空时不暴露任何工具；写错 ID 启动失败
-  permission-defaults: {} # 按权限覆盖默认基线（未列出的只读允许、其余拒绝）
-  allow-side-effects: false  # true 才可能暴露非只读工具
-  timeout: 5s             # 单次工具调用超时
-  max-result-bytes: 8192  # 结果过大即拒绝
+  permission-defaults: {} # 首次启动写入数据库的初始权限基线
+  timeout: 5s             # 首次启动写入数据库的初始调用超时
+  max-result-bytes: 8192  # 首次启动写入数据库的初始结果上限
 ```
+
+工具提供方没有启用列表：启动时注册多少就全部可用，模型能否调用某个工具只取决于
+该会话的「能力授权」。
+
+`ai`、`intent`、`agent` 与 `tools` 这几个分区在首次启动时写入数据库，此后由控制台的
+「系统配置」页面维护，保存即生效、无需重启；`onebot`、`server`、`database`、`observability`
+以及各类 `api-key` 仍只从配置文件或环境变量读取，不在界面展示。
 
 内置工具分三类：只读的 `system.current_time`、`qq.get_group_info`（`qq.group.read`）与
 `qq.get_group_member_info`（`qq.group.member.read`）；回合内发送 `qq.send_current`
-（`qq.reply.current`，需 `tools.allow-send-current`）；群管理的禁言/名片/移出
-（`qq.group.admin.mute`、`qq.group.admin.card`、`qq.group.admin.kick`）。只读工具直接可用，
-其余默认不暴露。模型无法传入任意群号或跨会话目标，工具调用在服务端做权限、账号与目标绑定校验，
+（`qq.reply.current`）；群管理的禁言/名片/移出（`qq.group.admin.mute`、`qq.group.admin.card`、
+`qq.group.admin.kick`）。只读工具默认允许，其余默认拒绝，全部由会话的「能力授权」决定。
+模型无法传入任意群号或跨会话目标，工具调用在服务端做权限、账号与目标绑定校验，
 结果按不可信数据处理；Eino 的 Agent/Model/Tool span 通过共享 TracerProvider 进入同一条 Langfuse trace。
 
 ### 工具权限模型
 
-实际可用的工具由四层共同决定：
+实际可用的工具由三层共同决定，没有任何进程级开关，也没有提供方启用列表：
 
-1. **进程层**：`tools.enabled` 决定哪些提供方被载入，未启用的提供方不注册、也不出现在清单中。
-2. **会话类型层**：描述符的 `ScopeKinds` 限定工具适用的会话类型；`qq.get_group_info` 仅群聊可用，
+1. **会话类型层**：描述符的 `ScopeKinds` 限定工具适用的会话类型；`qq.get_group_info` 仅群聊可用，
    私聊运行的工具列表中不会出现它。省略 `ScopeKinds` 表示所有会话类型可用。
-3. **默认基线**：`tools.permission-defaults` 覆盖描述符兜底；未配置时只读工具默认允许，写操作/群管理默认拒绝。
-   非只读工具还需要 `allow-side-effects: true` 才会暴露。
-4. **作用域层**：`scope_policies.tool_permissions` 保存每个群/私聊的显式覆盖（如 `{"qq.group.read": false}`），
+2. **权限基线层**：`system_settings` 的 `tools.permission-defaults` 覆盖描述符兜底；
+   未配置时只读工具默认允许，写操作/群管理默认拒绝。
+3. **作用域授权层**：`scope_policies.tool_permissions` 保存每个群/私聊的授权（如 `{"qq.reply.current": true}`），
    优先级最高；被撤销的工具不会出现在模型工具列表中，执行前 Guard 还会再校验一次。
 
-`GET /api/v1/tools` 返回真正注册成功的工具与权限项（含默认授予状态），控制台的作用域弹窗据此渲染
+控制台的「系统配置 → 工具与能力」维护调用超时、结果上限与权限默认值，并只读展示
+当前进程注册的提供方；联系人页的「能力授权」维护单个会话的授权。
+
+`GET /api/v1/tools` 返回真正注册成功的全部工具与权限项（含默认授予状态），控制台的作用域弹窗据此渲染
 「能力授权」区块；提交未知权限会被拒绝，避免存入无效策略。
 
 ## 本地开发环境

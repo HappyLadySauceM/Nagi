@@ -56,11 +56,17 @@ export function describeError(error: unknown): ErrorPresentation {
         }
       case 'not-found':
         if (error.detail === 'unregistered') {
+          // A missing route has two plausible causes: an old process still
+          // serving the previous build, or a database-backed route that was not
+          // registered. State both instead of guessing, newest cause first.
+          // 缺少路由有两种可能：进程仍在跑旧版本二进制，或依赖数据库的路由未注册。
+          // 两种原因都说明，优先提示重启，避免武断下结论。
           return {
-            variant: 'unconfigured',
-            title: '该接口未注册',
+            variant: 'error',
+            title: '后端未提供该接口',
             description:
-              '依赖数据库的管理路由只在已配置 database.dsn 时注册。请先在 configs/config.yaml 配置数据库并重启后端。',
+              '当前进程可能仍在运行旧版本二进制（改动后需要重新构建并重启后端），' +
+              '或该接口依赖的数据库尚未配置（database.dsn）。请重新构建并重启后端后重试。',
             canRetry: true,
           }
         }
@@ -138,7 +144,7 @@ export function shortErrorReason(error: unknown): string {
       case 'unauthorized':
         return '需要配置 NAGI_ADMIN_TOKEN'
       case 'not-found':
-        return error.detail === 'unregistered' ? '数据库未配置' : '资源不存在'
+        return error.detail === 'unregistered' ? '接口未注册' : '资源不存在'
       case 'conflict':
         return '后端拒绝该操作'
       case 'invalid':

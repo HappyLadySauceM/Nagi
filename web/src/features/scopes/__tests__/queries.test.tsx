@@ -10,7 +10,6 @@ const CATALOG = {
   Providers: ['builtin.qq'],
   Tools: [],
   Permissions: [],
-  AllowSideEffects: false,
 }
 
 function okResponse(): Response {

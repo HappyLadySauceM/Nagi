@@ -49,11 +49,6 @@ type Scope struct {
 	// Permissions 是本次运行已授予的权限集合，来自作用域策略，
 	// 绝不由工具快照自行推导。
 	Permissions map[string]bool
-	// AllowSideEffects keeps tools with side effects hidden unless the process
-	// explicitly enables them.
-	// AllowSideEffects 在进程显式开启前持续隐藏带副作用的工具。
-	AllowSideEffects  bool
-	AllowReplyCurrent bool
 	// Record receives the terminal state of every tool execution; nil disables
 	// reporting.
 	// Record 接收每次工具执行的终态；nil 表示不上报。
@@ -97,10 +92,6 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		})
 		started := time.Now()
 
-		if !descriptor.ReadOnly && !(descriptor.ReplyCurrent && scope.AllowReplyCurrent) && !scope.AllowSideEffects {
-			return finish(span, scope, descriptor, started, StatusDenied, 0,
-				"error: tool is not available for this conversation", "authorization_revoked")
-		}
 		if descriptor.Permission != "" && !scope.Permissions[descriptor.Permission] {
 			return finish(span, scope, descriptor, started, StatusDenied, 0,
 				"error: permission denied for "+descriptor.ID, "authorization_revoked")

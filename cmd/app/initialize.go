@@ -33,6 +33,10 @@ import (
 // defaultConfigFile 是未提供 -config 时的默认路径。
 const defaultConfigFile = "configs/config.yaml"
 
+// settingsWatchInterval is the cross-replica poll of the settings revision.
+// settingsWatchInterval 是跨副本同步配置修订的轮询间隔。
+const settingsWatchInterval = 30 * time.Second
+
 // Run loads config, assembles the runtime and blocks until graceful shutdown.
 // Run 装载配置、装配运行时并阻塞直至优雅退出。
 func Run(ctx context.Context, opts options.Options) error {
@@ -139,11 +143,23 @@ func Run(ctx context.Context, opts options.Options) error {
 	svcCtx.Rulesets = rt.Rulesets
 	svcCtx.Outbound = rt.Outbound
 	svcCtx.SendingPolicies = rt.SendingPolicies
+	// The API and every handler read the same live snapshot the runtime uses.
+	// 管理 API 与各处理器读取的是运行时使用的同一份实时快照。
+	svcCtx.Settings = rt.Settings
+	svcCtx.SettingsProvider = rt.SettingsProvider
 
 	// runCtx isolates internal loops from the caller's signal context.
 	// runCtx 将内部循环与调用方的信号上下文隔离。
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
+
+	// Another replica may save settings; the poll keeps this process consistent
+	// without a restart and costs one indexed SELECT per interval.
+	// 其它副本可能保存配置；轮询让本进程无需重启即可保持一致，
+	// 每个周期只产生一次索引查询。
+	if rt.Settings != nil {
+		go rt.Settings.Watch(runCtx, settingsWatchInterval)
+	}
 
 	apiDone := make(chan struct{})
 	apiErrs := make(chan error, 1)

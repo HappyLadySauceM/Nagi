@@ -41,27 +41,27 @@ func tool(id string) contracts.RegisteredTool {
 	}
 }
 
-// TestRegistryRegistersEnabledProvider verifies only enabled providers are
-// opened and their tools appear in the snapshot.
-// TestRegistryRegistersEnabledProvider 验证只打开启用的提供方，
-// 其工具出现在快照中。
-func TestRegistryRegistersEnabledProvider(t *testing.T) {
-	registry := NewRegistry([]string{"builtin.time"})
-	enabled := &fakeProvider{manifest: contracts.Manifest{ID: "builtin.time"}, tools: []contracts.RegisteredTool{tool("system.current_time")}}
-	disabled := &fakeProvider{manifest: contracts.Manifest{ID: "builtin.qq"}, tools: []contracts.RegisteredTool{tool("qq.get_group_info")}}
+// TestRegistryRegistersEveryProvider verifies every supplied provider is
+// opened and its tools appear in the snapshot; there is no enable list.
+// TestRegistryRegistersEveryProvider 验证每个提供的提供方都会被打开，
+// 其工具出现在快照中；不存在启用列表。
+func TestRegistryRegistersEveryProvider(t *testing.T) {
+	registry := NewRegistry()
+	timeProvider := &fakeProvider{manifest: contracts.Manifest{ID: "builtin.time"}, tools: []contracts.RegisteredTool{tool("system.current_time")}}
+	qqProvider := &fakeProvider{manifest: contracts.Manifest{ID: "builtin.qq"}, tools: []contracts.RegisteredTool{tool("qq.get_group_info")}}
 
-	if err := registry.Register(context.Background(), enabled); err != nil {
-		t.Fatalf("register enabled: %v", err)
+	if err := registry.Register(context.Background(), timeProvider); err != nil {
+		t.Fatalf("register time: %v", err)
 	}
-	if err := registry.Register(context.Background(), disabled); err != nil {
-		t.Fatalf("register disabled: %v", err)
+	if err := registry.Register(context.Background(), qqProvider); err != nil {
+		t.Fatalf("register qq: %v", err)
 	}
 	snapshot := registry.Snapshot()
-	if len(snapshot) != 1 || snapshot[0].Descriptor.ID != "system.current_time" {
+	if len(snapshot) != 2 || snapshot[0].ProviderID != "builtin.time" || snapshot[1].ProviderID != "builtin.qq" {
 		t.Fatalf("snapshot = %+v", snapshot)
 	}
-	if disabled.closed != 0 {
-		t.Fatal("a disabled provider must never be opened or closed")
+	if len(registry.Manifests()) != 2 {
+		t.Fatalf("manifests = %+v", registry.Manifests())
 	}
 }
 
@@ -70,7 +70,7 @@ func TestRegistryRegistersEnabledProvider(t *testing.T) {
 // TestRegistryRejectsDuplicates 验证提供方或工具 ID 冲突会让注册失败，
 // 并回滚刚打开的提供方。
 func TestRegistryRejectsDuplicates(t *testing.T) {
-	registry := NewRegistry([]string{"builtin.time", "builtin.qq"})
+	registry := NewRegistry()
 	first := &fakeProvider{manifest: contracts.Manifest{ID: "builtin.time"}, tools: []contracts.RegisteredTool{tool("system.current_time")}}
 	if err := registry.Register(context.Background(), first); err != nil {
 		t.Fatalf("register first: %v", err)
@@ -100,7 +100,7 @@ func TestRegistryRejectsInvalidDescriptors(t *testing.T) {
 		"conflicting":  {ID: "system.x", Description: "x", ReadOnly: true, SideEffect: true},
 	}
 	for name, descriptor := range cases {
-		registry := NewRegistry([]string{"builtin.time"})
+		registry := NewRegistry()
 		provider := &fakeProvider{
 			manifest: contracts.Manifest{ID: "builtin.time"},
 			tools:    []contracts.RegisteredTool{{Descriptor: descriptor}},
@@ -120,7 +120,7 @@ func TestRegistryRejectsInvalidDescriptors(t *testing.T) {
 // TestRegistryRejectsContradictoryRiskLevel 验证标注只读风险却不是只读的工具
 // 会注册失败，而不是被当成安全工具。
 func TestRegistryRejectsContradictoryRiskLevel(t *testing.T) {
-	registry := NewRegistry([]string{"builtin.time"})
+	registry := NewRegistry()
 	provider := &fakeProvider{
 		manifest: contracts.Manifest{ID: "builtin.time"},
 		tools: []contracts.RegisteredTool{{
@@ -147,7 +147,7 @@ func TestRegistryRejectsContradictoryRiskLevel(t *testing.T) {
 // 且错误包含工具 ID 与非法值。
 func TestRegistryRejectsInvalidRiskLevel(t *testing.T) {
 	for _, level := range []contracts.RiskLevel{"raed", "READ"} {
-		registry := NewRegistry([]string{"builtin.time"})
+		registry := NewRegistry()
 		provider := &fakeProvider{
 			manifest: contracts.Manifest{ID: "builtin.time"},
 			tools: []contracts.RegisteredTool{{
@@ -174,7 +174,7 @@ func TestRegistryRejectsInvalidRiskLevel(t *testing.T) {
 // TestRegistryRejectsInvalidScopeKinds 验证声明的会话类型必须是受支持类型，
 // 且错误包含工具 ID 与非法值。
 func TestRegistryRejectsInvalidScopeKinds(t *testing.T) {
-	registry := NewRegistry([]string{"builtin.time"})
+	registry := NewRegistry()
 	provider := &fakeProvider{
 		manifest: contracts.Manifest{ID: "builtin.time"},
 		tools: []contracts.RegisteredTool{{
@@ -199,7 +199,7 @@ func TestRegistryRejectsInvalidScopeKinds(t *testing.T) {
 // TestRegistrySnapshotIsCopy verifies callers cannot mutate registry state.
 // TestRegistrySnapshotIsCopy 验证调用方无法修改注册表状态。
 func TestRegistrySnapshotIsCopy(t *testing.T) {
-	registry := NewRegistry([]string{"builtin.time"})
+	registry := NewRegistry()
 	provider := &fakeProvider{manifest: contracts.Manifest{ID: "builtin.time"}, tools: []contracts.RegisteredTool{tool("system.current_time")}}
 	if err := registry.Register(context.Background(), provider); err != nil {
 		t.Fatalf("register: %v", err)
@@ -214,7 +214,7 @@ func TestRegistrySnapshotIsCopy(t *testing.T) {
 // TestRegistryClosesProvidersInReverseOrder verifies shutdown ordering.
 // TestRegistryClosesProvidersInReverseOrder 验证关闭顺序为注册逆序。
 func TestRegistryClosesProvidersInReverseOrder(t *testing.T) {
-	registry := NewRegistry([]string{"a.first", "b.second"})
+	registry := NewRegistry()
 	first := &fakeProvider{manifest: contracts.Manifest{ID: "a.first"}, tools: []contracts.RegisteredTool{tool("a.tool")}}
 	second := &fakeProvider{manifest: contracts.Manifest{ID: "b.second"}, tools: []contracts.RegisteredTool{tool("b.tool")}}
 	if err := registry.Register(context.Background(), first); err != nil {
@@ -238,7 +238,7 @@ func TestRegistryClosesProvidersInReverseOrder(t *testing.T) {
 // the error surfaces.
 // TestRegistryPropagatesProviderError 验证提供方失败会被关闭并返回错误。
 func TestRegistryPropagatesProviderError(t *testing.T) {
-	registry := NewRegistry([]string{"builtin.time"})
+	registry := NewRegistry()
 	provider := &fakeProvider{manifest: contracts.Manifest{ID: "builtin.time"}, err: errors.New("boom")}
 	if err := registry.Register(context.Background(), provider); err == nil {
 		t.Fatal("expected the provider error")
@@ -248,37 +248,16 @@ func TestRegistryPropagatesProviderError(t *testing.T) {
 	}
 }
 
-// TestRegistryReportsUnknownProviders verifies a typo in the enable list is
-// reported instead of silently exposing nothing, and that tools carry their
-// provider id.
-// TestRegistryReportsUnknownProviders 验证启用列表中的拼写错误会被报告，
-// 而不是静默地不暴露任何工具；同时验证工具带上提供方 ID。
-func TestRegistryReportsUnknownProviders(t *testing.T) {
-	registry := NewRegistry([]string{"builtin.time", "builtin.tim"})
+// TestRegistryTagsToolsWithProviderID verifies every registered tool carries the
+// provider that supplied it.
+// TestRegistryTagsToolsWithProviderID 验证每个工具都带上提供它的提供方 ID。
+func TestRegistryTagsToolsWithProviderID(t *testing.T) {
+	registry := NewRegistry()
 	if err := registry.Register(context.Background(), &fakeProvider{
 		manifest: contracts.Manifest{ID: "builtin.time"},
 		tools:    []contracts.RegisteredTool{tool("system.current_time")},
 	}); err != nil {
 		t.Fatalf("register: %v", err)
-	}
-	if err := registry.Register(context.Background(), &fakeProvider{
-		manifest: contracts.Manifest{ID: "builtin.qq"},
-		tools:    []contracts.RegisteredTool{tool("qq.get_group_info")},
-	}); err != nil {
-		t.Fatalf("register disabled provider: %v", err)
-	}
-
-	unknown := registry.Unknown()
-	if len(unknown) != 1 || unknown[0] != "builtin.tim" {
-		t.Fatalf("unknown = %v", unknown)
-	}
-	known := registry.Known()
-	if len(known) != 2 || known[0] != "builtin.qq" || known[1] != "builtin.time" {
-		t.Fatalf("known = %v", known)
-	}
-	manifests := registry.Manifests()
-	if len(manifests) != 1 || manifests[0].ID != "builtin.time" {
-		t.Fatalf("manifests = %+v", manifests)
 	}
 	snapshot := registry.Snapshot()
 	if len(snapshot) != 1 || snapshot[0].ProviderID != "builtin.time" {

@@ -106,16 +106,30 @@ func TestGuardDeniesMissingPermission(t *testing.T) {
 	}
 }
 
-// TestGuardDeniesNonReadOnly verifies write tools stay disabled.
-// TestGuardDeniesNonReadOnly 验证写工具默认不开放。
-func TestGuardDeniesNonReadOnly(t *testing.T) {
-	descriptor := contracts.ToolDescriptor{ID: "qq.send_message", Description: "x", ReadOnly: false}
-	out, _ := Guard(testScope(), descriptor, func(context.Context, string) (string, error) {
-		t.Fatal("non read-only tool must not run")
-		return "", nil
-	})(context.Background(), "{}")
-	if !strings.Contains(out, "not available") {
-		t.Fatalf("out = %q", out)
+// TestGuardAllowsWriteToolWithoutPermission verifies there is no process-level
+// side-effect switch any more: a write tool without a declared permission runs,
+// while a denied permission still fails closed.
+// TestGuardAllowsWriteToolWithoutPermission 验证进程级副作用开关已被移除：
+// 未声明权限的写工具可以执行，而被拒绝的权限仍然关闭式失败。
+func TestGuardAllowsWriteToolWithoutPermission(t *testing.T) {
+	ran := false
+	out, err := Guard(testScope(), contracts.ToolDescriptor{ID: "qq.send_message", Description: "x"},
+		func(context.Context, string) (string, error) {
+			ran = true
+			return "sent", nil
+		})(context.Background(), "{}")
+	if err != nil || !ran || out != "sent" {
+		t.Fatalf("write tool without permission must run: ran=%v out=%q err=%v", ran, out, err)
+	}
+
+	denied, _ := Guard(testScope(),
+		contracts.ToolDescriptor{ID: "qq.kick_member", Description: "x", Permission: "qq.group.admin.kick"},
+		func(context.Context, string) (string, error) {
+			t.Fatal("denied tool must not run")
+			return "", nil
+		})(context.Background(), "{}")
+	if !strings.Contains(denied, "permission denied") {
+		t.Fatalf("out = %q", denied)
 	}
 }
 
