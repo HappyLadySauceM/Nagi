@@ -11,13 +11,15 @@ import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { Skeleton } from '../../components/ui/skeleton'
 import { indexScopes } from '../../lib/api/adapters/scope'
+import { REPLY_MODE_LABELS } from '../../lib/api/contracts'
 import type { Contact, Group, ScopePolicy } from '../../lib/api/contracts'
 import { describeError } from '../../lib/errors'
 import { formatCount, formatRelativeTime } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useAccountContext } from '../accounts/account-context'
-import { useScopeIndex } from '../scopes/queries'
+import { useToolsCatalog, useScope, useScopeIndex } from '../scopes/queries'
 import { ContactDetailPanel, type DirectorySelection } from './components/contact-detail-panel'
+import { ScopeEditDialog } from './components/scope-edit-dialog'
 import { DirectoryTabs } from './components/directory-tabs'
 import { DirectoryToolbar } from './components/directory-toolbar'
 import { ScopeStatusBadge } from './components/scope-status-badge'
@@ -30,7 +32,7 @@ import type { DirectoryTab } from '../../lib/search-params'
  * 行尾状态：色点 + 文字标签，无需悬停即可辨认状态。
  */
 function PolicyStatusIndicator({ policy }: { policy?: ScopePolicy }) {
-  const label = policy ? (policy.enabled ? '已启用' : '已保存未启用') : '默认关闭'
+  const label = `${policy?.enabled ? '已启用' : '已关闭'} · ${policy?.source === 'default' ? '跟随默认' : policy ? '独立策略' : '默认策略'}`
   return (
     <span
       className={cn(
@@ -153,9 +155,15 @@ export function DirectoryPage() {
   const contacts = useContacts(selectedBotId, params, tab === 'friends')
   const groups = useGroups(selectedBotId, params, tab === 'groups')
   const scopeIndex = useScopeIndex(selectedBotId)
+  const friendDefault = useScope(selectedBotId, 'private', 0)
+  const groupDefault = useScope(selectedBotId, 'group', 0)
+  const friendTools=useToolsCatalog('private')
+  const groupTools=useToolsCatalog('group')
+  const [editingDefault, setEditingDefault] = useState<'private' | 'group' | null>(null)
   const sync = useSyncDirectory(selectedBotId)
 
   const [selectedKey, setSelectedKey] = useState<number | null>(null)
+  const [mobileDetail,setMobileDetail] = useState(false)
 
   const scopes = indexScopes(scopeIndex.data)
   const friendRows = pinnedFirst(contacts.data?.items ?? [], (row) =>
@@ -164,6 +172,11 @@ export function DirectoryPage() {
   const groupRows = pinnedFirst(groups.data?.items ?? [], (row) =>
     scopes.has(`group:${row.groupId}`),
   )
+  const effectiveScopes = new Map(scopes)
+  for (const row of friendRows) if(row.policy) effectiveScopes.set(`private:${row.userId}`,row.policy)
+  for (const row of groupRows) if(row.policy) effectiveScopes.set(`group:${row.groupId}`,row.policy)
+  for (const row of friendRows) if (!effectiveScopes.has(`private:${row.userId}`) && friendDefault.data) effectiveScopes.set(`private:${row.userId}`, { ...friendDefault.data, scopeId: row.userId, source: 'default' })
+  for (const row of groupRows) if (!effectiveScopes.has(`group:${row.groupId}`) && groupDefault.data) effectiveScopes.set(`group:${row.groupId}`, { ...groupDefault.data, scopeId: row.groupId, source: 'default' })
   const activeQuery = tab === 'friends' ? contacts : groups
   const hasFilter = search.trim().length > 0
   const isSyncing = sync.isPending
@@ -180,7 +193,7 @@ export function DirectoryPage() {
             name: selectedContact.remark || selectedContact.nickname,
             remark: selectedContact.nickname,
             lastSeenAt: selectedContact.lastSeenAt,
-            policy: scopes.get(`private:${selectedContact.userId}`),
+            policy: effectiveScopes.get(`private:${selectedContact.userId}`),
           }
         : undefined
       : selectedGroup
@@ -190,17 +203,19 @@ export function DirectoryPage() {
             name: selectedGroup.name,
             memberCount: selectedGroup.memberCount,
             lastSeenAt: selectedGroup.lastSeenAt,
-            policy: scopes.get(`group:${selectedGroup.groupId}`),
+            policy: effectiveScopes.get(`group:${selectedGroup.groupId}`),
           }
         : undefined
 
   const changeTab = (next: DirectoryTab) => {
     setSelectedKey(null)
+    setMobileDetail(false)
     void navigate({ search: (prev) => ({ ...prev, tab: next, page: 1 }), replace: true })
   }
 
   const changeSearch = (value: string) => {
     setSelectedKey(null)
+    setMobileDetail(false)
     void navigate({ search: (prev) => ({ ...prev, search: value, page: 1 }), replace: true })
   }
 
@@ -222,8 +237,8 @@ export function DirectoryPage() {
         title="联系人"
         description={
           selectedAccount
-            ? `当前账号 ${selectedAccount.nickname || selectedAccount.botId}，好友与群聊统一在这里查看。作用域默认关闭，保存后才会参与对话。`
-            : '好友与群聊统一在这里查看。作用域默认关闭，保存后才会参与对话。'
+            ? `当前账号 ${selectedAccount.nickname || selectedAccount.botId}，好友与群聊统一在这里查看。未独立配置的会话跟随好友或群聊默认策略。`
+            : '好友与群聊统一在这里查看。未独立配置的会话跟随好友或群聊默认策略。'
         }
         actions={
           <div className="flex items-center gap-2">
@@ -241,6 +256,14 @@ export function DirectoryPage() {
           </div>
         }
       />
+
+      {selectedBotId !== undefined ? <div className="grid gap-3 md:grid-cols-2">
+        {([{ kind: 'private' as const, title: '默认好友策略', query: friendDefault }, { kind: 'group' as const, title: '默认群聊策略', query: groupDefault }]).map(({ kind, title, query }) => <Card key={kind} className="flex items-center justify-between gap-4 border-primary/20 bg-primary/5 p-4">
+          <div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-sm text-muted-foreground">{query.isLoading ? '加载中…' : query.isError ? '读取失败，请重试' : `${query.data?.enabled ? '已启用' : '已关闭'} · ${REPLY_MODE_LABELS[query.data?.replyMode ?? 'mention_only']} · ${(kind==='private'?friendTools:groupTools).data?.permissions.filter(permission=>(kind==='private'?friendTools:groupTools).data?.tools.some(tool=>tool.applicable && permission.tools.includes(tool.id)) && (query.data?.toolPermissions[permission.id] ?? permission.defaultGranted)).length ?? 0} 项能力授权`}</p><p className="mt-1 text-xs text-muted-foreground">用于没有独立策略的现有及新增会话</p></div>
+          <Button variant="outline" disabled={query.isLoading} onClick={() => query.isError ? void query.refetch() : setEditingDefault(kind)}>{query.isError ? '重试' : '编辑模板'}</Button>
+        </Card>)}
+      </div> : null}
+      {selectedBotId !== undefined && editingDefault ? <ScopeEditDialog key={`${selectedBotId}:${editingDefault}`} open onOpenChange={(open) => { if (!open) setEditingDefault(null) }} botId={selectedBotId} scopeType={editingDefault} scopeId={0} targetLabel={editingDefault === 'private' ? '默认好友策略' : '默认群聊策略'} /> : null}
 
       {accountsError ? (
         <Card>
@@ -260,7 +283,7 @@ export function DirectoryPage() {
         </Card>
       ) : (
         <div className="grid gap-3 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-          <Card className="flex min-h-[520px] flex-col overflow-hidden">
+          <Card className={cn('min-h-[520px] flex-col overflow-hidden', mobileDetail ? 'hidden xl:flex' : 'flex')}>
             <div className="space-y-3 border-b border-border/60 px-4 py-4">
               <DirectoryTabs
                 tab={tab}
@@ -324,8 +347,8 @@ export function DirectoryPage() {
                         key={contact.userId}
                         contact={contact}
                         active={contact.userId === selectedContact?.userId}
-                        policy={scopes.get(`private:${contact.userId}`)}
-                        onSelect={() => setSelectedKey(contact.userId)}
+                        policy={effectiveScopes.get(`private:${contact.userId}`)}
+                        onSelect={() => {setSelectedKey(contact.userId);setMobileDetail(true)}}
                       />
                     ))}
                   </div>
@@ -360,8 +383,8 @@ export function DirectoryPage() {
                       key={group.groupId}
                       group={group}
                       active={group.groupId === selectedGroup?.groupId}
-                      policy={scopes.get(`group:${group.groupId}`)}
-                      onSelect={() => setSelectedKey(group.groupId)}
+                      policy={effectiveScopes.get(`group:${group.groupId}`)}
+                      onSelect={() => {setSelectedKey(group.groupId);setMobileDetail(true)}}
                     />
                   ))}
                 </div>
@@ -385,8 +408,9 @@ export function DirectoryPage() {
             </div>
           </Card>
 
-          <div className="min-w-0">
-            <ContactDetailPanel selection={selection} />
+          <div className={cn('min-w-0',mobileDetail ? 'block' : 'hidden xl:block')}>
+            <Button className="mb-3 xl:hidden" variant="outline" onClick={()=>setMobileDetail(false)}>返回联系人列表</Button>
+            <ContactDetailPanel key={`${selectedBotId}:${tab}:${selection?.id}`} selection={selection} />
             {selection ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
                 <Badge variant="secondary">
@@ -394,8 +418,8 @@ export function DirectoryPage() {
                 </Badge>
                 <span>
                   {selection.policy
-                    ? '已保存策略，可随时调整回复模式与数据权限。'
-                    : '尚未保存策略，当前按默认拒绝处理。'}
+                    ? selection.policy.source === 'default' ? '当前跟随默认模板；保存编辑后将生成独立策略。' : '当前使用独立策略。'
+                    : '正在读取有效策略。'}
                 </span>
                 <ScopeStatusBadge policy={selection.policy} />
               </div>

@@ -169,3 +169,24 @@ func TestGuardReportsToolFailure(t *testing.T) {
 		t.Fatalf("error details leaked: %q", out)
 	}
 }
+
+func TestGuardReauthorizesEachInvocation(t *testing.T) {
+	scope := testScope()
+	revoked := false
+	calls := 0
+	scope.Reauthorize = func(context.Context, contracts.ToolDescriptor) error {
+		if revoked {
+			return errors.New("revoked")
+		}
+		return nil
+	}
+	invoke := Guard(scope, readOnly("qq.get_group_info", "qq.group.read"), func(context.Context, string) (string, error) { calls++; return "ok", nil })
+	if _, err := invoke(context.Background(), "{}"); err != nil {
+		t.Fatal(err)
+	}
+	revoked = true
+	out, err := invoke(context.Background(), "{}")
+	if err != nil || calls != 1 || !strings.Contains(out, "authorization denied") {
+		t.Fatalf("revoked call executed: calls=%d out=%q err=%v", calls, out, err)
+	}
+}

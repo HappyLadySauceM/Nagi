@@ -6,6 +6,7 @@ import (
 	"context"
 	"io/fs"
 	"testing"
+	"testing/fstest"
 
 	"github.com/HappyLadySauceM/Nagi/migrations"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
@@ -83,5 +84,71 @@ func TestMigrateAppliesAndReverses(t *testing.T) {
 	// 完整 Down 之后的首次 Migrate 必须报告所有版本均已应用，启动日志依赖该返回值。
 	if len(applied) != count {
 		t.Fatalf("migrate after down should report %d applied versions, got %v", count, applied)
+	}
+}
+
+// TestUnifiedSendingMigrationPreservesLegacyGrants checks absent, explicit and denied grants.
+// TestUnifiedSendingMigrationPreservesLegacyGrants 验证迁移保留缺省、显式允许及拒绝权限。
+func TestUnifiedSendingMigrationPreservesLegacyGrants(t *testing.T) {
+	pool := dbtest.Open(t)
+	ctx := context.Background()
+	subset := fstest.MapFS{}
+	for _, name := range []string{"0015_unified_scope_sending.up.sql", "0015_unified_scope_sending.down.sql"} {
+		raw, err := fs.ReadFile(migrations.FS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subset[name] = &fstest.MapFile{Data: raw}
+	}
+	if err := db.Down(ctx, pool, subset); err != nil {
+		t.Fatal(err)
+	}
+	const botID = 999781
+	if _, err := pool.Exec(ctx, "INSERT INTO bot_accounts(bot_id,nickname) VALUES($1,'migration-grants') ON CONFLICT DO NOTHING", botID); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		pool.Exec(ctx, "DELETE FROM scope_policies WHERE bot_id=$1", botID)
+		pool.Exec(ctx, "DELETE FROM agent_sending_policies WHERE bot_id=$1", botID)
+	}()
+	permissions := []string{"{}", "{\"qq.reply.current\":true}", "{\"qq.reply.current\":false}"}
+	for i, permission := range permissions {
+		id := i + 501
+		if _, err := pool.Exec(ctx, "INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,tool_permissions) VALUES($1,'private',$2,true,$3)", botID, id, permission); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, "INSERT INTO agent_sending_policies(bot_id,scope_type,scope_id,allow_send_current,max_messages_per_run,min_interval_ms) VALUES($1,'private',$2,$3,4,800)", botID, id, i != 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	verify := func(want []string) {
+		for i, expected := range want {
+			var grant string
+			if err := pool.QueryRow(ctx, "SELECT COALESCE(tool_permissions->>'qq.reply.current','absent') FROM scope_policies WHERE bot_id=$1 AND scope_id=$2", botID, i+501).Scan(&grant); err != nil {
+				t.Fatal(err)
+			}
+			if grant != expected {
+				t.Fatalf("grant %d: got %s want %s", i, grant, expected)
+			}
+		}
+	}
+	for cycle := 0; cycle < 2; cycle++ {
+		if _, err := db.Migrate(ctx, pool, subset); err != nil {
+			t.Fatal(err)
+		}
+		verify([]string{"absent", "false", "false"})
+		var count, interval int
+		if err := pool.QueryRow(ctx, "SELECT max_messages_per_run,message_interval_ms FROM scope_policies WHERE bot_id=$1 AND scope_id=501", botID).Scan(&count, &interval); err != nil {
+			t.Fatal(err)
+		}
+		if count != 4 || interval != 800 {
+			t.Fatalf("budget lost: %d/%d", count, interval)
+		}
+		if cycle == 0 {
+			if err := db.Down(ctx, pool, subset); err != nil {
+				t.Fatal(err)
+			}
+			verify([]string{"absent", "true", "false"})
+		}
 	}
 }

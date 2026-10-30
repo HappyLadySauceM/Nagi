@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -138,7 +137,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
 	decision.RulesetVersion = rulesetVersion
-	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic)
+	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic, d.th)
 
 	if err := d.recorder.Record(ctx, task.JobID, decision); err != nil {
 		d.logger.Warn("record decision failed", "error", err, "job_id", task.JobID)
@@ -212,7 +211,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 // decisionSteps 把流水线各阶段整理为可持久化的解释步骤，
 // 顺序与判定顺序一致，控制台可据此复现决策。
 func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
-	semantic domain.SemanticAnswer, decision domain.FinalDecision, latency int64, asked bool,
+	semantic domain.SemanticAnswer, decision domain.FinalDecision, latency int64, asked bool, th domain.Thresholds,
 ) []domain.Step {
 	steps := []domain.Step{{
 		Index: 0,
@@ -233,6 +232,9 @@ func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
 			"explicit":      rule.Explicit,
 			"need_semantic": rule.NeedSemantic,
 			"always_reply":  rule.AlwaysReply,
+			"builtin_rules": rule.BuiltinRules,
+			"evaluations":   rule.Evaluations,
+			"matched":       rule.Matched,
 		},
 	}}
 	if asked {
@@ -241,6 +243,7 @@ func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
 			Phase: domain.StepSemantic,
 			Detail: map[string]any{
 				"available":            semantic.Available,
+				"failure_code":         semantic.FailureCode,
 				"intent_category":      semantic.IntentCategory,
 				"directed_to_bot":      semantic.DirectedToBot,
 				"continues_bot_thread": semantic.ContinuesBotThread,
@@ -255,10 +258,11 @@ func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
 		Phase:      domain.StepFinal,
 		ReasonCode: decision.ReasonCode,
 		Detail: map[string]any{
-			"decision": string(decision.Decision),
-			"provider": decision.Provider,
-			"model":    decision.Model,
-			"scores":   decision.Scores,
+			"decision":   string(decision.Decision),
+			"provider":   decision.Provider,
+			"model":      decision.Model,
+			"scores":     decision.Scores,
+			"thresholds": map[string]float64{"continuation": th.Continuation, "interjection": th.Interjection, "addressed_other_max": th.AddressedOtherMax},
 		},
 	})
 	return steps
@@ -271,16 +275,20 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 	defer span.End()
 	rule := EvaluateRules(in)
 	version := ""
-	// A published ruleset overlays the built-in gate; a load failure degrades to
-	// the built-in rules instead of blocking replies.
-	// 已发布规则叠加在内置闸门之上；读取失败时降级为内置规则，而不是阻塞回复。
 	if d.rules != nil {
-		set, ok, err := d.rules.Active(ctx, in.Task.BotID, string(in.Policy.ScopeType), in.Policy.ScopeID)
-		if err != nil {
-			d.logger.Warn("load ruleset failed; using built-in rules", "error", err, "job_id", in.Task.JobID)
-		} else if ok {
-			rule = ApplyRuleset(rule, in, set.Entries)
-			version = strconv.Itoa(set.Version)
+		global, hasGlobal, globalErr := d.rules.Active(ctx, in.Task.BotID, "group", 0)
+		specific, hasSpecific, specificErr := d.rules.Active(ctx, in.Task.BotID, string(in.Policy.ScopeType), in.Policy.ScopeID)
+		if globalErr != nil || specificErr != nil {
+			d.logger.Warn("load ruleset failed; using built-in rules", "job_id", in.Task.JobID)
+		} else {
+			var specificSet, globalSet *domain.Ruleset
+			if hasSpecific {
+				specificSet = &specific
+			}
+			if hasGlobal {
+				globalSet = &global
+			}
+			rule, version = EvaluateRuleChain(in, specificSet, globalSet)
 		}
 	}
 	span.SetAttributes(
@@ -335,7 +343,7 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.S
 			"latency_ms": latency,
 		})
 		d.logger.Warn("semantic decision unavailable", "error", err, "job_id", in.Task.JobID)
-		return domain.SemanticAnswer{}, latency
+		return domain.SemanticAnswer{FailureCode: "semantic_unavailable"}, latency
 	}
 	span.SetAttributes(
 		attribute.String("nagi.intent_category", answer.IntentCategory),
@@ -387,4 +395,45 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 // tracer 返回本上下文共享的、无 SDK 时为 no-op 的 tracer。
 func tracer() trace.Tracer {
 	return otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/intent")
+}
+
+// EvaluateSimulation reuses the live semantic provider and thresholds without invoking the executor.
+// EvaluateSimulation 复用运行中的语义服务与阈值，不调用回复执行器。
+func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule domain.RuleResult, full bool) (domain.FinalDecision, []domain.Step) {
+	var semantic domain.SemanticAnswer
+	var latency int64
+	called := full && rule.NeedSemantic && d.semantic != nil && !rule.Blocked
+	if called {
+		semantic, latency = d.decideSemantic(ctx, in)
+	}
+	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
+	return decision, decisionSteps(in.Policy, rule, semantic, decision, latency, called, d.th)
+}
+
+// PrepareSimulation loads the same authorized context and activity as live decisions.
+// PrepareSimulation 加载与真实决策相同的已授权上下文及会话活动。
+func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domain.Input, error) {
+	locator, ok := d.activity.(interface {
+		ConversationIDForScope(context.Context, int64, string, int64) (string, error)
+	})
+	if !ok {
+		return in, fmt.Errorf("intent: simulation context unavailable")
+	}
+	id, err := locator.ConversationIDForScope(ctx, in.Task.BotID, in.Task.Kind, in.Task.TargetID)
+	if err != nil {
+		return in, err
+	}
+	in.Task.ConversationID = id
+	if id == "" {
+		in.Recent = nil
+		in.Activity = domain.BotActivity{Known: true}
+		return in, nil
+	}
+	history, activity, err := d.loadContext(ctx, in.Task, in.Policy)
+	if err != nil {
+		return in, err
+	}
+	in.Recent = history
+	in.Activity = activity
+	return in, nil
 }

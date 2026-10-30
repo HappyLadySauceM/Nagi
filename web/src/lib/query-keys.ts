@@ -45,8 +45,7 @@ export const queryKeys = {
   rulesets: (scope: { botId: number; scopeType: string; scopeId: number } | null) =>
     ['intent', 'rulesets', scope] as const,
   ruleset: (id: number) => ['intent', 'ruleset', id] as const,
-  sendingPolicy: (scope: { botId: number; scopeType: string; scopeId: number } | null) =>
-    ['agent', 'sending-policy', scope] as const,
+
 } as const
 
 /** Keys invalidated after a directory sync; members refresh separately. */

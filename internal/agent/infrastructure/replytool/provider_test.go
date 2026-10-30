@@ -49,6 +49,8 @@ func segmentsText(segs []obdomain.Segment) string {
 func (f *fakeSender) ReceiptSender(int64) (Sender, bool) { return f, true }
 
 type fakeLedger struct {
+	denied   []string
+	denyErr  error
 	reserved []outboundapp.Request
 	settled  []outboundapp.Outcome
 	nextSeq  int
@@ -84,6 +86,9 @@ func (f *fakeRecorder) RecordOutgoing(_ context.Context, _ string, _ int64, text
 
 func newTool(t *testing.T, sender *fakeSender, ledger *fakeLedger, recorder *fakeRecorder) contracts.RegisteredTool {
 	t.Helper()
+	if sender.err == nil && sender.message == 0 {
+		sender.message = 1
+	}
 	tools, err := NewProvider(Options{
 		Senders:  sender,
 		Ledger:   ledger,
@@ -141,8 +146,8 @@ func TestSendCurrentRejectsBudgetWithoutSending(t *testing.T) {
 	tool := newTool(t, sender, ledger, &fakeRecorder{})
 
 	out, err := tool.Invoke(groupContext(), `{"text":"再发一条"}`)
-	if err != nil {
-		t.Fatalf("invoke: %v", err)
+	if !errors.Is(err, outbounddomain.ErrBudgetExceeded) {
+		t.Fatalf("expected budget rejection: %v", err)
 	}
 	if !strings.Contains(out, "预算已用尽") {
 		t.Fatalf("out = %s", out)
@@ -159,8 +164,8 @@ func TestSendCurrentReportsTimeoutAsUnknown(t *testing.T) {
 	tool := newTool(t, sender, ledger, recorder)
 
 	out, err := tool.Invoke(groupContext(), `{"text":"可能已送达"}`)
-	if err != nil {
-		t.Fatalf("invoke: %v", err)
+	if !errors.Is(err, obcontracts.ErrActionTimeout) {
+		t.Fatalf("expected timeout: %v", err)
 	}
 	if !strings.Contains(out, `"status":"unknown"`) {
 		t.Fatalf("out = %s", out)
@@ -180,10 +185,10 @@ func TestSendCurrentRejectsLinks(t *testing.T) {
 	tool := newTool(t, sender, ledger, &fakeRecorder{})
 
 	out, err := tool.Invoke(groupContext(), `{"text":"看 https://example.com"}`)
-	if err != nil {
-		t.Fatalf("invoke: %v", err)
+	if err == nil {
+		t.Fatal("expected output rejection")
 	}
-	if !strings.Contains(out, "输出检查") {
+	if out != "" {
 		t.Fatalf("out = %s", out)
 	}
 	if len(ledger.reserved) != 0 || sender.groupCal != 0 {
@@ -203,5 +208,30 @@ func TestSendCurrentPropagatesLedgerErrors(t *testing.T) {
 	tool := newTool(t, &fakeSender{}, ledger, &fakeRecorder{})
 	if _, err := tool.Invoke(groupContext(), `{"text":"hi"}`); err == nil {
 		t.Fatalf("expected a ledger error")
+	}
+}
+
+func (f *fakeLedger) RecordDenied(_ context.Context, _ int64, reason string) error {
+	f.denied = append(f.denied, reason)
+	return f.denyErr
+}
+
+func TestInvalidArgumentsStopSendingBeforeReservation(t *testing.T) {
+	sender := &fakeSender{}
+	ledger := &fakeLedger{}
+	tool := newTool(t, sender, ledger, &fakeRecorder{})
+	if _, err := tool.Invoke(groupContext(), "{invalid"); err == nil {
+		t.Fatal("invalid arguments must fail")
+	}
+	if len(ledger.denied) != 1 || ledger.denied[0] != "invalid_arguments" || len(ledger.reserved) != 0 || sender.groupCal != 0 {
+		t.Fatalf("invalid arguments were not recorded: %+v", ledger)
+	}
+}
+
+func TestDenialPersistenceErrorIsPropagated(t *testing.T) {
+	ledger := &fakeLedger{denyErr: errors.New("denial persistence failed")}
+	tool := newTool(t, &fakeSender{}, ledger, &fakeRecorder{})
+	if _, err := tool.Invoke(groupContext(), "{invalid"); !errors.Is(err, ledger.denyErr) {
+		t.Fatalf("denial persistence failure lost: %v", err)
 	}
 }

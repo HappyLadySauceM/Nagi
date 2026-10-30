@@ -21,6 +21,7 @@ const SCOPE_TYPES: readonly ScopeType[] = ['group', 'private']
 /** Server-side defaults mirror `scope/domain.Default` for unknown scopes. */
 export const DEFAULT_SCOPE_FORM: ScopeForm = {
   enabled: false,
+  maxMessagesPerRun: 3, maxCharsPerMessage: 500, maxTotalCharsPerRun: 1500, messageIntervalMs: 700,
   replyMode: 'mention_only',
   storeMessages: false,
   allowHistoryRead: false,
@@ -109,33 +110,35 @@ export function toScopePolicy(raw: unknown): ScopePolicy {
   const scopeType = scopeTypeRaw
 
   const scopeId = readNumber(record, 'ScopeID', SCOPE_ENDPOINT, 0)
-  if (scopeId <= 0) {
+  if (!('ScopeID' in record) || scopeId < 0) {
     throw contractError(SCOPE_ENDPOINT, 'ScopeID 缺失')
   }
 
   const replyModeRaw = readString(record, 'ReplyMode', SCOPE_ENDPOINT, '')
   const replyMode = isReplyMode(replyModeRaw) ? replyModeRaw : DEFAULT_SCOPE_FORM.replyMode
+  const policyNumber = (key: string, fallback: number) => {
+    const value=readNumber(record,key,SCOPE_ENDPOINT,fallback)
+    return isReplyMode(replyModeRaw) ? value : positiveOr(value,fallback)
+  }
 
   return {
     scopeType,
     scopeId,
+    maxMessagesPerRun: readNumber(record, 'MaxMessagesPerRun', SCOPE_ENDPOINT, 3),
+    maxCharsPerMessage: readNumber(record, 'MaxCharsPerMessage', SCOPE_ENDPOINT, 500),
+    maxTotalCharsPerRun: readNumber(record, 'MaxTotalCharsPerRun', SCOPE_ENDPOINT, 1500),
+    messageIntervalMs: readNumber(record, 'MessageIntervalMS', SCOPE_ENDPOINT, 700),
+    source: readString(record, 'Source', SCOPE_ENDPOINT, scopeId === 0 ? 'default' : 'independent'),
+    version: readNumber(record, 'Version', SCOPE_ENDPOINT, 0),
+    templateVersion: readNumber(record, 'TemplateVersion', SCOPE_ENDPOINT, 0),
     enabled: readBoolean(record, 'Enabled', SCOPE_ENDPOINT),
     replyMode,
     storeMessages: readBoolean(record, 'StoreMessages', SCOPE_ENDPOINT),
     allowMemoryWrite: readBoolean(record, 'AllowMemoryWrite', SCOPE_ENDPOINT),
     allowHistoryRead: readBoolean(record, 'AllowHistoryRead', SCOPE_ENDPOINT),
-    minReplyIntervalMs: positiveOr(
-      readNumber(record, 'MinReplyIntervalMS', SCOPE_ENDPOINT, 0),
-      DEFAULT_MIN_REPLY_INTERVAL_MS,
-    ),
-    maxRepliesPerHour: positiveOr(
-      readNumber(record, 'MaxRepliesPerHour', SCOPE_ENDPOINT, 0),
-      DEFAULT_MAX_REPLIES_PER_HOUR,
-    ),
-    retentionDays: positiveOr(
-      readNumber(record, 'RetentionDays', SCOPE_ENDPOINT, 0),
-      DEFAULT_RETENTION_DAYS,
-    ),
+    minReplyIntervalMs: policyNumber('MinReplyIntervalMS',DEFAULT_MIN_REPLY_INTERVAL_MS),
+    maxRepliesPerHour: policyNumber('MaxRepliesPerHour',DEFAULT_MAX_REPLIES_PER_HOUR),
+    retentionDays: policyNumber('RetentionDays',DEFAULT_RETENTION_DAYS),
     toolPermissions: readToolPermissions(record, SCOPE_ENDPOINT),
   }
 }
@@ -147,6 +150,7 @@ export function toScopePolicyList(raw: unknown): ScopePolicy[] {
 
 export function toScopeForm(policy: ScopePolicy): ScopeForm {
   return {
+    maxMessagesPerRun: policy.maxMessagesPerRun ?? 3, maxCharsPerMessage: policy.maxCharsPerMessage ?? 500, maxTotalCharsPerRun: policy.maxTotalCharsPerRun ?? 1500, messageIntervalMs: policy.messageIntervalMs ?? 700,
     enabled: policy.enabled,
     replyMode: policy.replyMode,
     storeMessages: policy.storeMessages,
@@ -165,6 +169,7 @@ export function toScopeForm(policy: ScopePolicy): ScopeForm {
  */
 export function toScopePutBody(form: ScopeForm): Record<string, unknown> {
   return {
+    max_messages_per_run: form.maxMessagesPerRun ?? 3, max_chars_per_message: form.maxCharsPerMessage ?? 500, max_total_chars_per_run: form.maxTotalCharsPerRun ?? 1500, message_interval_ms: form.messageIntervalMs ?? 700,
     enabled: form.enabled,
     reply_mode: form.replyMode,
     store_messages: form.storeMessages,

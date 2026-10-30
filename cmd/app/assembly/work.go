@@ -42,6 +42,7 @@ import (
 	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/builtin"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
@@ -86,7 +87,8 @@ type Runtime struct {
 	Worker       *conversationinfra.Worker
 	// Decisions reads recorded intent decisions; nil until intent is enabled.
 	// Decisions 读取已记录的意图决策；intent 未启用时为 nil。
-	Decisions intentcontracts.DecisionReader
+	Decisions       intentcontracts.DecisionReader
+	IntentSimulator intentcontracts.SimulationEvaluator
 	// Rulesets stores versioned intent rules; nil when the database is absent.
 	// Rulesets 存储版本化意图规则；未配置数据库时为 nil。
 	Rulesets *intentinfra.RulesetsRepo
@@ -214,7 +216,17 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 			return nil, ledgerErr
 		}
 		rt.Outbound = outboundRepo
-		policiesRepo, policyErr := outboundinfra.NewPoliciesRepo(pool)
+		policiesRepo, policyErr := outboundinfra.NewPoliciesRepo(pool, func(ctx context.Context, botID int64, kind string, targetID int64) (bool, error) {
+			if rt.Tools == nil {
+				return false, nil
+			}
+			current, err := rt.Scope.Resolve(ctx, botID, scopedomain.ScopeType(kind), targetID)
+			if err != nil {
+				return false, err
+			}
+			grants := pluginsapp.ResolvePermissions(rt.Tools.Snapshot(), cfg.Tools.PermissionDefaults, current.ToolPermissions)
+			return grants[replytool.Permission], nil
+		})
 		if policyErr != nil {
 			return nil, policyErr
 		}
@@ -225,65 +237,93 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 		}
 		rt.Rulesets = rulesRepo
 		var toolsResolver func(context.Context, agentcontracts.Request) []tool.BaseTool
-		if cfg.AI.Enabled {
-			toolRegistry := pluginsapp.NewRegistry(cfg.Tools.Enabled)
-			providers := []pluginscontracts.ToolProvider{
-				builtin.NewTimeProvider(),
-				builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
-				builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry}),
-				builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry}),
-				builtin.NewQQProfileProvider(groupInfoResolver{accounts: rt.Registry}),
-			}
-			if cfg.Tools.AllowSendCurrent {
-				providers = append(providers, replytool.NewProvider(replytool.Options{
-					Senders:  replySenders{accounts: rt.Registry},
-					Ledger:   ledger,
-					Recorder: rt.Conversation,
-					Limits: outbounddomain.Limits{
-						MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
-						MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
-						MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
-					},
-				}))
-			}
-			for _, providerImpl := range providers {
-				if registerErr := toolRegistry.Register(context.Background(), providerImpl); registerErr != nil {
-					_ = toolRegistry.Close(context.Background())
-					return nil, registerErr
-				}
-			}
-			// An enabled id that no provider matched is always a typo; failing
-			// fast beats starting with silently missing capabilities.
-			// 已启用但没有任何提供方匹配的 ID 一定是拼写错误；
-			// 直接启动失败胜过带着静默缺失的能力运行。
-			if unknown := toolRegistry.Unknown(); len(unknown) > 0 {
-				_ = toolRegistry.Close(context.Background())
-				return nil, fmt.Errorf("tools.enabled contains unknown providers %v; known providers: %v",
-					unknown, toolRegistry.Known())
-			}
-			rt.Tools = toolRegistry
-			rt.CloseTools = toolRegistry.Close
-			logger.Info("tools registered",
-				"count", len(toolRegistry.Snapshot()),
-				"providers", len(toolRegistry.Manifests()),
-				"enabled", cfg.Tools.Enabled)
-			toolsResolver = buildToolsResolver(cfg, toolRegistry, func(ctx context.Context, botID int64, scopeType string, scopeID int64) (bool, bool) {
-				policy, exists, err := policiesRepo.Get(ctx, botID, scopeType, scopeID)
-				if err != nil {
-					// A lookup failure keeps the global switch; the ledger still
-					// guards every send.
-					// 查询失败时沿用全局开关；投递台账仍会逐条把关。
-					return true, false
-				}
-				return policy.AllowSendCurrent, exists
-			})
+		toolRegistry := pluginsapp.NewRegistry([]string{"builtin.time", "builtin.qq", "builtin.qq.member", "builtin.qq.admin", "builtin.qq.profile", replytool.ProviderID})
+		providers := []pluginscontracts.ToolProvider{
+			builtin.NewTimeProvider(),
+			builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
+			builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry}),
+			builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry}),
+			builtin.NewQQProfileProvider(groupInfoResolver{accounts: rt.Registry}),
 		}
+		providers = append(providers, replytool.NewProvider(replytool.Options{
+			Senders: replySenders{accounts: rt.Registry},
+			Authorize: func(ctx context.Context, run pluginsapp.Scope) (outbounddomain.Limits, error) {
+				current, err := rt.Scope.Resolve(ctx, run.BotID, scopedomain.ScopeType(run.Kind), run.TargetID)
+				if err != nil {
+					return outbounddomain.Limits{}, err
+				}
+				if !current.Enabled || !current.StoreMessages || current.ReplyMode == scopedomain.ModeObserveOnly {
+					return outbounddomain.Limits{}, fmt.Errorf("reply authorization revoked")
+				}
+				p, exists, err := policiesRepo.Get(ctx, run.BotID, run.Kind, run.TargetID)
+				if err != nil {
+					return outbounddomain.Limits{}, err
+				}
+				if !exists || !p.AllowSendCurrent {
+					return outbounddomain.Limits{}, fmt.Errorf("autonomous sending disabled")
+				}
+				permissions := pluginsapp.ResolvePermissions(rt.Tools.Snapshot(), cfg.Tools.PermissionDefaults, current.ToolPermissions)
+				if !permissions[replytool.Permission] {
+					return outbounddomain.Limits{}, fmt.Errorf("reply permission revoked")
+				}
+				limits := p.Limits()
+				limits.StopAfterFailure = true
+				limits.MaxPerHour = current.MaxRepliesPerHour
+				return limits, nil
+			},
+			Ledger:   ledger,
+			Recorder: rt.Conversation,
+			Limits: outbounddomain.Limits{
+				MinIntervalMS:      700,
+				MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
+				MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
+				MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
+			},
+		}))
+		for _, providerImpl := range providers {
+			if registerErr := toolRegistry.Register(context.Background(), providerImpl); registerErr != nil {
+				_ = toolRegistry.Close(context.Background())
+				return nil, registerErr
+			}
+		}
+		// An enabled id that no provider matched is always a typo; failing
+		// fast beats starting with silently missing capabilities.
+		// 已启用但没有任何提供方匹配的 ID 一定是拼写错误；
+		// 直接启动失败胜过带着静默缺失的能力运行。
+		if unknown := toolRegistry.Unknown(); len(unknown) > 0 {
+			_ = toolRegistry.Close(context.Background())
+			return nil, fmt.Errorf("tools.enabled contains unknown providers %v; known providers: %v",
+				unknown, toolRegistry.Known())
+		}
+		rt.Tools = toolRegistry
+		rt.CloseTools = toolRegistry.Close
+		logger.Info("tools registered",
+			"count", len(toolRegistry.Snapshot()),
+			"providers", len(toolRegistry.Manifests()),
+			"enabled", cfg.Tools.Enabled)
+		toolsResolver = buildToolsResolver(cfg, toolRegistry, func(ctx context.Context, botID int64, scopeType string, scopeID int64) (bool, bool) {
+			policy, exists, err := policiesRepo.Get(ctx, botID, scopeType, scopeID)
+			if err != nil {
+				// A lookup failure keeps the global switch; the ledger still
+				// guards every send.
+				// 查询失败时沿用全局开关；投递台账仍会逐条把关。
+				return false, false
+			}
+			return policy.AllowSendCurrent, exists
+		}, rt.Scope)
 		executor, executorErr := buildReplyExecutor(context.Background(), cfg, logger, pool, rt.Scope, rt.Conversation, registry, callbacks, ledger,
 			func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits {
-				if policy, exists, err := policiesRepo.Get(ctx, botID, kind, targetID); err == nil && exists {
-					return policy.Limits()
+				policy, exists, err := policiesRepo.Get(ctx, botID, kind, targetID)
+				if err != nil {
+					return outbounddomain.Limits{}
+				}
+				if exists {
+					limits := policy.Limits()
+					limits.StopAfterFailure = true
+					return limits
 				}
 				return outbounddomain.Limits{
+					MinIntervalMS:      700,
 					MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
 					MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
 					MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
@@ -296,12 +336,13 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 			handler := callbacks
 			rt.ShutdownLangfuse = func(ctx context.Context) error { return handler.Shutdown(ctx) }
 		}
-		worker, decisions, workerErr := buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
+		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
 		if workerErr != nil {
 			return nil, workerErr
 		}
 		rt.Worker = worker
 		rt.Decisions = decisions
+		rt.IntentSimulator = simulator
 	}
 
 	// Every connection shares the same handler set; the dispatcher supplies the

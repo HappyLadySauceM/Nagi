@@ -30,6 +30,8 @@ import (
 // OutboundReader lists the delivery records of one job.
 // OutboundReader 列出某个任务的投递记录。
 type OutboundReader interface {
+	RunOutcome(context.Context, int64) (string, string, int, error)
+	OwnsJob(context.Context, int64, int64) (bool, error)
 	ListByJob(ctx context.Context, jobID int64) ([]outbounddomain.Record, error)
 }
 
@@ -58,7 +60,8 @@ type ServiceContext struct {
 	Tools *pluginsapp.Registry
 	// Decisions reads recorded intent decisions; nil when the pipeline is off.
 	// Decisions 读取已记录的意图决策；流水线关闭时为 nil。
-	Decisions intentcontracts.DecisionReader
+	Decisions       intentcontracts.DecisionReader
+	IntentSimulator intentcontracts.SimulationEvaluator
 	// Rulesets reads and writes versioned intent rules; nil without a database.
 	// Rulesets 读写版本化意图规则；未配置数据库时为 nil。
 	Rulesets *intentinfra.RulesetsRepo

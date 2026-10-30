@@ -33,6 +33,7 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register wires routes using Go 1.22 method+path patterns.
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/intent/overview", h.Overview)
 	mux.HandleFunc("GET /api/v1/intent/decisions", h.List)
 	mux.HandleFunc("GET /api/v1/intent/decisions/{id}", h.Get)
 	h.RegisterRules(mux)
@@ -103,6 +104,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		ConversationID: r.URL.Query().Get("conversation_id"),
 		Limit:          limit,
 		BeforeID:       beforeID,
+		ReasonCode:     r.URL.Query().Get("reason_code"),
 	})
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取决策记录失败")
@@ -159,4 +161,31 @@ func toInfo(record intentcontracts.DecisionRecord) decisionInfo {
 		LatencyMS:      record.LatencyMS,
 		CreatedAt:      record.CreatedAt,
 	}
+}
+
+func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
+	botID, err := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
+	if err != nil || botID <= 0 {
+		common.WriteFailure(w, 400, "invalid bot_id")
+		return
+	}
+	hours := 24
+	if raw := r.URL.Query().Get("hours"); raw != "" {
+		hours, err = strconv.Atoi(raw)
+		if err != nil || hours < 1 || hours > 720 {
+			common.WriteFailure(w, 400, "invalid time range")
+			return
+		}
+	}
+	reader, ok := h.svcCtx.Decisions.(intentcontracts.DecisionStatsReader)
+	if !ok {
+		common.WriteFailure(w, 503, "decision statistics unavailable")
+		return
+	}
+	stats, err := reader.Stats(r.Context(), botID, time.Now().Add(-time.Duration(hours)*time.Hour))
+	if err != nil {
+		common.WriteFailure(w, 500, "read decision statistics failed")
+		return
+	}
+	common.WriteSuccess(w, stats)
 }

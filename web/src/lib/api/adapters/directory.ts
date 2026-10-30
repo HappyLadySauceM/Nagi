@@ -1,3 +1,4 @@
+import { toScopePolicy } from './scope'
 import type {
   Contact,
   DirectorySyncResult,
@@ -23,6 +24,7 @@ function toContact(raw: unknown): Contact {
   const record = asRecord(raw, CONTACTS_ENDPOINT, 'contact')
   const contact: Contact = {
     userId: readNumber(record, 'UserID', CONTACTS_ENDPOINT),
+    ...(record.Policy == null ? {} : { policy: toScopePolicy(record.Policy) }),
     nickname: readString(record, 'Nickname', CONTACTS_ENDPOINT, ''),
     remark: readString(record, 'Remark', CONTACTS_ENDPOINT, ''),
     lastSeenAt: readOptionalTime(record, 'LastSeenAt', CONTACTS_ENDPOINT),
@@ -34,6 +36,7 @@ function toGroup(raw: unknown): Group {
   const record = asRecord(raw, GROUPS_ENDPOINT, 'group')
   return {
     groupId: readNumber(record, 'GroupID', GROUPS_ENDPOINT),
+    ...(record.Policy == null ? {} : { policy: toScopePolicy(record.Policy) }),
     name: readString(record, 'Name', GROUPS_ENDPOINT, ''),
     memberCount: readNumber(record, 'MemberCount', GROUPS_ENDPOINT, 0),
     lastSeenAt: readOptionalTime(record, 'LastSeenAt', GROUPS_ENDPOINT),

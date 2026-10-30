@@ -4,7 +4,9 @@ package assembly
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	einoTools "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -53,6 +56,9 @@ func (h historyReader) RecentIntentMessages(ctx context.Context, conversationID 
 	}
 	out := make([]intentdomain.Message, 0, len(msgs))
 	for _, m := range msgs {
+		if m.Direction == conversationdomain.Outgoing && m.SentStatus == "failed" {
+			continue
+		}
 		out = append(out, intentdomain.Message{
 			MessageID: m.PlatformMessageID,
 			SenderID:  m.SenderID,
@@ -100,6 +106,19 @@ func (a activityReader) BotReplyMeta(ctx context.Context, conversationID string)
 	return a.svc.BotReplyMeta(ctx, conversationID)
 }
 
+// ConversationIDForScope locates an existing conversation without creating one.
+// ConversationIDForScope 查找已有会话，不创建新会话。
+func (a activityReader) ConversationIDForScope(ctx context.Context, botID int64, kind string, targetID int64) (string, error) {
+	conversation, found, err := a.svc.GetConversation(ctx, botID, conversationdomain.Kind(kind), targetID)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", nil
+	}
+	return conversation.ID, nil
+}
+
 // sendPolicyLookup reports whether one scope has a policy row and its verdict.
 // sendPolicyLookup 报告某作用域是否存在策略行及其结论。
 type sendPolicyLookup func(ctx context.Context, botID int64, scopeType string, scopeID int64) (allow bool, exists bool)
@@ -112,9 +131,9 @@ type sendPolicyLookup func(ctx context.Context, botID int64, scopeType string, s
 // 注册表在启动后是静态的，快照只是廉价复制；
 // 守卫把每次调用绑定到消息作用域与已授予权限。
 func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
-	policies sendPolicyLookup,
+	policies sendPolicyLookup, fresh ...*scopeapp.Service,
 ) func(context.Context, agentcontracts.Request) []tool.BaseTool {
-	return func(_ context.Context, req agentcontracts.Request) []tool.BaseTool {
+	return func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool {
 		snapshot := registry.Snapshot()
 		if len(snapshot) == 0 {
 			return nil
@@ -127,33 +146,63 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
 		// Per-scope gray release: a policy row can veto the dedicated switch.
 		// 按作用域灰度：策略行可以否决专用开关。
 		sendAllowed := cfg.Tools.AllowSendCurrent
-		if sendAllowed && policies != nil {
-			if allow, exists := policies(context.Background(), req.BotID, req.Kind, req.TargetID); exists && !allow {
-				sendAllowed = false
+		if sendAllowed {
+			sendAllowed = false
+			if policies != nil {
+				allow, exists := policies(ctx, req.BotID, req.Kind, req.TargetID)
+				sendAllowed = exists && allow
 			}
 		}
+		var replyStopped atomic.Bool
 		scope := pluginsapp.Scope{
-			BotID:            req.BotID,
-			JobID:            req.JobID,
-			ConversationID:   req.ConversationID,
-			Kind:             req.Kind,
-			TargetID:         req.TargetID,
-			SenderID:         req.SenderID,
-			Permissions:      granted,
-			AllowSideEffects: cfg.Tools.AllowSideEffects,
+			BotID:             req.BotID,
+			JobID:             req.JobID,
+			ConversationID:    req.ConversationID,
+			Kind:              req.Kind,
+			TargetID:          req.TargetID,
+			SenderID:          req.SenderID,
+			Permissions:       granted,
+			AllowSideEffects:  cfg.Tools.AllowSideEffects,
+			AllowReplyCurrent: sendAllowed,
 			Record: func(run pluginscontracts.ToolRun) {
+				if run.ToolID == replytool.ToolID && run.Status != pluginsapp.StatusOK {
+					replyStopped.Store(true)
+				}
 				if req.OnToolRun == nil {
 					return
 				}
 				req.OnToolRun(agentcontracts.ToolRun{
-					ToolID:   run.ToolID,
-					Status:   run.Status,
-					Duration: run.Duration,
-					Bytes:    run.Bytes,
+					ErrorCode: run.ErrorCode,
+					ToolID:    run.ToolID,
+					Status:    run.Status,
+					Duration:  run.Duration,
+					Bytes:     run.Bytes,
 				})
 			},
 			Timeout:        cfg.Tools.Timeout.D(),
 			MaxResultBytes: cfg.Tools.MaxResultBytes,
+		}
+		{
+			scope.Reauthorize = func(ctx context.Context, descriptor pluginscontracts.ToolDescriptor) error {
+				if descriptor.ReplyCurrent && replyStopped.Load() {
+					return fmt.Errorf("reply run already stopped")
+				}
+				if len(fresh) == 0 || fresh[0] == nil {
+					return nil
+				}
+				current, err := fresh[0].Resolve(ctx, req.BotID, scopedomain.ScopeType(req.Kind), req.TargetID)
+				if err != nil {
+					return err
+				}
+				if !current.Enabled || current.ReplyMode == scopedomain.ModeObserveOnly {
+					return fmt.Errorf("scope authorization revoked")
+				}
+				grants := pluginsapp.ResolvePermissions(snapshot, cfg.Tools.PermissionDefaults, current.ToolPermissions)
+				if !pluginsapp.Allowed(descriptor, grants, cfg.Tools.AllowSideEffects || descriptor.ReplyCurrent && cfg.Tools.AllowSendCurrent) {
+					return fmt.Errorf("tool authorization revoked")
+				}
+				return nil
+			}
 		}
 		// The budget is per run and shared by every tool the model may call.
 		// 调用预算按单次运行计算，并由模型可调用的全部工具共享。
@@ -178,12 +227,15 @@ func buildToolsResolver(cfg *config.Config, registry *pluginsapp.Registry,
 			}
 			// Revoked tools never reach the model, so it cannot even request them.
 			// 已撤销的工具不会到达模型，模型连请求它的机会都没有。
-			if !pluginsapp.Allowed(registered.Descriptor, granted, cfg.Tools.AllowSideEffects) {
+			if !pluginsapp.Allowed(registered.Descriptor, granted, cfg.Tools.AllowSideEffects || (registered.Descriptor.ReplyCurrent && sendAllowed)) {
 				continue
 			}
 			guarded := pluginsapp.Guard(scope, registered.Descriptor, registered.Invoke)
 			registered.Invoke = func(ctx context.Context, argumentsInJSON string) (string, error) {
 				if budget > 0 && calls.Add(1) > budget {
+					if scope.Record != nil {
+						scope.Record(pluginscontracts.ToolRun{ToolID: registered.Descriptor.ID, Status: pluginsapp.StatusDenied, ErrorCode: "tool_call_budget"})
+					}
 					return "error: 工具调用次数已达上限，请直接回答", nil
 				}
 				return guarded(ctx, argumentsInJSON)
@@ -282,9 +334,9 @@ func buildReplyExecutor(ctx context.Context, cfg *config.Config, logger *slog.Lo
 func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities, rules *intentinfra.RulesetsRepo,
-) (*conversationinfra.Worker, intentcontracts.DecisionReader, error) {
+) (*conversationinfra.Worker, intentcontracts.DecisionReader, intentcontracts.SimulationEvaluator, error) {
 	if pool == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if !cfg.Intent.Enabled {
 		// The ingress handler is registered whenever a database exists, so
@@ -292,13 +344,13 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		// 只要配置了数据库就会注册入站处理器，关闭流水线会让每条消息变成永不被消费的任务。
 		logger.Warn("intent pipeline disabled; messages are stored but jobs are never consumed",
 			"hint", "set intent.enabled=true to activate the decision worker")
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if scope == nil || conv == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	jevKey := cfg.Intent.APIKey
-	if jevKey == "" {
+	if cfg.Intent.Provider == "jev" && jevKey == "" {
 		logger.Warn("jev api-key missing; semantic decisions degrade to explicit mentions only",
 			"hint", "set intent.api-key in the config file")
 	}
@@ -310,14 +362,18 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		Timeout:  cfg.Intent.Timeout.D(),
 	}, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	var semantic intentapp.SemanticDecider = jev
+	if cfg.Intent.Provider == "openai" {
+		semantic = &intentinfra.LocalClient{Config: intentinfra.JevConfig{Endpoint: cfg.Intent.Endpoint, APIKey: cfg.Intent.APIKey, Model: cfg.Intent.Model, BotName: cfg.Intent.BotName, Timeout: cfg.Intent.Timeout.D()}, Client: &http.Client{Timeout: cfg.Intent.Timeout.D(), Transport: &http.Transport{Proxy: nil}}}
 	}
 	decider, err := intentapp.NewDecider(intentapp.Options{
-		Semantic: jev,
+		Semantic: semantic,
 		History:  historyReader{svc: conv},
 		Activity: activityReader{svc: conv},
 		Scopes:   scope,
@@ -335,11 +391,11 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		Logger:       logger,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	repo, err := conversationinfra.NewRepo(pool)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider}, conversationinfra.WorkerOptions{
 		Concurrency:  cfg.Worker.Concurrency,
@@ -347,5 +403,5 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
 		PollInterval: cfg.Worker.PollInterval.D(),
 		Identity:     identity,
 	}, logger)
-	return worker, decisionsRepo, err
+	return worker, decisionsRepo, decider, err
 }

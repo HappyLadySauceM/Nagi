@@ -51,6 +51,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   )
 
   const selectAccount = useCallback((botId?: number) => {
+    if (!window.dispatchEvent(new Event('nagi:account-changing', { cancelable: true }))) return
     setStoredBotId(botId)
     if (typeof window === 'undefined') {
       return

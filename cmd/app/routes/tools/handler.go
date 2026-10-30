@@ -41,15 +41,16 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // toolInfo 描述单个已注册工具，包含其默认授予状态；
 // 请求带会话类型时，还包含该工具是否适用于该类型。
 type toolInfo struct {
-	ID          string
-	Provider    string
-	Description string
-	Category    string
-	ScopeKinds  []string
-	RiskLevel   contracts.RiskLevel
-	ReadOnly    bool
-	SideEffect  bool
-	Permission  string
+	BlockedReasons []string
+	ID             string
+	Provider       string
+	Description    string
+	Category       string
+	ScopeKinds     []string
+	RiskLevel      contracts.RiskLevel
+	ReadOnly       bool
+	SideEffect     bool
+	Permission     string
 	// DefaultGranted mirrors the runtime resolution for this tool.
 	// DefaultGranted 对应该工具的运行时授予结果。
 	DefaultGranted bool
@@ -139,7 +140,21 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 				unavailableReason = unavailableScopeKindMismatch
 			}
 		}
+		blocked := make([]string, 0)
+		if !h.svcCtx.Config.AI.Enabled {
+			blocked = append(blocked, "未启用生成模型")
+		}
+		if !h.svcCtx.Config.Intent.Enabled {
+			blocked = append(blocked, "未启用意图流水线")
+		}
+		if descriptor.ReplyCurrent && !h.svcCtx.Config.Tools.AllowSendCurrent {
+			blocked = append(blocked, "服务总开关未启用连续发送")
+		}
+		if descriptor.SideEffect && !descriptor.ReplyCurrent && !allowSideEffects {
+			blocked = append(blocked, "服务未启用群管理副作用")
+		}
 		out.Tools = append(out.Tools, toolInfo{
+			BlockedReasons:    blocked,
 			ID:                descriptor.ID,
 			Provider:          registered.ProviderID,
 			Description:       descriptor.Description,

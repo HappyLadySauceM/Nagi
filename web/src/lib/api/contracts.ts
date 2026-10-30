@@ -101,6 +101,7 @@ export interface PageResult<T> {
 }
 
 export interface Contact {
+  policy?: ScopePolicy
   userId: number
   nickname: string
   remark: string
@@ -108,6 +109,7 @@ export interface Contact {
 }
 
 export interface Group {
+  policy?: ScopePolicy
   groupId: number
   name: string
   memberCount: number
@@ -144,6 +146,7 @@ export type ToolPermissionOverrides = Record<string, boolean>
 
 /** One registered tool exposed to the model. */
 export interface ToolCatalogEntry {
+  blockedReasons?: string[]
   id: string
   provider: string
   description: string
@@ -192,6 +195,10 @@ export interface ToolsCatalog {
 
 /** Form-shaped policy; `PUT` always writes every field. */
 export interface ScopeForm {
+  maxMessagesPerRun?: number
+  maxCharsPerMessage?: number
+  maxTotalCharsPerRun?: number
+  messageIntervalMs?: number
   enabled: boolean
   replyMode: ReplyMode
   storeMessages: boolean
@@ -205,6 +212,9 @@ export interface ScopeForm {
 
 /** Effective policy of one scope, including the default-deny values. */
 export interface ScopePolicy extends ScopeForm {
+  source?: string
+  version?: number
+  templateVersion?: number
   scopeType: ScopeType
   scopeId: number
 }
@@ -320,12 +330,17 @@ export interface RuleMatch {
 }
 
 export interface RuleEntry {
+ enabled?: boolean
   priority: number
   match: RuleMatch
   action: { type: RuleActionType; reasonCode: string }
 }
 
+export interface RuleTarget { kind: ScopeType; id: number }
+
 export interface Ruleset {
+ builtinRules?: Record<string, boolean>
+ targets?: RuleTarget[]
   id: number
   botId: number
   scopeType: ScopeType
@@ -337,6 +352,15 @@ export interface Ruleset {
 }
 
 export interface RuleSimulation {
+  decision?: string
+  provider?: string
+  model?: string
+  scores?: Record<string, number>
+  latencyMs?: number
+  semanticAvailable?: boolean
+  semanticCategory?: string
+  failureCode?: string
+
   blocked: boolean
   explicit: boolean
   needSemantic: boolean
@@ -356,15 +380,4 @@ export const RULESET_STATUS_LABELS: Record<Ruleset['status'], string> = {
   draft: '草稿',
   published: '已发布',
   archived: '已归档',
-}
-
-export interface SendingPolicy {
-  botId: number
-  scopeType: ScopeType
-  scopeId: number
-  exists: boolean
-  allowSendCurrent: boolean
-  maxMessagesPerRun: number
-  maxCharsPerMessage: number
-  maxTotalCharsPerRun: number
 }

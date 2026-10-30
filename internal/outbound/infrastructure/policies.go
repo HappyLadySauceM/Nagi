@@ -20,6 +20,7 @@ type Policy struct {
 	ScopeType           string
 	ScopeID             int64
 	AllowSendCurrent    bool
+	MinIntervalMS       int
 	MaxMessagesPerRun   int
 	MaxCharsPerMessage  int
 	MaxTotalCharsPerRun int
@@ -30,6 +31,7 @@ type Policy struct {
 func (p Policy) Limits() domain.Limits {
 	return domain.Limits{
 		MaxMessages:        p.MaxMessagesPerRun,
+		MinIntervalMS:      p.MinIntervalMS,
 		MaxCharsPerMessage: p.MaxCharsPerMessage,
 		MaxTotalChars:      p.MaxTotalCharsPerRun,
 	}
@@ -37,17 +39,24 @@ func (p Policy) Limits() domain.Limits {
 
 // PoliciesRepo stores per-scope sending policies.
 // PoliciesRepo 存储按作用域的出站策略。
+type SendingAuthorizer func(context.Context, int64, string, int64) (bool, error)
+
 type PoliciesRepo struct {
-	pool *pgxpool.Pool
+	authorize SendingAuthorizer
+	pool      *pgxpool.Pool
 }
 
 // NewPoliciesRepo builds the repository.
 // NewPoliciesRepo 构建仓储。
-func NewPoliciesRepo(pool *pgxpool.Pool) (*PoliciesRepo, error) {
+func NewPoliciesRepo(pool *pgxpool.Pool, authorize ...SendingAuthorizer) (*PoliciesRepo, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("outbound: pool required")
 	}
-	return &PoliciesRepo{pool: pool}, nil
+	repo := &PoliciesRepo{pool: pool}
+	if len(authorize) > 0 {
+		repo.authorize = authorize[0]
+	}
+	return repo, nil
 }
 
 // Get loads one policy; the boolean reports whether it exists.
@@ -55,39 +64,23 @@ func NewPoliciesRepo(pool *pgxpool.Pool) (*PoliciesRepo, error) {
 func (r *PoliciesRepo) Get(ctx context.Context, botID int64, scopeType string, scopeID int64) (Policy, bool, error) {
 	var p Policy
 	err := r.pool.QueryRow(ctx, `
-		SELECT bot_id, scope_type, scope_id, allow_send_current,
-		       max_messages_per_run, max_chars_per_message, max_total_chars_per_run
-		FROM agent_sending_policies
-		WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3
-	`, botID, scopeType, scopeID).Scan(&p.BotID, &p.ScopeType, &p.ScopeID, &p.AllowSendCurrent,
-		&p.MaxMessagesPerRun, &p.MaxCharsPerMessage, &p.MaxTotalCharsPerRun)
+		SELECT bot_id, scope_type, scope_id,
+		       max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms
+		FROM scope_policies
+		WHERE bot_id = $1 AND scope_type = $2 AND scope_id IN ($3, 0) ORDER BY scope_id DESC LIMIT 1
+	`, botID, scopeType, scopeID).Scan(&p.BotID, &p.ScopeType, &p.ScopeID,
+		&p.MaxMessagesPerRun, &p.MaxCharsPerMessage, &p.MaxTotalCharsPerRun, &p.MinIntervalMS)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Policy{}, false, nil
 	}
 	if err != nil {
 		return Policy{}, false, fmt.Errorf("outbound: get policy: %w", err)
 	}
-	return p, true, nil
-}
-
-// Upsert stores one policy.
-// Upsert 写入一条策略。
-func (r *PoliciesRepo) Upsert(ctx context.Context, p Policy) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO agent_sending_policies
-			(bot_id, scope_type, scope_id, allow_send_current,
-			 max_messages_per_run, max_chars_per_message, max_total_chars_per_run)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (bot_id, scope_type, scope_id) DO UPDATE SET
-			allow_send_current = EXCLUDED.allow_send_current,
-			max_messages_per_run = EXCLUDED.max_messages_per_run,
-			max_chars_per_message = EXCLUDED.max_chars_per_message,
-			max_total_chars_per_run = EXCLUDED.max_total_chars_per_run,
-			updated_at = now()
-	`, p.BotID, p.ScopeType, p.ScopeID, p.AllowSendCurrent,
-		p.MaxMessagesPerRun, p.MaxCharsPerMessage, p.MaxTotalCharsPerRun)
-	if err != nil {
-		return fmt.Errorf("outbound: upsert policy: %w", err)
+	if r.authorize != nil {
+		p.AllowSendCurrent, err = r.authorize(ctx, botID, scopeType, scopeID)
+		if err != nil {
+			return Policy{}, false, err
+		}
 	}
-	return nil
+	return p, true, nil
 }

@@ -30,6 +30,8 @@ export function toRuleset(raw: unknown): Ruleset {
     version: readNumber(record, 'Version', RULES_ENDPOINT),
     status,
     note: readString(record, 'Note', RULES_ENDPOINT, ''),
+    builtinRules: record.BuiltinRules == null ? {} : Object.fromEntries(Object.entries(asRecord(record.BuiltinRules, RULES_ENDPOINT, 'BuiltinRules')).map(([key,value]) => { if (typeof value !== 'boolean') throw new Error('Invalid builtin rule'); return [key,value] })),
+    targets: record.Targets == null ? [] : asArray(record.Targets, RULES_ENDPOINT, 'Targets').map(raw => { const target = asRecord(raw, RULES_ENDPOINT, 'Target'); const kind = readString(target, 'kind', RULES_ENDPOINT); if (kind !== 'private' && kind !== 'group') throw new Error('Invalid target kind'); return {kind, id: readNumber(target, 'id', RULES_ENDPOINT)} }),
     entries: record.Entries == null ? [] : asArray(record.Entries, RULES_ENDPOINT, 'Entries').map(toEntry),
   }
 }
@@ -37,12 +39,13 @@ export function toRuleset(raw: unknown): Ruleset {
 function toEntry(raw: unknown): RuleEntry {
   const record = asRecord(raw, RULES_ENDPOINT, 'entry')
   const action = asRecord(record.Action, RULES_ENDPOINT, 'Action')
-  const type = readString(action, 'Type', RULES_ENDPOINT)
+  const type = readString(action, 'type', RULES_ENDPOINT)
   if (!ACTIONS.includes(type as RuleActionType)) {
     throw new Error(`规则动作未知：${type}`)
   }
   const match = record.Match == null ? {} : asRecord(record.Match, RULES_ENDPOINT, 'Match')
   return {
+    enabled: record.Enabled == null ? true : readBoolean(record, 'Enabled', RULES_ENDPOINT),
     priority: readNumber(record, 'Priority', RULES_ENDPOINT),
     match: {
       replyMode: readOptionalString(match, 'reply_mode', RULES_ENDPOINT),
@@ -52,19 +55,47 @@ function toEntry(raw: unknown): RuleEntry {
       minSecondsSinceReply:
         typeof match.min_seconds_since_reply === 'number' ? match.min_seconds_since_reply : undefined,
     },
-    action: { type: type as RuleActionType, reasonCode: readString(action, 'ReasonCode', RULES_ENDPOINT, '') },
+    action: { type: type as RuleActionType, reasonCode: readString(action, 'reason_code', RULES_ENDPOINT, '') },
   }
 }
 
 export function toRuleSimulation(raw: unknown): RuleSimulation {
   const record = asRecord(raw, '/api/v1/intent/simulate', 'result')
+  const final = record.Final == null ? undefined : asRecord(record.Final, '/api/v1/intent/simulate', 'Final')
+  const steps = record.Steps == null ? [] : asArray(record.Steps, '/api/v1/intent/simulate', 'Steps').map(step => asRecord(step, '/api/v1/intent/simulate', 'Step'))
+  const semantic = steps.find(step => step.Phase === 'semantic')
+  const semanticDetail = semantic ? asRecord(semantic.Detail, '/api/v1/intent/simulate', 'Detail') : undefined
+  const scores = final?.Scores == null ? undefined : Object.fromEntries(Object.entries(asRecord(final.Scores, '/api/v1/intent/simulate', 'Scores')).map(([key,value]) => { if(typeof value !== 'number') throw new Error('Invalid score'); return [key,value] }))
   return {
+    decision: final ? readString(final, 'Decision', '/api/v1/intent/simulate', '') : undefined,
+    provider: final ? readString(final, 'Provider', '/api/v1/intent/simulate', '') : undefined,
+    model: final ? readString(final, 'Model', '/api/v1/intent/simulate', '') : undefined,
+    latencyMs: final ? readNumber(final, 'LatencyMS', '/api/v1/intent/simulate', 0) : undefined,
+    semanticCategory: semanticDetail ? readString(semanticDetail, 'intent_category', '/api/v1/intent/simulate', '') : undefined,
+    semanticAvailable: semanticDetail ? readBoolean(semanticDetail, 'available', '/api/v1/intent/simulate', false) : undefined,
+    failureCode: semanticDetail ? readString(semanticDetail, 'failure_code', '/api/v1/intent/simulate', '') : undefined,
+    scores,
     blocked: readBoolean(record, 'Blocked', '/api/v1/intent/simulate'),
     explicit: readBoolean(record, 'Explicit', '/api/v1/intent/simulate'),
     needSemantic: readBoolean(record, 'NeedSemantic', '/api/v1/intent/simulate'),
     alwaysReply: readBoolean(record, 'AlwaysReply', '/api/v1/intent/simulate'),
     forceReply: readBoolean(record, 'ForceReply', '/api/v1/intent/simulate'),
-    reasonCode: readString(record, 'ReasonCode', '/api/v1/intent/simulate', ''),
+    reasonCode: final ? readString(final, 'ReasonCode', '/api/v1/intent/simulate', '') : readString(record, 'ReasonCode', '/api/v1/intent/simulate', ''),
     rulesetVersion: readString(record, 'RulesetVersion', '/api/v1/intent/simulate', ''),
   }
+}
+
+export function toRuleEntriesRequest(entries: RuleEntry[]) {
+  return entries.map(entry => ({
+    enabled: entry.enabled ?? true,
+    priority: entry.priority,
+    match: {
+      reply_mode: entry.match.replyMode,
+      kind: entry.match.kind,
+      explicit: entry.match.explicit,
+      text_contains: entry.match.textContains,
+      min_seconds_since_reply: entry.match.minSecondsSinceReply,
+    },
+    action: { type: entry.action.type, reason_code: entry.action.reasonCode },
+  }))
 }

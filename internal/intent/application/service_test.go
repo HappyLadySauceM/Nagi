@@ -324,3 +324,52 @@ func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 		t.Fatalf("semantic steps = %+v", steps)
 	}
 }
+
+func TestSemanticSimulationNeverRecordsOrExecutesReply(t *testing.T) {
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, DirectedToBot: 0.9}}
+	recorder := &fakeRecorder{}
+	executor := &fakeExecutor{}
+	d := newDecider(t, Options{Scopes: &fakeScopes{}, Semantic: semantic, Recorder: recorder, Executor: executor, Thresholds: thresholds, Provider: "test-local", Model: "decision-model"})
+	in := baseInput(scopedomain.ModeIntentBased)
+	rule, _ := EvaluateRuleChain(in, nil, nil)
+	final, steps := d.EvaluateSimulation(context.Background(), in, rule, true)
+	if final.Decision != domain.DecisionReply || semantic.calls != 1 || len(steps) != 4 {
+		t.Fatalf("semantic simulation: %+v calls=%d steps=%d", final, semantic.calls, len(steps))
+	}
+	if len(recorder.decisions) != 0 || len(executor.tasks) != 0 {
+		t.Fatal("simulation caused persistence or delivery")
+	}
+	rule = domain.RuleResult{Blocked: true, ReasonCode: "policy_disabled"}
+	final, _ = d.EvaluateSimulation(context.Background(), in, rule, true)
+	if final.ReasonCode != "policy_disabled" || semantic.calls != 1 {
+		t.Fatalf("blocked simulation called model: %+v calls=%d", final, semantic.calls)
+	}
+}
+
+type simulationActivity struct{ fakeActivity }
+
+func (*simulationActivity) ConversationIDForScope(context.Context, int64, string, int64) (string, error) {
+	return "simulation-conversation", nil
+}
+
+func TestFullSimulationUsesActualHourlyActivity(t *testing.T) {
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, DirectedToBot: 0.99}}
+	activity := &simulationActivity{fakeActivity: fakeActivity{repliesLastHour: 1, lastReplyAt: time.Now().Add(-time.Hour)}}
+	d := newDecider(t, Options{Scopes: &fakeScopes{}, Semantic: semantic, Activity: activity, Recorder: &fakeRecorder{}, Thresholds: thresholds})
+	in := baseInput(scopedomain.ModeIntentBased)
+	in.Policy.MinReplyIntervalMS = 0
+	in.Policy.MaxRepliesPerHour = 1
+	in.Activity = domain.BotActivity{Known: true, RepliesLastHour: 0}
+	prepared, err := d.PrepareSimulation(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Activity.RepliesLastHour != 1 {
+		t.Fatalf("simulation lost real hourly usage: %+v", prepared.Activity)
+	}
+	rule, _ := EvaluateRuleChain(prepared, nil, nil)
+	final, _ := d.EvaluateSimulation(context.Background(), prepared, rule, true)
+	if final.ReasonCode != "rate_limited" || semantic.calls != 0 {
+		t.Fatalf("full simulation bypassed actual quota: %+v calls=%d", final, semantic.calls)
+	}
+}

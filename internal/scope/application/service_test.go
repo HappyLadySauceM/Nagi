@@ -5,7 +5,6 @@ package application
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -95,10 +94,8 @@ func TestResolveKeepsScopeIdentity(t *testing.T) {
 	}
 }
 
-// TestUpsertTakesEffectImmediately verifies that after Upsert, Resolve returns
-// the new policy even when the repository no longer has it (cache hit).
-// TestUpsertTakesEffectImmediately 验证 Upsert 后即使仓库已无该行，
-// Resolve 仍返回新策略（命中缓存）。
+// TestUpsertTakesEffectImmediately verifies that a saved policy replaces the default.
+// TestUpsertTakesEffectImmediately 验证已保存策略立即替代默认值。
 func TestUpsertTakesEffectImmediately(t *testing.T) {
 	repo := newFakeRepo()
 	svc, err := NewService(repo)
@@ -118,7 +115,6 @@ func TestUpsertTakesEffectImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	delete(repo.stored, serviceCacheKeyForTest(1, domain.ScopeGroup, 42))
 	policy, err := svc.Resolve(ctx, 1, domain.ScopeGroup, 42)
 	if err != nil {
 		t.Fatalf("resolve after upsert: %v", err)
@@ -149,9 +145,6 @@ func TestUpsertRejectsInvalidPolicy(t *testing.T) {
 // TestCacheExpiryPicksUpOutOfBandChanges 验证缓存条目（包括默认拒绝结果）
 // 会过期，使绕过本服务的数据库变更无需重启即生效。
 func TestCacheExpiryPicksUpOutOfBandChanges(t *testing.T) {
-	oldTTL := cacheTTL
-	cacheTTL = 20 * time.Millisecond
-	defer func() { cacheTTL = oldTTL }()
 
 	repo := newFakeRepo()
 	svc, err := NewService(repo)
@@ -170,7 +163,6 @@ func TestCacheExpiryPicksUpOutOfBandChanges(t *testing.T) {
 	repo.stored[serviceCacheKeyForTest(1, domain.ScopeGroup, 42)] = domain.Policy{
 		ScopeType: domain.ScopeGroup, ScopeID: 42, Enabled: true, ReplyMode: domain.ModeIntentBased,
 	}
-	time.Sleep(2 * cacheTTL)
 	policy, err := svc.Resolve(ctx, 1, domain.ScopeGroup, 42)
 	if err != nil {
 		t.Fatalf("resolve after expiry: %v", err)
@@ -217,5 +209,56 @@ func TestDeleteEvictsCacheAndFallsBackToDeny(t *testing.T) {
 	}
 	if after.Enabled || after.StoreMessages {
 		t.Fatalf("expected default deny after delete: %+v", after)
+	}
+}
+
+func TestDefaultTemplatesAreIsolatedAndIndependentPoliciesWin(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	template := domain.Default(domain.ScopePrivate, 0)
+	template.Enabled = true
+	template.Version = 3
+	if err := svc.Upsert(ctx, 1, template); err != nil {
+		t.Fatal(err)
+	}
+	inherited, err := svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
+	if err != nil || !inherited.Enabled || inherited.Source != "default" || inherited.TemplateVersion != 3 || inherited.ScopeID != 100 {
+		t.Fatalf("inheritance: %+v, %v", inherited, err)
+	}
+	for _, target := range []struct {
+		bot  int64
+		kind domain.ScopeType
+	}{{2, domain.ScopePrivate}, {1, domain.ScopeGroup}} {
+		p, err := svc.Resolve(ctx, target.bot, target.kind, 100)
+		if err != nil || p.Enabled {
+			t.Fatalf("template leaked: %+v, %v", p, err)
+		}
+	}
+	closed := domain.Default(domain.ScopePrivate, 100)
+	if err := svc.Upsert(ctx, 1, closed); err != nil {
+		t.Fatal(err)
+	}
+	p, err := svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
+	if err != nil || p.Enabled || p.Source != "independent" {
+		t.Fatalf("explicit close: %+v, %v", p, err)
+	}
+	if _, err := svc.Delete(ctx, 1, domain.ScopePrivate, 100); err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
+	if err != nil || !p.Enabled || p.Source != "default" {
+		t.Fatalf("restore: %+v, %v", p, err)
+	}
+	template.Enabled = false
+	if err := svc.Upsert(ctx, 1, template); err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
+	if err != nil || p.Enabled {
+		t.Fatalf("template update stale: %+v, %v", p, err)
 	}
 }

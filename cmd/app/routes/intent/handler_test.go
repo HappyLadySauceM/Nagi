@@ -3,6 +3,7 @@
 package intent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -12,7 +13,9 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
+	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
 // fakeReader serves canned decisions and records the query it received.
@@ -144,5 +147,65 @@ func TestGetMissingDecisionReturns404(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/intent/decisions/999", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestGlobalPreviewPreservesActiveSpecificRules(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := intentinfra.NewRulesetsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const botID = 995051
+	defer func() {
+		pool.Exec(ctx, "DELETE FROM intent_rule_activations WHERE bot_id=$1", botID)
+		pool.Exec(ctx, "DELETE FROM intent_rulesets WHERE bot_id=$1", botID)
+	}()
+	specific, err := repo.CreateDraft(ctx, botID, "private", 99, "specific", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReplaceEntries(ctx, specific.ID, []intentdomain.RuleEntry{{Priority: 0, Action: intentdomain.RuleAction{Type: intentdomain.ActionSilent, ReasonCode: "specific_stop"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Publish(ctx, specific.ID); err != nil {
+		t.Fatal(err)
+	}
+	global, err := repo.CreateDraft(ctx, botID, "group", 0, "global draft", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []intentdomain.RuleEntry{{Priority: 0, Action: intentdomain.RuleAction{Type: intentdomain.ActionReply, ReasonCode: "global_reply"}}}
+	if err := repo.ReplaceEntries(ctx, global.ID, entries); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Rulesets: repo}).RegisterRules(mux)
+	for _, preview := range []map[string]any{{"entries": entries, "preview_global": true}, {"ruleset_id": global.ID}} {
+		body := map[string]any{"bot_id": botID, "scope_type": "private", "scope_id": 99, "kind": "private", "reply_mode": "always_reply", "seconds_since_reply": 60}
+		for key, value := range preview {
+			body[key] = value
+		}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/intent/simulate", bytes.NewReader(raw))
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		var result struct {
+			Data struct {
+				Blocked    bool
+				ReasonCode string
+				ForceReply bool
+			}
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != 200 || !result.Data.Blocked || result.Data.ForceReply || result.Data.ReasonCode != "specific_stop" {
+			t.Fatalf("global preview bypassed specific: %d %s", response.Code, response.Body.String())
+		}
 	}
 }

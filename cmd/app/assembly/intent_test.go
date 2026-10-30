@@ -109,7 +109,7 @@ func TestBuildToolsResolverFiltersAndBudgets(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("tool invoked %d times, want 1 within the budget", calls)
 	}
-	if len(runs) != 1 || runs[0].ToolID != "test.read" || runs[0].Status != pluginsapp.StatusOK {
+	if len(runs) != 2 || runs[1].Status != pluginsapp.StatusDenied || runs[1].ErrorCode != "tool_call_budget" || runs[0].ToolID != "test.read" || runs[0].Status != pluginsapp.StatusOK {
 		t.Fatalf("reported runs = %+v", runs)
 	}
 }
@@ -242,14 +242,14 @@ func TestReplyToolRequiresDedicatedSwitch(t *testing.T) {
 	full := &config.Config{}
 	full.Tools.AllowSideEffects = true
 	full.Tools.AllowSendCurrent = true
-	if got := exposedToolNames(t, buildToolsResolver(full, registry, nil)(
+	if got := exposedToolNames(t, buildToolsResolver(full, registry, func(context.Context, int64, string, int64) (bool, bool) { return true, true })(
 		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup, PermissionOverrides: overrides},
 	)); !reflect.DeepEqual(got, []string{"qq_send_current"}) {
 		t.Fatalf("exposed = %v, want qq_send_current", got)
 	}
 
 	// Without the scope grant the tool stays denied even with both switches on.
-	if got := exposedToolNames(t, buildToolsResolver(full, registry, nil)(
+	if got := exposedToolNames(t, buildToolsResolver(full, registry, func(context.Context, int64, string, int64) (bool, bool) { return true, true })(
 		context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup},
 	)); len(got) != 0 {
 		t.Fatalf("missing grant exposed %v, want none", got)
@@ -286,5 +286,46 @@ func TestSendingPolicyVetoesReplyTool(t *testing.T) {
 	allow := func(context.Context, int64, string, int64) (bool, bool) { return true, true }
 	if got := exposedToolNames(t, buildToolsResolver(cfg, registry, allow)(context.Background(), req)); !reflect.DeepEqual(got, []string{"qq_send_current"}) {
 		t.Fatalf("policy allow exposed %v", got)
+	}
+}
+
+type replyRefusedError struct{}
+
+func (replyRefusedError) Error() string      { return "reply refused" }
+func (replyRefusedError) ToolStatus() string { return "denied" }
+
+func TestReplyRunStaysStoppedAfterRefusal(t *testing.T) {
+	registry := pluginsapp.NewRegistry([]string{"test.fake"})
+	calls := 0
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
+		Descriptor: plugincontracts.ToolDescriptor{ID: "qq.send_current", Description: "send", ReplyCurrent: true, SideEffect: true, RiskLevel: plugincontracts.RiskWrite, Permission: "qq.reply.current"},
+		Invoke: func(context.Context, string) (string, error) {
+			calls++
+			if calls == 2 {
+				return "", replyRefusedError{}
+			}
+			return "sent", nil
+		},
+	}}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close(context.Background())
+	cfg := &config.Config{}
+	cfg.Tools.AllowSendCurrent = true
+	var runs []agentcontracts.ToolRun
+	req := agentcontracts.Request{Kind: "private", PermissionOverrides: map[string]bool{"qq.reply.current": true}, OnToolRun: func(run agentcontracts.ToolRun) { runs = append(runs, run) }}
+	tools := buildToolsResolver(cfg, registry, func(context.Context, int64, string, int64) (bool, bool) { return true, true })(context.Background(), req)
+	if len(tools) != 1 {
+		t.Fatalf("reply tool missing: %d", len(tools))
+	}
+	invoke := tools[0].(tool.InvokableTool)
+	for i := 0; i < 3; i++ {
+		if _, err := invoke.InvokableRun(context.Background(), "{}"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 || len(runs) != 3 || runs[2].Status != "denied" || runs[2].ErrorCode != "authorization_revoked" {
+		t.Fatalf("run resumed after refusal: calls=%d runs=%+v", calls, runs)
 	}
 }

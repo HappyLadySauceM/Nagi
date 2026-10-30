@@ -65,3 +65,59 @@ func TestRulesetValidation(t *testing.T) {
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+func TestDisabledEntriesAndSemanticOverride(t *testing.T) {
+	off := false
+	in := baseInput(scopedomain.ModeAlwaysReply)
+	entries := []domain.RuleEntry{
+		{Priority: 0, Enabled: &off, Action: domain.RuleAction{Type: domain.ActionSilent, ReasonCode: "disabled"}},
+		{Priority: 1, Action: domain.RuleAction{Type: domain.ActionRequireSemantic, ReasonCode: "semantic"}},
+	}
+	rule := ApplyRuleset(EvaluateRules(in), in, entries)
+	if !rule.Matched || !rule.NeedSemantic || rule.Blocked || rule.AlwaysReply || rule.Explicit {
+		t.Fatalf("semantic override: %+v", rule)
+	}
+}
+
+func TestBuiltinSwitchesDoNotBypassHardGates(t *testing.T) {
+	in := baseInput(scopedomain.ModeIntentBased)
+	semantic := domain.SemanticAnswer{Available: true, DirectedToBot: 0.9, IntentCategory: "closing"}
+	rule := EvaluateRules(in)
+	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "closing" {
+		t.Fatalf("closing: %+v", got)
+	}
+	rule.BuiltinRules = map[string]bool{"closing": false}
+	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "directed_to_bot" {
+		t.Fatalf("disabled closing: %+v", got)
+	}
+	rule.BuiltinRules["directed_to_bot"] = false
+	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "ambiguous" {
+		t.Fatalf("disabled directed: %+v", got)
+	}
+	in.Policy.Enabled = false
+	rule = EvaluateRules(in)
+	rule.BuiltinRules = map[string]bool{"closing": false}
+	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "policy_disabled" {
+		t.Fatalf("hard gate bypassed: %+v", got)
+	}
+}
+
+func TestRuleChainSpecificThenGlobal(t *testing.T) {
+	in := baseInput(scopedomain.ModeIntentBased)
+	global := domain.Ruleset{ID: 1, Version: 2, Entries: []domain.RuleEntry{{Priority: 0, Action: domain.RuleAction{Type: domain.ActionSilent, ReasonCode: "global_stop"}}}, BuiltinRules: map[string]bool{"closing": false}}
+	specific := domain.Ruleset{ID: 2, Version: 3, Entries: []domain.RuleEntry{{Priority: 0, Match: domain.RuleMatch{TextContains: "specific"}, Action: domain.RuleAction{Type: domain.ActionRequireSemantic, ReasonCode: "specific_semantic"}}}, BuiltinRules: map[string]bool{"closing": true}}
+	rule, version := EvaluateRuleChain(in, &specific, &global)
+	if !rule.Blocked || rule.ReasonCode != "global_stop" || version == "" || !rule.BuiltinRules["closing"] {
+		t.Fatalf("fallback: %+v %s", rule, version)
+	}
+	in.Task.Message.Text = "specific"
+	rule, _ = EvaluateRuleChain(in, &specific, &global)
+	if rule.Blocked || !rule.Matched || !rule.NeedSemantic {
+		t.Fatalf("specific semantic did not stop fallback: %+v", rule)
+	}
+	in.Policy.Enabled = false
+	rule, _ = EvaluateRuleChain(in, &specific, &global)
+	if !rule.Blocked || rule.ReasonCode != "policy_disabled" {
+		t.Fatalf("hard constraint bypassed: %+v", rule)
+	}
+}

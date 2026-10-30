@@ -121,3 +121,47 @@ func (c *Coordinator) HasDelivered(ctx context.Context, jobID int64) (bool, erro
 func (c *Coordinator) RecoverStale(ctx context.Context) (int, error) {
 	return c.repo.RecoverStale(ctx)
 }
+
+// DeliveryError reports incomplete deliveries without replaying the run.
+// DeliveryError 报告未完成的投递，避免重放整轮。
+func (c *Coordinator) DeliveryError(ctx context.Context, jobID int64) error {
+	if reader, ok := c.repo.(interface {
+		DeliveryError(context.Context, int64) error
+	}); ok {
+		return reader.DeliveryError(ctx, jobID)
+	}
+	return fmt.Errorf("outbound: delivery summary unavailable")
+}
+
+// Cancel releases a reservation that has not reached the platform.
+// Cancel 释放尚未进入平台调用的预留。
+func (c *Coordinator) Cancel(ctx context.Context, id string) error {
+	if repo, ok := c.repo.(interface {
+		Cancel(context.Context, string) error
+	}); ok {
+		return repo.Cancel(ctx, id)
+	}
+	return fmt.Errorf("outbound: cancel unavailable")
+}
+
+// RecordDenied persists a run termination without claiming a platform attempt.
+// RecordDenied 持久化运行拒绝原因，不将其算作平台发送尝试。
+func (c *Coordinator) RecordDenied(ctx context.Context, jobID int64, reason string) error {
+	if repo, ok := c.repo.(interface {
+		RecordDenied(context.Context, int64, string) error
+	}); ok {
+		return repo.RecordDenied(ctx, jobID, reason)
+	}
+	return fmt.Errorf("outbound: outcome recorder unavailable")
+}
+
+// ValidateReserved checks a prepared message against the latest limits.
+// ValidateReserved 使用最新额度检查已预留的消息。
+func (c *Coordinator) ValidateReserved(ctx context.Context, id string, limits domain.Limits) error {
+	if repo, ok := c.repo.(interface {
+		ValidateReserved(context.Context, string, domain.Limits) error
+	}); ok {
+		return repo.ValidateReserved(ctx, id, limits)
+	}
+	return fmt.Errorf("outbound: reservation validation unavailable")
+}

@@ -8,6 +8,7 @@ import { Button } from '../../../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { InfoRow } from '../../../components/info-row'
 import type { ScopePolicy } from '../../../lib/api/contracts'
+import { REPLY_MODE_LABELS } from '../../../lib/api/contracts'
 import { formatCount, formatDateTime, formatRelativeTime } from '../../../lib/format'
 import { useAccountContext } from '../../accounts/account-context'
 import { ScopeEditDialog } from './scope-edit-dialog'
@@ -73,6 +74,11 @@ export function ContactDetailPanel({ selection }: { selection?: DirectorySelecti
       </CardHeader>
 
       <CardContent className="pt-2">
+        <InfoRow label="策略来源" value={selection.policy?.source === 'default' ? (isGroup ? '跟随群聊默认' : '跟随好友默认') : '独立策略'} />
+        <InfoRow label="回复模式" value={selection.policy ? REPLY_MODE_LABELS[selection.policy.replyMode] : '未加载'} />
+        <InfoRow label="显式授权能力" value={String(Object.values(selection.policy?.toolPermissions ?? {}).filter(Boolean).length)} />
+        <InfoRow label="发送预算" value={selection.policy ? `每轮 ${selection.policy.maxMessagesPerRun ?? 3} 条 · 单条 ${selection.policy.maxCharsPerMessage ?? 500} 字 · 整轮 ${selection.policy.maxTotalCharsPerRun ?? 1500} 字` : '未加载'} />
+        <InfoRow label="气泡间隔" value={`${selection.policy?.messageIntervalMs ?? 700} ms`} />
         <InfoRow label={isGroup ? '群名称' : '昵称'} value={selection.name || '未记录'} />
         {isGroup ? (
           <InfoRow
@@ -98,7 +104,7 @@ export function ContactDetailPanel({ selection }: { selection?: DirectorySelecti
 
         {!selection.policy?.enabled ? (
           <p className="mt-3 rounded-lg border border-border/70 bg-secondary/40 px-3 py-2 text-meta leading-relaxed text-muted-foreground">
-            该目标默认关闭：机器人不会回复、不保存消息，也不写入记忆。需要回复时先保存一份启用的策略。
+            该目标当前关闭：机器人不会回复、不保存消息，也不写入记忆。需要回复时先保存一份启用的策略。
           </p>
         ) : null}
 
@@ -109,7 +115,7 @@ export function ContactDetailPanel({ selection }: { selection?: DirectorySelecti
             onClick={() => setEditOpen(true)}
           >
             <ShieldCheck aria-hidden />
-            {selection.policy ? '编辑策略' : '配置策略'}
+            编辑策略
           </Button>
           {isGroup ? (
             <Button asChild variant="outline" size="sm">

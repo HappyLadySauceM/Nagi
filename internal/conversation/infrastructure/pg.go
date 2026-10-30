@@ -249,14 +249,14 @@ func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter
 		WITH delivered AS (
 			SELECT j.id, EXISTS (
 				SELECT 1 FROM agent_outbound_messages o
-				WHERE o.job_id = j.id AND o.status IN ('sent', 'unknown', 'sending')
-			) AS has_delivered
+				WHERE o.job_id = j.id AND o.status IN ('sent', 'unknown', 'sending', 'failed')
+			) OR j.delivery_outcome='blocked' AS has_delivered
 			FROM message_jobs j
 			WHERE j.id = $1 AND j.status = 'processing'
 		)
 		UPDATE message_jobs j SET
 			attempts = j.attempts + 1,
-			last_error_code = CASE WHEN delivered.has_delivered THEN 'partial' ELSE $2 END,
+			last_error_code = CASE WHEN j.delivery_outcome='blocked' THEN 'blocked' WHEN delivered.has_delivered THEN 'partial' ELSE $2 END,
 			status = CASE
 				WHEN delivered.has_delivered OR j.attempts + 1 >= $3 THEN 'failed'
 				ELSE 'pending'
@@ -297,6 +297,10 @@ func (r *Repo) ReleaseJob(ctx context.Context, jobID int64) error {
 // 停留在 sending 的记录改为 unknown；已有 sent/unknown 记录的任务以 partial
 // 失败而不重新排队，避免重放导致重复发送；其余任务回到待处理状态。
 func (r *Repo) RecoverStaleJobs(ctx context.Context) error {
+	if _, err := r.pool.Exec(ctx, `WITH cancelled AS (UPDATE agent_outbound_messages SET status='cancelled',updated_at=now() WHERE status='prepared' RETURNING job_id,char_length(text_content) AS chars), refunds AS (SELECT job_id,count(*) AS messages,sum(chars) AS chars FROM cancelled GROUP BY job_id) UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars) FROM refunds r WHERE b.job_id=r.job_id`); err != nil {
+		return fmt.Errorf("conversation: cancel stale reservations: %w", err)
+	}
+
 	_, err := r.pool.Exec(ctx, `
 		WITH marked AS (
 			UPDATE agent_outbound_messages
@@ -306,7 +310,7 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context) error {
 		), delivered AS (
 			SELECT job_id FROM marked
 			UNION
-			SELECT job_id FROM agent_outbound_messages WHERE status IN ('sent', 'unknown')
+			SELECT job_id FROM agent_outbound_messages WHERE status IN ('sent', 'unknown', 'failed')
 		)
 		UPDATE message_jobs j SET
 			status = CASE
@@ -340,7 +344,7 @@ func (r *Repo) RecordOutgoing(ctx context.Context, conversationID string, botID 
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO messages (conversation_id, bot_id, direction, platform_message_id, sender_id, text_content, sent_status, outbound_id)
-		VALUES ($1, $2, 'outgoing', NULLIF($3, 0), $2, $4, $5, NULLIF($6, '')::uuid)
+		VALUES ($1, $2, 'outgoing', NULLIF($3, 0), $2, $4, $5, NULLIF($6, '')::uuid) ON CONFLICT (outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING
 	`, conversationID, botID, platformMessageID, text, sentStatus, outboundID); err != nil {
 		return fmt.Errorf("conversation: record outgoing: %w", err)
 	}
@@ -366,11 +370,14 @@ func (r *Repo) BotReplyMeta(ctx context.Context, conversationID string) (time.Ti
 	var last time.Time
 	var count int
 	err := r.pool.QueryRow(ctx, `
-		SELECT COALESCE(MAX(created_at), '0001-01-01 00:00:00+00'::timestamptz),
-		       COUNT(*) FILTER (WHERE created_at > now() - interval '1 hour')
-		FROM messages
-		WHERE conversation_id = $1 AND direction = 'outgoing'
-	`, conversationID).Scan(&last, &count)
+ WITH activity AS (
+ SELECT CASE WHEN status IN ('sent','unknown','sending') THEN updated_at END AS spoke_at,created_at AS reserved_at
+ FROM agent_outbound_messages WHERE conversation_id=$1 AND status IN ('prepared','sending','sent','unknown')
+ UNION ALL
+ SELECT created_at,created_at FROM messages WHERE conversation_id=$1 AND direction='outgoing' AND outbound_id IS NULL AND sent_status IN ('sent','unknown')
+ )
+ SELECT COALESCE(MAX(spoke_at),'0001-01-01 00:00:00+00'::timestamptz),count(*) FILTER(WHERE reserved_at>now()-interval '1 hour') FROM activity
+ `, conversationID).Scan(&last, &count)
 	if err != nil {
 		return time.Time{}, 0, fmt.Errorf("conversation: bot reply meta: %w", err)
 	}
@@ -434,4 +441,35 @@ func decodeSegments(b []byte) ([]obdomain.Segment, error) {
 		segs = append(segs, obdomain.Segment{Type: obdomain.SegmentType(w.Type), Data: w.Data})
 	}
 	return segs, nil
+}
+
+// DeliveryError reports terminal delivery problems to the worker.
+// DeliveryError 向工作器报告投递终态问题。
+func (r *Repo) DeliveryError(ctx context.Context, jobID int64) error {
+	var bad bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_outbound_messages WHERE job_id=$1 AND status NOT IN ('sent','cancelled'))`, jobID).Scan(&bad)
+	if err != nil {
+		return err
+	}
+	if bad {
+		return fmt.Errorf("conversation: delivery incomplete")
+	}
+	return nil
+}
+
+// ReconcileOutgoing repairs acknowledged message history without sending again.
+// ReconcileOutgoing 补齐已有回执的历史记录，不会再次发送。
+func (r *Repo) ReconcileOutgoing(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id,created_at)
+ SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id,o.updated_at
+ FROM agent_outbound_messages o JOIN conversations c ON c.id=o.conversation_id
+ JOIN LATERAL (
+ SELECT sp.enabled,sp.store_messages FROM scope_policies sp
+ WHERE sp.bot_id=c.bot_id AND sp.scope_type=c.kind AND sp.scope_id IN (c.target_id,0)
+ ORDER BY sp.scope_id DESC LIMIT 1
+ ) p ON true
+ WHERE o.status IN ('sent','unknown') AND p.enabled AND p.store_messages
+ AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.outbound_id=o.id)
+ ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`)
+	return err
 }

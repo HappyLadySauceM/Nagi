@@ -124,15 +124,20 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // policyUpdate is the accepted JSON body of PUT /api/v1/scopes/{type}/{id}.
 // policyUpdate 是 PUT /api/v1/scopes/{type}/{id} 接受的 JSON 请求体。
 type policyUpdate struct {
-	Enabled            bool            `json:"enabled"`
-	ReplyMode          string          `json:"reply_mode"`
-	StoreMessages      bool            `json:"store_messages"`
-	AllowMemoryWrite   bool            `json:"allow_memory_write"`
-	AllowHistoryRead   bool            `json:"allow_history_read"`
-	MinReplyIntervalMS int             `json:"min_reply_interval_ms"`
-	MaxRepliesPerHour  int             `json:"max_replies_per_hour"`
-	RetentionDays      int             `json:"retention_days"`
-	ToolPermissions    map[string]bool `json:"tool_permissions"`
+	MaxMessagesPerRun       int             `json:"max_messages_per_run"`
+	MaxCharsPerMessage      int             `json:"max_chars_per_message"`
+	MaxTotalCharsPerRun     int             `json:"max_total_chars_per_run"`
+	MessageIntervalMS       *int            `json:"message_interval_ms"`
+	ExpectedTemplateVersion *int64          `json:"expected_template_version"`
+	Enabled                 bool            `json:"enabled"`
+	ReplyMode               string          `json:"reply_mode"`
+	StoreMessages           bool            `json:"store_messages"`
+	AllowMemoryWrite        bool            `json:"allow_memory_write"`
+	AllowHistoryRead        bool            `json:"allow_history_read"`
+	MinReplyIntervalMS      int             `json:"min_reply_interval_ms"`
+	MaxRepliesPerHour       int             `json:"max_replies_per_hour"`
+	RetentionDays           int             `json:"retention_days"`
+	ToolPermissions         map[string]bool `json:"tool_permissions"`
 }
 
 // Put creates or updates one scope policy; changes take effect immediately.
@@ -176,24 +181,40 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	interval := 700
+	if body.MessageIntervalMS != nil {
+		interval = *body.MessageIntervalMS
+	}
 	policy := scopedomain.Policy{
-		ScopeType:          t,
-		ScopeID:            id,
-		Enabled:            body.Enabled,
-		ReplyMode:          scopedomain.ReplyMode(body.ReplyMode),
-		StoreMessages:      body.StoreMessages,
-		AllowMemoryWrite:   body.AllowMemoryWrite,
-		AllowHistoryRead:   body.AllowHistoryRead,
-		MinReplyIntervalMS: body.MinReplyIntervalMS,
-		MaxRepliesPerHour:  body.MaxRepliesPerHour,
-		RetentionDays:      body.RetentionDays,
-		ToolPermissions:    body.ToolPermissions,
+		MaxMessagesPerRun: body.MaxMessagesPerRun, MaxCharsPerMessage: body.MaxCharsPerMessage,
+		MaxTotalCharsPerRun: body.MaxTotalCharsPerRun, MessageIntervalMS: interval,
+		ExpectedTemplateVersion: body.ExpectedTemplateVersion,
+		ScopeType:               t,
+		ScopeID:                 id,
+		Enabled:                 body.Enabled,
+		ReplyMode:               scopedomain.ReplyMode(body.ReplyMode),
+		StoreMessages:           body.StoreMessages,
+		AllowMemoryWrite:        body.AllowMemoryWrite,
+		AllowHistoryRead:        body.AllowHistoryRead,
+		MinReplyIntervalMS:      body.MinReplyIntervalMS,
+		MaxRepliesPerHour:       body.MaxRepliesPerHour,
+		RetentionDays:           body.RetentionDays,
+		ToolPermissions:         body.ToolPermissions,
 	}
 	if err := h.svcCtx.Scope.Upsert(r.Context(), botID, policy); err != nil {
+		if errors.Is(err, scopedomain.ErrTemplateConflict) {
+			common.WriteFailure(w, http.StatusConflict, "default template changed; reload before saving")
+			return
+		}
 		common.WriteFailure(w, http.StatusBadRequest, "invalid scope policy")
 		return
 	}
-	common.WriteSuccess(w, policy)
+	saved, err := h.svcCtx.Scope.Get(r.Context(), botID, t, id)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "resolve saved policy failed")
+		return
+	}
+	common.WriteSuccess(w, saved)
 }
 
 // Delete removes one stored policy; the scope falls back to default-deny at once.
@@ -260,6 +281,9 @@ func parseScope(rawType, rawID string) (scopedomain.ScopeType, int64, bool) {
 	t := scopedomain.ScopeType(rawType)
 	if !t.Valid() {
 		return "", 0, false
+	}
+	if rawID == "default" {
+		return t, 0, true
 	}
 	id, err := strconv.ParseInt(rawID, 10, 64)
 	if err != nil || id <= 0 {

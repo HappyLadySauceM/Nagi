@@ -48,10 +48,10 @@ export function useScope(botId: number | undefined, scopeType: ScopeType, scopeI
     queryKey: queryKeys.scope(botId, scopeType, scopeId),
     queryFn: ({ signal }) =>
       apiRequest(
-        `/api/v1/scopes/${scopeType}/${scopeId}${toQueryString({ bot_id: botId })}`,
+        `/api/v1/scopes/${scopeType}/${scopeId === 0 ? 'default' : scopeId}${toQueryString({ bot_id: botId })}`,
         { signal },
       ).then(toScopePolicy),
-    enabled: botId !== undefined && Number.isFinite(scopeId) && scopeId > 0,
+    enabled: botId !== undefined && Number.isFinite(scopeId) && scopeId >= 0,
   })
 }
 
@@ -60,6 +60,7 @@ interface SaveScopeVariables {
   scopeType: ScopeType
   scopeId: number
   form: ScopeForm
+  expectedTemplateVersion?: number
 }
 
 /**
@@ -70,10 +71,10 @@ interface SaveScopeVariables {
 export function useSaveScope() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ botId, scopeType, scopeId, form }: SaveScopeVariables) =>
-      apiRequest(`/api/v1/scopes/${scopeType}/${scopeId}${toQueryString({ bot_id: botId })}`, {
+    mutationFn: ({ botId, scopeType, scopeId, form, expectedTemplateVersion }: SaveScopeVariables) =>
+      apiRequest(`/api/v1/scopes/${scopeType}/${scopeId === 0 ? 'default' : scopeId}${toQueryString({ bot_id: botId })}`, {
         method: 'PUT',
-        body: toScopePutBody(form),
+        body: { ...toScopePutBody(form), ...(expectedTemplateVersion === undefined ? {} : { expected_template_version: expectedTemplateVersion }) },
       }).then(toScopePolicy),
     onSuccess: (policy, variables) => {
       queryClient.setQueryData<ScopePolicy>(
@@ -92,6 +93,8 @@ export function useSaveScope() {
           policy,
         ],
       )
+      void queryClient.invalidateQueries({ queryKey: ['scopes'] })
+      void queryClient.invalidateQueries({ queryKey: ['directory'] })
       void queryClient.invalidateQueries({ queryKey: ['metrics'] })
     },
   })
@@ -112,7 +115,7 @@ export function useDeleteScope() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ botId, scopeType, scopeId }: DeleteScopeVariables) =>
-      apiRequest(`/api/v1/scopes/${scopeType}/${scopeId}${toQueryString({ bot_id: botId })}`, {
+      apiRequest(`/api/v1/scopes/${scopeType}/${scopeId === 0 ? 'default' : scopeId}${toQueryString({ bot_id: botId })}`, {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
@@ -129,6 +132,8 @@ export function useDeleteScope() {
             (row) => !(row.scopeType === variables.scopeType && row.scopeId === variables.scopeId),
           ),
       )
+      void queryClient.invalidateQueries({ queryKey: ['scopes'] })
+      void queryClient.invalidateQueries({ queryKey: ['directory'] })
       void queryClient.invalidateQueries({ queryKey: ['metrics'] })
     },
   })

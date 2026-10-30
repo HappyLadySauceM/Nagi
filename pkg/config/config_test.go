@@ -303,11 +303,10 @@ func TestLoadReadsSendingBudgetFromYaml(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsSendCurrentWithoutSideEffects(t *testing.T) {
-	// 验证只打开 allow-send-current 而不打开 allow-side-effects 时启动失败。
+func TestValidateAllowsDedicatedReplyWithoutOtherSideEffects(t *testing.T) {
 	file := writeTempConfig(t, "tools:\n  allow-send-current: true\n  enabled: [builtin.reply]\n")
-	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
-		t.Fatal("expected error when allow-send-current is set without allow-side-effects")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err != nil {
+		t.Fatal(err)
 	}
 }
 

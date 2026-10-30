@@ -3,6 +3,7 @@ import { DEFAULT_SCOPE_FORM } from '../../../lib/api/adapters/scope'
 import { fromScopeFormValues, scopeFormSchema, toScopeFormValues } from '../schema'
 
 const validValues = {
+ maxMessagesPerRun: '3', maxCharsPerMessage: '500', maxTotalCharsPerRun: '1500', messageIntervalMs: '700',
   enabled: true,
   replyMode: 'mention_only',
   storeMessages: false,

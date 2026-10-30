@@ -3,6 +3,7 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -48,9 +49,15 @@ func (m ReplyMode) Valid() bool {
 
 // Policy is one scope policy row; zero-value numeric fields are replaced by defaults.
 // Policy 是一条作用域策略；数值字段的零值会由默认值替代。
+var ErrTemplateConflict = errors.New("scope: template version conflict")
+
 type Policy struct {
-	ScopeType ScopeType
-	ScopeID   int64
+	ExpectedTemplateVersion *int64
+	ScopeType               ScopeType
+	ScopeID                 int64
+	Source                  string
+	TemplateVersion         int64
+	Version                 int64
 
 	Enabled          bool
 	ReplyMode        ReplyMode
@@ -67,7 +74,11 @@ type Policy struct {
 	// the default baseline never rewrites stored rows.
 	// ToolPermissions 保存该作用域的工具权限显式覆盖。缺少键表示"使用配置默认"，
 	// 因此调整默认基线不会重写已存行。
-	ToolPermissions map[string]bool
+	ToolPermissions     map[string]bool
+	MaxMessagesPerRun   int
+	MaxCharsPerMessage  int
+	MaxTotalCharsPerRun int
+	MessageIntervalMS   int
 }
 
 // Default returns the safe default policy for a scope: everything off.
@@ -80,24 +91,35 @@ func Default(t ScopeType, scopeID int64) Policy {
 		MinReplyIntervalMS: 10000,
 		MaxRepliesPerHour:  20,
 		RetentionDays:      30,
+		MaxMessagesPerRun:  3, MaxCharsPerMessage: 500, MaxTotalCharsPerRun: 1500, MessageIntervalMS: 700,
 	}
 }
 
-// WithDefaults fills zero numeric fields and the reply mode with defaults,
-// so a stored partial row resolves to a complete effective policy.
-// WithDefaults 用默认值补齐数值零值与回复模式，
-// 使存储的部分行能解析为完整的生效策略。
+// WithDefaults fills missing sending limits and legacy policies with no reply mode.
+// Explicit zero cooldown, hourly quota and retention values remain unlimited.
+// WithDefaults 补齐发送上限及缺少回复模式的旧策略。
+// 显式的零冷却、小时额度和留存期限保留不限语义。
 func (p Policy) WithDefaults() Policy {
+	legacyNumbers := !p.ReplyMode.Valid()
+	if p.MaxMessagesPerRun == 0 {
+		p.MaxMessagesPerRun = 3
+	}
+	if p.MaxCharsPerMessage == 0 {
+		p.MaxCharsPerMessage = 500
+	}
+	if p.MaxTotalCharsPerRun == 0 {
+		p.MaxTotalCharsPerRun = 1500
+	}
 	if !p.ReplyMode.Valid() {
 		p.ReplyMode = ModeMentionOnly
 	}
-	if p.MinReplyIntervalMS <= 0 {
+	if legacyNumbers && p.MinReplyIntervalMS <= 0 {
 		p.MinReplyIntervalMS = 10000
 	}
-	if p.MaxRepliesPerHour <= 0 {
+	if legacyNumbers && p.MaxRepliesPerHour <= 0 {
 		p.MaxRepliesPerHour = 20
 	}
-	if p.RetentionDays <= 0 {
+	if legacyNumbers && p.RetentionDays <= 0 {
 		p.RetentionDays = 30
 	}
 	return p
@@ -109,14 +131,20 @@ func (p Policy) Validate() error {
 	if !p.ScopeType.Valid() {
 		return fmt.Errorf("scope: invalid scope type %q", p.ScopeType)
 	}
-	if p.ScopeID <= 0 {
-		return fmt.Errorf("scope: scope id must be positive")
+	if p.ScopeID < 0 {
+		return fmt.Errorf("scope: scope id must not be negative")
 	}
 	if !p.ReplyMode.Valid() {
 		return fmt.Errorf("scope: invalid reply mode %q", p.ReplyMode)
 	}
 	if p.MinReplyIntervalMS < 0 || p.MaxRepliesPerHour < 0 || p.RetentionDays < 0 {
 		return fmt.Errorf("scope: policy numbers must not be negative")
+	}
+	if p.MaxMessagesPerRun < 0 || p.MaxCharsPerMessage < 0 || p.MaxTotalCharsPerRun < 0 || p.MessageIntervalMS < 0 || p.MessageIntervalMS > 60000 {
+		return fmt.Errorf("scope: invalid sending limits")
+	}
+	if p.MaxTotalCharsPerRun > 0 && p.MaxCharsPerMessage > p.MaxTotalCharsPerRun {
+		return fmt.Errorf("scope: message limit exceeds run limit")
 	}
 	if err := validateToolPermissions(p.ToolPermissions); err != nil {
 		return err

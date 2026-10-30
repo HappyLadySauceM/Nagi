@@ -3,8 +3,6 @@ import {
   BrainCircuit,
   LayoutDashboard,
   ScrollText,
-  Send,
-  SlidersHorizontal,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -14,7 +12,6 @@ export type NavPath =
   | '/directory'
   | '/decisions'
   | '/rules'
-  | '/sending'
   | '/accounts'
   | '/memories'
 
@@ -46,9 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '智能',
     items: [
       { to: '/memories', label: '知识与记忆', hint: '候选、审批与可见性', icon: BrainCircuit },
-      { to: '/decisions', label: '决策记录', hint: '为什么回复或沉默', icon: ScrollText },
-      { to: '/rules', label: '意图规则', hint: '版本化规则与模拟', icon: SlidersHorizontal },
-      { to: '/sending', label: '发送策略', hint: '按作用域灰度与预算', icon: Send },
+      { to: '/decisions', label: '意图识别', hint: '规则、语义与决策过程', icon: ScrollText },
     ],
   },
   {

@@ -3,12 +3,10 @@
 package agent
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
-	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
@@ -20,6 +18,9 @@ type policyInfo struct {
 	ScopeID             int64
 	Exists              bool
 	AllowSendCurrent    bool
+	EffectiveEnabled    bool
+	BlockedReasons      []string
+	MinIntervalMS       int
 	MaxMessagesPerRun   int
 	MaxCharsPerMessage  int
 	MaxTotalCharsPerRun int
@@ -29,7 +30,6 @@ type policyInfo struct {
 // RegisterPolicy 注册出站策略接口。
 func (h *Handler) RegisterPolicy(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/agent/sending-policy", h.GetSendingPolicy)
-	mux.HandleFunc("PUT /api/v1/agent/sending-policy", h.PutSendingPolicy)
 }
 
 // GetSendingPolicy returns the stored policy, or the process defaults when the
@@ -42,6 +42,8 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	info := policyInfo{
 		BotID: botID, ScopeType: scopeType, ScopeID: scopeID,
+		MinIntervalMS:       700,
+		BlockedReasons:      make([]string, 0),
 		MaxMessagesPerRun:   h.svcCtx.Config.Agent.Sending.MaxMessagesPerRun,
 		MaxCharsPerMessage:  h.svcCtx.Config.Agent.Sending.MaxCharsPerMessage,
 		MaxTotalCharsPerRun: h.svcCtx.Config.Agent.Sending.MaxTotalCharsPerRun,
@@ -53,52 +55,63 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if exists {
 		info.Exists = true
+		info.MinIntervalMS = policy.MinIntervalMS
 		info.AllowSendCurrent = policy.AllowSendCurrent
 		info.MaxMessagesPerRun = policy.MaxMessagesPerRun
 		info.MaxCharsPerMessage = policy.MaxCharsPerMessage
 		info.MaxTotalCharsPerRun = policy.MaxTotalCharsPerRun
 	}
+	if !h.svcCtx.Config.Tools.AllowSendCurrent {
+		info.BlockedReasons = append(info.BlockedReasons, "进程未启用自主发送")
+	}
+	if !info.AllowSendCurrent {
+		info.BlockedReasons = append(info.BlockedReasons, "该会话未开启自主发送")
+	}
+	if h.svcCtx.Scope != nil {
+		p, e := h.svcCtx.Scope.Resolve(r.Context(), botID, scopedomain.ScopeType(scopeType), scopeID)
+		if e != nil {
+			common.WriteFailure(w, 500, "policy unavailable")
+			return
+		}
+		if !p.Enabled || !p.StoreMessages || p.ReplyMode == scopedomain.ModeObserveOnly {
+			info.BlockedReasons = append(info.BlockedReasons, "会话参与或消息存储未授权")
+		}
+		granted := h.svcCtx.Config.Tools.PermissionDefaults["qq.reply.current"]
+		if v, ok := p.ToolPermissions["qq.reply.current"]; ok {
+			granted = v
+		}
+		if !granted {
+			info.BlockedReasons = append(info.BlockedReasons, "未授予当前会话回复工具权限")
+		}
+	}
+	if !h.svcCtx.Config.AI.Enabled {
+		info.BlockedReasons = append(info.BlockedReasons, "未启用生成模型")
+	}
+	if !h.svcCtx.Config.Intent.Enabled {
+		info.BlockedReasons = append(info.BlockedReasons, "未启用意图流水线")
+	}
+	registered := false
+	if h.svcCtx.Tools != nil {
+		for _, tool := range h.svcCtx.Tools.Snapshot() {
+			if tool.Descriptor.ID == "qq.send_current" {
+				registered = true
+			}
+		}
+	}
+	if !registered {
+		info.BlockedReasons = append(info.BlockedReasons, "当前进程未加载回复工具")
+	}
+	online := false
+	if h.svcCtx.Accounts != nil {
+		if conn, ok := h.svcCtx.Accounts.Lookup(botID); ok {
+			online = conn.Connected()
+		}
+	}
+	if !online {
+		info.BlockedReasons = append(info.BlockedReasons, "机器人账号离线")
+	}
+	info.EffectiveEnabled = len(info.BlockedReasons) == 0
 	common.WriteSuccess(w, info)
-}
-
-// PutSendingPolicy stores one policy.
-// PutSendingPolicy 保存一条策略。
-func (h *Handler) PutSendingPolicy(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		BotID               int64  `json:"bot_id"`
-		ScopeType           string `json:"scope_type"`
-		ScopeID             int64  `json:"scope_id"`
-		AllowSendCurrent    bool   `json:"allow_send_current"`
-		MaxMessagesPerRun   int    `json:"max_messages_per_run"`
-		MaxCharsPerMessage  int    `json:"max_chars_per_message"`
-		MaxTotalCharsPerRun int    `json:"max_total_chars_per_run"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.WriteFailure(w, http.StatusBadRequest, "请求体不是合法 JSON")
-		return
-	}
-	if body.BotID <= 0 || body.ScopeID <= 0 ||
-		(body.ScopeType != string(scopedomain.ScopeGroup) && body.ScopeType != string(scopedomain.ScopePrivate)) {
-		common.WriteFailure(w, http.StatusBadRequest, "bot_id、scope_type、scope_id 均为必填")
-		return
-	}
-	if body.MaxMessagesPerRun <= 0 || body.MaxCharsPerMessage <= 0 || body.MaxTotalCharsPerRun <= 0 {
-		common.WriteFailure(w, http.StatusBadRequest, "预算上限必须为正数")
-		return
-	}
-	if body.MaxCharsPerMessage > body.MaxTotalCharsPerRun {
-		common.WriteFailure(w, http.StatusBadRequest, "单条上限不得大于整轮上限")
-		return
-	}
-	if err := h.svcCtx.SendingPolicies.Upsert(r.Context(), outboundinfra.Policy{
-		BotID: body.BotID, ScopeType: body.ScopeType, ScopeID: body.ScopeID,
-		AllowSendCurrent: body.AllowSendCurrent, MaxMessagesPerRun: body.MaxMessagesPerRun,
-		MaxCharsPerMessage: body.MaxCharsPerMessage, MaxTotalCharsPerRun: body.MaxTotalCharsPerRun,
-	}); err != nil {
-		common.WriteFailure(w, http.StatusInternalServerError, "保存出站策略失败")
-		return
-	}
-	common.WriteSuccess(w, map[string]any{"Saved": true})
 }
 
 // policyQuery parses the bot/scope triple.
