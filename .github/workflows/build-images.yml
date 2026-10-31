@@ -97,7 +97,12 @@ jobs:
     # 端口映射到宿主机，步骤里的 127.0.0.1:5432 即可连上。
     services:
       postgres:
-        image: postgres:17
+        # runner 的 dind 拉不到 Docker Hub（EOF），镜像统一走集群内 Zot，
+        # infrastructure/postgres:17 由官方 postgres:17 同步而来。
+        image: zot.infra-registry.svc.cluster.local:5000/infrastructure/postgres:17
+        credentials:
+          username: ${{ secrets.ZOT_USERNAME }}
+          password: ${{ secrets.ZOT_PASSWORD }}
         env:
           POSTGRES_USER: nagi
           POSTGRES_PASSWORD: nagi-local
