@@ -164,10 +164,22 @@ const CAPABILITY_PRESENTATION: Record<string, { label: string; description: stri
   'qq.get_group_info': { label: '查询当前群信息', description: '查看群名称、成员数量等基本资料。', icon: Search, category: '基础' },
   'qq.get_group_member_info': { label: '查询群成员', description: '查看群成员的名片、昵称与角色。', icon: UserRound, category: '基础' },
   'qq.mute_group_member': { label: '禁言群成员', description: '对当前群的指定成员禁言或解除禁言。', icon: ShieldCheck, category: '群管' },
-  'qq.set_group_whole_ban': { label: '全员禁言', description: '开启或关闭当前群的全员禁言。', icon: ShieldCheck, category: '群管' },
-  'qq.set_group_card': { label: '修改群名片', description: '修改当前群中指定成员的群名片。', icon: Pencil, category: '群管' },
+  'qq.set_group_whole_ban': { label: '全员禁言', description: '开启或关闭当前群的全员禁言，enable 必填。', icon: ShieldCheck, category: '群管' },
+  'qq.set_group_card': { label: '修改群名片', description: '修改指定群成员的群名片，跨群需要额外授权。', icon: Pencil, category: '群管' },
   'qq.kick_group_member': { label: '移出群成员', description: '将指定成员移出当前群。', icon: UsersRound, category: '群管' },
   'qq.leave_current_group': { label: '退出当前群', description: '让机器人退出当前群。', icon: LogOut, category: '群管' },
+}
+
+// Permission-level labels win over tool-level labels for groups that contain
+// several tools; otherwise every cross-conversation card would be named after
+// its first member tool.
+// 多工具权限组优先使用权限级文案；否则每个跨会话卡片都会以首个成员工具命名。
+const PERMISSION_PRESENTATION: Record<string, { label: string; description: string }> = {
+  'qq.cross_conversation': { label: '跨会话操作', description: '允许在其它会话执行发送或群管动作；目标会话必须已启用。' },
+  'qq.content.links': { label: '发送链接', description: '允许消息内容包含链接。' },
+  'qq.content.at_all': { label: '全体成员提醒', description: '允许在群消息中 @全体成员。' },
+  'qq.content.media': { label: '发送媒体', description: '允许图片、语音及其它非文本消息。' },
+  'qq.group.read': { label: '查询当前群信息', description: '读取当前群的基本信息与成员资料。' },
 }
 
 const CAPABILITY_CATEGORIES = [
@@ -274,8 +286,12 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
             </header>
             {!enabled ? <p className="px-4 pb-3 text-meta text-warning">当前策略尚未启用，会话不会参与对话；勾选后仍需启用并保存策略。</p> : null}
             {capabilities.map(({ permission, tools, categories }) => {
-              const label = tools.map(tool => CAPABILITY_PRESENTATION[tool.id]?.label ?? tool.id).join('、')
-              const description = tools.map(tool => CAPABILITY_PRESENTATION[tool.id]?.description ?? (tool.description || '服务端已注册的扩展能力。')).join(' ')
+              // A single-tool group keeps its tool-level wording; a multi-tool
+              // group must use permission-level wording so cards stay distinct.
+              // 单工具组沿用工具级文案；多工具组必须使用权限级文案，避免卡片重名。
+              const presentation = (tools.length === 1 ? CAPABILITY_PRESENTATION[tools[0].id] : undefined) ?? PERMISSION_PRESENTATION[permission.id]
+              const label = presentation?.label ?? (permission.description || tools.map(tool => tool.description || tool.id).join('、'))
+              const description = presentation?.description ?? (permission.description || tools.map(tool => tool.description || '服务端已注册的扩展能力。').join(' '))
               const Icon = CAPABILITY_PRESENTATION[tools[0].id]?.icon ?? (tools.some(tool => tool.riskLevel === 'admin') ? ShieldCheck : Wrench)
               const granted = grantedPermission(permission, overrides)
               const reasons = [...new Set(tools.flatMap(tool => tool.blockedReasons ?? []))]
@@ -287,7 +303,7 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
                   <input id={id} type="checkbox" aria-label={label} aria-describedby={`${id}-hint`} checked={granted} disabled={disabled} onChange={event => togglePermission(permission, event.target.checked)} className="peer sr-only" />
                   <span className={cn('mr-1 flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-ring', granted ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/60')} aria-hidden>{granted ? <Check className="size-3.5" strokeWidth={3} /> : null}</span>
                 </label>
-                <details className="ml-12 pb-1 text-caption text-muted-foreground"><summary className="w-fit cursor-pointer rounded px-1 py-1 focus-visible:outline-ring" aria-label={`${label}详情`}>详情</summary><div className="space-y-2 break-words px-1 py-2 [overflow-wrap:anywhere]"><p>默认授权：{permission.defaultGranted ? '允许' : '拒绝'}；当前授权：{granted ? '开启' : '关闭'}。</p>{tools.map(tool => <p key={tool.id}><span className="font-mono">{tool.id}</span> · {tool.description || '无工具声明'}</p>)}{reasons.map(reason => <p key={reason} className="text-warning">{reason}</p>)}</div></details>
+                <details className="ml-12 pb-1 text-caption text-muted-foreground"><summary className="w-fit cursor-pointer rounded px-1 py-1 focus-visible:outline-ring" aria-label={`${label}详情`}>详情</summary><div className="space-y-2 break-words px-1 py-2 [overflow-wrap:anywhere]"><p>风险级别：{permission.riskLevel === 'admin' ? '管理' : permission.riskLevel === 'write' ? '写入' : '读取'}。</p><p>默认授权：{permission.defaultGranted ? '允许' : '拒绝'}；当前授权：{granted ? '开启' : '关闭'}。</p>{tools.map(tool => <p key={tool.id}><span className="font-mono">{tool.id}</span> · {tool.description || '无工具声明'}</p>)}{reasons.map(reason => <p key={reason} className="text-warning">{reason}</p>)}</div></details>
               </article>
             })}
             {capabilities.length === 0 ? <p className="px-4 py-5 text-meta text-muted-foreground">当前会话没有可授权的能力。</p> : null}

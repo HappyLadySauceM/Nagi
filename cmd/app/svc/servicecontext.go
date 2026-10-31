@@ -93,6 +93,9 @@ func (s *ServiceContext) KnownToolPermissions() map[string]bool {
 	}
 	known := make(map[string]bool)
 	for _, registered := range s.Tools.Snapshot() {
+		for _, permission := range registered.Descriptor.AdditionalPermissions {
+			known[permission] = true
+		}
 		if permission := registered.Descriptor.Permission; permission != "" {
 			known[permission] = true
 		}

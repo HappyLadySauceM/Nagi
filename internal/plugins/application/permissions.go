@@ -5,12 +5,12 @@ import (
 )
 
 // ResolvePermissions computes the granted permission set for one run.
-// Precedence is scope override, then configured default, then the descriptor
-// fallback: read-only tools are allowed and everything else is denied. When
+// Precedence is scope override, then configured default, then the explicit descriptor default
+// or the fallback: read-only tools are allowed and everything else is denied. When
 // several tools share a permission, the fallback is the strictest one, so the
 // registration order can never widen what a permission grants.
 // ResolvePermissions 计算单次运行的授予权限集合。
-// 优先级为作用域覆盖、配置默认、描述符兜底：只读工具允许，其余默认拒绝。
+// 优先级为作用域覆盖、配置默认、描述符显式默认或兜底：只读工具允许，其余默认拒绝。
 // 多个工具共用一个权限时取最严格的兜底，注册顺序因此不会放大权限。
 func ResolvePermissions(tools []contracts.RegisteredTool, configDefaults, overrides map[string]bool) map[string]bool {
 	fallback := make(map[string]bool, len(tools))
@@ -20,6 +20,12 @@ func ResolvePermissions(tools []contracts.RegisteredTool, configDefaults, overri
 			continue
 		}
 		readOnly := registered.Descriptor.ReadOnly
+		if registered.Descriptor.DefaultAllowed != nil {
+			readOnly = *registered.Descriptor.DefaultAllowed
+		}
+		for _, extra := range registered.Descriptor.AdditionalPermissions {
+			fallback[extra] = false
+		}
 		if previous, seen := fallback[permission]; seen {
 			fallback[permission] = previous && readOnly
 			continue

@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -35,6 +36,16 @@ type AgentOutboundMessage struct {
 	ToolCallID *string `json:"tool_call_id,omitempty"`
 	// TextContent holds the value of the "text_content" field.
 	TextContent string `json:"text_content,omitempty"`
+	// TargetKind holds the value of the "target_kind" field.
+	TargetKind string `json:"target_kind,omitempty"`
+	// TargetID holds the value of the "target_id" field.
+	TargetID int64 `json:"target_id,omitempty"`
+	// Action holds the value of the "action" field.
+	Action string `json:"action,omitempty"`
+	// Payload holds the value of the "payload" field.
+	Payload map[string]interface{} `json:"payload,omitempty"`
+	// ChargeChars holds the value of the "charge_chars" field.
+	ChargeChars int64 `json:"charge_chars,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// PlatformMessageID holds the value of the "platform_message_id" field.
@@ -115,9 +126,11 @@ func (*AgentOutboundMessage) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case agentoutboundmessage.FieldJobID, agentoutboundmessage.FieldBotID, agentoutboundmessage.FieldSequence, agentoutboundmessage.FieldPlatformMessageID:
+		case agentoutboundmessage.FieldPayload:
+			values[i] = new([]byte)
+		case agentoutboundmessage.FieldJobID, agentoutboundmessage.FieldBotID, agentoutboundmessage.FieldSequence, agentoutboundmessage.FieldTargetID, agentoutboundmessage.FieldChargeChars, agentoutboundmessage.FieldPlatformMessageID:
 			values[i] = new(sql.NullInt64)
-		case agentoutboundmessage.FieldRunID, agentoutboundmessage.FieldToolCallID, agentoutboundmessage.FieldTextContent, agentoutboundmessage.FieldStatus, agentoutboundmessage.FieldErrorCode:
+		case agentoutboundmessage.FieldRunID, agentoutboundmessage.FieldToolCallID, agentoutboundmessage.FieldTextContent, agentoutboundmessage.FieldTargetKind, agentoutboundmessage.FieldAction, agentoutboundmessage.FieldStatus, agentoutboundmessage.FieldErrorCode:
 			values[i] = new(sql.NullString)
 		case agentoutboundmessage.FieldCreatedAt, agentoutboundmessage.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -186,6 +199,38 @@ func (_m *AgentOutboundMessage) assignValues(columns []string, values []any) err
 				return fmt.Errorf("unexpected type %T for field text_content", values[i])
 			} else if value.Valid {
 				_m.TextContent = value.String
+			}
+		case agentoutboundmessage.FieldTargetKind:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field target_kind", values[i])
+			} else if value.Valid {
+				_m.TargetKind = value.String
+			}
+		case agentoutboundmessage.FieldTargetID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field target_id", values[i])
+			} else if value.Valid {
+				_m.TargetID = value.Int64
+			}
+		case agentoutboundmessage.FieldAction:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field action", values[i])
+			} else if value.Valid {
+				_m.Action = value.String
+			}
+		case agentoutboundmessage.FieldPayload:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field payload", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Payload); err != nil {
+					return fmt.Errorf("unmarshal field payload: %w", err)
+				}
+			}
+		case agentoutboundmessage.FieldChargeChars:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field charge_chars", values[i])
+			} else if value.Valid {
+				_m.ChargeChars = value.Int64
 			}
 		case agentoutboundmessage.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -303,6 +348,21 @@ func (_m *AgentOutboundMessage) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("text_content=")
 	builder.WriteString(_m.TextContent)
+	builder.WriteString(", ")
+	builder.WriteString("target_kind=")
+	builder.WriteString(_m.TargetKind)
+	builder.WriteString(", ")
+	builder.WriteString("target_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TargetID))
+	builder.WriteString(", ")
+	builder.WriteString("action=")
+	builder.WriteString(_m.Action)
+	builder.WriteString(", ")
+	builder.WriteString("payload=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Payload))
+	builder.WriteString(", ")
+	builder.WriteString("charge_chars=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ChargeChars))
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)

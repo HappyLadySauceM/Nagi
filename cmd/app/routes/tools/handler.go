@@ -20,6 +20,20 @@ import (
 // unavailableScopeKindMismatch 是工具不适用于请求会话类型时返回的稳定原因。
 const unavailableScopeKindMismatch = "scope_kind_mismatch"
 
+// riskRank orders risk levels so a permission group can keep the strictest one.
+// riskRank 为风险级别排序，便于权限分组建模时保留最严格项。
+func riskRank(level contracts.RiskLevel) int {
+	switch level {
+	case contracts.RiskAdmin:
+		return 3
+	case contracts.RiskWrite:
+		return 2
+	case contracts.RiskRead:
+		return 1
+	}
+	return 0
+}
+
 // Handler serves the tool catalog endpoint.
 // Handler 提供工具清单接口。
 type Handler struct {
@@ -69,6 +83,8 @@ type toolInfo struct {
 // permissionInfo groups the tools that require one permission.
 // permissionInfo 归组需要同一权限的工具。
 type permissionInfo struct {
+	Description    string
+	RiskLevel      contracts.RiskLevel
 	ID             string
 	Tools          []string
 	DefaultGranted bool
@@ -192,10 +208,32 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		group, ok := byPermission[descriptor.Permission]
 		if !ok {
-			group = &permissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission]}
+			group = &permissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission], Description: descriptor.Description, RiskLevel: descriptor.EffectiveRiskLevel()}
 			byPermission[descriptor.Permission] = group
+		} else if riskRank(descriptor.EffectiveRiskLevel()) > riskRank(group.RiskLevel) {
+			// Keep the strictest risk so the group never depends on snapshot order.
+			// 取最严格的风险级别，组内展示不随快照顺序变化。
+			group.RiskLevel = descriptor.EffectiveRiskLevel()
 		}
 		group.Tools = append(group.Tools, descriptor.ID)
+	}
+	extraDescriptions := map[string]string{"qq.cross_conversation": "跨会话操作：仅来源会话授权即可操作当前机器人的其他目标", "qq.content.links": "发送链接：允许消息包含链接或远程媒体地址", "qq.content.at_all": "发送 @全体：允许通知群内所有成员", "qq.content.media": "发送媒体：允许图片、语音及其他非文本消息段"}
+	for _, registered := range visible {
+		for _, permission := range registered.Descriptor.AdditionalPermissions {
+			group := byPermission[permission]
+			if group == nil {
+				// Conditional grants are write-level content gates; cross-conversation
+				// access stays administrative.
+				// 条件授权中的内容门属于写入级别；跨会话访问仍按管理级别处理。
+				risk := contracts.RiskAdmin
+				if strings.HasPrefix(permission, "qq.content.") {
+					risk = contracts.RiskWrite
+				}
+				group = &permissionInfo{ID: permission, DefaultGranted: granted[permission], Description: extraDescriptions[permission], RiskLevel: risk}
+				byPermission[permission] = group
+			}
+			group.Tools = append(group.Tools, registered.Descriptor.ID)
+		}
 	}
 	for _, group := range byPermission {
 		sort.Strings(group.Tools)

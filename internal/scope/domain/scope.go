@@ -142,7 +142,7 @@ func (p Policy) Validate() error {
 // small, so a larger map only signals bad input.
 // maxToolPermissions 限制单个策略的覆盖项数量；权限集合本身很小，
 // 超出上限只说明输入异常。
-const maxToolPermissions = 32
+const maxToolPermissions = 128
 
 // maxPermissionKeyLen bounds one permission identifier.
 // maxPermissionKeyLen 限制单个权限标识的长度。

@@ -29,6 +29,11 @@ type Request struct {
 	RunID          string
 	ToolCallID     string
 	Text           string
+	TargetKind     string
+	TargetID       int64
+	Action         string
+	Payload        string
+	ChargeChars    int
 	Limits         domain.Limits
 }
 
@@ -67,7 +72,7 @@ func (c *Coordinator) Reserve(ctx context.Context, req Request) (domain.Record, 
 	if req.ConversationID == "" {
 		return domain.Record{}, fmt.Errorf("outbound: reserve requires conversation id")
 	}
-	if req.Text == "" {
+	if req.Text == "" && req.ChargeChars == 0 {
 		return domain.Record{}, fmt.Errorf("outbound: reserve requires non-empty text")
 	}
 	return c.repo.Reserve(ctx, domain.ReserveInput{
@@ -78,6 +83,11 @@ func (c *Coordinator) Reserve(ctx context.Context, req Request) (domain.Record, 
 		RunID:          req.RunID,
 		ToolCallID:     req.ToolCallID,
 		Text:           req.Text,
+		TargetKind:     req.TargetKind,
+		TargetID:       req.TargetID,
+		Action:         req.Action,
+		Payload:        req.Payload,
+		ChargeChars:    req.ChargeChars,
 		Limits:         req.Limits,
 	})
 }
@@ -115,6 +125,25 @@ func (c *Coordinator) HasDelivered(ctx context.Context, jobID int64) (bool, erro
 	return c.repo.HasDelivered(ctx, jobID)
 }
 
+// HasDeliveredTo reports whether this job already delivered to one concrete
+// conversation target. Cross-conversation sends must not suppress the source
+// conversation's own reply.
+// HasDeliveredTo 报告该任务是否已向指定会话投递；跨会话发送不得吞掉来源会话的回复。
+func (c *Coordinator) HasDeliveredTo(ctx context.Context, jobID int64, kind string, targetID int64) (bool, error) {
+	if jobID <= 0 {
+		return false, fmt.Errorf("outbound: has delivered requires job id")
+	}
+	if kind == "" || targetID <= 0 {
+		return c.repo.HasDelivered(ctx, jobID)
+	}
+	if reader, ok := c.repo.(interface {
+		HasDeliveredTo(context.Context, int64, string, int64) (bool, error)
+	}); ok {
+		return reader.HasDeliveredTo(ctx, jobID, kind, targetID)
+	}
+	return c.repo.HasDelivered(ctx, jobID)
+}
+
 // DeliveryError reports incomplete deliveries without replaying the run.
 // DeliveryError 报告未完成的投递，避免重放整轮。
 func (c *Coordinator) DeliveryError(ctx context.Context, jobID int64) error {
@@ -146,6 +175,17 @@ func (c *Coordinator) RecordDenied(ctx context.Context, jobID int64, reason stri
 		return repo.RecordDenied(ctx, jobID, reason, claim...)
 	}
 	return fmt.Errorf("outbound: outcome recorder unavailable")
+}
+
+// RecordRefusal attributes a refused tool call without blocking the job.
+// RecordRefusal 记录被拒绝的工具调用，但不阻断任务。
+func (c *Coordinator) RecordRefusal(ctx context.Context, jobID int64, reason string, claim ...string) error {
+	if repo, ok := c.repo.(interface {
+		RecordRefusal(context.Context, int64, string, ...string) error
+	}); ok {
+		return repo.RecordRefusal(ctx, jobID, reason, claim...)
+	}
+	return fmt.Errorf("outbound: refusal recorder unavailable")
 }
 
 // ValidateReserved checks a prepared message against the latest limits.

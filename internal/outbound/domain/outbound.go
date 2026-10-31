@@ -62,6 +62,11 @@ type Record struct {
 	Sequence          int
 	ToolCallID        string
 	Text              string
+	TargetKind        string
+	TargetID          int64
+	Action            string
+	Payload           string
+	ChargeChars       int
 	Status            Status
 	PlatformMessageID int64
 	ErrorCode         string
@@ -96,6 +101,11 @@ type ReserveInput struct {
 	RunID          string
 	ToolCallID     string
 	Text           string
+	TargetKind     string
+	TargetID       int64
+	Action         string
+	Payload        string
+	ChargeChars    int
 	Limits         Limits
 }
 
@@ -146,7 +156,12 @@ func (e *BudgetError) Unwrap() error { return ErrBudgetExceeded }
 // CheckBudget 报告再发一条消息是否仍在预算内。校验保持纯函数，
 // 使同一规则既可在事务前调用，也可在事务内使用。
 func CheckBudget(limits Limits, used Usage, text string) error {
-	runes := utf8.RuneCountInString(text)
+	return CheckBudgetChars(limits, used, utf8.RuneCountInString(text))
+}
+
+// CheckBudgetChars applies the shared budget to normalized message cost.
+// CheckBudgetChars 将共享预算应用于规范化消息消耗。
+func CheckBudgetChars(limits Limits, used Usage, runes int) error {
 	// A zero limit means unlimited, so it must short-circuit instead of
 	// rejecting every message.
 	// 上限为 0 表示不限，必须短路，否则会拒绝所有消息。

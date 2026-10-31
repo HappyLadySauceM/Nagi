@@ -44,16 +44,36 @@ func init() {
 	agentoutboundmessageDescRunID := agentoutboundmessageFields[4].Descriptor()
 	// agentoutboundmessage.DefaultRunID holds the default value on creation for the run_id field.
 	agentoutboundmessage.DefaultRunID = agentoutboundmessageDescRunID.Default.(string)
+	// agentoutboundmessageDescTargetKind is the schema descriptor for target_kind field.
+	agentoutboundmessageDescTargetKind := agentoutboundmessageFields[8].Descriptor()
+	// agentoutboundmessage.DefaultTargetKind holds the default value on creation for the target_kind field.
+	agentoutboundmessage.DefaultTargetKind = agentoutboundmessageDescTargetKind.Default.(string)
+	// agentoutboundmessageDescTargetID is the schema descriptor for target_id field.
+	agentoutboundmessageDescTargetID := agentoutboundmessageFields[9].Descriptor()
+	// agentoutboundmessage.DefaultTargetID holds the default value on creation for the target_id field.
+	agentoutboundmessage.DefaultTargetID = agentoutboundmessageDescTargetID.Default.(int64)
+	// agentoutboundmessageDescAction is the schema descriptor for action field.
+	agentoutboundmessageDescAction := agentoutboundmessageFields[10].Descriptor()
+	// agentoutboundmessage.DefaultAction holds the default value on creation for the action field.
+	agentoutboundmessage.DefaultAction = agentoutboundmessageDescAction.Default.(string)
+	// agentoutboundmessageDescPayload is the schema descriptor for payload field.
+	agentoutboundmessageDescPayload := agentoutboundmessageFields[11].Descriptor()
+	// agentoutboundmessage.DefaultPayload holds the default value on creation for the payload field.
+	agentoutboundmessage.DefaultPayload = agentoutboundmessageDescPayload.Default.(map[string]interface{})
+	// agentoutboundmessageDescChargeChars is the schema descriptor for charge_chars field.
+	agentoutboundmessageDescChargeChars := agentoutboundmessageFields[12].Descriptor()
+	// agentoutboundmessage.DefaultChargeChars holds the default value on creation for the charge_chars field.
+	agentoutboundmessage.DefaultChargeChars = agentoutboundmessageDescChargeChars.Default.(int64)
 	// agentoutboundmessageDescCreatedAt is the schema descriptor for created_at field.
-	agentoutboundmessageDescCreatedAt := agentoutboundmessageFields[11].Descriptor()
+	agentoutboundmessageDescCreatedAt := agentoutboundmessageFields[16].Descriptor()
 	// agentoutboundmessage.DefaultCreatedAt holds the default value on creation for the created_at field.
 	agentoutboundmessage.DefaultCreatedAt = agentoutboundmessageDescCreatedAt.Default.(func() time.Time)
 	// agentoutboundmessageDescUpdatedAt is the schema descriptor for updated_at field.
-	agentoutboundmessageDescUpdatedAt := agentoutboundmessageFields[12].Descriptor()
+	agentoutboundmessageDescUpdatedAt := agentoutboundmessageFields[17].Descriptor()
 	// agentoutboundmessage.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	agentoutboundmessage.DefaultUpdatedAt = agentoutboundmessageDescUpdatedAt.Default.(func() time.Time)
 	// agentoutboundmessageDescClaimToken is the schema descriptor for claim_token field.
-	agentoutboundmessageDescClaimToken := agentoutboundmessageFields[13].Descriptor()
+	agentoutboundmessageDescClaimToken := agentoutboundmessageFields[18].Descriptor()
 	// agentoutboundmessage.DefaultClaimToken holds the default value on creation for the claim_token field.
 	agentoutboundmessage.DefaultClaimToken = agentoutboundmessageDescClaimToken.Default.(func() uuid.UUID)
 	agentrunbudgetFields := nagi.AgentRunBudget{}.Fields()

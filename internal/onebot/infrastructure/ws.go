@@ -282,22 +282,7 @@ func encodeFrame(action obdomain.Action, echo string) (map[string]any, error) {
 // content arrays from their JSON text form.
 // encodeSegments 将消息段转换为线上形状，并把内嵌节点 content 由 JSON 文本还原为真实数组。
 func encodeSegments(segments []obdomain.Segment) []map[string]any {
-	out := obdomain.WireSegments(segments)
-	for _, frame := range out {
-		data, ok := frame["data"].(map[string]any)
-		if !ok {
-			continue
-		}
-		raw, ok := data["content"].(string)
-		if !ok {
-			continue
-		}
-		var arr []any
-		if err := json.Unmarshal([]byte(raw), &arr); err == nil {
-			data["content"] = arr
-		}
-	}
-	return out
+	return obdomain.WireSegments(segments)
 }
 
 type wireEvent struct {

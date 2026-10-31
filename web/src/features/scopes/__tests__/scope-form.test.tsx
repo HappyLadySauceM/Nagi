@@ -67,7 +67,10 @@ describe('ScopeFormFields capability checkboxes', () => {
     // There is no process-level side-effect switch any more: the conversation
     // grant is the only decision, so the switch stays operable.
     // 进程级副作用开关已被移除：会话授权是唯一判定，因此开关始终可操作。
-    renderCatalog(catalogOf([tool({ id: 'qq.send_message', sideEffect: true, readOnly: false })], granted))
+    const entry = tool({ id: 'qq.send_message', sideEffect: true, readOnly: false, permission: 'qq.api.send_message' })
+    renderCatalog({ providers: ['builtin.qq'], tools: [entry], permissions: [
+      { id: 'qq.api.send_message', tools: [entry.id], defaultGranted: granted },
+    ] })
     const control = screen.getByRole('checkbox', { name: 'qq.send_message' })
     expect(control).toBeEnabled()
     expect(control).toHaveProperty('checked', granted)
@@ -116,4 +119,34 @@ describe('ScopeFormFields capability checkboxes', () => {
     expect(screen.getByText(/当前策略尚未启用/)).toBeVisible()
   })
 
+})
+
+it('shows separate cross-conversation permissions with Chinese description and risk', () => {
+  const entry = tool({ id: 'qq.send_group_msg', description: '发送群消息', permission: 'qq.api.send_group_msg', riskLevel: 'write' })
+  renderCatalog({ providers: ['builtin.qq.public'], tools: [entry], permissions: [
+    { id: 'qq.cross_conversation', tools: [entry.id], defaultGranted: false, description: '跨会话操作', riskLevel: 'admin' },
+  ] })
+  const checkbox = screen.getByRole('checkbox', { name: '跨会话操作' })
+  expect(checkbox).not.toBeChecked()
+  fireEvent.click(checkbox)
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{"qq.cross_conversation":true}')
+  expect(screen.getByText('风险级别：管理。')).toBeInTheDocument()
+})
+
+it('names a multi-tool cross-conversation group by permission instead of its first mapped tool', () => {
+  // qq.get_group_info has a tool-level presentation; a multi-tool permission
+  // group must not borrow it, or two checkboxes end up with the same name.
+  // qq.get_group_info 有工具级文案；多工具权限组不得借用它，否则两个复选框同名。
+  const read = tool({ id: 'qq.get_group_info', permission: 'qq.group.read' })
+  const send = tool({ id: 'qq.send_group_msg', description: '发送群消息', permission: 'qq.api.send_group_msg', riskLevel: 'write', readOnly: false, sideEffect: true })
+  renderCatalog({
+    providers: ['builtin.qq'],
+    tools: [read, send],
+    permissions: [
+      { id: 'qq.group.read', tools: [read.id], defaultGranted: true },
+      { id: 'qq.cross_conversation', tools: [read.id, send.id], defaultGranted: false, riskLevel: 'admin' },
+    ],
+  })
+  expect(screen.getByRole('checkbox', { name: '查询当前群信息' })).toBeInTheDocument()
+  expect(screen.getByRole('checkbox', { name: '跨会话操作' })).toBeInTheDocument()
 })

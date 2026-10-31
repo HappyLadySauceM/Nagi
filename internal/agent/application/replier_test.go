@@ -20,6 +20,7 @@ import (
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	agentdomain "github.com/HappyLadySauceM/Nagi/internal/agent/domain"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
@@ -41,11 +42,17 @@ type fakeRuntime struct {
 	calls        int
 	toolsExposed int
 	toolRuns     []agentcontracts.ToolRun
+	// suppress marks the run as having touched credentials.
+	// suppress 标记本次运行接触过凭证。
+	suppress bool
 }
 
-func (f *fakeRuntime) Run(_ context.Context, req agentcontracts.Request) (agentcontracts.Result, error) {
+func (f *fakeRuntime) Run(ctx context.Context, req agentcontracts.Request) (agentcontracts.Result, error) {
 	f.calls++
 	f.req = req
+	if f.suppress {
+		observability.SuppressContent(ctx)
+	}
 	if f.onRun != nil {
 		f.onRun(req)
 	}
@@ -115,14 +122,18 @@ func (f *fakeRecorder) RecordOutgoing(_ context.Context, conversationID string, 
 // fakeLedger 替代出站协调器并记录每一步。
 type fakeLedger struct {
 	denied       []string
+	refusals     []string
 	reserved     []outboundapp.Request
 	sending      []string
 	settled      []outboundapp.Outcome
 	delivered    bool
 	deliveredErr error
-	reserveErr   error
-	markErr      error
-	settleErr    error
+	// deliveredTargets declares per-target deliveries when non-nil.
+	// deliveredTargets 非空时按目标声明投递结果。
+	deliveredTargets map[string]bool
+	reserveErr       error
+	markErr          error
+	settleErr        error
 }
 
 func (f *fakeLedger) Reserve(_ context.Context, req outboundapp.Request) (outbounddomain.Record, error) {
@@ -153,8 +164,23 @@ func (f *fakeLedger) Settle(_ context.Context, _ string, outcome outboundapp.Out
 	return nil
 }
 
+func (f *fakeLedger) RecordRefusal(_ context.Context, _ int64, reason string, _ ...string) error {
+	f.refusals = append(f.refusals, reason)
+	return nil
+}
+
 func (f *fakeLedger) HasDelivered(_ context.Context, _ int64) (bool, error) {
 	return f.delivered, f.deliveredErr
+}
+
+func (f *fakeLedger) HasDeliveredTo(_ context.Context, _ int64, kind string, targetID int64) (bool, error) {
+	if f.deliveredErr != nil {
+		return false, f.deliveredErr
+	}
+	if f.deliveredTargets == nil {
+		return f.delivered, nil
+	}
+	return f.deliveredTargets[fmt.Sprintf("%s:%d", kind, targetID)], nil
 }
 
 // replierScopes reuses the map-based authorizer pattern.
@@ -775,6 +801,64 @@ func TestSendToolAttemptSuppressesFinalFallback(t *testing.T) {
 	}
 	if len(sender.texts) != 0 {
 		t.Fatal("tool attempt triggered final fallback")
+	}
+}
+
+func TestSensitiveRunDropsAutomaticReply(t *testing.T) {
+	runtime := &fakeRuntime{text: "cookies=secret", suppress: true}
+	sender := &fakeSender{}
+	ledger := &fakeLedger{}
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.texts) != 0 {
+		t.Fatalf("sensitive reply sent: %v", sender.texts)
+	}
+	if len(ledger.denied) != 1 || ledger.denied[0] != "output_rejected" {
+		t.Fatalf("denial = %v", ledger.denied)
+	}
+}
+
+func TestCrossTargetSendKeepsSourceReply(t *testing.T) {
+	runtime := &fakeRuntime{text: "来源会话的回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_group_msg", Status: "ok"}}}
+	sender := &fakeSender{}
+	ledger := &fakeLedger{deliveredTargets: map[string]bool{}}
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "来源会话的回答" {
+		t.Fatalf("source reply suppressed by cross-target send: %v", sender.texts)
+	}
+}
+
+func TestCrossTargetRefusalKeepsSourceReply(t *testing.T) {
+	runtime := &fakeRuntime{text: "来源回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_group_msg", Status: "denied", ErrorCode: "authorization_revoked"}}}
+	sender := &fakeSender{}
+	ledger := &fakeLedger{}
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "来源回答" {
+		t.Fatalf("source reply lost after cross-target refusal: %v", sender.texts)
+	}
+	if len(ledger.denied) != 0 || len(ledger.refusals) != 1 {
+		t.Fatalf("denied=%v refusals=%v", ledger.denied, ledger.refusals)
+	}
+}
+
+func TestStandardSendToSourceSuppressesFinalReply(t *testing.T) {
+	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_group_msg", Status: "ok"}}}
+	sender := &fakeSender{}
+	ledger := &fakeLedger{deliveredTargets: map[string]bool{"group:700": true}}
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.texts) != 0 {
+		t.Fatalf("duplicate reply sent: %v", sender.texts)
 	}
 }
 

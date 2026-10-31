@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -145,7 +146,15 @@ func TestEncodeSegmentsRestoresNodeContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("custom node: %v", err)
 	}
-	encoded := encodeSegments([]obdomain.Segment{node})
+	wire := encodeSegments([]obdomain.Segment{node})
+	raw, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded []map[string]any
+	if err := json.Unmarshal(raw, &encoded); err != nil {
+		t.Fatal(err)
+	}
 	data, ok := encoded[0]["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("data = %#v", encoded[0]["data"])

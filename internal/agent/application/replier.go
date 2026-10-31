@@ -149,6 +149,7 @@ func (r *Replier) currentBotName() string {
 // ExecuteReply 复核作用域、构建上下文、生成、净化，经投递台账发送并记录回复。
 // 采用关闭式失败：生成出错或台账不可用就不发送；预算拒绝则直接结束任务而不发送。
 func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, history []intentdomain.Message) error {
+	ctx = observability.WithContentState(ctx)
 	policy, err := r.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if err != nil {
 		return fmt.Errorf("agent: resolve policy: %w", err)
@@ -173,7 +174,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	// 关闭正文导出时仍写入占位值，避免观测内容留空。
 	if payload, clipped, jsonErr := traceMessagesJSON(messages); jsonErr == nil && payload != "" {
 		truncated = clipped
-		observability.RecordObservation(genSpan, "langfuse.observation.input", json.RawMessage(payload))
+		observability.RecordObservationSecure(ctx, genSpan, "langfuse.observation.input", json.RawMessage(payload))
 	}
 	// Tool runs are reported by the guard through the run context, so the
 	// runtime contract stays free of plugin types.
@@ -182,6 +183,10 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		toolMu        sync.Mutex
 		toolRuns      []agentcontracts.ToolRun
 		toolRecordErr error
+		// toolDenied remembers codes already written from the live callback so
+		// the post-run scan cannot count the same refusal twice.
+		// toolDenied 记录回调中已写入的拒绝原因，运行结束后的扫描不会重复计数。
+		toolDenied = map[string]bool{}
 	)
 	result, err := r.runtime.Run(genCtx, agentcontracts.Request{
 		BotID:               task.BotID,
@@ -198,14 +203,29 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		OnToolRun: func(run agentcontracts.ToolRun) {
 			toolMu.Lock()
 			toolRuns = append(toolRuns, run)
-			if run.ToolID == "qq.send_current" && (run.ErrorCode == "authorization_revoked" || run.ErrorCode == "tool_call_budget") {
-				if deniedErr := r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken); deniedErr != nil && toolRecordErr == nil {
-					toolRecordErr = deniedErr
+			if isSendingTool(run.ToolID) && (run.ErrorCode == "authorization_revoked" || run.ErrorCode == "tool_call_budget") {
+				var refusedErr error
+				if run.ToolID == "qq.send_current" {
+					refusedErr = r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken)
+				} else {
+					// A refusal on another target must not block the source reply.
+					// 其它目标的拒绝不得阻断来源会话的回复。
+					refusedErr = r.recordRefusal(ctx, task.JobID, run.ErrorCode, task.ClaimToken)
+				}
+				if refusedErr != nil {
+					if toolRecordErr == nil {
+						toolRecordErr = refusedErr
+					}
+				} else {
+					toolDenied[run.ToolID+"|"+run.ErrorCode] = true
 				}
 			}
 			toolMu.Unlock()
 		},
 	})
+	if observability.ContentSuppressed(ctx) {
+		observability.RecordObservationSecure(ctx, genSpan, "langfuse.observation.input", nil)
+	}
 	if err != nil {
 		genSpan.RecordError(err)
 		genSpan.End()
@@ -226,6 +246,10 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	toolMu.Lock()
 	runs := append([]agentcontracts.ToolRun(nil), toolRuns...)
 	recordedErr := toolRecordErr
+	deniedCodes := make(map[string]bool, len(toolDenied))
+	for code := range toolDenied {
+		deniedCodes[code] = true
+	}
 	toolMu.Unlock()
 	if recordedErr != nil {
 		return recordedErr
@@ -247,7 +271,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	}
 	if payload, clipped, jsonErr := traceReplyJSON(result.Text); jsonErr == nil && payload != "" {
 		truncated = truncated || clipped
-		observability.RecordObservation(genSpan, "langfuse.observation.output", json.RawMessage(payload))
+		observability.RecordObservationSecure(ctx, genSpan, "langfuse.observation.output", json.RawMessage(payload))
 	}
 	// The marker distinguishes "the model said only this much" from "the traced
 	// payload was clipped".
@@ -256,24 +280,45 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	genSpan.End()
 
 	sendAttempted := false
+	sendToSource := false
 	for _, run := range result.ToolRuns {
-		if run.ToolID != "qq.send_current" {
+		if !isSendingTool(run.ToolID) {
 			continue
 		}
 		sendAttempted = true
-		if len(runs) == 0 && (run.ErrorCode == "tool_call_budget" || run.ErrorCode == "authorization_revoked") {
-			if err := r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken); err != nil {
+		// The current-only tool always targets the source conversation.
+		// 当前会话专用工具的目标恒为来源会话。
+		if run.ToolID == "qq.send_current" {
+			sendToSource = true
+		}
+		// Runtimes that fill runs directly never fire the live callback, so the
+		// refusal is recorded here unless the callback already did.
+		// 直接填充工具运行的实现不会触发实时回调；回调未记录时在此补记拒绝。
+		if (run.ErrorCode == "authorization_revoked" || run.ErrorCode == "tool_call_budget") && !deniedCodes[run.ToolID+"|"+run.ErrorCode] {
+			if run.ToolID == "qq.send_current" {
+				if err := r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := r.recordRefusal(ctx, task.JobID, run.ErrorCode, task.ClaimToken); err != nil {
 				return err
 			}
 		}
 	}
+	// A failed or uncertain send ends the run with an error; a successful send
+	// to another conversation must not cancel the source reply. Whether the
+	// final text is a duplicate is decided by the source delivery check below.
+	// 发送失败或结果未知时先上报；成功发往其它会话不会取消来源会话的回复，
+	// 最终文本是否重复由下方对来源会话的投递检查决定。
 	if sendAttempted {
 		if summary, ok := r.outbound.(interface {
 			DeliveryError(context.Context, int64) error
 		}); ok {
-			return summary.DeliveryError(ctx, task.JobID)
+			if err := summary.DeliveryError(ctx, task.JobID); err != nil {
+				return err
+			}
 		}
-		return nil
 	}
 	latest, resolveErr := r.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if resolveErr != nil {
@@ -283,7 +328,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return r.recordDenied(ctx, task.JobID, "authorization_revoked", task.ClaimToken)
 	}
 	_, validateSpan := tracer.Start(ctx, "nagi.response.validate")
-	observability.RecordObservation(validateSpan, "langfuse.observation.input", map[string]any{
+	observability.RecordObservationSecure(ctx, validateSpan, "langfuse.observation.input", map[string]any{
 		"reply": result.Text,
 	})
 	reply, err := domain.SanitizeReply(result.Text)
@@ -291,7 +336,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		// A rejected reply is a policy outcome, not a generation failure.
 		// 被拒绝的回复是策略结果，不是生成失败。
 		validateSpan.SetAttributes(attribute.Bool("nagi.reply_dropped", true))
-		observability.RecordObservation(validateSpan, "langfuse.observation.output", map[string]any{
+		observability.RecordObservationSecure(ctx, validateSpan, "langfuse.observation.output", map[string]any{
 			"dropped": true,
 			"reason":  err.Error(),
 		})
@@ -303,23 +348,33 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		attribute.Bool("nagi.reply_dropped", false),
 		attribute.Int("nagi.reply_length", len([]rune(reply))),
 	)
-	observability.RecordObservation(validateSpan, "langfuse.observation.output", map[string]any{
+	observability.RecordObservationSecure(ctx, validateSpan, "langfuse.observation.output", map[string]any{
 		"dropped": false,
 		"length":  len([]rune(reply)),
 		"reply":   reply,
 	})
 	validateSpan.End()
+	// A run that touched credentials keeps them out of the transcript; the same
+	// restriction must keep them out of the chat, so the automatic reply is
+	// dropped and recorded rather than sent.
+	// 接触过凭证的运行不把凭证写入追踪；同样不应写入聊天，因此自动回复直接
+	// 丢弃并记录，而不是发送。
+	if observability.ContentSuppressed(ctx) {
+		r.logger.Info("reply dropped: sensitive run", "job_id", task.JobID)
+		return r.recordDenied(ctx, task.JobID, "output_rejected", task.ClaimToken)
+	}
 
-	// A delivery record means this job already spoke, or may have; sending the
-	// final text again would duplicate a visible message.
-	// 已有投递记录说明该任务已经或可能已经发过言；再次发送最终文本会产生
-	// 用户可见的重复消息。
-	if delivered, err := r.outbound.HasDelivered(ctx, task.JobID); err != nil {
+	// A delivery record for the source conversation means this job already
+	// spoke there, or may have; sending the final text again would duplicate a
+	// visible message. Deliveries to other targets do not count.
+	// 来源会话已有投递记录说明该任务已经或可能在该会话发过言；再次发送最终
+	// 文本会产生用户可见的重复消息。发往其它目标不计入。
+	if delivered, err := r.deliveredToSource(ctx, task); err != nil {
 		// Without the ledger nothing proves the run has not already spoken;
 		// fail closed and let the job retry instead of risking a duplicate.
 		// 台账不可用时无法证明尚未发言；关闭式失败并让任务重试，避免重复发送。
 		return fmt.Errorf("agent: check outbound delivery: %w", err)
-	} else if delivered {
+	} else if delivered || sendToSource {
 		r.logger.Info("outbound already delivered; skipping duplicate send", "job_id", task.JobID)
 		return nil
 	}
@@ -344,7 +399,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 				attribute.Bool("nagi.outbound_denied", true),
 				attribute.String("nagi.outbound_denied_dimension", string(budget.Dimension)),
 			)
-			observability.RecordObservation(reserveSpan, "langfuse.observation.output", map[string]any{
+			observability.RecordObservationSecure(ctx, reserveSpan, "langfuse.observation.output", map[string]any{
 				"denied":    true,
 				"dimension": string(budget.Dimension),
 			})
@@ -647,4 +702,38 @@ func (r *Replier) recordDenied(ctx context.Context, jobID int64, reason string, 
 		return recorder.RecordDenied(cleanup, jobID, reason, claim...)
 	}
 	return nil
+}
+
+// recordRefusal attributes a refusal without blocking the job, so a denied send
+// to another target cannot suppress the source conversation's reply.
+// recordRefusal 记录拒绝但不阻断任务，发往其它目标被拒不会吞掉来源会话的回复。
+func (r *Replier) recordRefusal(ctx context.Context, jobID int64, reason string, claim ...string) error {
+	if recorder, ok := r.outbound.(interface {
+		RecordRefusal(context.Context, int64, string, ...string) error
+	}); ok {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		return recorder.RecordRefusal(cleanup, jobID, reason, claim...)
+	}
+	return nil
+}
+
+// deliveredToSource reports whether this run already spoke in the source
+// conversation, which is the only target where the final reply could duplicate.
+// deliveredToSource 报告本次运行是否已在来源会话发言；只有该目标会产生重复回复。
+func (r *Replier) deliveredToSource(ctx context.Context, task intentdomain.Task) (bool, error) {
+	if checker, ok := r.outbound.(interface {
+		HasDeliveredTo(context.Context, int64, string, int64) (bool, error)
+	}); ok {
+		return checker.HasDeliveredTo(ctx, task.JobID, task.Kind, task.TargetID)
+	}
+	return r.outbound.HasDelivered(ctx, task.JobID)
+}
+
+func isSendingTool(id string) bool {
+	switch id {
+	case "qq.send_current", "qq.send_private_msg", "qq.send_group_msg", "qq.send_msg":
+		return true
+	}
+	return false
 }

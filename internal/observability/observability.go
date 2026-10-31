@@ -200,3 +200,39 @@ func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (*Telemetry, er
 		},
 	}, nil
 }
+
+type contentStateKey struct{}
+
+// WithContentState gives one run an independently revocable content export flag.
+// WithContentState 为一次运行提供可独立撤销的正文导出标记。
+func WithContentState(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(contentStateKey{}).(*atomic.Bool); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, contentStateKey{}, &atomic.Bool{})
+}
+
+// SuppressContent disables raw export for the run and all its descendants.
+// SuppressContent 关闭本次运行及其后代的原始正文导出。
+func SuppressContent(ctx context.Context) {
+	if state, ok := ctx.Value(contentStateKey{}).(*atomic.Bool); ok {
+		state.Store(true)
+	}
+}
+
+// ContentSuppressed reports the run-specific export restriction.
+// ContentSuppressed 报告运行级别的导出限制。
+func ContentSuppressed(ctx context.Context) bool {
+	state, ok := ctx.Value(contentStateKey{}).(*atomic.Bool)
+	return ok && state.Load()
+}
+
+// RecordObservationSecure respects both global and per-run redaction.
+// RecordObservationSecure 同时遵循全局与运行级脱敏设置。
+func RecordObservationSecure(ctx context.Context, span trace.Span, key string, value any) {
+	if ContentSuppressed(ctx) {
+		span.SetAttributes(attribute.String(key, `{"redacted":true}`))
+		return
+	}
+	RecordObservation(span, key, value)
+}

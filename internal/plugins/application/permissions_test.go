@@ -110,3 +110,15 @@ func TestAllowedFollowsGrants(t *testing.T) {
 		t.Fatal("permission-less tool must always be exposed")
 	}
 }
+
+func TestExplicitDefaultAndAdditionalPermissionPrecedence(t *testing.T) {
+	denied := false
+	tools := []contracts.RegisteredTool{{Descriptor: contracts.ToolDescriptor{ID: "qq.get_cookies", ReadOnly: true, Permission: "credentials", DefaultAllowed: &denied, AdditionalPermissions: []string{"cross"}}}}
+	if grants := ResolvePermissions(tools, nil, nil); grants["credentials"] || grants["cross"] {
+		t.Fatalf("default widened: %v", grants)
+	}
+	grants := ResolvePermissions(tools, map[string]bool{"credentials": true, "cross": true}, map[string]bool{"credentials": false})
+	if grants["credentials"] || !grants["cross"] {
+		t.Fatalf("precedence: %v", grants)
+	}
+}

@@ -30,11 +30,14 @@ func (s *ClientService) SendPrivateMessageReceipt(ctx context.Context, to domain
 	if err != nil {
 		return 0, err
 	}
-	payload, err := s.Call(ctx, action)
+	response, err := s.call(ctx, action)
 	if err != nil {
 		return 0, err
 	}
-	return decodeMessageID(payload)
+	if response.async {
+		return 0, nil
+	}
+	return decodeMessageID(response.payload)
 }
 
 // SendGroupMessageReceipt sends a group message and returns the platform
@@ -45,11 +48,14 @@ func (s *ClientService) SendGroupMessageReceipt(ctx context.Context, to domain.G
 	if err != nil {
 		return 0, err
 	}
-	payload, err := s.Call(ctx, action)
+	response, err := s.call(ctx, action)
 	if err != nil {
 		return 0, err
 	}
-	return decodeMessageID(payload)
+	if response.async {
+		return 0, nil
+	}
+	return decodeMessageID(response.payload)
 }
 
 // decodeMessageID extracts data.message_id from a send response payload.
@@ -87,12 +93,15 @@ func (s *ClientService) GetMessage(ctx context.Context, id domain.MessageID) (do
 		return out, err
 	}
 	var row struct {
-		Time       int64           `json:"time"`
-		MessageID  int64           `json:"message_id"`
-		UserID     int64           `json:"user_id"`
-		GroupID    int64           `json:"group_id"`
-		Message    json.RawMessage `json:"message"`
-		RawMessage string          `json:"raw_message"`
+		MessageType string          `json:"message_type"`
+		RealID      int64           `json:"real_id"`
+		Sender      map[string]any  `json:"sender"`
+		Time        int64           `json:"time"`
+		MessageID   int64           `json:"message_id"`
+		UserID      int64           `json:"user_id"`
+		GroupID     int64           `json:"group_id"`
+		Message     json.RawMessage `json:"message"`
+		RawMessage  string          `json:"raw_message"`
 	}
 	if err := decodeJSON(payload, &row); err != nil {
 		return out, err
@@ -101,21 +110,27 @@ func (s *ClientService) GetMessage(ctx context.Context, id domain.MessageID) (do
 	if err != nil {
 		return out, err
 	}
+	if row.UserID == 0 {
+		if id, ok := row.Sender["user_id"].(float64); ok {
+			row.UserID = int64(id)
+		}
+	}
 	out = domain.MessageResult{
+		MessageType: domain.MessageType(row.MessageType), RealID: row.RealID, Sender: row.Sender,
 		Time:       row.Time,
 		MessageID:  domain.MessageID(row.MessageID),
 		UserID:     domain.UserID(row.UserID),
 		GroupID:    domain.GroupID(row.GroupID),
 		Segments:   segments,
 		RawMessage: row.RawMessage,
-		Extra:      decodeExtra(payload, "time", "message_id", "user_id", "group_id", "message", "raw_message"),
+		Extra:      decodeExtra(payload, "time", "message_id", "user_id", "group_id", "message", "raw_message", "message_type", "real_id", "sender"),
 	}
 	return out, nil
 }
 
 // GetForwardMessages implements contracts.Messenger.
 // GetForwardMessages 实现 contracts.Messenger（get_forward_msg）。
-func (s *ClientService) GetForwardMessages(ctx context.Context, id domain.MessageID) ([]domain.ForwardNode, error) {
+func (s *ClientService) GetForwardMessages(ctx context.Context, id string) ([]domain.ForwardNode, error) {
 	action, err := domain.NewGetForwardMessage(id)
 	if err != nil {
 		return nil, err
@@ -125,28 +140,26 @@ func (s *ClientService) GetForwardMessages(ctx context.Context, id domain.Messag
 		return nil, err
 	}
 	var row struct {
-		Messages []struct {
-			UserID   int64           `json:"user_id"`
-			Nickname string          `json:"nickname"`
-			Time     int64           `json:"time"`
-			Content  json.RawMessage `json:"content"`
-		} `json:"messages"`
+		Message []struct {
+			Data struct {
+				UserID   int64           `json:"user_id"`
+				Nickname string          `json:"nickname"`
+				Time     int64           `json:"time"`
+				Content  json.RawMessage `json:"content"`
+			} `json:"data"`
+		} `json:"message"`
 	}
 	if err := decodeJSON(payload, &row); err != nil {
 		return nil, err
 	}
-	nodes := make([]domain.ForwardNode, 0, len(row.Messages))
-	for _, m := range row.Messages {
+	nodes := make([]domain.ForwardNode, 0, len(row.Message))
+	for _, node := range row.Message {
+		m := node.Data
 		segments, err := decodeMessagePayload(m.Content)
 		if err != nil {
 			return nil, err
 		}
-		nodes = append(nodes, domain.ForwardNode{
-			UserID:   domain.UserID(m.UserID),
-			Nickname: m.Nickname,
-			Time:     m.Time,
-			Segments: segments,
-		})
+		nodes = append(nodes, domain.ForwardNode{UserID: domain.UserID(m.UserID), Nickname: m.Nickname, Time: m.Time, Segments: segments})
 	}
 	return nodes, nil
 }

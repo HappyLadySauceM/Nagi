@@ -80,6 +80,9 @@ func ScopeFrom(ctx context.Context) (Scope, bool) {
 // 模型可以解释原因，既不会扩大权限，也不会让 Agent 直接崩溃。
 func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.InvokeFunc) contracts.InvokeFunc {
 	return func(ctx context.Context, argumentsInJSON string) (string, error) {
+		if descriptor.Sensitive {
+			ctx = observability.WithContentState(ctx)
+		}
 		ctx, span := tracer().Start(ctx, "nagi.tool")
 		defer span.End()
 		span.SetAttributes(attribute.String("nagi.tool_id", descriptor.ID))
@@ -87,20 +90,26 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		// tool-call budget, and the content gate decides whether they are shown.
 		// 参数属于元数据：本身是 JSON 且受模型的调用预算约束，
 		// 是否可见由正文开关决定。
-		observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+		observability.RecordObservationSecure(ctx, span, "langfuse.observation.input", map[string]any{
 			"tool":      descriptor.ID,
 			"arguments": toolArguments(argumentsInJSON),
 		})
 		started := time.Now()
 
 		if descriptor.Permission != "" && !scope.Permissions[descriptor.Permission] {
-			return finish(span, scope, descriptor, started, StatusDenied, 0,
+			return finish(ctx, span, scope, descriptor, started, StatusDenied, 0,
 				"error: permission denied for "+descriptor.ID, "authorization_revoked")
 		}
 		if scope.Reauthorize != nil {
 			if err := scope.Reauthorize(ctx, descriptor); err != nil {
-				return finish(span, scope, descriptor, started, StatusDenied, 0, "error: current tool authorization denied", "authorization_revoked")
+				return finish(ctx, span, scope, descriptor, started, StatusDenied, 0, "error: current tool authorization denied", "authorization_revoked")
 			}
+		}
+		if descriptor.Sensitive {
+			// Suppression starts only after authorization, so a denied credential
+			// call cannot mute the whole turn.
+			// 只有授权通过后才开始抑制，被拒绝的凭证调用不会静音整轮。
+			observability.SuppressContent(ctx)
 		}
 		timeout := scope.Timeout
 		if timeout <= 0 {
@@ -123,15 +132,28 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			if errors.Is(err, context.DeadlineExceeded) {
 				status = StatusTimeout
 			}
-			span.RecordError(err)
-			return finish(span, scope, descriptor, started, status, 0,
-				fmt.Sprintf("error: tool %s failed", descriptor.ID))
+			if !observability.ContentSuppressed(ctx) {
+				span.RecordError(err)
+			}
+			message := fmt.Sprintf("error: tool %s failed", descriptor.ID)
+			var safe interface{ UserMessage() string }
+			if errors.As(err, &safe) {
+				message = "error: " + safe.UserMessage()
+			}
+			// Content and cross-conversation gates carry a machine-readable code so
+			// the run can attribute the refusal instead of a generic tool error.
+			// 内容与跨会话门携带可机读原因，运行侧能归因而非只看到通用工具错误。
+			var coded interface{ ErrorCode() string }
+			if errors.As(err, &coded) && coded.ErrorCode() != "" {
+				return finish(ctx, span, scope, descriptor, started, status, 0, message, coded.ErrorCode())
+			}
+			return finish(ctx, span, scope, descriptor, started, status, 0, message)
 		}
 		if scope.MaxResultBytes > 0 && len(result) > scope.MaxResultBytes {
-			return finish(span, scope, descriptor, started, StatusTooLarge, len(result),
+			return finish(ctx, span, scope, descriptor, started, StatusTooLarge, len(result),
 				"error: tool result too large")
 		}
-		return finish(span, scope, descriptor, started, StatusOK, len(result), result)
+		return finish(ctx, span, scope, descriptor, started, StatusOK, len(result), result)
 	}
 }
 
@@ -155,14 +177,14 @@ func toolArguments(raw string) any {
 // finish records the terminal status, reports the run summary and returns the
 // text shown to the model.
 // finish 记录终态、上报运行摘要，并返回给模型看的文本。
-func finish(span trace.Span, scope Scope, descriptor contracts.ToolDescriptor, started time.Time,
+func finish(ctx context.Context, span trace.Span, scope Scope, descriptor contracts.ToolDescriptor, started time.Time,
 	status string, bytes int, text string, codes ...string,
 ) (string, error) {
 	span.SetAttributes(
 		attribute.String("nagi.tool_status", status),
 		attribute.Int("nagi.tool_bytes", bytes),
 	)
-	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
+	observability.RecordObservationSecure(ctx, span, "langfuse.observation.output", map[string]any{
 		"status": status,
 		"bytes":  bytes,
 		"result": text,

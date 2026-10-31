@@ -5,6 +5,11 @@ package eino
 import (
 	"context"
 	"errors"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	einoTools "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
+	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components/tool"
 	"strings"
 	"testing"
 	"time"
@@ -190,5 +195,50 @@ func TestToSchemaMessagesMapsRoles(t *testing.T) {
 	}
 	if !strings.Contains(messages[2].Content, "u") {
 		t.Fatalf("content lost: %+v", messages[2])
+	}
+}
+
+type toolCapableModel struct{ *fakeModel }
+
+func (m *toolCapableModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+	return m, nil
+}
+
+func TestSensitiveToolGrantSkipsTraceWithoutMuting(t *testing.T) {
+	for _, sensitive := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "credentials"}[sensitive], func(t *testing.T) {
+			secret := "fixture-credential-secret"
+			calls := 0
+			handler := callbacks.NewHandlerBuilder().OnStartFn(func(ctx context.Context, _ *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
+				calls++
+				return ctx
+			}).Build()
+			cfg := Config{Timeout: time.Second, MaxSteps: 3, Handlers: []callbacks.Handler{handler}, Tools: func(context.Context, contracts.Request) []tool.BaseTool {
+				return einoTools.ToBaseTools([]pc.RegisteredTool{{Descriptor: pc.ToolDescriptor{ID: "qq.get_credentials", Description: "credentials", Sensitive: sensitive}, Invoke: func(context.Context, string) (string, error) { return secret, nil }}})
+			}}
+			chatModel := &toolCapableModel{&fakeModel{replies: []*schema.Message{
+				{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{ID: "one", Type: "function", Function: schema.FunctionCall{Name: "qq_get_credentials", Arguments: "{}"}}}},
+				{Role: schema.Assistant, Content: "finished"},
+			}}}
+			ctx := observability.WithContentState(context.Background())
+			runtime := newRuntimeWithModel(cfg, chatModel)
+			result, err := runtime.Run(ctx, testRequest())
+			if err != nil || result.Text != "finished" {
+				t.Fatalf("run: %+v %v", result, err)
+			}
+			// A credential-capable run detaches raw callbacks (they cannot read the
+			// content state) but must not suppress the transcript or mute replies.
+			// 可能接触凭证的运行不挂载原始回调（它们读不到内容状态），但不得抑制
+			// 正文或静音回复。
+			if observability.ContentSuppressed(ctx) {
+				t.Fatal("grant alone suppressed the transcript")
+			}
+			if sensitive && calls != 0 {
+				t.Fatalf("credential run kept raw callbacks: %d", calls)
+			}
+			if !sensitive && calls == 0 {
+				t.Fatal("ordinary run lost callbacks")
+			}
+		})
 	}
 }

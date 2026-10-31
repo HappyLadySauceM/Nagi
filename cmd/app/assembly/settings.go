@@ -51,6 +51,9 @@ func buildSettings(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		}
 		sort.Strings(providers)
 		for _, registered := range tools.Snapshot() {
+			for _, permission := range registered.Descriptor.AdditionalPermissions {
+				knownPermissions[permission] = true
+			}
 			if permission := registered.Descriptor.Permission; permission != "" {
 				knownPermissions[permission] = true
 			}

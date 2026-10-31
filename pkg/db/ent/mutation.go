@@ -753,6 +753,13 @@ type AgentOutboundMessageMutation struct {
 	addsequence                 *int
 	tool_call_id                *string
 	text_content                *string
+	target_kind                 *string
+	target_id                   *int64
+	addtarget_id                *int64
+	action                      *string
+	payload                     *map[string]interface{}
+	charge_chars                *int64
+	addcharge_chars             *int64
 	status                      *string
 	platform_message_id         *int64
 	addplatform_message_id      *int64
@@ -1162,6 +1169,226 @@ func (m *AgentOutboundMessageMutation) OldTextContent(ctx context.Context) (v st
 // ResetTextContent resets all changes to the "text_content" field.
 func (m *AgentOutboundMessageMutation) ResetTextContent() {
 	m.text_content = nil
+}
+
+// SetTargetKind sets the "target_kind" field.
+func (m *AgentOutboundMessageMutation) SetTargetKind(s string) {
+	m.target_kind = &s
+}
+
+// TargetKind returns the value of the "target_kind" field in the mutation.
+func (m *AgentOutboundMessageMutation) TargetKind() (r string, exists bool) {
+	v := m.target_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTargetKind returns the old "target_kind" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldTargetKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTargetKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTargetKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTargetKind: %w", err)
+	}
+	return oldValue.TargetKind, nil
+}
+
+// ResetTargetKind resets all changes to the "target_kind" field.
+func (m *AgentOutboundMessageMutation) ResetTargetKind() {
+	m.target_kind = nil
+}
+
+// SetTargetID sets the "target_id" field.
+func (m *AgentOutboundMessageMutation) SetTargetID(i int64) {
+	m.target_id = &i
+	m.addtarget_id = nil
+}
+
+// TargetID returns the value of the "target_id" field in the mutation.
+func (m *AgentOutboundMessageMutation) TargetID() (r int64, exists bool) {
+	v := m.target_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTargetID returns the old "target_id" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldTargetID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTargetID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTargetID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTargetID: %w", err)
+	}
+	return oldValue.TargetID, nil
+}
+
+// AddTargetID adds i to the "target_id" field.
+func (m *AgentOutboundMessageMutation) AddTargetID(i int64) {
+	if m.addtarget_id != nil {
+		*m.addtarget_id += i
+	} else {
+		m.addtarget_id = &i
+	}
+}
+
+// AddedTargetID returns the value that was added to the "target_id" field in this mutation.
+func (m *AgentOutboundMessageMutation) AddedTargetID() (r int64, exists bool) {
+	v := m.addtarget_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTargetID resets all changes to the "target_id" field.
+func (m *AgentOutboundMessageMutation) ResetTargetID() {
+	m.target_id = nil
+	m.addtarget_id = nil
+}
+
+// SetAction sets the "action" field.
+func (m *AgentOutboundMessageMutation) SetAction(s string) {
+	m.action = &s
+}
+
+// Action returns the value of the "action" field in the mutation.
+func (m *AgentOutboundMessageMutation) Action() (r string, exists bool) {
+	v := m.action
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAction returns the old "action" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldAction(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAction is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAction requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAction: %w", err)
+	}
+	return oldValue.Action, nil
+}
+
+// ResetAction resets all changes to the "action" field.
+func (m *AgentOutboundMessageMutation) ResetAction() {
+	m.action = nil
+}
+
+// SetPayload sets the "payload" field.
+func (m *AgentOutboundMessageMutation) SetPayload(value map[string]interface{}) {
+	m.payload = &value
+}
+
+// Payload returns the value of the "payload" field in the mutation.
+func (m *AgentOutboundMessageMutation) Payload() (r map[string]interface{}, exists bool) {
+	v := m.payload
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPayload returns the old "payload" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldPayload(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPayload is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPayload requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPayload: %w", err)
+	}
+	return oldValue.Payload, nil
+}
+
+// ResetPayload resets all changes to the "payload" field.
+func (m *AgentOutboundMessageMutation) ResetPayload() {
+	m.payload = nil
+}
+
+// SetChargeChars sets the "charge_chars" field.
+func (m *AgentOutboundMessageMutation) SetChargeChars(i int64) {
+	m.charge_chars = &i
+	m.addcharge_chars = nil
+}
+
+// ChargeChars returns the value of the "charge_chars" field in the mutation.
+func (m *AgentOutboundMessageMutation) ChargeChars() (r int64, exists bool) {
+	v := m.charge_chars
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChargeChars returns the old "charge_chars" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldChargeChars(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChargeChars is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChargeChars requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChargeChars: %w", err)
+	}
+	return oldValue.ChargeChars, nil
+}
+
+// AddChargeChars adds i to the "charge_chars" field.
+func (m *AgentOutboundMessageMutation) AddChargeChars(i int64) {
+	if m.addcharge_chars != nil {
+		*m.addcharge_chars += i
+	} else {
+		m.addcharge_chars = &i
+	}
+}
+
+// AddedChargeChars returns the value that was added to the "charge_chars" field in this mutation.
+func (m *AgentOutboundMessageMutation) AddedChargeChars() (r int64, exists bool) {
+	v := m.addcharge_chars
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetChargeChars resets all changes to the "charge_chars" field.
+func (m *AgentOutboundMessageMutation) ResetChargeChars() {
+	m.charge_chars = nil
+	m.addcharge_chars = nil
 }
 
 // SetStatus sets the "status" field.
@@ -1635,7 +1862,7 @@ func (m *AgentOutboundMessageMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AgentOutboundMessageMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 18)
 	if m.job_id_ref != nil {
 		fields = append(fields, agentoutboundmessage.FieldJobID)
 	}
@@ -1656,6 +1883,21 @@ func (m *AgentOutboundMessageMutation) Fields() []string {
 	}
 	if m.text_content != nil {
 		fields = append(fields, agentoutboundmessage.FieldTextContent)
+	}
+	if m.target_kind != nil {
+		fields = append(fields, agentoutboundmessage.FieldTargetKind)
+	}
+	if m.target_id != nil {
+		fields = append(fields, agentoutboundmessage.FieldTargetID)
+	}
+	if m.action != nil {
+		fields = append(fields, agentoutboundmessage.FieldAction)
+	}
+	if m.payload != nil {
+		fields = append(fields, agentoutboundmessage.FieldPayload)
+	}
+	if m.charge_chars != nil {
+		fields = append(fields, agentoutboundmessage.FieldChargeChars)
 	}
 	if m.status != nil {
 		fields = append(fields, agentoutboundmessage.FieldStatus)
@@ -1697,6 +1939,16 @@ func (m *AgentOutboundMessageMutation) Field(name string) (ent.Value, bool) {
 		return m.ToolCallID()
 	case agentoutboundmessage.FieldTextContent:
 		return m.TextContent()
+	case agentoutboundmessage.FieldTargetKind:
+		return m.TargetKind()
+	case agentoutboundmessage.FieldTargetID:
+		return m.TargetID()
+	case agentoutboundmessage.FieldAction:
+		return m.Action()
+	case agentoutboundmessage.FieldPayload:
+		return m.Payload()
+	case agentoutboundmessage.FieldChargeChars:
+		return m.ChargeChars()
 	case agentoutboundmessage.FieldStatus:
 		return m.Status()
 	case agentoutboundmessage.FieldPlatformMessageID:
@@ -1732,6 +1984,16 @@ func (m *AgentOutboundMessageMutation) OldField(ctx context.Context, name string
 		return m.OldToolCallID(ctx)
 	case agentoutboundmessage.FieldTextContent:
 		return m.OldTextContent(ctx)
+	case agentoutboundmessage.FieldTargetKind:
+		return m.OldTargetKind(ctx)
+	case agentoutboundmessage.FieldTargetID:
+		return m.OldTargetID(ctx)
+	case agentoutboundmessage.FieldAction:
+		return m.OldAction(ctx)
+	case agentoutboundmessage.FieldPayload:
+		return m.OldPayload(ctx)
+	case agentoutboundmessage.FieldChargeChars:
+		return m.OldChargeChars(ctx)
 	case agentoutboundmessage.FieldStatus:
 		return m.OldStatus(ctx)
 	case agentoutboundmessage.FieldPlatformMessageID:
@@ -1802,6 +2064,41 @@ func (m *AgentOutboundMessageMutation) SetField(name string, value ent.Value) er
 		}
 		m.SetTextContent(v)
 		return nil
+	case agentoutboundmessage.FieldTargetKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTargetKind(v)
+		return nil
+	case agentoutboundmessage.FieldTargetID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTargetID(v)
+		return nil
+	case agentoutboundmessage.FieldAction:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAction(v)
+		return nil
+	case agentoutboundmessage.FieldPayload:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPayload(v)
+		return nil
+	case agentoutboundmessage.FieldChargeChars:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChargeChars(v)
+		return nil
 	case agentoutboundmessage.FieldStatus:
 		v, ok := value.(string)
 		if !ok {
@@ -1855,6 +2152,12 @@ func (m *AgentOutboundMessageMutation) AddedFields() []string {
 	if m.addsequence != nil {
 		fields = append(fields, agentoutboundmessage.FieldSequence)
 	}
+	if m.addtarget_id != nil {
+		fields = append(fields, agentoutboundmessage.FieldTargetID)
+	}
+	if m.addcharge_chars != nil {
+		fields = append(fields, agentoutboundmessage.FieldChargeChars)
+	}
 	if m.addplatform_message_id != nil {
 		fields = append(fields, agentoutboundmessage.FieldPlatformMessageID)
 	}
@@ -1868,6 +2171,10 @@ func (m *AgentOutboundMessageMutation) AddedField(name string) (ent.Value, bool)
 	switch name {
 	case agentoutboundmessage.FieldSequence:
 		return m.AddedSequence()
+	case agentoutboundmessage.FieldTargetID:
+		return m.AddedTargetID()
+	case agentoutboundmessage.FieldChargeChars:
+		return m.AddedChargeChars()
 	case agentoutboundmessage.FieldPlatformMessageID:
 		return m.AddedPlatformMessageID()
 	}
@@ -1885,6 +2192,20 @@ func (m *AgentOutboundMessageMutation) AddField(name string, value ent.Value) er
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddSequence(v)
+		return nil
+	case agentoutboundmessage.FieldTargetID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTargetID(v)
+		return nil
+	case agentoutboundmessage.FieldChargeChars:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChargeChars(v)
 		return nil
 	case agentoutboundmessage.FieldPlatformMessageID:
 		v, ok := value.(int64)
@@ -1961,6 +2282,21 @@ func (m *AgentOutboundMessageMutation) ResetField(name string) error {
 		return nil
 	case agentoutboundmessage.FieldTextContent:
 		m.ResetTextContent()
+		return nil
+	case agentoutboundmessage.FieldTargetKind:
+		m.ResetTargetKind()
+		return nil
+	case agentoutboundmessage.FieldTargetID:
+		m.ResetTargetID()
+		return nil
+	case agentoutboundmessage.FieldAction:
+		m.ResetAction()
+		return nil
+	case agentoutboundmessage.FieldPayload:
+		m.ResetPayload()
+		return nil
+	case agentoutboundmessage.FieldChargeChars:
+		m.ResetChargeChars()
 		return nil
 	case agentoutboundmessage.FieldStatus:
 		m.ResetStatus()

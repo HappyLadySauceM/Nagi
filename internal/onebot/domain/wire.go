@@ -11,11 +11,20 @@ import (
 // WireSegments converts segments into the generic OneBot wire shape.
 // WireSegments 将消息段转换为通用的 OneBot 线上形状；输出为深复制，可安全修改。
 func WireSegments(segments []Segment) []map[string]any {
+	return wireSegments(segments, 0)
+}
+
+func wireSegments(segments []Segment, depth int) []map[string]any {
 	out := make([]map[string]any, 0, len(segments))
 	for _, s := range segments {
 		data := make(map[string]any, len(s.Data))
 		for k, v := range s.Data {
 			data[k] = v
+			if s.Type == SegNode && k == "content" && depth < 16 {
+				if nested, err := SegmentsFromWire([]byte(v)); err == nil && nested != nil {
+					data[k] = wireSegments(nested, depth+1)
+				}
+			}
 		}
 		out = append(out, map[string]any{"type": string(s.Type), "data": data})
 	}

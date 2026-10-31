@@ -96,14 +96,14 @@ func TestGetForwardMessagesDecodesNodes(t *testing.T) {
 	tr := newFakeTransport()
 	svc := NewClientService(tr, time.Second, nil)
 	respondWith(svc, tr, map[string]any{
-		"messages": []map[string]any{
-			{"user_id": 10001, "nickname": "A", "time": 1,
-				"content": []map[string]any{{"type": "text", "data": map[string]any{"text": "one"}}}},
-			{"user_id": 10002, "nickname": "B", "time": 2,
-				"content": "plain text"},
+		"message": []map[string]any{
+			{"type": "node", "data": map[string]any{"user_id": 10001, "nickname": "A", "time": 1,
+				"content": []map[string]any{{"type": "text", "data": map[string]any{"text": "one"}}}}},
+			{"type": "node", "data": map[string]any{"user_id": 10002, "nickname": "B", "time": 2,
+				"content": "plain text"}},
 		},
 	})
-	nodes, err := svc.GetForwardMessages(context.Background(), 42)
+	nodes, err := svc.GetForwardMessages(context.Background(), "forward-42")
 	if err != nil {
 		t.Fatalf("get forward messages: %v", err)
 	}
@@ -188,5 +188,33 @@ func TestDecodeJSONTreatsNullAsZero(t *testing.T) {
 	}
 	if row.MessageID != 0 {
 		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestTypedStandardMessageAndNullableStatus(t *testing.T) {
+	tr := newFakeTransport()
+	svc := NewClientService(tr, time.Second, nil)
+	respondWith(svc, tr, map[string]any{"time": 1, "message_type": "group", "message_id": -42, "real_id": 7, "sender": map[string]any{"user_id": 22, "nickname": "A"}, "message": "hi"})
+	message, err := svc.GetMessage(context.Background(), -42)
+	if err != nil || message.MessageType != domain.TypeGroup || message.RealID != 7 || message.UserID != 22 || message.Sender["nickname"] != "A" {
+		t.Fatalf("message=%+v err=%v", message, err)
+	}
+	respondWith(svc, tr, map[string]any{"online": nil, "good": false})
+	status, err := svc.GetRuntimeStatus(context.Background())
+	if err != nil || status.Online != nil || status.Good {
+		t.Fatalf("status=%+v err=%v", status, err)
+	}
+}
+
+func TestAsyncReceiptNeverConfirmsMessageID(t *testing.T) {
+	tr := newFakeTransport()
+	svc := NewClientService(tr, time.Second, nil)
+	tr.onSend = func(echo string) {
+		raw, _ := json.Marshal(map[string]any{"status": "async", "retcode": 1, "echo": echo, "data": map[string]any{"message_id": 99}})
+		svc.HandleResponse(echo, raw)
+	}
+	id, err := svc.SendGroupMessageReceipt(context.Background(), 11, domain.Text("hi"))
+	if err != nil || id != 0 {
+		t.Fatalf("async receipt confirmed: %d %v", id, err)
 	}
 }

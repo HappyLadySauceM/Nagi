@@ -67,6 +67,10 @@ type Options struct {
 	Recorder  Recorder
 	Limits    outbounddomain.Limits
 	Authorize func(context.Context, pluginsapp.Scope) (outbounddomain.Limits, error)
+	// AuthorizeTarget checks a cross-conversation target before any reservation;
+	// a refusal must not consume budget or block the job.
+	// AuthorizeTarget 在任何预留之前检查跨会话目标；拒绝不得消耗预算或阻断任务。
+	AuthorizeTarget func(context.Context, string, int64) error
 }
 
 // provider exposes qq.send_current.

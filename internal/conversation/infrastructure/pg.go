@@ -263,15 +263,18 @@ func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter
 	}
 	// Close uncertain sends and unused reservations before releasing this claim.
 	// 释放认领前，先收拢不确定发送并退还未使用的预留。
-	if _, err := tx.Exec(ctx, `WITH cancelled AS (UPDATE agent_outbound_messages SET status='cancelled',updated_at=clock_timestamp() WHERE job_id=$1 AND status='prepared' RETURNING job_id,char_length(text_content) chars),refund AS(SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id) UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars) FROM refund r WHERE b.job_id=r.job_id`, jobID); err != nil {
+	if _, err := tx.Exec(ctx, `WITH cancelled AS (UPDATE agent_outbound_messages SET status='cancelled',updated_at=clock_timestamp() WHERE job_id=$1 AND status='prepared' RETURNING job_id,charge_chars chars),refund AS(SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id) UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars) FROM refund r WHERE b.job_id=r.job_id`, jobID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status='unknown',error_code='finalization_failed',updated_at=clock_timestamp() WHERE job_id=$1 AND status='sending'`, jobID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id,created_at)
- SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id,o.updated_at
- FROM agent_outbound_messages o JOIN conversations c ON c.id=o.conversation_id
+	// History follows the actual target, matching Settle; a cross-conversation
+	// message must never be filed under the source conversation.
+	// 历史归属实际目标，与 Settle 一致；跨会话消息不得记到来源会话名下。
+	if _, err := tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,segments,sent_status,outbound_id,created_at)
+ SELECT c.id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,COALESCE(o.payload->'segments','[]'::jsonb),o.status,o.id,o.updated_at
+ FROM agent_outbound_messages o JOIN conversations c ON c.bot_id=o.bot_id AND c.kind=o.target_kind AND c.target_id=o.target_id
  JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages
  WHERE o.job_id=$1 AND o.status IN('sent','unknown')
  ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, jobID); err != nil {
@@ -366,7 +369,7 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context, policies ...domain.Recovery
 		return err
 	}
 	encoded, _ := json.Marshal(ids)
-	_, err = tx.Exec(ctx, `WITH expired AS MATERIALIZED(SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE m.conversation_id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb)) AND j.status='processing' AND j.lease_expires_at<=clock_timestamp() FOR UPDATE OF j),cancelled AS(UPDATE agent_outbound_messages o SET status='cancelled',updated_at=clock_timestamp() WHERE o.job_id IN(SELECT id FROM expired) AND o.status='prepared' RETURNING job_id,char_length(text_content) chars),refund AS(SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id),budgets AS(UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars) FROM refund r WHERE b.job_id=r.job_id),uncertain AS(UPDATE agent_outbound_messages o SET status='unknown',error_code='lease_expired',updated_at=clock_timestamp() WHERE o.job_id IN(SELECT id FROM expired) AND o.status='sending' RETURNING job_id) UPDATE message_jobs j SET status=CASE WHEN EXISTS(SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status IN('sent','unknown','sending','failed')) OR j.delivery_outcome='blocked' OR j.attempts+1>=$2 THEN 'failed' ELSE 'pending' END,last_error_code=CASE WHEN EXISTS(SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status IN('sent','unknown','sending','failed')) THEN 'partial' ELSE 'lease_expired' END,attempts=j.attempts+1,next_run_at=clock_timestamp()+make_interval(secs=>$3),claim_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp() WHERE j.id IN(SELECT id FROM expired)`, encoded, policy.MaxAttempts, policy.RetryBackoff.Seconds())
+	_, err = tx.Exec(ctx, `WITH expired AS MATERIALIZED(SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE m.conversation_id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb)) AND j.status='processing' AND j.lease_expires_at<=clock_timestamp() FOR UPDATE OF j),cancelled AS(UPDATE agent_outbound_messages o SET status='cancelled',updated_at=clock_timestamp() WHERE o.job_id IN(SELECT id FROM expired) AND o.status='prepared' RETURNING job_id,charge_chars chars),refund AS(SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id),budgets AS(UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars) FROM refund r WHERE b.job_id=r.job_id),uncertain AS(UPDATE agent_outbound_messages o SET status='unknown',error_code='lease_expired',updated_at=clock_timestamp() WHERE o.job_id IN(SELECT id FROM expired) AND o.status='sending' RETURNING job_id) UPDATE message_jobs j SET status=CASE WHEN EXISTS(SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status IN('sent','unknown','sending','failed')) OR j.delivery_outcome='blocked' OR j.attempts+1>=$2 THEN 'failed' ELSE 'pending' END,last_error_code=CASE WHEN EXISTS(SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status IN('sent','unknown','sending','failed')) THEN 'partial' ELSE 'lease_expired' END,attempts=j.attempts+1,next_run_at=clock_timestamp()+make_interval(secs=>$3),claim_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp() WHERE j.id IN(SELECT id FROM expired)`, encoded, policy.MaxAttempts, policy.RetryBackoff.Seconds())
 	if err != nil {
 		return err
 	}
@@ -478,15 +481,29 @@ func decodeSegments(b []byte) ([]obdomain.Segment, error) {
 		return nil, nil
 	}
 	var wire []struct {
-		Type string            `json:"type"`
-		Data map[string]string `json:"data"`
+		Type string                     `json:"type"`
+		Data map[string]json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(b, &wire); err != nil {
 		return nil, fmt.Errorf("conversation: decode segments: %w", err)
 	}
 	segs := make([]obdomain.Segment, 0, len(wire))
 	for _, w := range wire {
-		segs = append(segs, obdomain.Segment{Type: obdomain.SegmentType(w.Type), Data: w.Data})
+		data := make(map[string]string, len(w.Data))
+		for k, raw := range w.Data {
+			var text string
+			if err := json.Unmarshal(raw, &text); err == nil {
+				data[k] = text
+				continue
+			}
+			// Composite values such as node.content arrive either as JSON text
+			// (inbound encoder) or as arrays (outbound wire payload); store the
+			// text form so both paths decode into the same segment shape.
+			// node.content 等复合值可能以 JSON 文本（入站）或数组（出站线上载荷）
+			// 形式写入；统一保留文本形态，两条写入路径因此解码一致。
+			data[k] = string(raw)
+		}
+		segs = append(segs, obdomain.Segment{Type: obdomain.SegmentType(w.Type), Data: data})
 	}
 	return segs, nil
 }
@@ -573,9 +590,9 @@ func (r *Repo) PurgeBefore(ctx context.Context, before time.Time, limit int) (in
 // ReconcileOutgoing repairs acknowledged message history without sending again.
 // ReconcileOutgoing 补齐已有回执的历史记录，不会再次发送。
 func (r *Repo) ReconcileOutgoing(ctx context.Context) error {
-	_, err := r.pool.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id,created_at)
- SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id,o.updated_at
- FROM agent_outbound_messages o JOIN conversations c ON c.id=o.conversation_id
+	_, err := r.pool.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,segments,sent_status,outbound_id,created_at)
+ SELECT c.id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,COALESCE(o.payload->'segments','[]'::jsonb),o.status,o.id,o.updated_at
+ FROM agent_outbound_messages o JOIN conversations c ON c.bot_id=o.bot_id AND c.kind=o.target_kind AND c.target_id=o.target_id
  JOIN LATERAL (
  SELECT sp.enabled,sp.store_messages FROM scope_policies sp
  WHERE sp.bot_id=c.bot_id AND sp.scope_type=c.kind AND sp.scope_id IN (c.target_id,0)

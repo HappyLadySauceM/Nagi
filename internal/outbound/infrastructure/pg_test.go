@@ -67,6 +67,16 @@ func newLedgerFixture(t *testing.T) ledgerFixture {
 	return ledgerFixture{claim: claim, repo: repo, pool: pool, jobID: res.JobID, conversationID: res.ConversationID, botID: botID}
 }
 
+// grantScope enables message history for one target conversation, which is a
+// prerequisite for outbound history writes.
+// grantScope 为目标会话开启消息留存，是出站历史写入的前提。
+func (f ledgerFixture) grantScope(t *testing.T, kind string, targetID int64) {
+	t.Helper()
+	if _, err := f.pool.Exec(context.Background(), `INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,store_messages) VALUES($1,$2,$3,true,true) ON CONFLICT(bot_id,scope_type,scope_id) DO UPDATE SET enabled=true,store_messages=true`, f.botID, kind, targetID); err != nil {
+		t.Fatalf("grant scope: %v", err)
+	}
+}
+
 func (f ledgerFixture) reserve(t *testing.T, text string, limits domain.Limits) domain.Record {
 	t.Helper()
 	record, err := f.repo.Reserve(context.Background(), domain.ReserveInput{ClaimToken: f.claim,

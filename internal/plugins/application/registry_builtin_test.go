@@ -4,6 +4,8 @@ package application_test
 
 import (
 	"context"
+	replytool "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/replytool"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/application"
@@ -61,5 +63,49 @@ func TestRegistryRegistersBuiltinProviders(t *testing.T) {
 		qqTool.Descriptor.Permission != "qq.group.read" ||
 		len(qqTool.Descriptor.ScopeKinds) != 1 || qqTool.Descriptor.ScopeKinds[0] != contracts.ScopeKindGroup {
 		t.Fatalf("qq descriptor = %+v", qqTool)
+	}
+}
+
+func TestCompletePublicCatalogPreservesExistingTools(t *testing.T) {
+	registry := application.NewRegistry()
+	defer registry.Close(context.Background())
+	providers := []contracts.ToolProvider{
+		builtin.NewTimeProvider(),
+		builtin.WithoutPublicDuplicates(builtin.NewQQProvider(nil)),
+		builtin.WithoutPublicDuplicates(builtin.NewQQMemberProvider(nil)),
+		builtin.WithoutPublicDuplicates(builtin.NewQQAdminProvider(nil)),
+		builtin.WithoutPublicDuplicates(builtin.NewQQProfileProvider(nil)),
+		builtin.NewPublicProvider(builtin.PublicOptions{}),
+		replytool.NewProvider(replytool.Options{}),
+	}
+	for _, provider := range providers {
+		if err := registry.Register(context.Background(), provider); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tools := registry.Snapshot()
+	if len(tools) != 43 {
+		t.Fatalf("tools=%d", len(tools))
+	}
+	byID := map[string]contracts.ToolDescriptor{}
+	grants := map[string]bool{}
+	for _, tool := range tools {
+		d := tool.Descriptor
+		byID[d.ID] = d
+		if d.Permission != "" {
+			grants[d.Permission] = true
+		}
+		for _, permission := range d.AdditionalPermissions {
+			grants[permission] = true
+		}
+	}
+	for id, permission := range map[string]string{"qq.send_current": "qq.reply.current", "qq.get_group_info": "qq.group.read", "qq.get_group_member_info": "qq.group.member.read", "qq.mute_group_member": "qq.group.admin.mute", "qq.set_group_whole_ban": "qq.group.admin.wholeban", "qq.set_group_card": "qq.group.admin.card", "qq.kick_group_member": "qq.group.admin.kick", "qq.leave_current_group": "qq.group.admin.leave", "system.current_time": "system.time.read"} {
+		if byID[id].Permission != permission {
+			t.Fatalf("legacy permission changed: %s", id)
+		}
+	}
+	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 1, ReplyMode: scopedomain.ModeMentionOnly, ToolPermissions: grants}
+	if err := policy.Validate(); err != nil {
+		t.Fatalf("cannot grant full catalog (%d permissions): %v", len(grants), err)
 	}
 }

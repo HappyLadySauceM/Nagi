@@ -32,6 +32,11 @@ var (
 		{Name: "sequence", Type: field.TypeInt, SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "tool_call_id", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "text_content", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "target_kind", Type: field.TypeString, Default: ""},
+		{Name: "target_id", Type: field.TypeInt64, Default: 0},
+		{Name: "action", Type: field.TypeString, Default: ""},
+		{Name: "payload", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "charge_chars", Type: field.TypeInt64, Default: 0, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "status", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "platform_message_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "error_code", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
@@ -50,19 +55,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "agent_outbound_messages_bot_accounts_agent_outbound_messages_bot_id",
-				Columns:    []*schema.Column{AgentOutboundMessagesColumns[11]},
+				Columns:    []*schema.Column{AgentOutboundMessagesColumns[16]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "agent_outbound_messages_conversations_agent_outbound_messages_conversation_id",
-				Columns:    []*schema.Column{AgentOutboundMessagesColumns[12]},
+				Columns:    []*schema.Column{AgentOutboundMessagesColumns[17]},
 				RefColumns: []*schema.Column{ConversationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "agent_outbound_messages_message_jobs_agent_outbound_messages_job_id",
-				Columns:    []*schema.Column{AgentOutboundMessagesColumns[13]},
+				Columns:    []*schema.Column{AgentOutboundMessagesColumns[18]},
 				RefColumns: []*schema.Column{MessageJobsColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -71,12 +76,12 @@ var (
 			{
 				Name:    "agent_outbound_messages_job_id_sequence_key",
 				Unique:  true,
-				Columns: []*schema.Column{AgentOutboundMessagesColumns[13], AgentOutboundMessagesColumns[2]},
+				Columns: []*schema.Column{AgentOutboundMessagesColumns[18], AgentOutboundMessagesColumns[2]},
 			},
 			{
 				Name:    "agent_outbound_job_tool_call_uidx",
 				Unique:  true,
-				Columns: []*schema.Column{AgentOutboundMessagesColumns[13], AgentOutboundMessagesColumns[3]},
+				Columns: []*schema.Column{AgentOutboundMessagesColumns[18], AgentOutboundMessagesColumns[3]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "(tool_call_id IS NOT NULL)",
 				},
@@ -84,7 +89,7 @@ var (
 			{
 				Name:    "agent_outbound_conversation_timeline",
 				Unique:  false,
-				Columns: []*schema.Column{AgentOutboundMessagesColumns[12], AgentOutboundMessagesColumns[8], AgentOutboundMessagesColumns[2]},
+				Columns: []*schema.Column{AgentOutboundMessagesColumns[17], AgentOutboundMessagesColumns[13], AgentOutboundMessagesColumns[2]},
 			},
 		},
 	}

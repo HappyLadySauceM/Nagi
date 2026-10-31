@@ -53,6 +53,17 @@ type ToolDescriptor struct {
 	Description  string
 	Parameters   map[string]Parameter
 	ReplyCurrent bool
+	// Sensitive detaches raw callbacks for runs that expose the tool and
+	// suppresses the transcript once the tool is actually authorized to run.
+	// Sensitive 让暴露该工具的运行不挂载原始回调，并在工具实际获准执行后
+	// 关闭正文追踪。
+	Sensitive bool
+	// DefaultAllowed overrides the read-only fallback when non-nil.
+	// DefaultAllowed 非空时覆盖只读工具的兜底授权规则。
+	DefaultAllowed *bool
+	// AdditionalPermissions declares conditional target/content grants.
+	// AdditionalPermissions 声明按实际目标与内容校验的条件权限。
+	AdditionalPermissions []string
 	// Category groups tools for a later catalog API and the frontend.
 	// Category 为后续目录 API 与前端分组归类工具。
 	Category string
@@ -65,8 +76,8 @@ type ToolDescriptor struct {
 	// ReadOnly.
 	// RiskLevel 标注工具的影响级别；为空时按 ReadOnly 推导。
 	RiskLevel RiskLevel
-	// ReadOnly marks tools without side effects; only these are exposed today.
-	// ReadOnly 标记无副作用的工具；当前只暴露这些。
+	// ReadOnly marks tools without side effects.
+	// ReadOnly 标记无副作用的工具。
 	ReadOnly   bool
 	Permission string
 	SideEffect bool
@@ -150,4 +161,14 @@ type Parameter struct {
 	Type        string
 	Description string
 	Required    bool
+	Enum        []string
+	Properties  map[string]Parameter
+	Items       *Parameter
+	OneOf       []Parameter
+	// Types lists multiple accepted primitive types as a JSON Schema type
+	// array; providers accept it more broadly than oneOf at the root of a
+	// property.
+	// Types 以 JSON Schema 类型数组声明多种可接受类型；
+	// 相比属性根层的 oneOf，provider 的接受度更高。
+	Types []string
 }

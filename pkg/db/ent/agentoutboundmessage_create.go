@@ -86,6 +86,68 @@ func (_c *AgentOutboundMessageCreate) SetTextContent(v string) *AgentOutboundMes
 	return _c
 }
 
+// SetTargetKind sets the "target_kind" field.
+func (_c *AgentOutboundMessageCreate) SetTargetKind(v string) *AgentOutboundMessageCreate {
+	_c.mutation.SetTargetKind(v)
+	return _c
+}
+
+// SetNillableTargetKind sets the "target_kind" field if the given value is not nil.
+func (_c *AgentOutboundMessageCreate) SetNillableTargetKind(v *string) *AgentOutboundMessageCreate {
+	if v != nil {
+		_c.SetTargetKind(*v)
+	}
+	return _c
+}
+
+// SetTargetID sets the "target_id" field.
+func (_c *AgentOutboundMessageCreate) SetTargetID(v int64) *AgentOutboundMessageCreate {
+	_c.mutation.SetTargetID(v)
+	return _c
+}
+
+// SetNillableTargetID sets the "target_id" field if the given value is not nil.
+func (_c *AgentOutboundMessageCreate) SetNillableTargetID(v *int64) *AgentOutboundMessageCreate {
+	if v != nil {
+		_c.SetTargetID(*v)
+	}
+	return _c
+}
+
+// SetAction sets the "action" field.
+func (_c *AgentOutboundMessageCreate) SetAction(v string) *AgentOutboundMessageCreate {
+	_c.mutation.SetAction(v)
+	return _c
+}
+
+// SetNillableAction sets the "action" field if the given value is not nil.
+func (_c *AgentOutboundMessageCreate) SetNillableAction(v *string) *AgentOutboundMessageCreate {
+	if v != nil {
+		_c.SetAction(*v)
+	}
+	return _c
+}
+
+// SetPayload sets the "payload" field.
+func (_c *AgentOutboundMessageCreate) SetPayload(v map[string]interface{}) *AgentOutboundMessageCreate {
+	_c.mutation.SetPayload(v)
+	return _c
+}
+
+// SetChargeChars sets the "charge_chars" field.
+func (_c *AgentOutboundMessageCreate) SetChargeChars(v int64) *AgentOutboundMessageCreate {
+	_c.mutation.SetChargeChars(v)
+	return _c
+}
+
+// SetNillableChargeChars sets the "charge_chars" field if the given value is not nil.
+func (_c *AgentOutboundMessageCreate) SetNillableChargeChars(v *int64) *AgentOutboundMessageCreate {
+	if v != nil {
+		_c.SetChargeChars(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *AgentOutboundMessageCreate) SetStatus(v string) *AgentOutboundMessageCreate {
 	_c.mutation.SetStatus(v)
@@ -255,6 +317,26 @@ func (_c *AgentOutboundMessageCreate) defaults() {
 		v := agentoutboundmessage.DefaultRunID
 		_c.mutation.SetRunID(v)
 	}
+	if _, ok := _c.mutation.TargetKind(); !ok {
+		v := agentoutboundmessage.DefaultTargetKind
+		_c.mutation.SetTargetKind(v)
+	}
+	if _, ok := _c.mutation.TargetID(); !ok {
+		v := agentoutboundmessage.DefaultTargetID
+		_c.mutation.SetTargetID(v)
+	}
+	if _, ok := _c.mutation.Action(); !ok {
+		v := agentoutboundmessage.DefaultAction
+		_c.mutation.SetAction(v)
+	}
+	if _, ok := _c.mutation.Payload(); !ok {
+		v := agentoutboundmessage.DefaultPayload
+		_c.mutation.SetPayload(v)
+	}
+	if _, ok := _c.mutation.ChargeChars(); !ok {
+		v := agentoutboundmessage.DefaultChargeChars
+		_c.mutation.SetChargeChars(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := agentoutboundmessage.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -285,6 +367,18 @@ func (_c *AgentOutboundMessageCreate) check() error {
 	}
 	if _, ok := _c.mutation.TextContent(); !ok {
 		return &ValidationError{Name: "text_content", err: errors.New(`ent: missing required field "AgentOutboundMessage.text_content"`)}
+	}
+	if _, ok := _c.mutation.TargetKind(); !ok {
+		return &ValidationError{Name: "target_kind", err: errors.New(`ent: missing required field "AgentOutboundMessage.target_kind"`)}
+	}
+	if _, ok := _c.mutation.TargetID(); !ok {
+		return &ValidationError{Name: "target_id", err: errors.New(`ent: missing required field "AgentOutboundMessage.target_id"`)}
+	}
+	if _, ok := _c.mutation.Action(); !ok {
+		return &ValidationError{Name: "action", err: errors.New(`ent: missing required field "AgentOutboundMessage.action"`)}
+	}
+	if _, ok := _c.mutation.ChargeChars(); !ok {
+		return &ValidationError{Name: "charge_chars", err: errors.New(`ent: missing required field "AgentOutboundMessage.charge_chars"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "AgentOutboundMessage.status"`)}
@@ -349,6 +443,26 @@ func (_c *AgentOutboundMessageCreate) createSpec() (*AgentOutboundMessage, *sqlg
 	if value, ok := _c.mutation.TextContent(); ok {
 		_spec.SetField(agentoutboundmessage.FieldTextContent, field.TypeString, value)
 		_node.TextContent = value
+	}
+	if value, ok := _c.mutation.TargetKind(); ok {
+		_spec.SetField(agentoutboundmessage.FieldTargetKind, field.TypeString, value)
+		_node.TargetKind = value
+	}
+	if value, ok := _c.mutation.TargetID(); ok {
+		_spec.SetField(agentoutboundmessage.FieldTargetID, field.TypeInt64, value)
+		_node.TargetID = value
+	}
+	if value, ok := _c.mutation.Action(); ok {
+		_spec.SetField(agentoutboundmessage.FieldAction, field.TypeString, value)
+		_node.Action = value
+	}
+	if value, ok := _c.mutation.Payload(); ok {
+		_spec.SetField(agentoutboundmessage.FieldPayload, field.TypeJSON, value)
+		_node.Payload = value
+	}
+	if value, ok := _c.mutation.ChargeChars(); ok {
+		_spec.SetField(agentoutboundmessage.FieldChargeChars, field.TypeInt64, value)
+		_node.ChargeChars = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(agentoutboundmessage.FieldStatus, field.TypeString, value)
@@ -586,6 +700,78 @@ func (u *AgentOutboundMessageUpsert) SetTextContent(v string) *AgentOutboundMess
 // UpdateTextContent sets the "text_content" field to the value that was provided on create.
 func (u *AgentOutboundMessageUpsert) UpdateTextContent() *AgentOutboundMessageUpsert {
 	u.SetExcluded(agentoutboundmessage.FieldTextContent)
+	return u
+}
+
+// SetTargetKind sets the "target_kind" field.
+func (u *AgentOutboundMessageUpsert) SetTargetKind(v string) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldTargetKind, v)
+	return u
+}
+
+// UpdateTargetKind sets the "target_kind" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateTargetKind() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldTargetKind)
+	return u
+}
+
+// SetTargetID sets the "target_id" field.
+func (u *AgentOutboundMessageUpsert) SetTargetID(v int64) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldTargetID, v)
+	return u
+}
+
+// UpdateTargetID sets the "target_id" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateTargetID() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldTargetID)
+	return u
+}
+
+// AddTargetID adds v to the "target_id" field.
+func (u *AgentOutboundMessageUpsert) AddTargetID(v int64) *AgentOutboundMessageUpsert {
+	u.Add(agentoutboundmessage.FieldTargetID, v)
+	return u
+}
+
+// SetAction sets the "action" field.
+func (u *AgentOutboundMessageUpsert) SetAction(v string) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldAction, v)
+	return u
+}
+
+// UpdateAction sets the "action" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateAction() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldAction)
+	return u
+}
+
+// SetPayload sets the "payload" field.
+func (u *AgentOutboundMessageUpsert) SetPayload(v map[string]interface{}) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldPayload, v)
+	return u
+}
+
+// UpdatePayload sets the "payload" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdatePayload() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldPayload)
+	return u
+}
+
+// SetChargeChars sets the "charge_chars" field.
+func (u *AgentOutboundMessageUpsert) SetChargeChars(v int64) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldChargeChars, v)
+	return u
+}
+
+// UpdateChargeChars sets the "charge_chars" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateChargeChars() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldChargeChars)
+	return u
+}
+
+// AddChargeChars adds v to the "charge_chars" field.
+func (u *AgentOutboundMessageUpsert) AddChargeChars(v int64) *AgentOutboundMessageUpsert {
+	u.Add(agentoutboundmessage.FieldChargeChars, v)
 	return u
 }
 
@@ -836,6 +1022,90 @@ func (u *AgentOutboundMessageUpsertOne) SetTextContent(v string) *AgentOutboundM
 func (u *AgentOutboundMessageUpsertOne) UpdateTextContent() *AgentOutboundMessageUpsertOne {
 	return u.Update(func(s *AgentOutboundMessageUpsert) {
 		s.UpdateTextContent()
+	})
+}
+
+// SetTargetKind sets the "target_kind" field.
+func (u *AgentOutboundMessageUpsertOne) SetTargetKind(v string) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetTargetKind(v)
+	})
+}
+
+// UpdateTargetKind sets the "target_kind" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateTargetKind() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateTargetKind()
+	})
+}
+
+// SetTargetID sets the "target_id" field.
+func (u *AgentOutboundMessageUpsertOne) SetTargetID(v int64) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetTargetID(v)
+	})
+}
+
+// AddTargetID adds v to the "target_id" field.
+func (u *AgentOutboundMessageUpsertOne) AddTargetID(v int64) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.AddTargetID(v)
+	})
+}
+
+// UpdateTargetID sets the "target_id" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateTargetID() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateTargetID()
+	})
+}
+
+// SetAction sets the "action" field.
+func (u *AgentOutboundMessageUpsertOne) SetAction(v string) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetAction(v)
+	})
+}
+
+// UpdateAction sets the "action" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateAction() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateAction()
+	})
+}
+
+// SetPayload sets the "payload" field.
+func (u *AgentOutboundMessageUpsertOne) SetPayload(v map[string]interface{}) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetPayload(v)
+	})
+}
+
+// UpdatePayload sets the "payload" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdatePayload() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdatePayload()
+	})
+}
+
+// SetChargeChars sets the "charge_chars" field.
+func (u *AgentOutboundMessageUpsertOne) SetChargeChars(v int64) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetChargeChars(v)
+	})
+}
+
+// AddChargeChars adds v to the "charge_chars" field.
+func (u *AgentOutboundMessageUpsertOne) AddChargeChars(v int64) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.AddChargeChars(v)
+	})
+}
+
+// UpdateChargeChars sets the "charge_chars" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateChargeChars() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateChargeChars()
 	})
 }
 
@@ -1268,6 +1538,90 @@ func (u *AgentOutboundMessageUpsertBulk) SetTextContent(v string) *AgentOutbound
 func (u *AgentOutboundMessageUpsertBulk) UpdateTextContent() *AgentOutboundMessageUpsertBulk {
 	return u.Update(func(s *AgentOutboundMessageUpsert) {
 		s.UpdateTextContent()
+	})
+}
+
+// SetTargetKind sets the "target_kind" field.
+func (u *AgentOutboundMessageUpsertBulk) SetTargetKind(v string) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetTargetKind(v)
+	})
+}
+
+// UpdateTargetKind sets the "target_kind" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateTargetKind() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateTargetKind()
+	})
+}
+
+// SetTargetID sets the "target_id" field.
+func (u *AgentOutboundMessageUpsertBulk) SetTargetID(v int64) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetTargetID(v)
+	})
+}
+
+// AddTargetID adds v to the "target_id" field.
+func (u *AgentOutboundMessageUpsertBulk) AddTargetID(v int64) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.AddTargetID(v)
+	})
+}
+
+// UpdateTargetID sets the "target_id" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateTargetID() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateTargetID()
+	})
+}
+
+// SetAction sets the "action" field.
+func (u *AgentOutboundMessageUpsertBulk) SetAction(v string) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetAction(v)
+	})
+}
+
+// UpdateAction sets the "action" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateAction() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateAction()
+	})
+}
+
+// SetPayload sets the "payload" field.
+func (u *AgentOutboundMessageUpsertBulk) SetPayload(v map[string]interface{}) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetPayload(v)
+	})
+}
+
+// UpdatePayload sets the "payload" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdatePayload() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdatePayload()
+	})
+}
+
+// SetChargeChars sets the "charge_chars" field.
+func (u *AgentOutboundMessageUpsertBulk) SetChargeChars(v int64) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetChargeChars(v)
+	})
+}
+
+// AddChargeChars adds v to the "charge_chars" field.
+func (u *AgentOutboundMessageUpsertBulk) AddChargeChars(v int64) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.AddChargeChars(v)
+	})
+}
+
+// UpdateChargeChars sets the "charge_chars" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateChargeChars() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateChargeChars()
 	})
 }
 
