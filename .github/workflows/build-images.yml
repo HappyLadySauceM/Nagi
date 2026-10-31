@@ -120,10 +120,12 @@ jobs:
       # 生成的 ent 代码依赖 encoding/json/jsontext：该包在 1.26 仍需
       # GOEXPERIMENT=jsonv2，1.27 起才默认可用，所以显式装 1.27.x，
       # 不用 runner 预装的 /usr/local/go，也不跟随 go.mod 的 1.26.0。
+      # 只在 main 上保存模块缓存：PR 收尾要上传几百 MB 缓存到 Actions cache，
+      # 自托管 runner 上传很慢；PR 直接走 goproxy.cn 现拉，反而更快。
       - uses: actions/setup-go@v6
         with:
           go-version: "1.27.x"
-          cache: true
+          cache: ${{ github.event_name != 'pull_request' }}
           cache-dependency-path: go.sum
 
       - name: 缓存 pnpm store
