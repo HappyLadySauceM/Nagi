@@ -221,7 +221,7 @@ export function ScopeEditDialog({
               {([['participation', '参与控制', MessageCircle], ['capabilities', '能力授权', ShieldCheck], ['sending', '发送设置', Send], ['data', '数据权限', Database]] as const).map(([value, label, Icon]) => (
                 <Button type="button" size="sm" key={value} aria-current={section === value ? 'page' : undefined}
                   className={`shrink-0 justify-start ${section === value ? 'bg-secondary text-foreground' : 'text-muted-foreground'}`}
-                  variant="ghost" onClick={() => setSection(value)}><AnimatedNavIcon icon={Icon} className="text-cyan-600 dark:text-cyan-400" />{label}</Button>
+                  variant="ghost" onClick={() => setSection(value)}><AnimatedNavIcon icon={Icon} active={section === value} />{label}</Button>
               ))}
             </nav>
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-5 sm:p-6">

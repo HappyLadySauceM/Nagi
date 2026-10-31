@@ -18,7 +18,7 @@ function Select({ className, containerClassName, children, ...props }: SelectPro
       <select
         data-slot="select"
         className={cn(
-          'h-9 w-full cursor-pointer appearance-none rounded-lg border border-border bg-surface pl-3 pr-8 text-sm text-foreground transition-colors',
+          'h-10 w-full cursor-pointer appearance-none rounded-lg border border-border bg-surface pl-3 pr-8 text-sm text-foreground transition-colors',
           'focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
           'disabled:cursor-not-allowed disabled:opacity-50',
           className,

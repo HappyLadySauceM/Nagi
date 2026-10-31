@@ -6,6 +6,7 @@ import { PAGE_SIZE_OPTIONS } from '../lib/search-params'
 import { cn } from '../lib/utils'
 
 interface PaginationProps {
+  compact?: boolean
   total: number
   page: number
   limit: number
@@ -18,6 +19,7 @@ interface PaginationProps {
 }
 
 export function Pagination({
+  compact = false,
   total,
   page,
   limit,
@@ -34,14 +36,15 @@ export function Pagination({
   return (
     <div
       className={cn(
-        'flex flex-col gap-2 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between',
+        'flex gap-2 border-t border-border/60 pt-3',
+        compact ? 'flex-col' : 'flex-col sm:flex-row sm:items-center sm:justify-between',
         className,
       )}
     >
       <p className="whitespace-nowrap text-meta text-muted-foreground tabular-nums">
         共 {formatCount(total)} {itemLabel} · 第 {page} / {totalPages} 页
       </p>
-      <div className="flex items-center gap-2">
+      <div className={cn('flex items-center gap-2', compact && 'flex-wrap justify-end')}>
         <label className="flex items-center gap-1.5 whitespace-nowrap text-meta text-muted-foreground">
           每页
           <Select

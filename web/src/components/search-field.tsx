@@ -67,7 +67,7 @@ export function SearchField({
         placeholder={placeholder}
         value={draft}
         disabled={disabled}
-        className="h-9 pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
+        className="h-10 pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {

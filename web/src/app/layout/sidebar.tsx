@@ -65,8 +65,8 @@ function SidebarLink({
           aria-hidden
         />
       ) : null}
-      <AnimatedNavIcon icon={Icon}
-        className={cn('size-4 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')}
+      <AnimatedNavIcon icon={Icon} active={isActive}
+        className={cn('size-5 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')}
       />
       {collapsed ? null : <span className="truncate">{item.label}</span>}
     </Link>
@@ -147,9 +147,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               className="text-muted-foreground hover:text-sidebar-foreground"
             >
               {collapsed ? (
-                <PanelLeftOpen className="size-4" />
+                <PanelLeftOpen className="size-5" />
               ) : (
-                <PanelLeftClose className="size-4" />
+                <PanelLeftClose className="size-5" />
               )}
             </Button>
           </TooltipTrigger>

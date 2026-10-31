@@ -28,7 +28,7 @@ export function ToolsSection({
         tag="全部可用"
       >
         <div className="py-2">
-          <Label className="text-xs">已注册的提供方</Label>
+          <Label className="text-sm">已注册的提供方</Label>
           <div className="mt-2 flex flex-wrap gap-2">
             {providers.length === 0 ? (
               <p className="text-meta text-muted-foreground">当前进程没有注册任何工具提供方。</p>

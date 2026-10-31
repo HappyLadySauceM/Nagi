@@ -78,23 +78,23 @@ function FriendRow({
       onClick={onSelect}
       aria-current={active ? 'true' : undefined}
       className={cn(
-        'flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-3 text-left transition-colors duration-150',
+        'flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-3 text-left transition-colors duration-150',
         active ? 'bg-secondary ring-1 ring-border' : 'hover:bg-secondary/60',
       )}
     >
-      <Avatar id={contact.userId} name={name} size="sm" />
+      <Avatar id={contact.userId} name={name} size="md" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="truncate text-body font-medium text-foreground">{name}</span>
+          <span className="line-clamp-2 break-words text-body font-medium text-foreground">{name}</span>
         </span>
-        <span className="mt-0.5 flex items-center gap-2 text-caption text-muted-foreground">
-          <span className="font-mono tabular-nums">{contact.userId}</span>
+        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
+          <span className="whitespace-nowrap font-mono tabular-nums">{contact.userId}</span>
           {contact.remark && contact.nickname ? (
             <span className="truncate">昵称 {contact.nickname}</span>
           ) : null}
         </span>
+        <span className="mt-2 block"><PolicyStatusIndicator policy={policy} /></span>
       </span>
-      <PolicyStatusIndicator policy={policy} />
     </button>
   )
 }
@@ -117,22 +117,22 @@ function GroupRow({
       onClick={onSelect}
       aria-current={active ? 'true' : undefined}
       className={cn(
-        'flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-3 text-left transition-colors duration-150',
+        'flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-3 text-left transition-colors duration-150',
         active ? 'bg-secondary ring-1 ring-border' : 'hover:bg-secondary/60',
       )}
     >
-      <Avatar id={group.groupId} kind="group" name={name} size="sm" />
+      <Avatar id={group.groupId} kind="group" name={name} size="md" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="truncate text-body font-medium text-foreground">{name}</span>
+          <span className="line-clamp-2 break-words text-body font-medium text-foreground">{name}</span>
         </span>
-        <span className="mt-0.5 flex items-center gap-2 text-caption text-muted-foreground">
-          <span className="font-mono tabular-nums">{group.groupId}</span>
-          <span>{formatCount(group.memberCount)} 人</span>
-          {group.lastSeenAt ? <span>· {formatRelativeTime(group.lastSeenAt)}</span> : null}
+        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
+          <span className="whitespace-nowrap font-mono tabular-nums">{group.groupId}</span>
+          <span className="whitespace-nowrap">{formatCount(group.memberCount)} 人</span>
+          {group.lastSeenAt ? <span className="whitespace-nowrap">{formatRelativeTime(group.lastSeenAt)}</span> : null}
         </span>
+        <span className="mt-2 block"><PolicyStatusIndicator policy={policy} /></span>
       </span>
-      <PolicyStatusIndicator policy={policy} />
     </button>
   )
 }
@@ -285,8 +285,8 @@ export function DirectoryPage() {
           />
         </Card>
       ) : (
-        <div className="grid overflow-hidden rounded-lg border border-border bg-card lg:h-[calc(100dvh-13rem)] lg:min-h-[560px] lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-          <div className={cn('min-h-[520px] flex-col overflow-hidden lg:min-h-0', mobileDetail ? 'hidden lg:flex' : 'flex')}>
+        <div className="grid overflow-hidden rounded-lg border border-border bg-card xl:h-[calc(100dvh-13rem)] xl:min-h-[560px] xl:grid-cols-[clamp(400px,34%,560px)_minmax(0,1fr)]">
+          <div className={cn('min-h-[520px] flex-col overflow-hidden xl:min-h-0', mobileDetail ? 'hidden xl:flex' : 'flex')}>
             <div className="space-y-3 border-b border-border/60 px-4 py-4">
               <DirectoryTabs
                 tab={tab}
@@ -396,6 +396,7 @@ export function DirectoryPage() {
 
             <div className="border-t border-border/60 px-4 py-3">
               <Pagination
+                compact
                 total={total ?? 0}
                 page={page}
                 limit={limit}
@@ -411,8 +412,8 @@ export function DirectoryPage() {
             </div>
           </div>
 
-          <div className={cn('min-h-0 min-w-0 overflow-y-auto lg:border-l lg:border-border',mobileDetail ? 'block' : 'hidden lg:block')}>
-            <Button className="m-4 lg:hidden" variant="outline" onClick={()=>setMobileDetail(false)}>返回联系人列表</Button>
+          <div className={cn('min-h-0 min-w-0 overflow-y-auto xl:border-l xl:border-border',mobileDetail ? 'block' : 'hidden xl:block')}>
+            <Button className="m-4 xl:hidden" variant="outline" onClick={()=>setMobileDetail(false)}>返回联系人列表</Button>
             <ContactDetailPanel key={`${selectedBotId}:${tab}:${selection?.id}`} selection={selection} />
 
           </div>

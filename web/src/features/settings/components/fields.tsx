@@ -18,7 +18,7 @@ interface FieldShellProps {
 function FieldShell({ id, label, hint, error, children, disabled }: FieldShellProps) {
   return (
     <div className={cn('py-2.5', disabled ? 'opacity-55' : undefined)}>
-      <Label htmlFor={id} className="text-xs">
+      <Label htmlFor={id} className="text-sm">
         {label}
       </Label>
       <div className="mt-1.5">{children}</div>
@@ -61,7 +61,7 @@ export function SwitchField({
     <div className="flex items-start justify-between gap-6 border-b border-border/60 py-3 last:border-b-0">
       <div className="min-w-0">
         <span className="flex items-center gap-2">
-          <Label htmlFor={id} className="text-xs">
+          <Label htmlFor={id} className="text-sm">
             {label}
           </Label>
           {badge ? (

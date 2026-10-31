@@ -28,7 +28,7 @@ export function MobileNav() {
           className="lg:hidden"
           aria-label="打开导航菜单"
         >
-          <Menu className="size-4" />
+          <Menu className="size-5" />
         </Button>
       </SheetTrigger>
       <SheetContent side="left">
@@ -59,9 +59,9 @@ export function MobileNav() {
                             : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground',
                         )}
                       >
-                        <AnimatedNavIcon icon={Icon}
+                        <AnimatedNavIcon icon={Icon} active={isActive}
                           className={cn(
-                            'size-4 shrink-0',
+                            'size-5 shrink-0',
                             isActive ? 'text-primary' : 'text-muted-foreground',
                           )}
                         />

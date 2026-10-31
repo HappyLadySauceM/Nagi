@@ -40,7 +40,7 @@ function SheetContent({
           className="absolute right-3 top-4 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
           aria-label={side === 'left' ? '关闭导航' : '关闭详情'}
         >
-          <X className="size-4" />
+          <X className="size-5" />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
