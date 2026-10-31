@@ -117,11 +117,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 工具链按 go.mod 固定：runner 预装的 /usr/local/go 可能是 1.25，
-      # 而生成的 ent 代码依赖 Go 1.26 起默认启用的 encoding/json/jsontext。
+      # 生成的 ent 代码依赖 encoding/json/jsontext：该包在 1.26 仍需
+      # GOEXPERIMENT=jsonv2，1.27 起才默认可用，所以显式装 1.27.x，
+      # 不用 runner 预装的 /usr/local/go，也不跟随 go.mod 的 1.26.0。
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.27.x"
           cache: true
           cache-dependency-path: go.sum
 
