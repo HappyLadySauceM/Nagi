@@ -30,7 +30,7 @@ env:
   # 前端依赖走国内镜像，冷启动也快；不改仓库 .npmrc，避免影响本地开发。
   NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
   # docker/build-push-action 默认每个矩阵任务上传一个 build record artifact，
-  # 这里关掉，Artifacts 只保留工作流自己上传的 nagi-api / nagi-web。
+  # 这里关掉：编译已在镜像多阶段内完成，本工作流不再上传任何 artifact。
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
@@ -67,6 +67,8 @@ jobs:
               - "go.sum"
               - "Dockerfile"
               - ".dockerignore"
+              # just verify 的口径由 Justfile 定义，改了它必须跑 Go 校验。
+              - "Justfile"
             web:
               - "web/**"
 
@@ -154,26 +156,12 @@ jobs:
           pnpm test
           pnpm build
 
-      - name: 编译二进制
+      # 编译在 build 作业的镜像内完成，这里只做一次编译检查（不落盘产物）。
+      - name: 编译检查
         if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
         run: |
           set -euo pipefail
-          go build -trimpath -ldflags="-s -w" -o bin/nagi ./cmd
-
-      # PR 只做校验，产物上传留给 main 与手动触发。
-      - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true')
-        with:
-          name: nagi-api
-          path: bin/nagi
-          retention-days: 1
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true')
-        with:
-          name: nagi-web
-          path: web/dist
-          retention-days: 1
+          go build -o /dev/null ./cmd
 
   build:
     name: Build Nagi-${{ matrix.name }}
@@ -195,11 +183,6 @@ jobs:
       # tag 用 7 位提交前缀，与 Argo CD Image Updater 的 allowTags 正则一致。
       - name: 计算镜像 tag
         run: echo "SHORT_SHA=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: nagi-${{ matrix.name }}
-          path: ${{ matrix.name == 'api' && 'bin' || 'web/dist' }}
 
       # dind 拉不到 Docker Hub（EOF），buildkit 镜像必须用 Zot 里的那份；
       # 登录必须早于 setup-buildx，否则 buildx 创建 builder 时拉不到镜像。

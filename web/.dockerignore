@@ -1,5 +1,8 @@
+# 构建阶段需要 src/index.html/pnpm-lock.yaml/pnpm-workspace.yaml 等源码，只排除本地产物。
 node_modules
-src
-tests
-index.html
-pnpm-lock.yaml
+dist
+coverage
+# 本地配置文件含真实凭据，且构建不依赖它，别带进构建层。
+.env
+.env.local
+*.local

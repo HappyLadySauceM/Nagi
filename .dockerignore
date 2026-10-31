@@ -1,6 +1,19 @@
+# api 镜像的构建上下文只用来编译 Go 代码：其余目录（本地配置、前端、产物、文档）不必上传。
 .git
-node_modules
-web/node_modules
-web/src
-web/.next
+.codebuddy
+.review
+.run
+.github
+.agents
+bin
+configs
 data
+docs
+scripts
+tools
+web
+node_modules
+.env*
+docker-compose.yml
+Justfile
+*.md
