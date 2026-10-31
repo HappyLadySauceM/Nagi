@@ -13,7 +13,15 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - ".github/workflows/build-images.yml"
+  # PR 也要跑 verify：分支保护把它作为合并门槛，具体跑哪些步骤由 changes 作业判定。
+  # 镜像构建与推送仍然只在 main 的 push 与手动触发时执行。
+  pull_request:
   workflow_dispatch:
+
+# PR 上连续推送时取消旧运行；main 与手动触发不取消，避免打断发布流水线。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ZOT: zot.infra-registry.svc.cluster.local:5000
@@ -32,6 +40,8 @@ jobs:
     runs-on: hls-standard
     permissions:
       contents: read
+      # PR 事件下 paths-filter 走 GitHub API 取变更文件列表，需要读 pull request。
+      pull-requests: read
     outputs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
@@ -76,15 +86,39 @@ jobs:
   verify:
     needs: changes
     runs-on: hls-builder
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # 库名自带 _test：dbtest 会原样使用，而跨连接池用例会用该变量再开一个池，
+      # 两个池必须指向同一个库，否则 TestClaimsSerializeConversationAcrossPools 会失败。
+      NAGI_TEST_DSN: postgres://nagi:nagi-local@127.0.0.1:5432/nagi_test?sslmode=disable
+    # 集成测试要求 PostgreSQL 17（pkg/db.Connect 的版本闸门）；runner 上直接用服务容器，
+    # 端口映射到宿主机，步骤里的 127.0.0.1:5432 即可连上。
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: nagi
+          POSTGRES_PASSWORD: nagi-local
+          POSTGRES_DB: nagi_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U nagi -d nagi_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v7
 
-      - name: 缓存 Go 模块
-        uses: actions/cache@v6
+      # 工具链按 go.mod 固定：runner 预装的 /usr/local/go 可能是 1.25，
+      # 而生成的 ent 代码依赖 Go 1.26 起默认启用的 encoding/json/jsontext。
+      - uses: actions/setup-go@v6
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-gomod-${{ hashFiles('go.sum') }}
-          restore-keys: ${{ runner.os }}-gomod-
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
 
       - name: 缓存 pnpm store
         uses: actions/cache@v6
@@ -118,15 +152,16 @@ jobs:
           set -euo pipefail
           go build -trimpath -ldflags="-s -w" -o bin/nagi ./cmd
 
+      # PR 只做校验，产物上传留给 main 与手动触发。
       - uses: actions/upload-artifact@v7
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
+        if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true')
         with:
           name: nagi-api
           path: bin/nagi
           retention-days: 1
 
       - uses: actions/upload-artifact@v7
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
+        if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true')
         with:
           name: nagi-web
           path: web/dist
@@ -136,7 +171,8 @@ jobs:
     name: Build Nagi-${{ matrix.name }}
     needs: [changes, verify]
     # 只跑变更过的镜像；images 为空时整体跳过（job 级 if 不认 matrix，故用动态矩阵）。
-    if: needs.changes.outputs.images != '[]'
+    # PR 只校验不构建：镜像构建、签名与推送只在 main 的 push 与手动触发时执行。
+    if: github.event_name != 'pull_request' && needs.changes.outputs.images != '[]'
     runs-on: hls-builder
     permissions:
       contents: read
