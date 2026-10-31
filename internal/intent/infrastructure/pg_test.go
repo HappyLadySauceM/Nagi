@@ -211,3 +211,115 @@ func TestRulesetMultiTargetPublishConflictAndRollback(t *testing.T) {
 	}
 
 }
+
+func TestRulesetDeletionLifecycle(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRulesetsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	botID := time.Now().UnixNano()
+	defer pool.Exec(ctx, "DELETE FROM intent_rulesets WHERE bot_id=$1", botID)
+	first, err := repo.CreateDraft(ctx, botID, "group", 901, "delete test", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []domain.RuleTarget{{Kind: "group", ID: 901}, {Kind: "private", ID: 902}}
+	if err = repo.ReplaceEntries(ctx, first.ID, nil, RuleOptions{Targets: &targets}); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.Publish(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.Delete(ctx, botID+1, first.ID); !errors.Is(err, ErrRulesetNotFound) {
+		t.Fatalf("wrong account: %v", err)
+	}
+	if err = repo.Delete(ctx, botID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.Delete(ctx, botID, first.ID); err != nil {
+		t.Fatalf("repeat: %v", err)
+	}
+	for _, target := range targets {
+		if _, found, err := repo.Active(ctx, botID, target.Kind, target.ID); err != nil || found {
+			t.Fatalf("activation remains: %v", err)
+		}
+	}
+	if _, err = repo.Get(ctx, first.ID); !errors.Is(err, ErrRulesetNotFound) {
+		t.Fatalf("get deleted: %v", err)
+	}
+	if err = repo.Publish(ctx, first.ID); !errors.Is(err, ErrRulesetNotFound) {
+		t.Fatalf("publish deleted: %v", err)
+	}
+	if _, err = repo.CreateDraft(ctx, botID, "group", 901, "clone deleted", true, first.ID); !errors.Is(err, ErrRulesetNotFound) {
+		t.Fatalf("clone deleted: %v", err)
+	}
+	next, err := repo.CreateDraft(ctx, botID, "group", 901, "next", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Version <= first.Version {
+		t.Fatal("version reused")
+	}
+	if err = repo.Delete(ctx, botID, next.ID); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.List(ctx, botID, "", 0)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("deleted list: %v %d", err, len(rows))
+	}
+}
+
+func TestRulesetDeleteSerializesWithPublish(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRulesetsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	botID := time.Now().UnixNano()
+	defer pool.Exec(ctx, "DELETE FROM intent_rulesets WHERE bot_id=$1", botID)
+	old, err := repo.CreateDraft(ctx, botID, "private", 777, "archived", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.Publish(ctx, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	next, err := repo.CreateDraft(ctx, botID, "private", 777, "race", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.Publish(ctx, next.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.Delete(ctx, botID, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.Rollback(ctx, botID, "private", 777, old.Version); !errors.Is(err, ErrRulesetNotFound) {
+		t.Fatalf("rollback deleted: %v", err)
+	}
+	if err = repo.Delete(ctx, botID, next.ID); err != nil {
+		t.Fatal(err)
+	}
+	race, err := repo.CreateDraft(ctx, botID, "private", 778, "unpublished race", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	published := make(chan error, 1)
+	deleted := make(chan error, 1)
+	go func() { <-start; published <- repo.Publish(ctx, race.ID) }()
+	go func() { <-start; deleted <- repo.Delete(ctx, botID, race.ID) }()
+	close(start)
+	if err = <-deleted; err != nil {
+		t.Fatal(err)
+	}
+	if err = <-published; err != nil && !errors.Is(err, ErrRulesetNotFound) {
+		t.Fatal(err)
+	}
+	if _, found, err := repo.Active(ctx, botID, "private", 778); err != nil || found {
+		t.Fatalf("deleted published active: %v", err)
+	}
+}

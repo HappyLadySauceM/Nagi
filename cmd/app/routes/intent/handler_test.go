@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -206,6 +207,49 @@ func TestGlobalPreviewPreservesActiveSpecificRules(t *testing.T) {
 		}
 		if response.Code != 200 || !result.Data.Blocked || result.Data.ForceReply || result.Data.ReasonCode != "specific_stop" {
 			t.Fatalf("global preview bypassed specific: %d %s", response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestDeleteRulesetEndpoint(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := intentinfra.NewRulesetsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	botID := time.Now().UnixNano()
+	defer pool.Exec(ctx, "DELETE FROM intent_rulesets WHERE bot_id=$1", botID)
+	set, err := repo.CreateDraft(ctx, botID, "private", 123, "http delete", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Rulesets: repo}).RegisterRules(mux)
+	preview := httptest.NewRecorder()
+	mux.ServeHTTP(preview, httptest.NewRequest(http.MethodPost, "/api/v1/intent/simulate", bytes.NewBufferString(fmt.Sprintf(`{"bot_id":%d,"scope_type":"private","scope_id":123,"kind":"private","reply_mode":"intent_based","text":"hello","entries":[{"priority":0,"match":{},"action":{"type":"reply","reason_code":"http_preview"}}]}`, botID))))
+	if preview.Code != 200 || !bytes.Contains(preview.Body.Bytes(), []byte(`"ReasonCode":"http_preview"`)) {
+		t.Fatalf("preview response: %d %s", preview.Code, preview.Body.String())
+	}
+
+	for _, test := range []struct {
+		url    string
+		status int
+	}{
+		{"/api/v1/intent/rulesets/invalid?bot_id=1", 400},
+		{fmt.Sprintf("/api/v1/intent/rulesets/%d", set.ID), 400},
+		{fmt.Sprintf("/api/v1/intent/rulesets/%d?bot_id=%d", set.ID, botID+1), 404},
+		{fmt.Sprintf("/api/v1/intent/rulesets/%d?bot_id=%d", set.ID, botID), 200},
+		{fmt.Sprintf("/api/v1/intent/rulesets/%d?bot_id=%d", set.ID, botID), 200},
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, test.url, nil))
+		if rec.Code != test.status {
+			t.Fatalf("%s: got %d want %d", test.url, rec.Code, test.status)
+		}
+		var body envelope
+		if err = json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Code != test.status {
+			t.Fatalf("envelope: %v", err)
 		}
 	}
 }

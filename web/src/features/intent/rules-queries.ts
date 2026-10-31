@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiRequest } from '../../lib/api/client'
+import { ApiError, apiRequest } from '../../lib/api/client'
 import { toRuleset, toRulesetList, toRuleSimulation, toRuleEntriesRequest } from '../../lib/api/adapters/rules'
 import type { RuleEntry, RuleTarget, ScopeType } from '../../lib/api/contracts'
 import { queryKeys } from '../../lib/query-keys'
@@ -114,5 +114,24 @@ export function useSimulate(scope: ScopeRef) {
           seconds_since_reply: variables.secondsSinceReply,
         },
       }).then(toRuleSimulation),
+  })
+}
+
+export function useDeleteRuleset() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, botId }: { id: number; botId: number }) => apiRequest(`/api/v1/intent/rulesets/${id}?bot_id=${botId}`, { method: 'DELETE' }),
+    // 只移除该版本详情并失效列表：已删除版本不必再失效，否则重新请求只会拿到 404。
+    onSuccess: (_, variables) => {
+      client.removeQueries({ queryKey: queryKeys.ruleset(variables.id) })
+      void client.invalidateQueries({ queryKey: ['intent', 'rulesets'] })
+    },
+    // 版本已被其它端删除时按已删除处理，清掉详情缓存并刷新列表。
+    onError: (error, variables) => {
+      if (error instanceof ApiError && error.kind === 'not-found' && error.detail === 'missing') {
+        client.removeQueries({ queryKey: queryKeys.ruleset(variables.id) })
+        void client.invalidateQueries({ queryKey: ['intent', 'rulesets'] })
+      }
+    },
   })
 }
