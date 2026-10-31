@@ -34,6 +34,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	observabilityinfra "github.com/HappyLadySauceM/Nagi/internal/observability/infrastructure"
 	obapp "github.com/HappyLadySauceM/Nagi/internal/onebot/application"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	obinfra "github.com/HappyLadySauceM/Nagi/internal/onebot/infrastructure"
 	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
@@ -239,11 +241,61 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		toolRegistry := pluginsapp.NewRegistry()
 		providers := []pluginscontracts.ToolProvider{
 			builtin.NewTimeProvider(),
-			builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry}),
-			builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry}),
-			builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry}),
-			builtin.NewQQProfileProvider(groupInfoResolver{accounts: rt.Registry}),
+			builtin.WithoutPublicDuplicates(builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry})),
+			builtin.WithoutPublicDuplicates(builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry})),
+			builtin.WithoutPublicDuplicates(builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry})),
+			builtin.WithoutPublicDuplicates(builtin.NewQQProfileProvider(groupInfoResolver{accounts: rt.Registry})),
 		}
+		publicAccount := func(botID int64) (obcontracts.PublicAPI, bool) {
+			conn, ok := rt.Registry.Lookup(botID)
+			if !ok {
+				return nil, false
+			}
+			return conn.Client, true
+		}
+		publicOptions := replytool.Options{Ledger: ledger}
+		publicOptions.Authorize = func(ctx context.Context, run pluginsapp.Scope) (outbounddomain.Limits, error) {
+			current, err := rt.Scope.Resolve(ctx, run.BotID, scopedomain.ScopeType(run.Kind), run.TargetID)
+			if err != nil {
+				return outbounddomain.Limits{}, err
+			}
+			if !current.Enabled || !current.StoreMessages || current.ReplyMode == scopedomain.ModeObserveOnly {
+				return outbounddomain.Limits{}, fmt.Errorf("source scope disabled")
+			}
+			limits, err := sendingLimitsFor(ctx, policiesRepo, rt.SettingsProvider.Settings(), run.BotID, run.Kind, run.TargetID)
+			limits.StopAfterFailure = true
+			limits.MaxPerHour = current.MaxRepliesPerHour
+			return limits, err
+		}
+		// A cross-conversation action must respect the target's own state; a
+		// disabled or observe-only conversation never asked to be touched.
+		// 跨会话动作必须遵守目标会话自身状态：停用或仅观察的会话不应被操作。
+		authorizeTarget := func(ctx context.Context, kind string, targetID int64) error {
+			scope, ok := pluginsapp.ScopeFrom(ctx)
+			if !ok {
+				return fmt.Errorf("missing scope")
+			}
+			policy, err := rt.Scope.Resolve(ctx, scope.BotID, scopedomain.ScopeType(kind), targetID)
+			if err != nil {
+				return err
+			}
+			if !policy.Enabled || policy.ReplyMode == scopedomain.ModeObserveOnly {
+				return pluginsapp.Denied("目标会话未启用")
+			}
+			return nil
+		}
+		publicOptions.AuthorizeTarget = authorizeTarget
+		providers = append(providers, builtin.NewPublicProvider(builtin.PublicOptions{Account: publicAccount, AuthorizeTarget: authorizeTarget, Send: func(ctx context.Context, c obdomain.PublicCommand) (obdomain.PublicResult, error) {
+			scope, ok := pluginsapp.ScopeFrom(ctx)
+			if !ok {
+				return obdomain.PublicResult{}, fmt.Errorf("missing scope")
+			}
+			api, ok := publicAccount(scope.BotID)
+			if !ok {
+				return obdomain.PublicResult{}, fmt.Errorf("account unavailable")
+			}
+			return replytool.SendPublic(ctx, publicOptions, c, api.ExecutePublic)
+		}}))
 		providers = append(providers, replytool.NewProvider(replytool.Options{
 			Senders: replySenders{accounts: rt.Registry},
 			Authorize: func(ctx context.Context, run pluginsapp.Scope) (outbounddomain.Limits, error) {

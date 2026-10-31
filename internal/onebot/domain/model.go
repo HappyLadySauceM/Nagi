@@ -150,7 +150,7 @@ func NewSendGroupMessage(to GroupID, segments []Segment) (Action, error) {
 
 // NewDeleteMessage 构造撤回消息动作。
 func NewDeleteMessage(id MessageID) (Action, error) {
-	if id <= 0 {
+	if id == 0 {
 		return Action{}, fmt.Errorf("onebot: 消息 ID 无效: %d", id)
 	}
 	return Action{Name: ActionDeleteMsg, Params: map[string]any{"message_id": int64(id)}}, nil

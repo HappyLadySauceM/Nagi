@@ -180,6 +180,8 @@ export interface ToolCatalogEntry {
 
 /** One permission shared by one or more tools. */
 export interface ToolPermission {
+  description?: string
+  riskLevel?: string
   id: string
   tools: string[]
   defaultGranted: boolean

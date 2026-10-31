@@ -4,6 +4,7 @@ package eino
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -43,5 +44,26 @@ func TestToBaseToolsMapsNames(t *testing.T) {
 	out, err := invokable.InvokableRun(context.Background(), `{"ignored":true}`)
 	if err != nil || out != "ok" {
 		t.Fatalf("invoke = %q, %v", out, err)
+	}
+}
+
+func TestNestedAndUnionSchemasSurviveAdapter(t *testing.T) {
+	tools := ToBaseTools([]contracts.RegisteredTool{{Descriptor: contracts.ToolDescriptor{ID: "qq.send_msg", Description: "send", Parameters: map[string]contracts.Parameter{
+		"message": {Required: true, Types: []string{"string", "array"}, Items: &contracts.Parameter{Type: "object", Properties: map[string]contracts.Parameter{"type": {Type: "string", Enum: []string{"text", "image"}, Required: true}, "data": {Type: "object"}}}},
+	}}}})
+	info, err := tools[0].Info(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"type":["string","array"]`) || !strings.Contains(string(raw), `"items"`) || !strings.Contains(string(raw), `"enum"`) || !strings.Contains(string(raw), `"required":["message"]`) {
+		t.Fatalf("schema lost: %s", raw)
 	}
 }

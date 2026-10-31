@@ -39,9 +39,9 @@ type Messenger interface {
 	// GetMessage fetches one message by id.
 	// GetMessage 按消息 ID 获取消息。
 	GetMessage(ctx context.Context, id domain.MessageID) (domain.MessageResult, error)
-	// GetForwardMessages fetches merged forward content by message id.
-	// GetForwardMessages 按消息 ID 获取合并转发内容。
-	GetForwardMessages(ctx context.Context, id domain.MessageID) ([]domain.ForwardNode, error)
+	// GetForwardMessages fetches merged forward content by its string resource id.
+	// GetForwardMessages 按字符串资源 ID 获取合并转发内容。
+	GetForwardMessages(ctx context.Context, id string) ([]domain.ForwardNode, error)
 	// SendPrivateForward sends merged forward nodes in private chat.
 	// SendPrivateForward 在私聊发送合并转发节点。
 	SendPrivateForward(ctx context.Context, to domain.UserID, nodes ...domain.Segment) (domain.ForwardReceipt, error)
@@ -136,4 +136,10 @@ type BotStatus struct {
 // StatusReader 查询当前连接状态快照。
 type StatusReader interface {
 	Status() BotStatus
+}
+
+// PublicAPI executes the closed set of standard public commands.
+// PublicAPI 执行标准公开命令的封闭集合。
+type PublicAPI interface {
+	ExecutePublic(context.Context, domain.PublicCommand) (domain.PublicResult, error)
 }

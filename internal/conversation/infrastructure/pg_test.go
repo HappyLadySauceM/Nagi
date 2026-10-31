@@ -28,8 +28,8 @@ func insertLedgerRecord(t *testing.T, pool *db.Pool, jobID int64, conversationID
 	id := uuid.NewString()
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO agent_outbound_messages
-			(id, job_id, conversation_id, bot_id, sequence, text_content, status)
-		VALUES ($1, $2, $3, $4, $5, '台账记录', $6)
+			(id, job_id, conversation_id, bot_id, sequence, text_content, status, target_kind, target_id)
+		SELECT $1, $2, $3, $4, $5, '台账记录', $6, c.kind, c.target_id FROM conversations c WHERE c.id = $3
 	`, id, jobID, conversationID, botID, sequence, status); err != nil {
 		t.Fatalf("insert ledger record: %v", err)
 	}
@@ -741,5 +741,32 @@ func TestPurgeBeforeDeletesExpiredMessagesAndJobs(t *testing.T) {
 	}
 	if !exists {
 		t.Fatal("fresh job was deleted")
+	}
+}
+
+// TestDecodeSegmentsAcceptsOutboundWireShape covers ledger payloads that store
+// node.content as a JSON array instead of the inbound text form; the two write
+// paths must decode into the same segment shape.
+// TestDecodeSegmentsAcceptsOutboundWireShape 覆盖台账把 node.content 存为数组的情形；
+// 两条写入路径必须解码成同一种消息段形态。
+func TestDecodeSegmentsAcceptsOutboundWireShape(t *testing.T) {
+	raw := []byte(`[{"type":"node","data":{"user_id":"1","nickname":"a","content":[{"type":"text","data":{"text":"hi"}}]}},{"type":"text","data":{"text":"hello"}}]`)
+	segs, err := decodeSegments(raw)
+	if err != nil {
+		t.Fatalf("decode outbound wire shape: %v", err)
+	}
+	if len(segs) != 2 || segs[1].Type != obdomain.SegText || segs[1].Data["text"] != "hello" {
+		t.Fatalf("segments = %#v", segs)
+	}
+	if segs[0].Data["content"] != `[{"type":"text","data":{"text":"hi"}}]` {
+		t.Fatalf("node content = %q", segs[0].Data["content"])
+	}
+	wired := obdomain.WireSegments(segs)
+	data, ok := wired[0]["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("wire data = %#v", wired[0]["data"])
+	}
+	if _, ok := data["content"].([]map[string]any); !ok {
+		t.Fatalf("node content not restored to array: %#v", data["content"])
 	}
 }

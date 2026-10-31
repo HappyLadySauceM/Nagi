@@ -91,6 +91,26 @@ func TextContent(v string) predicate.AgentOutboundMessage {
 	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldTextContent, v))
 }
 
+// TargetKind applies equality check predicate on the "target_kind" field. It's identical to TargetKindEQ.
+func TargetKind(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldTargetKind, v))
+}
+
+// TargetID applies equality check predicate on the "target_id" field. It's identical to TargetIDEQ.
+func TargetID(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldTargetID, v))
+}
+
+// Action applies equality check predicate on the "action" field. It's identical to ActionEQ.
+func Action(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldAction, v))
+}
+
+// ChargeChars applies equality check predicate on the "charge_chars" field. It's identical to ChargeCharsEQ.
+func ChargeChars(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldChargeChars, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.AgentOutboundMessage {
 	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldStatus, v))
@@ -424,6 +444,216 @@ func TextContentEqualFold(v string) predicate.AgentOutboundMessage {
 // TextContentContainsFold applies the ContainsFold predicate on the "text_content" field.
 func TextContentContainsFold(v string) predicate.AgentOutboundMessage {
 	return predicate.AgentOutboundMessage(sql.FieldContainsFold(FieldTextContent, v))
+}
+
+// TargetKindEQ applies the EQ predicate on the "target_kind" field.
+func TargetKindEQ(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldTargetKind, v))
+}
+
+// TargetKindNEQ applies the NEQ predicate on the "target_kind" field.
+func TargetKindNEQ(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNEQ(FieldTargetKind, v))
+}
+
+// TargetKindIn applies the In predicate on the "target_kind" field.
+func TargetKindIn(vs ...string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIn(FieldTargetKind, vs...))
+}
+
+// TargetKindNotIn applies the NotIn predicate on the "target_kind" field.
+func TargetKindNotIn(vs ...string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotIn(FieldTargetKind, vs...))
+}
+
+// TargetKindGT applies the GT predicate on the "target_kind" field.
+func TargetKindGT(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGT(FieldTargetKind, v))
+}
+
+// TargetKindGTE applies the GTE predicate on the "target_kind" field.
+func TargetKindGTE(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGTE(FieldTargetKind, v))
+}
+
+// TargetKindLT applies the LT predicate on the "target_kind" field.
+func TargetKindLT(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLT(FieldTargetKind, v))
+}
+
+// TargetKindLTE applies the LTE predicate on the "target_kind" field.
+func TargetKindLTE(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLTE(FieldTargetKind, v))
+}
+
+// TargetKindContains applies the Contains predicate on the "target_kind" field.
+func TargetKindContains(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldContains(FieldTargetKind, v))
+}
+
+// TargetKindHasPrefix applies the HasPrefix predicate on the "target_kind" field.
+func TargetKindHasPrefix(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldHasPrefix(FieldTargetKind, v))
+}
+
+// TargetKindHasSuffix applies the HasSuffix predicate on the "target_kind" field.
+func TargetKindHasSuffix(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldHasSuffix(FieldTargetKind, v))
+}
+
+// TargetKindEqualFold applies the EqualFold predicate on the "target_kind" field.
+func TargetKindEqualFold(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEqualFold(FieldTargetKind, v))
+}
+
+// TargetKindContainsFold applies the ContainsFold predicate on the "target_kind" field.
+func TargetKindContainsFold(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldContainsFold(FieldTargetKind, v))
+}
+
+// TargetIDEQ applies the EQ predicate on the "target_id" field.
+func TargetIDEQ(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldTargetID, v))
+}
+
+// TargetIDNEQ applies the NEQ predicate on the "target_id" field.
+func TargetIDNEQ(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNEQ(FieldTargetID, v))
+}
+
+// TargetIDIn applies the In predicate on the "target_id" field.
+func TargetIDIn(vs ...int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIn(FieldTargetID, vs...))
+}
+
+// TargetIDNotIn applies the NotIn predicate on the "target_id" field.
+func TargetIDNotIn(vs ...int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotIn(FieldTargetID, vs...))
+}
+
+// TargetIDGT applies the GT predicate on the "target_id" field.
+func TargetIDGT(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGT(FieldTargetID, v))
+}
+
+// TargetIDGTE applies the GTE predicate on the "target_id" field.
+func TargetIDGTE(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGTE(FieldTargetID, v))
+}
+
+// TargetIDLT applies the LT predicate on the "target_id" field.
+func TargetIDLT(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLT(FieldTargetID, v))
+}
+
+// TargetIDLTE applies the LTE predicate on the "target_id" field.
+func TargetIDLTE(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLTE(FieldTargetID, v))
+}
+
+// ActionEQ applies the EQ predicate on the "action" field.
+func ActionEQ(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldAction, v))
+}
+
+// ActionNEQ applies the NEQ predicate on the "action" field.
+func ActionNEQ(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNEQ(FieldAction, v))
+}
+
+// ActionIn applies the In predicate on the "action" field.
+func ActionIn(vs ...string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIn(FieldAction, vs...))
+}
+
+// ActionNotIn applies the NotIn predicate on the "action" field.
+func ActionNotIn(vs ...string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotIn(FieldAction, vs...))
+}
+
+// ActionGT applies the GT predicate on the "action" field.
+func ActionGT(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGT(FieldAction, v))
+}
+
+// ActionGTE applies the GTE predicate on the "action" field.
+func ActionGTE(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGTE(FieldAction, v))
+}
+
+// ActionLT applies the LT predicate on the "action" field.
+func ActionLT(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLT(FieldAction, v))
+}
+
+// ActionLTE applies the LTE predicate on the "action" field.
+func ActionLTE(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLTE(FieldAction, v))
+}
+
+// ActionContains applies the Contains predicate on the "action" field.
+func ActionContains(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldContains(FieldAction, v))
+}
+
+// ActionHasPrefix applies the HasPrefix predicate on the "action" field.
+func ActionHasPrefix(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldHasPrefix(FieldAction, v))
+}
+
+// ActionHasSuffix applies the HasSuffix predicate on the "action" field.
+func ActionHasSuffix(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldHasSuffix(FieldAction, v))
+}
+
+// ActionEqualFold applies the EqualFold predicate on the "action" field.
+func ActionEqualFold(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEqualFold(FieldAction, v))
+}
+
+// ActionContainsFold applies the ContainsFold predicate on the "action" field.
+func ActionContainsFold(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldContainsFold(FieldAction, v))
+}
+
+// ChargeCharsEQ applies the EQ predicate on the "charge_chars" field.
+func ChargeCharsEQ(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldChargeChars, v))
+}
+
+// ChargeCharsNEQ applies the NEQ predicate on the "charge_chars" field.
+func ChargeCharsNEQ(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNEQ(FieldChargeChars, v))
+}
+
+// ChargeCharsIn applies the In predicate on the "charge_chars" field.
+func ChargeCharsIn(vs ...int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIn(FieldChargeChars, vs...))
+}
+
+// ChargeCharsNotIn applies the NotIn predicate on the "charge_chars" field.
+func ChargeCharsNotIn(vs ...int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotIn(FieldChargeChars, vs...))
+}
+
+// ChargeCharsGT applies the GT predicate on the "charge_chars" field.
+func ChargeCharsGT(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGT(FieldChargeChars, v))
+}
+
+// ChargeCharsGTE applies the GTE predicate on the "charge_chars" field.
+func ChargeCharsGTE(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGTE(FieldChargeChars, v))
+}
+
+// ChargeCharsLT applies the LT predicate on the "charge_chars" field.
+func ChargeCharsLT(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLT(FieldChargeChars, v))
+}
+
+// ChargeCharsLTE applies the LTE predicate on the "charge_chars" field.
+func ChargeCharsLTE(v int64) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLTE(FieldChargeChars, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

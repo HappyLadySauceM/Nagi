@@ -220,3 +220,33 @@ func CustomNodeMust(from UserID, nickname string, content []Segment) Segment {
 	}
 	return node
 }
+
+func TestWireSegmentsRestoresNestedNodeArrays(t *testing.T) {
+	leaf := []Segment{Text("nested")}
+	inner, err := CustomNode(1, "inner", leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer, err := CustomNode(2, "outer", []Segment{inner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := WireSegments([]Segment{outer})
+	data := wire[0]["data"].(map[string]any)
+	nodes, ok := data["content"].([]map[string]any)
+	if !ok || len(nodes) != 1 {
+		t.Fatalf("outer content: %v", data)
+	}
+	nestedData := nodes[0]["data"].(map[string]any)
+	texts, ok := nestedData["content"].([]map[string]any)
+	if !ok || texts[0]["type"] != "text" {
+		t.Fatalf("inner content: %v", nestedData)
+	}
+	if _, ok := outer.Data["content"]; !ok {
+		t.Fatal("input mutated")
+	}
+	share := Segment{Type: SegShare, Data: map[string]string{"content": "[]"}}
+	if WireSegments([]Segment{share})[0]["data"].(map[string]any)["content"] != "[]" {
+		t.Fatal("non-node content changed")
+	}
+}

@@ -142,6 +142,9 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 		// 授予集合来自作用域策略，绝不来自工具快照本身：
 		// 由工具推导会让守卫变成自证。
 		granted := pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, req.PermissionOverrides)
+		// Suppression happens in the guard when a credential tool actually runs;
+		// the granted set alone must not silence the conversation.
+		// 脱敏由守卫在实际执行凭证工具时触发；仅凭授予集合不应静音会话。
 		var replyStopped atomic.Bool
 		scope := pluginsapp.Scope{
 			BotID:          req.BotID,
@@ -153,6 +156,9 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 			SenderID:       req.SenderID,
 			Permissions:    granted,
 			Record: func(run pluginscontracts.ToolRun) {
+				// Only the current-conversation tool stops further replies; a failed
+				// send to another target says nothing about the source conversation.
+				// 只有当前会话工具会停止后续回复；发往其它目标失败不影响来源会话。
 				if run.ToolID == replytool.ToolID && run.Status != pluginsapp.StatusOK {
 					replyStopped.Store(true)
 				}

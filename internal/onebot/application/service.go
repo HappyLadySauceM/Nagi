@@ -23,6 +23,7 @@ const eventBuffer = 256
 // callResult 承载一次等待中的动作响应。
 type callResult struct {
 	payload json.RawMessage
+	async   bool
 	err     error
 }
 
@@ -75,8 +76,13 @@ func NewClientService(transport Transport, callTimeout time.Duration, logger *sl
 // Call sends one action and waits for the echo-matched response.
 // Call 发送动作并等待 echo 匹配的响应，同时受 call-timeout 与 ctx 双重约束。
 func (s *ClientService) Call(ctx context.Context, action domain.Action) (json.RawMessage, error) {
+	result, err := s.call(ctx, action)
+	return result.payload, err
+}
+
+func (s *ClientService) call(ctx context.Context, action domain.Action) (callResult, error) {
 	if s.closed.Load() {
-		return nil, ErrClosed
+		return callResult{}, ErrClosed
 	}
 	echo := fmt.Sprintf("nagi-%d", s.seq.Add(1))
 	ch := make(chan callResult, 1)
@@ -89,7 +95,7 @@ func (s *ClientService) Call(ctx context.Context, action domain.Action) (json.Ra
 		s.pendingMu.Unlock()
 	}()
 	if err := s.transport.Send(ctx, action, echo); err != nil {
-		return nil, fmt.Errorf("onebot: send action %s: %w", action.Name, err)
+		return callResult{}, fmt.Errorf("onebot: send action %s: %w", action.Name, err)
 	}
 	var timeoutC <-chan time.Time
 	if s.callTimeout > 0 {
@@ -100,13 +106,13 @@ func (s *ClientService) Call(ctx context.Context, action domain.Action) (json.Ra
 	select {
 	case res := <-ch:
 		if res.err != nil {
-			return nil, res.err
+			return callResult{}, res.err
 		}
-		return res.payload, nil
+		return res, nil
 	case <-timeoutC:
-		return nil, fmt.Errorf("onebot: wait action %s response: %w", action.Name, ErrTimeout)
+		return callResult{}, fmt.Errorf("onebot: wait action %s response: %w", action.Name, ErrTimeout)
 	case <-ctx.Done():
-		return nil, fmt.Errorf("onebot: action %s canceled: %w", action.Name, ctx.Err())
+		return callResult{}, fmt.Errorf("onebot: action %s canceled: %w", action.Name, ctx.Err())
 	}
 }
 
@@ -167,11 +173,11 @@ func (s *ClientService) HandleResponse(echo string, payload json.RawMessage) {
 		s.logger.Debug("onebot: drop response without waiter", "echo", echo)
 		return
 	}
-	if env.Retcode != 0 && env.Retcode != 1 {
+	if (env.Retcode != 0 && env.Retcode != 1) || env.Status == "failed" {
 		ch <- callResult{err: &APIError{Status: env.Status, Retcode: env.Retcode, Wording: env.Wording}}
 		return
 	}
-	ch <- callResult{payload: env.Data}
+	ch <- callResult{payload: env.Data, async: env.Retcode == 1 || env.Status == "async"}
 }
 
 // HandleEvent implements EventSink.

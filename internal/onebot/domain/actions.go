@@ -175,19 +175,19 @@ func NewSendMessage(mt MessageType, target int64, segments []Segment) (Action, e
 // NewGetMessage fetches one message by id.
 // NewGetMessage 按消息 ID 获取消息（get_msg）。
 func NewGetMessage(id MessageID) (Action, error) {
-	if id <= 0 {
+	if id == 0 {
 		return Action{}, fmt.Errorf("onebot: 消息 ID 无效: %d", id)
 	}
 	return Action{Name: ActionGetMessage, Params: map[string]any{"message_id": int64(id)}}, nil
 }
 
-// NewGetForwardMessage fetches a merged forward message by id.
-// NewGetForwardMessage 按消息 ID 获取合并转发内容（get_forward_msg）。
-func NewGetForwardMessage(id MessageID) (Action, error) {
-	if id <= 0 {
-		return Action{}, fmt.Errorf("onebot: 消息 ID 无效: %d", id)
+// NewGetForwardMessage fetches a merged forward message by its string resource id.
+// NewGetForwardMessage 按字符串资源 ID 获取合并转发内容（get_forward_msg）。
+func NewGetForwardMessage(id string) (Action, error) {
+	if strings.TrimSpace(id) == "" {
+		return Action{}, fmt.Errorf("onebot: empty forward id")
 	}
-	return Action{Name: ActionGetForwardMessage, Params: map[string]any{"message_id": int64(id)}}, nil
+	return Action{Name: ActionGetForwardMessage, Params: map[string]any{"id": id}}, nil
 }
 
 // NewSendPrivateForward sends merged forward nodes in private chat.
@@ -373,6 +373,7 @@ func NewSetGroupSpecialTitle(groupID GroupID, userID UserID, title string) (Acti
 		"group_id":      int64(groupID),
 		"user_id":       int64(userID),
 		"special_title": title,
+		"duration":      int64(-1),
 	}}, nil
 }
 

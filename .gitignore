@@ -21,5 +21,6 @@ coverage*
 # 编辑器
 .idea/
 .vscode/
+.codebuddy/
 
 .env

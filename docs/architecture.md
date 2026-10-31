@@ -137,12 +137,23 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   `application` 提供启动注册（ID 冲突检测、失败回滚、启用列表、不可变快照）、权限解析
   （作用域覆盖 > 配置默认 > 描述符兜底）与服务端守卫（权限、账号/目标绑定、超时、结果大小）。
   未授权的工具不会进入模型工具列表，执行前 Guard 用同一份授予集合再校验，并上报 `ToolRun`。
-  `infrastructure` 提供内置只读工具与 Eino 工具适配。工具调用产生的 `nagi.tool` span 记录
+  `infrastructure` 提供内置工具与 Eino 工具适配。工具调用产生的 `nagi.tool` span 记录
   `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据处理，不进入系统提示。
   注册表在启动时加载全部提供方，没有启用列表；可用性完全由会话的权限授予决定。
   `internal/agent/infrastructure/replytool` 提供 `qq.send_current`：目标固定为当前会话，
   复用输出净化与投递台账；是否可用只取决于该会话是否授予 `qq.reply.current`，
   进程级 `allow-send-current`/`allow-side-effects` 已移除。
+  `builtin.qq.public` 将 OneBot v11 的 38 项公开 API 注册为工具；保留原有工具与权限，
+  合计 43 个工具。新增 action 权限 `qq.api.<action>` 默认关闭，既有同名工具沿用原权限。
+  `qq.cross_conversation` 仅由来源会话授予，账号固定为来源机器人；跨会话发送仍按目标会话
+  自己的状态把关：目标必须已启用且不是仅观察模式，否则拒绝发送。
+  发送内容分别受 `qq.content.links`、`qq.content.at_all`、`qq.content.media` 控制，默认关闭。
+  实际执行凭证工具的运行关闭模型及工具原始正文追踪，并丢弃该次运行的自动回复；仅被授予
+  凭证工具不影响正常回复。凭证仍可能被模型写入它主动调用的发送工具参数，因此凭证类权限
+  只应授予受信会话。
+  标准发送工具与当前会话发送共用任务预算、租约和投递台账；台账保留来源会话，另存实际目标、
+  action、规范化载荷和字符消耗，出站历史写入实际目标会话。异步接受与结果未知不作为确认送达，
+  不自动重发。合并转发查询使用字符串资源 `id` 和标准 `message` 节点数组。
 - `internal/settings`：运行时可编辑配置。单行 `system_settings` 表保存 `AI`/`Intent`/`Agent`/`Tools`
   四个分区与版本号，`application.Provider` 以原子快照供每次运行读取，保存后立即替换、
   多副本每 30s 轮询版本；`domain` 负责范围、URL 与跨字段校验，密钥类配置不进入该模型。

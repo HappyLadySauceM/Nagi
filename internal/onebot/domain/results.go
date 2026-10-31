@@ -63,13 +63,16 @@ type GroupMemberInfo struct {
 // MessageResult is the result of get_msg.
 // MessageResult 是 get_msg 的结果。
 type MessageResult struct {
-	Time       int64
-	MessageID  MessageID
-	UserID     UserID
-	GroupID    GroupID
-	Segments   []Segment
-	RawMessage string
-	Extra      map[string]any
+	MessageType MessageType
+	RealID      int64
+	Sender      map[string]any
+	Time        int64
+	MessageID   MessageID
+	UserID      UserID
+	GroupID     GroupID
+	Segments    []Segment
+	RawMessage  string
+	Extra       map[string]any
 }
 
 // ForwardNode is one node of get_forward_msg results.
@@ -106,7 +109,7 @@ type BoolCapability struct {
 // RuntimeStatus is the result of get_status.
 // RuntimeStatus 是 get_status 的结果。
 type RuntimeStatus struct {
-	Online bool
+	Online *bool
 	Good   bool
 	Extra  map[string]any
 }

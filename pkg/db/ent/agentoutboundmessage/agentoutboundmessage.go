@@ -29,6 +29,16 @@ const (
 	FieldToolCallID = "tool_call_id"
 	// FieldTextContent holds the string denoting the text_content field in the database.
 	FieldTextContent = "text_content"
+	// FieldTargetKind holds the string denoting the target_kind field in the database.
+	FieldTargetKind = "target_kind"
+	// FieldTargetID holds the string denoting the target_id field in the database.
+	FieldTargetID = "target_id"
+	// FieldAction holds the string denoting the action field in the database.
+	FieldAction = "action"
+	// FieldPayload holds the string denoting the payload field in the database.
+	FieldPayload = "payload"
+	// FieldChargeChars holds the string denoting the charge_chars field in the database.
+	FieldChargeChars = "charge_chars"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldPlatformMessageID holds the string denoting the platform_message_id field in the database.
@@ -93,6 +103,11 @@ var Columns = []string{
 	FieldSequence,
 	FieldToolCallID,
 	FieldTextContent,
+	FieldTargetKind,
+	FieldTargetID,
+	FieldAction,
+	FieldPayload,
+	FieldChargeChars,
 	FieldStatus,
 	FieldPlatformMessageID,
 	FieldErrorCode,
@@ -114,6 +129,16 @@ func ValidColumn(column string) bool {
 var (
 	// DefaultRunID holds the default value on creation for the "run_id" field.
 	DefaultRunID string
+	// DefaultTargetKind holds the default value on creation for the "target_kind" field.
+	DefaultTargetKind string
+	// DefaultTargetID holds the default value on creation for the "target_id" field.
+	DefaultTargetID int64
+	// DefaultAction holds the default value on creation for the "action" field.
+	DefaultAction string
+	// DefaultPayload holds the default value on creation for the "payload" field.
+	DefaultPayload map[string]interface{}
+	// DefaultChargeChars holds the default value on creation for the "charge_chars" field.
+	DefaultChargeChars int64
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -163,6 +188,26 @@ func ByToolCallID(opts ...sql.OrderTermOption) OrderOption {
 // ByTextContent orders the results by the text_content field.
 func ByTextContent(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTextContent, opts...).ToFunc()
+}
+
+// ByTargetKind orders the results by the target_kind field.
+func ByTargetKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTargetKind, opts...).ToFunc()
+}
+
+// ByTargetID orders the results by the target_id field.
+func ByTargetID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTargetID, opts...).ToFunc()
+}
+
+// ByAction orders the results by the action field.
+func ByAction(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAction, opts...).ToFunc()
+}
+
+// ByChargeChars orders the results by the charge_chars field.
+func ByChargeChars(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChargeChars, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

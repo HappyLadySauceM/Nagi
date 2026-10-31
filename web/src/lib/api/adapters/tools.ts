@@ -105,6 +105,8 @@ function toPermission(raw: unknown): ToolPermission {
   return {
     ...(record.BlockedReasons == null ? {} : { blockedReasons: asArray(record.BlockedReasons, TOOLS_ENDPOINT, 'BlockedReasons').map(value => { if(typeof value !== 'string') throw contractError(TOOLS_ENDPOINT, 'Invalid blocked reason'); return value }) }),
     id: readString(record, 'ID', TOOLS_ENDPOINT),
+    description: readString(record, 'Description', TOOLS_ENDPOINT, ''),
+    riskLevel: readString(record, 'RiskLevel', TOOLS_ENDPOINT, ''),
     tools: asArray(record.Tools, TOOLS_ENDPOINT, 'Tools').map((tool) => {
       if (typeof tool !== 'string') {
         throw contractError(TOOLS_ENDPOINT, 'Tools 含非字符串项')

@@ -144,6 +144,82 @@ func (_u *AgentOutboundMessageUpdate) SetNillableTextContent(v *string) *AgentOu
 	return _u
 }
 
+// SetTargetKind sets the "target_kind" field.
+func (_u *AgentOutboundMessageUpdate) SetTargetKind(v string) *AgentOutboundMessageUpdate {
+	_u.mutation.SetTargetKind(v)
+	return _u
+}
+
+// SetNillableTargetKind sets the "target_kind" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdate) SetNillableTargetKind(v *string) *AgentOutboundMessageUpdate {
+	if v != nil {
+		_u.SetTargetKind(*v)
+	}
+	return _u
+}
+
+// SetTargetID sets the "target_id" field.
+func (_u *AgentOutboundMessageUpdate) SetTargetID(v int64) *AgentOutboundMessageUpdate {
+	_u.mutation.ResetTargetID()
+	_u.mutation.SetTargetID(v)
+	return _u
+}
+
+// SetNillableTargetID sets the "target_id" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdate) SetNillableTargetID(v *int64) *AgentOutboundMessageUpdate {
+	if v != nil {
+		_u.SetTargetID(*v)
+	}
+	return _u
+}
+
+// AddTargetID adds value to the "target_id" field.
+func (_u *AgentOutboundMessageUpdate) AddTargetID(v int64) *AgentOutboundMessageUpdate {
+	_u.mutation.AddTargetID(v)
+	return _u
+}
+
+// SetAction sets the "action" field.
+func (_u *AgentOutboundMessageUpdate) SetAction(v string) *AgentOutboundMessageUpdate {
+	_u.mutation.SetAction(v)
+	return _u
+}
+
+// SetNillableAction sets the "action" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdate) SetNillableAction(v *string) *AgentOutboundMessageUpdate {
+	if v != nil {
+		_u.SetAction(*v)
+	}
+	return _u
+}
+
+// SetPayload sets the "payload" field.
+func (_u *AgentOutboundMessageUpdate) SetPayload(v map[string]interface{}) *AgentOutboundMessageUpdate {
+	_u.mutation.SetPayload(v)
+	return _u
+}
+
+// SetChargeChars sets the "charge_chars" field.
+func (_u *AgentOutboundMessageUpdate) SetChargeChars(v int64) *AgentOutboundMessageUpdate {
+	_u.mutation.ResetChargeChars()
+	_u.mutation.SetChargeChars(v)
+	return _u
+}
+
+// SetNillableChargeChars sets the "charge_chars" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdate) SetNillableChargeChars(v *int64) *AgentOutboundMessageUpdate {
+	if v != nil {
+		_u.SetChargeChars(*v)
+	}
+	return _u
+}
+
+// AddChargeChars adds value to the "charge_chars" field.
+func (_u *AgentOutboundMessageUpdate) AddChargeChars(v int64) *AgentOutboundMessageUpdate {
+	_u.mutation.AddChargeChars(v)
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *AgentOutboundMessageUpdate) SetStatus(v string) *AgentOutboundMessageUpdate {
 	_u.mutation.SetStatus(v)
@@ -409,6 +485,27 @@ func (_u *AgentOutboundMessageUpdate) sqlSave(ctx context.Context) (_node int, e
 	}
 	if value, ok := _u.mutation.TextContent(); ok {
 		_spec.SetField(agentoutboundmessage.FieldTextContent, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.TargetKind(); ok {
+		_spec.SetField(agentoutboundmessage.FieldTargetKind, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.TargetID(); ok {
+		_spec.SetField(agentoutboundmessage.FieldTargetID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTargetID(); ok {
+		_spec.AddField(agentoutboundmessage.FieldTargetID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.Action(); ok {
+		_spec.SetField(agentoutboundmessage.FieldAction, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Payload(); ok {
+		_spec.SetField(agentoutboundmessage.FieldPayload, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.ChargeChars(); ok {
+		_spec.SetField(agentoutboundmessage.FieldChargeChars, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedChargeChars(); ok {
+		_spec.AddField(agentoutboundmessage.FieldChargeChars, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(agentoutboundmessage.FieldStatus, field.TypeString, value)
@@ -697,6 +794,82 @@ func (_u *AgentOutboundMessageUpdateOne) SetNillableTextContent(v *string) *Agen
 	if v != nil {
 		_u.SetTextContent(*v)
 	}
+	return _u
+}
+
+// SetTargetKind sets the "target_kind" field.
+func (_u *AgentOutboundMessageUpdateOne) SetTargetKind(v string) *AgentOutboundMessageUpdateOne {
+	_u.mutation.SetTargetKind(v)
+	return _u
+}
+
+// SetNillableTargetKind sets the "target_kind" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdateOne) SetNillableTargetKind(v *string) *AgentOutboundMessageUpdateOne {
+	if v != nil {
+		_u.SetTargetKind(*v)
+	}
+	return _u
+}
+
+// SetTargetID sets the "target_id" field.
+func (_u *AgentOutboundMessageUpdateOne) SetTargetID(v int64) *AgentOutboundMessageUpdateOne {
+	_u.mutation.ResetTargetID()
+	_u.mutation.SetTargetID(v)
+	return _u
+}
+
+// SetNillableTargetID sets the "target_id" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdateOne) SetNillableTargetID(v *int64) *AgentOutboundMessageUpdateOne {
+	if v != nil {
+		_u.SetTargetID(*v)
+	}
+	return _u
+}
+
+// AddTargetID adds value to the "target_id" field.
+func (_u *AgentOutboundMessageUpdateOne) AddTargetID(v int64) *AgentOutboundMessageUpdateOne {
+	_u.mutation.AddTargetID(v)
+	return _u
+}
+
+// SetAction sets the "action" field.
+func (_u *AgentOutboundMessageUpdateOne) SetAction(v string) *AgentOutboundMessageUpdateOne {
+	_u.mutation.SetAction(v)
+	return _u
+}
+
+// SetNillableAction sets the "action" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdateOne) SetNillableAction(v *string) *AgentOutboundMessageUpdateOne {
+	if v != nil {
+		_u.SetAction(*v)
+	}
+	return _u
+}
+
+// SetPayload sets the "payload" field.
+func (_u *AgentOutboundMessageUpdateOne) SetPayload(v map[string]interface{}) *AgentOutboundMessageUpdateOne {
+	_u.mutation.SetPayload(v)
+	return _u
+}
+
+// SetChargeChars sets the "charge_chars" field.
+func (_u *AgentOutboundMessageUpdateOne) SetChargeChars(v int64) *AgentOutboundMessageUpdateOne {
+	_u.mutation.ResetChargeChars()
+	_u.mutation.SetChargeChars(v)
+	return _u
+}
+
+// SetNillableChargeChars sets the "charge_chars" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdateOne) SetNillableChargeChars(v *int64) *AgentOutboundMessageUpdateOne {
+	if v != nil {
+		_u.SetChargeChars(*v)
+	}
+	return _u
+}
+
+// AddChargeChars adds value to the "charge_chars" field.
+func (_u *AgentOutboundMessageUpdateOne) AddChargeChars(v int64) *AgentOutboundMessageUpdateOne {
+	_u.mutation.AddChargeChars(v)
 	return _u
 }
 
@@ -995,6 +1168,27 @@ func (_u *AgentOutboundMessageUpdateOne) sqlSave(ctx context.Context) (_node *Ag
 	}
 	if value, ok := _u.mutation.TextContent(); ok {
 		_spec.SetField(agentoutboundmessage.FieldTextContent, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.TargetKind(); ok {
+		_spec.SetField(agentoutboundmessage.FieldTargetKind, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.TargetID(); ok {
+		_spec.SetField(agentoutboundmessage.FieldTargetID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTargetID(); ok {
+		_spec.AddField(agentoutboundmessage.FieldTargetID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.Action(); ok {
+		_spec.SetField(agentoutboundmessage.FieldAction, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Payload(); ok {
+		_spec.SetField(agentoutboundmessage.FieldPayload, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.ChargeChars(); ok {
+		_spec.SetField(agentoutboundmessage.FieldChargeChars, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedChargeChars(); ok {
+		_spec.AddField(agentoutboundmessage.FieldChargeChars, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(agentoutboundmessage.FieldStatus, field.TypeString, value)

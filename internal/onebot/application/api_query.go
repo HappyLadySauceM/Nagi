@@ -395,8 +395,8 @@ func (s *ClientService) GetRuntimeStatus(ctx context.Context) (domain.RuntimeSta
 		return out, err
 	}
 	var row struct {
-		Online bool `json:"online"`
-		Good   bool `json:"good"`
+		Online *bool `json:"online"`
+		Good   bool  `json:"good"`
 	}
 	if err := decodeJSON(payload, &row); err != nil {
 		return out, err

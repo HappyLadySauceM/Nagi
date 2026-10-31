@@ -18,6 +18,7 @@ import (
 	einoschema "github.com/cloudwego/eino/schema"
 
 	"github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
 )
 
 // defaultMaxSteps bounds the ReAct loop when the caller does not specify one.
@@ -163,13 +164,10 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	if timeout <= 0 {
 		timeout = r.cfg.Timeout
 	}
+	ctx = observability.WithContentState(ctx)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	chatModel, err := r.modelFor(runCtx, req.MaxOutputTokens)
-	if err != nil {
-		return contracts.Result{}, err
-	}
 	steps := req.MaxSteps
 	if steps <= 0 {
 		steps = r.cfg.MaxSteps
@@ -177,11 +175,21 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	toolsConfig := adk.ToolsConfig{}
 	toolsConfig.ExecuteSequentially = true
 	exposed := 0
+	credentialTools := false
 	if r.cfg.Tools != nil {
 		if snapshot := r.cfg.Tools(runCtx, req); len(snapshot) > 0 {
 			toolsConfig.ToolsNodeConfig.Tools = snapshot
 			exposed = len(snapshot)
+			for _, t := range snapshot {
+				if v, ok := t.(interface{ Sensitive() bool }); ok && v.Sensitive() {
+					credentialTools = true
+				}
+			}
 		}
+	}
+	chatModel, err := r.modelFor(runCtx, req.MaxOutputTokens)
+	if err != nil {
+		return contracts.Result{}, err
 	}
 	agent, err := adk.NewChatModelAgent(runCtx, &adk.ChatModelAgentConfig{
 		Name:          agentName,
@@ -195,7 +203,12 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	runner := adk.NewRunner(runCtx, adk.RunnerConfig{Agent: agent})
 
 	opts := make([]adk.AgentRunOption, 0, 1)
-	if len(r.cfg.Handlers) > 0 {
+	// Raw Eino callbacks cannot read the run's content state, so a run that may
+	// touch credentials keeps them detached; this protects the transcript
+	// without muting the reply, which only an actual credential call drops.
+	// Eino 原始回调读不到运行的内容状态；可能接触凭证的运行不挂载它们，
+	// 既保护追踪又不静音回复——只有真正调用凭证工具才丢弃回复。
+	if len(r.cfg.Handlers) > 0 && !credentialTools {
 		opts = append(opts, adk.WithCallbacks(r.cfg.Handlers...))
 	}
 	iterator := runner.Run(runCtx, toSchemaMessages(req.Messages), opts...)
