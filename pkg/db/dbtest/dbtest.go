@@ -13,6 +13,7 @@ package dbtest
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,11 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
 
-	"github.com/HappyLadySauceM/Nagi/migrations"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/migrations"
 )
 
 // defaultConfigPath is the config location relative to the repository root.
@@ -35,7 +35,7 @@ const defaultConfigPath = "configs/config.yaml"
 // Open connects to the derived test database, applies pending migrations and
 // registers cleanup. Tests skip when no base DSN can be resolved.
 // Open 连接派生出的测试库，应用未执行的迁移并注册清理；无法解析基准 DSN 时跳过。
-func Open(t *testing.T) *pgxpool.Pool {
+func Open(t *testing.T) *db.Pool {
 	t.Helper()
 	dsn, skip, err := testDSN()
 	if err != nil {
@@ -146,11 +146,11 @@ func readConfigDSN(path string) (string, error) {
 // Query parameters and credentials are preserved.
 // deriveTestDSN 在库名后追加 "_test"（已存在则不变），保留账号与查询参数。
 func deriveTestDSN(dsn string) (string, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return "", fmt.Errorf("parse dsn: %w", err)
 	}
-	name := cfg.ConnConfig.Database
+	name := cfg.Database
 	if name == "" {
 		return "", fmt.Errorf("dsn has no database name")
 	}

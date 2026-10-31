@@ -105,7 +105,7 @@ func (f *fakeSemantic) Decide(_ context.Context, in domain.Input) (domain.Semant
 // fakeRecorder 记录决策。
 type fakeRecorder struct{ decisions []domain.FinalDecision }
 
-func (f *fakeRecorder) Record(_ context.Context, _ int64, d domain.FinalDecision) error {
+func (f *fakeRecorder) Record(_ context.Context, _ int64, d domain.FinalDecision, claim ...string) error {
 	f.decisions = append(f.decisions, d)
 	return nil
 }

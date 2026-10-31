@@ -20,6 +20,7 @@ type Message struct {
 // Request is one reply generation request scoped to a single message.
 // Request 是一次回复生成请求，作用域绑定单条消息。
 type Request struct {
+	ClaimToken     string
 	BotID          int64
 	ConversationID string
 	Kind           string

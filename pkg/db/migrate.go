@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // migrationFile matches names like "0002_pipeline.up.sql".
@@ -79,7 +77,7 @@ const migrationLockKey int64 = 629378877
 // the versions applied by this call; an up-to-date database returns an empty slice.
 // Migrate 在单个持锁事务内按版本升序应用所有未执行的迁移，并写入 schema_migrations
 // 记录；返回本次实际应用的版本，已是最新时返回空切片。重复调用是安全的。
-func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]int, error) {
+func Migrate(ctx context.Context, pool *Pool, fsys fs.FS) ([]int, error) {
 	migs, err := parseMigrations(fsys)
 	if err != nil {
 		return nil, err
@@ -114,7 +112,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]int, error)
 			return nil, fmt.Errorf("apply migration %04d_%s: %w", m.Version, m.Name, err)
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, m.Version, m.Name,
+			`INSERT INTO schema_migrations (version, name) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING`, m.Version, m.Name,
 		); err != nil {
 			return nil, fmt.Errorf("record migration %04d: %w", m.Version, err)
 		}
@@ -128,7 +126,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]int, error)
 
 // Down reverses every applied migration in descending order, for local dev and test resets.
 // Down 按版本降序回滚所有已应用的迁移，用于本地开发与测试重置。
-func Down(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) error {
+func Down(ctx context.Context, pool *Pool, fsys fs.FS) error {
 	var exists bool
 	if err := pool.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'schema_migrations')`,

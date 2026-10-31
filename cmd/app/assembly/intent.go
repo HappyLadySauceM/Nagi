@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/tool"
-	"github.com/jackc/pgx/v5/pgxpool"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
@@ -81,6 +81,7 @@ type intentProcessor struct {
 func (p intentProcessor) Process(ctx context.Context, job conversationdomain.Job) error {
 	return p.decider.ProcessTask(ctx, intentdomain.Task{
 		JobID:          job.ID,
+		ClaimToken:     job.ClaimToken,
 		BotID:          job.BotID,
 		Kind:           string(job.Kind),
 		TargetID:       job.TargetID,
@@ -145,6 +146,7 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 		scope := pluginsapp.Scope{
 			BotID:          req.BotID,
 			JobID:          req.JobID,
+			ClaimToken:     req.ClaimToken,
 			ConversationID: req.ConversationID,
 			Kind:           req.Kind,
 			TargetID:       req.TargetID,
@@ -269,7 +271,7 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 // the console needs no restart; long-term memory is deliberately out of scope.
 // buildReplyExecutor 装配 Eino 驱动的回复执行器。运行时按实时配置惰性构建，
 // 控制台开启生成或切换模型因此无需重启；本阶段刻意不接入长期记忆。
-func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
+func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
 	scope *scopeapp.Service, conv *conversationapp.Service, senders agentapp.SenderResolver,
 	handler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
@@ -317,7 +319,7 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *pgxpool.P
 // buildWorker 装配决策流水线与有界工作器。只要数据库存在就创建工作器：
 // 流水线关闭时它仍消费任务（跳过决策），
 // 控制台因此可以在不重启、不积压的情况下随后启用。
-func buildWorker(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
+func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities, rules *intentinfra.RulesetsRepo,

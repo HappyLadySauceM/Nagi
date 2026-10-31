@@ -52,6 +52,7 @@ func (s Status) Settleable() bool {
 // Record is one persisted delivery record.
 // Record 是一条已持久化的投递记录。
 type Record struct {
+	ClaimToken        string
 	NotBefore         time.Time
 	ID                string
 	JobID             int64
@@ -88,6 +89,7 @@ type Limits struct {
 // ReserveInput is one delivery record to reserve.
 // ReserveInput 是一条待预留的投递记录。
 type ReserveInput struct {
+	ClaimToken     string
 	JobID          int64
 	BotID          int64
 	ConversationID string

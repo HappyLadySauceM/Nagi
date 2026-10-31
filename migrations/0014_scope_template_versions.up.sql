@@ -1,1 +1,0 @@
-ALTER TABLE scope_policies ADD COLUMN version BIGINT NOT NULL DEFAULT 1;

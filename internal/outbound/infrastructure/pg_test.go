@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
@@ -24,7 +24,8 @@ import (
 // ledgerFixture 是一个已完成入库的任务及其投递台账。
 type ledgerFixture struct {
 	repo           *Repo
-	pool           *pgxpool.Pool
+	pool           *db.Pool
+	claim          string
 	jobID          int64
 	conversationID string
 	botID          int64
@@ -62,12 +63,13 @@ func newLedgerFixture(t *testing.T) ledgerFixture {
 			t.Logf("cleanup job %d: %v", res.JobID, err)
 		}
 	})
-	return ledgerFixture{repo: repo, pool: pool, jobID: res.JobID, conversationID: res.ConversationID, botID: botID}
+	claim := dbtest.Claim(t, pool, res.JobID)
+	return ledgerFixture{claim: claim, repo: repo, pool: pool, jobID: res.JobID, conversationID: res.ConversationID, botID: botID}
 }
 
 func (f ledgerFixture) reserve(t *testing.T, text string, limits domain.Limits) domain.Record {
 	t.Helper()
-	record, err := f.repo.Reserve(context.Background(), domain.ReserveInput{
+	record, err := f.repo.Reserve(context.Background(), domain.ReserveInput{ClaimToken: f.claim,
 		JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID,
 		Text: text, Limits: limits,
 	})
@@ -122,7 +124,7 @@ func TestReserveRejectsWithoutInserting(t *testing.T) {
 	ctx := context.Background()
 
 	// Single message longer than the per-message limit.
-	_, err := f.repo.Reserve(ctx, domain.ReserveInput{
+	_, err := f.repo.Reserve(ctx, domain.ReserveInput{ClaimToken: f.claim,
 		JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID,
 		Text: "01234567890", Limits: domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 10, MaxTotalChars: 30},
 	})
@@ -132,7 +134,7 @@ func TestReserveRejectsWithoutInserting(t *testing.T) {
 
 	limits := domain.Limits{MaxMessages: 1, MaxCharsPerMessage: 10, MaxTotalChars: 15}
 	f.reserve(t, "0123456789", limits)
-	_, err = f.repo.Reserve(ctx, domain.ReserveInput{
+	_, err = f.repo.Reserve(ctx, domain.ReserveInput{ClaimToken: f.claim,
 		JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Text: "ab", Limits: limits,
 	})
 	if !errors.Is(err, domain.ErrBudgetExceeded) || budgetErrorDimension(t, err) != domain.DimensionMessages {
@@ -140,7 +142,7 @@ func TestReserveRejectsWithoutInserting(t *testing.T) {
 	}
 
 	totalLimits := domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 10, MaxTotalChars: 15}
-	_, err = f.repo.Reserve(ctx, domain.ReserveInput{
+	_, err = f.repo.Reserve(ctx, domain.ReserveInput{ClaimToken: f.claim,
 		JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Text: "0123456789", Limits: totalLimits,
 	})
 	if !errors.Is(err, domain.ErrBudgetExceeded) || budgetErrorDimension(t, err) != domain.DimensionTotalChars {
@@ -182,7 +184,7 @@ func TestReserveConcurrentSameJobIsBounded(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			record, err := f.repo.Reserve(ctx, domain.ReserveInput{
+			record, err := f.repo.Reserve(ctx, domain.ReserveInput{ClaimToken: f.claim,
 				JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID,
 				Text: fmt.Sprintf("并%02d", i), Limits: limits,
 			})
@@ -228,31 +230,31 @@ func TestMarkSendingAndSettleStateMachine(t *testing.T) {
 	record := f.reserve(t, "状态机", domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 50, MaxTotalChars: 150})
 
 	// Nothing may settle before it is sending.
-	err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusSent})
+	err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusSent}, f.claim)
 	var transition *domain.TransitionError
 	if !errors.As(err, &transition) || transition.From != domain.StatusPrepared {
 		t.Fatalf("settle before sending = %v", err)
 	}
-	if err := f.repo.MarkSending(ctx, record.ID); err != nil {
+	if err := f.repo.MarkSending(ctx, record.ID, f.claim); err != nil {
 		t.Fatalf("mark sending: %v", err)
 	}
 	// A second mark would allow a second platform call for one record.
-	if err := f.repo.MarkSending(ctx, record.ID); !errors.As(err, &transition) || transition.From != domain.StatusSending {
+	if err := f.repo.MarkSending(ctx, record.ID, f.claim); !errors.As(err, &transition) || transition.From != domain.StatusSending {
 		t.Fatalf("second mark sending = %v", err)
 	}
 	if err := f.repo.Settle(ctx, record.ID, application.Outcome{
 		Status: domain.StatusSent, PlatformMessageID: 654321,
-	}); err != nil {
+	}, f.claim); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
-	if err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusUnknown}); !errors.As(err, &transition) ||
+	if err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusUnknown}, f.claim); !errors.As(err, &transition) ||
 		transition.From != domain.StatusSent {
 		t.Fatalf("settle after sent = %v", err)
 	}
-	if err := f.repo.MarkSending(ctx, uuid.NewString()); !errors.Is(err, domain.ErrRecordNotFound) {
+	if err := f.repo.MarkSending(ctx, uuid.NewString(), f.claim); !errors.Is(err, domain.ErrRecordNotFound) {
 		t.Fatalf("mark missing record = %v", err)
 	}
-	if err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusPrepared}); !errors.Is(err, domain.ErrInvalidSettlement) {
+	if err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusPrepared}, f.claim); !errors.Is(err, domain.ErrInvalidSettlement) {
 		t.Fatalf("settle to prepared = %v", err)
 	}
 
@@ -279,23 +281,23 @@ func TestHasDelivered(t *testing.T) {
 	if delivered, err := f.repo.HasDelivered(ctx, f.jobID); err != nil || delivered {
 		t.Fatalf("prepared record delivered=%v err=%v", delivered, err)
 	}
-	if err := f.repo.MarkSending(ctx, record.ID); err != nil {
+	if err := f.repo.MarkSending(ctx, record.ID, f.claim); err != nil {
 		t.Fatalf("mark sending: %v", err)
 	}
 	if delivered, err := f.repo.HasDelivered(ctx, f.jobID); err != nil || delivered {
 		t.Fatalf("sending record delivered=%v err=%v", delivered, err)
 	}
-	if err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusFailed, ErrorCode: "send_failed"}); err != nil {
+	if err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusFailed, ErrorCode: "send_failed"}, f.claim); err != nil {
 		t.Fatalf("settle failed: %v", err)
 	}
 	if delivered, err := f.repo.HasDelivered(ctx, f.jobID); err != nil || delivered {
 		t.Fatalf("failed record delivered=%v err=%v", delivered, err)
 	}
 	unknown := f.reserve(t, "结果不明", limits)
-	if err := f.repo.MarkSending(ctx, unknown.ID); err != nil {
+	if err := f.repo.MarkSending(ctx, unknown.ID, f.claim); err != nil {
 		t.Fatalf("mark unknown sending: %v", err)
 	}
-	if err := f.repo.Settle(ctx, unknown.ID, application.Outcome{Status: domain.StatusUnknown, ErrorCode: "timeout"}); err != nil {
+	if err := f.repo.Settle(ctx, unknown.ID, application.Outcome{Status: domain.StatusUnknown, ErrorCode: "timeout"}, f.claim); err != nil {
 		t.Fatalf("settle unknown: %v", err)
 	}
 	if delivered, err := f.repo.HasDelivered(ctx, f.jobID); err != nil || !delivered {
@@ -313,12 +315,23 @@ func TestRecoverStaleMarksSendingUnknown(t *testing.T) {
 	limits := domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 50, MaxTotalChars: 150}
 
 	sending := f.reserve(t, "发送中", limits)
-	if err := f.repo.MarkSending(ctx, sending.ID); err != nil {
+	if err := f.repo.MarkSending(ctx, sending.ID, f.claim); err != nil {
 		t.Fatalf("mark sending: %v", err)
 	}
 	prepared := f.reserve(t, "未发送", limits)
 
-	recovered, err := f.repo.RecoverStale(ctx)
+	if _, err := f.pool.Exec(ctx, "UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", f.jobID); err != nil {
+		t.Fatal(err)
+	}
+	convRepo, err := conversationinfra.NewRepo(f.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = convRepo.RecoverStaleJobs(ctx)
+	var recovered int
+	if scanErr := f.pool.QueryRow(ctx, "SELECT count(*) FROM agent_outbound_messages WHERE job_id=$1 AND status='unknown'", f.jobID).Scan(&recovered); scanErr != nil {
+		t.Fatal(scanErr)
+	}
 	if err != nil {
 		t.Fatalf("recover stale: %v", err)
 	}
@@ -332,7 +345,7 @@ func TestRecoverStaleMarksSendingUnknown(t *testing.T) {
 	).Scan(&status, &code); err != nil {
 		t.Fatalf("read sending record: %v", err)
 	}
-	if status != "unknown" || code != "recovered" {
+	if status != "unknown" || code != "lease_expired" {
 		t.Fatalf("stale record = %s/%s, want unknown/recovered", status, code)
 	}
 	if err := f.pool.QueryRow(ctx,
@@ -340,7 +353,7 @@ func TestRecoverStaleMarksSendingUnknown(t *testing.T) {
 	).Scan(&status); err != nil {
 		t.Fatalf("read prepared record: %v", err)
 	}
-	if status != "prepared" {
+	if status != "cancelled" {
 		t.Fatalf("prepared record = %s, want prepared", status)
 	}
 }
@@ -351,7 +364,7 @@ func TestRecoverStaleMarksSendingUnknown(t *testing.T) {
 // 而不是外键错误。
 func TestReserveRequiresExistingJob(t *testing.T) {
 	f := newLedgerFixture(t)
-	_, err := f.repo.Reserve(context.Background(), domain.ReserveInput{
+	_, err := f.repo.Reserve(context.Background(), domain.ReserveInput{ClaimToken: f.claim,
 		JobID: 999999999999, BotID: f.botID, ConversationID: f.conversationID, Text: "无任务",
 		Limits: domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 50, MaxTotalChars: 150},
 	})
@@ -362,7 +375,7 @@ func TestReserveRequiresExistingJob(t *testing.T) {
 
 func TestStableCallDeduplicatesAndCancelledReservationRefunds(t *testing.T) {
 	f := newLedgerFixture(t)
-	input := domain.ReserveInput{JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, ToolCallID: "call-one", Text: "one", Limits: domain.Limits{MaxMessages: 1, MaxCharsPerMessage: 10, MaxTotalChars: 10}}
+	input := domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, ToolCallID: "call-one", Text: "one", Limits: domain.Limits{MaxMessages: 1, MaxCharsPerMessage: 10, MaxTotalChars: 10}}
 	first, err := f.repo.Reserve(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -375,7 +388,7 @@ func TestStableCallDeduplicatesAndCancelledReservationRefunds(t *testing.T) {
 	if _, err = f.repo.Reserve(context.Background(), input); err == nil {
 		t.Fatal("same call with different payload accepted")
 	}
-	if err = f.repo.Cancel(context.Background(), first.ID); err != nil {
+	if err = f.repo.Cancel(context.Background(), first.ID, f.claim); err != nil {
 		t.Fatal(err)
 	}
 	input.ToolCallID = "call-two"
@@ -391,7 +404,7 @@ func TestHourlyLimitIncludesLegacyMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.repo.Reserve(context.Background(), domain.ReserveInput{JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Text: "one", Limits: domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300, MaxPerHour: 1}})
+	_, err = f.repo.Reserve(context.Background(), domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Text: "one", Limits: domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300, MaxPerHour: 1}})
 	if budgetErrorDimension(t, err) != "hourly_messages" {
 		t.Fatal("legacy message did not consume hourly quota")
 	}
@@ -400,13 +413,13 @@ func TestHourlyLimitIncludesLegacyMessages(t *testing.T) {
 func TestRunStopsAfterFailedPlatformAttempt(t *testing.T) {
 	f := newLedgerFixture(t)
 	first := f.reserve(t, "one", domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300})
-	if err := f.repo.MarkSending(context.Background(), first.ID); err != nil {
+	if err := f.repo.MarkSending(context.Background(), first.ID, f.claim); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusFailed}); err != nil {
+	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusFailed}, f.claim); err != nil {
 		t.Fatal(err)
 	}
-	_, err := f.repo.Reserve(context.Background(), domain.ReserveInput{JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Text: "two", Limits: domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300, StopAfterFailure: true}})
+	_, err := f.repo.Reserve(context.Background(), domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Text: "two", Limits: domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300, StopAfterFailure: true}})
 	if err == nil {
 		t.Fatal("failed delivery did not stop remaining messages")
 	}
@@ -419,13 +432,13 @@ func TestReplayedPreparedCallRetainsMessageInterval(t *testing.T) {
 	f := newLedgerFixture(t)
 	limits := domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300, MinIntervalMS: 700}
 	first := f.reserve(t, "first", limits)
-	if err := f.repo.MarkSending(context.Background(), first.ID); err != nil {
+	if err := f.repo.MarkSending(context.Background(), first.ID, f.claim); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 123}); err != nil {
+	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 123}, f.claim); err != nil {
 		t.Fatal(err)
 	}
-	in := domain.ReserveInput{JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, ToolCallID: "second", Text: "second", Limits: limits}
+	in := domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, ToolCallID: "second", Text: "second", Limits: limits}
 	second, err := f.repo.Reserve(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
@@ -442,10 +455,10 @@ func TestReplayedPreparedCallRetainsMessageInterval(t *testing.T) {
 func TestLoweredLimitsRejectWaitingReservation(t *testing.T) {
 	f := newLedgerFixture(t)
 	first := f.reserve(t, "one", domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300})
-	if err := f.repo.MarkSending(context.Background(), first.ID); err != nil {
+	if err := f.repo.MarkSending(context.Background(), first.ID, f.claim); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 1}); err != nil {
+	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 1}, f.claim); err != nil {
 		t.Fatal(err)
 	}
 	second := f.reserve(t, "two", domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300})
@@ -458,10 +471,10 @@ func TestLoweredHourlyQuotaRejectsWaitingReservation(t *testing.T) {
 	f := newLedgerFixture(t)
 	limits := domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300, MaxPerHour: 20}
 	first := f.reserve(t, "one", limits)
-	if err := f.repo.MarkSending(context.Background(), first.ID); err != nil {
+	if err := f.repo.MarkSending(context.Background(), first.ID, f.claim); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 1}); err != nil {
+	if err := f.repo.Settle(context.Background(), first.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 1}, f.claim); err != nil {
 		t.Fatal(err)
 	}
 	second := f.reserve(t, "two", limits)
@@ -477,12 +490,12 @@ func TestPreparedCrashRecoveryCanDeliverOneMessage(t *testing.T) {
 			f := newLedgerFixture(t)
 			ctx := context.Background()
 			limits := domain.Limits{MaxMessages: 1, MaxCharsPerMessage: 100, MaxTotalChars: 100, StopAfterFailure: true}
-			request := domain.ReserveInput{JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, RunID: "recovery-run", ToolCallID: "final", Text: "recover exactly once", Limits: limits}
+			request := domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, RunID: "recovery-run", ToolCallID: "final", Text: "recover exactly once", Limits: limits}
 			first, err := f.repo.Reserve(ctx, request)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := f.pool.Exec(ctx, "UPDATE message_jobs SET status='processing' WHERE id=$1", f.jobID); err != nil {
+			if _, err := f.pool.Exec(ctx, "UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", f.jobID); err != nil {
 				t.Fatal(err)
 			}
 			conversations, err := conversationinfra.NewRepo(f.pool)
@@ -499,6 +512,7 @@ func TestPreparedCrashRecoveryCanDeliverOneMessage(t *testing.T) {
 			if !sameCall {
 				request.ToolCallID = "new-call"
 			}
+			request.ClaimToken = dbtest.Claim(t, f.pool, f.jobID)
 			reserved, err := f.repo.Reserve(ctx, request)
 			if err != nil {
 				t.Fatal(err)
@@ -510,7 +524,7 @@ func TestPreparedCrashRecoveryCanDeliverOneMessage(t *testing.T) {
 				t.Fatalf("refunded reservation still consumes budget: %v", err)
 			}
 			calls := 0
-			outcome, err := application.Deliver(ctx, f.repo, reserved.ID, func(context.Context) (int64, error) { calls++; return 556677, nil })
+			outcome, err := application.Deliver(ctx, f.repo, reserved.ID, func(context.Context) (int64, error) { calls++; return 556677, nil }, request.ClaimToken)
 			if err != nil || outcome.Status != domain.StatusSent || calls != 1 {
 				t.Fatalf("recovery delivery: %+v %v calls=%d", outcome, err, calls)
 			}
@@ -518,7 +532,7 @@ func TestPreparedCrashRecoveryCanDeliverOneMessage(t *testing.T) {
 			if err != nil || duplicate.Status != domain.StatusSent || duplicate.PlatformMessageID != 556677 {
 				t.Fatalf("duplicate receipt lost: %+v %v", duplicate, err)
 			}
-			if _, err := f.pool.Exec(ctx, "UPDATE message_jobs SET status='processing' WHERE id=$1", f.jobID); err != nil {
+			if _, err := f.pool.Exec(ctx, "UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", f.jobID); err != nil {
 				t.Fatal(err)
 			}
 			if err := conversations.RecoverStaleJobs(ctx); err != nil {

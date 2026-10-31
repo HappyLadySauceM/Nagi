@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
@@ -126,7 +126,7 @@ type Runtime struct {
 // builds the directory, scope, conversation and memory services.
 // Assemble 为每个已配置端点装配一条连接，把共享处理器注册到每个分发器，
 // 并在提供数据库连接池时装配目录、作用域、会话与记忆服务。
-func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provider *sdktrace.TracerProvider) (*Runtime, error) {
+func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *sdktrace.TracerProvider) (*Runtime, error) {
 	registry := svc.NewAccounts()
 	accounts := make([]*AccountRuntime, 0, len(cfg.Onebot.Endpoints))
 	for _, endpoint := range cfg.Onebot.Endpoints {
@@ -352,7 +352,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, provi
 
 // buildConversation binds the pgx repository to the conversation service.
 // buildConversation 将 pgx 仓库绑定到会话服务。
-func buildConversation(pool *pgxpool.Pool, logger *slog.Logger) (*conversationapp.Service, error) {
+func buildConversation(pool *db.Pool, logger *slog.Logger) (*conversationapp.Service, error) {
 	repo, err := conversationinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
@@ -362,7 +362,7 @@ func buildConversation(pool *pgxpool.Pool, logger *slog.Logger) (*conversationap
 
 // buildMemory binds the pgx repository to the memory service.
 // buildMemory 将 pgx 仓库绑定到记忆服务。
-func buildMemory(pool *pgxpool.Pool) (*memoryapp.Service, error) {
+func buildMemory(pool *db.Pool) (*memoryapp.Service, error) {
 	repo, err := memoryinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
@@ -373,7 +373,7 @@ func buildMemory(pool *pgxpool.Pool) (*memoryapp.Service, error) {
 // buildDirectory binds the pgx repository and the account registry to the
 // directory service, so every query is scoped to one account.
 // buildDirectory 将 pgx 仓库与账号注册表绑定到目录服务，使每次查询都属于单个账号。
-func buildDirectory(accounts *svc.Accounts, pool *pgxpool.Pool, logger *slog.Logger) (*directoryapp.Service, error) {
+func buildDirectory(accounts *svc.Accounts, pool *db.Pool, logger *slog.Logger) (*directoryapp.Service, error) {
 	repo, err := directoryinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
@@ -383,7 +383,7 @@ func buildDirectory(accounts *svc.Accounts, pool *pgxpool.Pool, logger *slog.Log
 
 // buildScope binds the pgx repository to the scope service.
 // buildScope 将 pgx 仓库绑定到作用域服务。
-func buildScope(pool *pgxpool.Pool) (*scopeapp.Service, error) {
+func buildScope(pool *db.Pool) (*scopeapp.Service, error) {
 	repo, err := scopeinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err

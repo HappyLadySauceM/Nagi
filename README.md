@@ -17,14 +17,14 @@
 | --- | --- |
 | Go 1.26+ | `go.mod` 声明最低 1.26.0，本地可用更高补丁版（当前用 1.27.2 构建） |
 | SnowLuma | 已登录目标 QQ 账号，并在 WebUI 中配置 OneBot v11 **正向 WS 服务端** |
-| Docker + Compose | `docker compose up -d` 启动 PostgreSQL 16(pgvector) 与 Langfuse 全栈 |
-| PostgreSQL 16（可选） | 未配置 DSN 时机器人仍可运行，但只有 echo 与状态接口 |
+| Docker + Compose | `docker compose up -d` 启动 PostgreSQL 17 业务库、保留的 PostgreSQL 16 与 Langfuse 全栈 |
+| PostgreSQL 17（业务库，可选） | 未配置 DSN 时机器人仍可运行，但只有 echo 与状态接口 |
 
 ## 快速开始
 
 ```bash
 # 1. 启动基础设施：PostgreSQL(pgvector) + Langfuse 全栈
-#    首次拉取较慢；db-init 会幂等创建 langfuse 与 nagi_test 库
+#    首次拉取较慢；db-init 创建 langfuse，db17-init 创建隔离的 nagi_ent_test 库
 docker compose up -d
 
 # 2. 生成本地配置（已 gitignore）
@@ -32,14 +32,14 @@ just init-config
 
 # 3. 填写 configs/config.yaml（所有值都直接写在这个文件里）
 #    onebot.endpoints[]：每项一个 SnowLuma OneBot 实例，含 access-token；账号身份启动后自动识别
-#    database.dsn：postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable
+#    database.dsn：postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent?sslmode=disable
 #    ai.api-key：LLM 密钥（ai.enabled=true 时必填）
 #    intent.api-key：Jev 密钥（留空则降级为仅响应 @/引用）
 #    observability.{base-url,public-key,secret-key}：Langfuse 地址与项目凭据
 #    server.admin-token：本机可留空；非回环监听必须填写
 #    configs/config.yaml 已被 gitignore，明文密钥不会入库
 
-# 4. 启动；进程启动时自动应用数据库迁移
+# 4. 先按下文“数据库迁移”初始化新库，再启动；应用只校验版本
 just run
 ```
 
@@ -270,8 +270,8 @@ tools:
 ```bash
 just verify   # go mod tidy + vet + test + fmt
 
-# 数据库集成测试必须指向独立测试库（compose 已创建 nagi_test）
-NAGI_TEST_DSN="postgres://nagi:nagi-local@127.0.0.1:5433/nagi_test?sslmode=disable" go test ./...
+# 数据库集成测试必须指向独立测试库（db17-init 已创建 nagi_ent_test）
+NAGI_TEST_DSN="postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent_test?sslmode=disable" go test ./...
 ```
 
 > 迁移往返测试会 `drop` 所有表。绝不把 `NAGI_TEST_DSN` 指向 `nagi` 库——跑一次就会清空会话、
@@ -285,7 +285,7 @@ NAGI_TEST_DSN="postgres://nagi:nagi-local@127.0.0.1:5433/nagi_test?sslmode=disab
 cmd/            进程入口、生命周期、组合根（assembly）、HTTP 路由
 internal/       各业务上下文（onebot / bot / directory / scope / conversation / intent / agent / memory / observability）
 pkg/            通用技术组件（config / db / logging / version）
-migrations/     版本化 SQL（启动时自动应用）
+pkg/db/        Ent schema、生成代码、Atlas 配置与版本化 SQL（独立执行）
 configs/        config-example.yaml（config.yaml 为本地文件，已 gitignore）
 ```
 
@@ -300,3 +300,63 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
 - 旧镜像由 Zot 保留策略（每仓库最近 10 个）与 ghcr 保留策略（每包最近 10 个）清理；
   ghcr 侧是 `.github/workflows/ghcr-retention.yml`（显示名
   `chore(cleanup): Update from GHCR cleanup automation`），只调 GitHub API 删除、不产生提交。
+
+## 数据库迁移
+
+业务库使用 PostgreSQL 17，固定数据库组为 `nagi`。Ent schema 位于 `pkg/db/schema/nagi`，
+生成代码与迁移分别位于 `pkg/db/ent`、`pkg/db/migrations/nagi`。应用不执行迁移，只检查所需版本；
+默认最多 10 个数据库连接，配置范围为 1–12，Ent 与原子 SQL 共享该连接池。
+
+安装标准发行版 Atlas v1.3.0，使用免费迁移能力即可，无需登录或 Pro 订阅。
+社区版不支持此处的 `ent://` schema 集成，因此不要用 community 发行版替换。开发流程：
+
+```bash
+go generate ./pkg/db
+python3 scripts/database.py check
+python3 scripts/database.py generate --name add_example_field
+python3 scripts/database.py validate
+python3 scripts/database.py lint
+python3 scripts/database.py diff
+```
+
+生成命令只写 up/down 和校验文件，不连接业务运行库；Atlas dev database 固定为独立的
+`docker://postgres/17/nagi_atlas_dev?search_path=public` 临时库。生成后必须评审 SQL，尤其是
+DROP、重命名、类型收窄、非空要求及数据修复。`lint` 现在运行仓库内的离线保守检查，
+不调用 Atlas Pro：自动接受建表、索引和增量 ADD；删除、重命名、ALTER COLUMN、
+新增非空列（包括带默认值）、数据修改及其他无法识别的语句均要求人工评审。它不分析表大小、锁时长、
+表达式函数副作用或实际数据兼容性，不能替代数据库回放与人工 SQL 评审。
+不得通过扩大 exclude、忽略业务表或全局关闭检查规避。必要的破坏性变化单独成版本并评审。
+评审后使用错误信息给出的 `--reviewed-up 文件名:SHA256` 显式指定该版本；文件内容变化后
+原标记失效。该参数只记录调用者明确评审的内容，不代表工具验证了评审人身份。
+down SQL 是人工回滚材料，参与摘要校验和测试库往返，不作为日常 up 的自动安全放行依据。
+修改已生成但尚未交付的 SQL 后，执行 `python3 scripts/database.py hash` 更新校验文件。
+`atlas.sum` 校验 up 链，`checksums.json` 补充校验 up/down 全部 SQL。
+
+表、字段、外键、CHECK、常规和可表达的部分索引由 Ent schema 维护。
+`pkg/db/sql-only.json` 是 SQL-only 对象清单：当前仅包含 `public.schema_migrations` 及版本写入。
+应用独立检查其结构，迁移比较仅精确排除该元数据表。当前没有表达式索引；未来引入时必须声明
+SQL 所有者、完整定义、精确排除项和专项校验。数据修复由独立版本 SQL 负责，不能依赖应用启动。
+
+首次初始化本地**空的**新库：
+
+```bash
+docker compose up -d postgres17 db17-init
+# 先校验、评审初始 SQL；仅对空 nagi_ent 执行一次。
+docker exec -i nagi-postgres17 psql -U nagi -d nagi_ent -v ON_ERROR_STOP=1 -1 \
+  < pkg/db/migrations/nagi/20261031051405_initial.up.sql
+```
+
+日常生产交付包括待执行版本顺序、对应 up SQL、`atlas.sum`、`checksums.json`、人工评审的
+回滚材料和验证步骤。平台人员在 Bytebase 中逐版本、按事务执行增量 up；版本记录与结构变更
+必须在同一事务提交。生产不运行 `atlas migrate apply`，应用和部署启动路径均不执行 down。
+初始 down 会删除业务数据，需明确评审并以备份作为数据恢复来源。
+
+本次使用新库切换，不迁移旧数据。停旧入口与 worker，等待在途发送结束并人工核对 unknown 后，
+将新版本 DSN 改为 PG17 的 `nagi_ent`；旧 PG16 数据卷保留，旧 pending 任务不再消费。
+新库开始接收数据或发送消息后，回退必须停机核对两库状态，禁止直接启动旧库消费冻结任务。
+应用启动日志中的 `migration_version` 是已检查的版本，不表示应用执行了迁移。
+
+队列领取通过会话行锁与 CTE/SKIP LOCKED 原子完成；processing 必须同时持有 claim token
+和未过期租约。租约 2 分钟，每 30 秒批量续租；续租失败取消任务并停止新发送。过期恢复取消
+prepared 记录并退款，将 sending 改为 unknown；有已发送或不确定结果的任务不自动重发。
+单任务条件写回必须影响一行，过期执行者不能覆盖新 claim。

@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/tool"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	einoinfra "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/eino"
@@ -40,7 +40,7 @@ var errGenerationDisabled = errors.New("agent: generation model is disabled")
 // consumer can read it unconditionally.
 // buildSettings 装配配置服务与实时快照。没有数据库时快照仍承载配置文件基线，
 // 各消费方因此可以无条件读取。
-func buildSettings(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool,
+func buildSettings(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	tools *pluginsapp.Registry,
 ) (*settingsapp.Service, *settingsapp.Provider, error) {
 	providers := make([]string, 0)

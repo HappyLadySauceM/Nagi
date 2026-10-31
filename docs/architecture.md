@@ -107,15 +107,15 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   （upsert + last_seen），所有同步与查询都显式携带 `bot_id`，不存在“最近同步账号”兜底。
 - `internal/scope`：作用域策略（群/私聊）。默认拒绝（全部关闭），写穿缓存即时生效；
   `scope/contracts.Authorizer` 是唯一授权入口。`tool_permissions` 保存该作用域的工具权限显式覆盖
-  （迁移 `0007`），只记录与默认基线不同的项，调整默认值不会改写已存行。
+  （Ent schema），只记录与默认基线不同的项，调整默认值不会改写已存行。
 - `internal/conversation`：`AIIngress` Handler（`bot/contracts.Handler`）只做作用域检查与
   事务入库（消息 + `message_jobs` 同事务、平台事件去重）即返回，绝不在 Dispatcher 内等待
   LLM/Jev；有界 worker 以 `FOR UPDATE SKIP LOCKED` 原子认领任务（`processing` 状态），
-  按会话顺序、跨会话受控并发，重启恢复 processing 任务；出站回复经 `RecordOutgoing`
-  在单事务内回写并携带平台消息 ID 与投递记录 ID。失败重试与重启恢复都先看投递台账：
+  以会话行锁保证跨进程同会话串行，任务持有 2 分钟租约，每 30 秒续租；只恢复过期
+  processing 任务。发送落定与消息历史写入在同一事务完成，携带平台消息 ID 与投递记录 ID。失败重试与重启恢复都先看投递台账：
   已有 `sent`/`unknown`（或仍在 `sending`）记录的任务不再重排，直接 `failed` +
   `last_error_code='partial'`，`sending` 记录在恢复时改为 `unknown`。
-- `internal/outbound`：出站投递台账（迁移 `0008`）。`Coordinator.Reserve` 在单个事务内
+- `internal/outbound`：出站投递台账（Ent schema）。`Coordinator.Reserve` 在单个事务内
   `SELECT ... FOR UPDATE` 锁住任务行，串行分配 `sequence`、校验单条/总字符/总条数预算并累加
   `agent_run_budgets`；超预算返回带维度的 `BudgetError` 且不落记录。发送前 `MarkSending`
   把记录推进为 `sending`，发送后 `Settle` 落定 `sent`/`failed`/`unknown`，
@@ -177,13 +177,21 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 
 ### 本地基础设施
 
-`docker compose up -d` 拉起一套完整本地依赖：`pgvector/pgvector:pg16`（主机端口 5433，库
-`nagi`）、完整 Langfuse 自托管栈（web 端口 3010，ClickHouse/Redis/MinIO 仅内网）、以及一次性
-建库任务 `db-init`（幂等创建 `langfuse` 与 `nagi_test`）。Justfile 不承担任何数据库操作。
+`docker compose up -d` 启动 PostgreSQL 17 业务库（主机端口 5434，库 `nagi_ent`），
+同时保留 PostgreSQL 16（端口 5433，旧库与 Langfuse）及 Langfuse 栈。
+`db17-init` 只创建隔离测试库 `nagi_ent_test`，不执行业务表迁移。
 
-`migrations/` 为版本化 SQL，每个版本必须同时提供 up 与 down；进程启动连接成功后自动执行
-`db.Migrate` 并在日志输出本次应用的版本，失败即退出。集成测试以 `NAGI_TEST_DSN` 门控，
-未设置时自动跳过；由于迁移往返测试会删表，该变量只能指向独立测试库 `nagi_test`。
+`pkg/db/schema/nagi` 定义业务表；Ent client 与 repository 原子 SQL 共享一个有界
+`database/sql` pgx 连接池，默认 10、最多 12 个连接。领域层不依赖 Ent。
+`pkg/db/atlas.hcl` 绑定 `nagi` schema 与 golang-migrate 迁移目录，使用专用 PG17 临时库。
+SQL-only 清单为 `pkg/db/sql-only.json`，仅排除并单独校验迁移元数据表，不排除业务表。
+
+应用启动只检查迁移版本，不执行 DDL 或 down。开发生成与校验通过 `scripts/database.py`，
+使用标准 Atlas CLI 免费能力，无需登录或 Pro。`lint` 为本地保守 SQL 检查，
+破坏性或未知 up 语句需按文件摘要显式人工评审；它不等同于 Atlas Pro 分析器。
+生产由有权限的平台人员在 Bytebase 执行评审通过的增量 up SQL。down 仅供明确评审后的人工回滚。
+详细命令、校验摘要及新库切换步骤见 README 的“数据库迁移”。测试必须使用隔离 PG17 库；
+迁移往返会删除测试表，禁止指向业务库。
 
 ## 验证
 

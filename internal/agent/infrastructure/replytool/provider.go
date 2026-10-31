@@ -49,14 +49,14 @@ type SenderResolver interface {
 // Ledger 预留并落定投递记录。
 type Ledger interface {
 	Reserve(ctx context.Context, req outboundapp.Request) (outbounddomain.Record, error)
-	MarkSending(ctx context.Context, id string) error
-	Settle(ctx context.Context, id string, outcome outboundapp.Outcome) error
+	MarkSending(ctx context.Context, id string, claim ...string) error
+	Settle(ctx context.Context, id string, outcome outboundapp.Outcome, claim ...string) error
 }
 
 // Recorder persists the outgoing message for later context.
 // Recorder 持久化出站消息，供后续上下文使用。
 type Recorder interface {
-	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error
+	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string, claim ...string) error
 }
 
 // Options wires the tool dependencies.
@@ -145,11 +145,11 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	deny := func(reason string) {
 		denied = true
 		if recorder, ok := p.opts.Ledger.(interface {
-			RecordDenied(context.Context, int64, string) error
+			RecordDenied(context.Context, int64, string, ...string) error
 		}); ok {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer cancel()
-			denialRecordErr = recorder.RecordDenied(cleanup, scope.JobID, reason)
+			denialRecordErr = recorder.RecordDenied(cleanup, scope.JobID, reason, scope.ClaimToken)
 		}
 	}
 	var args sendArgs
@@ -178,6 +178,7 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	}
 	record, err := p.opts.Ledger.Reserve(ctx, outboundapp.Request{
 		JobID:          scope.JobID,
+		ClaimToken:     scope.ClaimToken,
 		BotID:          scope.BotID,
 		ConversationID: scope.ConversationID,
 		Text:           text,
@@ -201,11 +202,11 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 			deny("cancelled_before_send")
 		}
 		if ledger, ok := p.opts.Ledger.(interface {
-			Cancel(context.Context, string) error
+			Cancel(context.Context, string, ...string) error
 		}); ok {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer cancel()
-			_ = ledger.Cancel(cleanup, record.ID)
+			_ = ledger.Cancel(cleanup, record.ID, record.ClaimToken)
 		}
 	}()
 	if record.Status.Delivered() {
@@ -237,7 +238,7 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	outcome, sendErr := outboundapp.Deliver(ctx, p.opts.Ledger, record.ID, func(sendCtx context.Context) (int64, error) {
 		platformStarted = true
 		return p.deliver(sendCtx, sender, scope, text)
-	})
+	}, record.ClaimToken)
 	status, errorCode, messageID := outcome.Status, outcome.ErrorCode, outcome.PlatformMessageID
 	if !status.Settleable() {
 		return "", sendErr
@@ -245,7 +246,7 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	if recordErr := p.opts.Recorder.RecordOutgoing(cleanup, scope.ConversationID, scope.BotID,
-		text, messageID, string(status), record.ID); recordErr != nil {
+		text, messageID, string(status), record.ID, record.ClaimToken); recordErr != nil {
 		// The delivery already happened; failing the tool would make the model
 		// retry and duplicate the message.
 		// 消息已发出；让工具失败会诱使模型重试并产生重复消息。
