@@ -18,7 +18,6 @@ import { FeedbackState } from '../../../components/feedback-state'
 import { Skeleton } from '../../../components/ui/skeleton'
 import {
   DEFAULT_SCOPE_FORM,
-  scopeDangerFlags,
   toScopeForm,
 } from '../../../lib/api/adapters/scope'
 import { SCOPE_TYPE_LABELS, type ScopePolicy, type ScopeType } from '../../../lib/api/contracts'
@@ -37,11 +36,6 @@ import {
   type ScopeFormValues,
 } from '../../scopes/schema'
 
-interface PendingSave {
-  values: ScopeFormValues
-  flags: string[]
-}
-
 interface ScopeEditDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -56,11 +50,10 @@ interface ScopeEditDialogProps {
 
 /**
  * Policy editing workspace for the contacts page. Reuses the same form fields
- * and confirmations as the former standalone edit page: risky capability
- * switches need an explicit confirmation, and unsaved edits prompt before the
- * dialog closes.
- * 联系人页内嵌的策略编辑工作区。复用原独立编辑页的表单与确认流程：
- * 敏感开关需二次确认，未保存的修改在关闭对话框前会先询问。
+ * as the former standalone edit page. Saving applies edits directly; closing
+ * with unsaved edits still prompts before discarding them.
+ * 联系人页内嵌的策略编辑工作区。复用原独立编辑页的表单；保存直接生效，
+ * 关闭时若有未保存修改，仍会询问是否放弃。
  */
 export function ScopeEditDialog({
   open,
@@ -82,7 +75,6 @@ export function ScopeEditDialog({
   const [baseline, setBaseline] = useState(DEFAULT_SCOPE_FORM)
   const [baselineTemplateVersion,setBaselineTemplateVersion]=useState<number | undefined>(undefined)
   const loadedIdentity=useRef<string | null>(null)
-  const [pendingSave, setPendingSave] = useState<PendingSave | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(false)
 
@@ -128,28 +120,19 @@ export function ScopeEditDialog({
           const stored = toScopeForm(policy)
           setBaseline(stored)
           reset(toScopeFormValues(stored))
-          setPendingSave(null)
           toast.success('策略已保存', {
             description: policy.enabled ? '该作用域现在会参与对话。' : '策略已保存，但当前未启用。',
           })
           onOpenChange(false)
         },
         onError: (error) => {
-          setPendingSave(null)
           toast.error('保存失败', { description: describeError(error).description })
         },
       },
     )
   }
 
-  const onSubmit = handleSubmit((values) => {
-    const flags = scopeDangerFlags(fromScopeFormValues(values), baseline)
-    if (flags.length > 0) {
-      setPendingSave({ values, flags })
-      return
-    }
-    submitSave(values)
-  }, (errors) => {
+  const onSubmit = handleSubmit(submitSave, (errors) => {
     const key=Object.keys(errors)[0]
     setSection(['maxMessagesPerRun','maxCharsPerMessage','maxTotalCharsPerRun','messageIntervalMs','minReplyIntervalMs','maxRepliesPerHour'].includes(key) ? 'sending' : key==='toolPermissions' ? 'capabilities' : ['allowHistoryRead','allowMemoryWrite'].includes(key) ? 'data' : 'participation')
     toast.error('请检查表单中的字段')
@@ -225,6 +208,7 @@ export function ScopeEditDialog({
               ))}
             </nav>
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-5 sm:p-6">
+          {section === 'capabilities' && tools.isLoading ? <p role="status" className="text-sm text-muted-foreground">正在加载能力列表…</p> : null}
           {section==='capabilities' && tools.isError ? <FeedbackState variant="error" error={tools.error} onRetry={()=>void tools.refetch()} compact /> : null}
           {scope.isLoading ? (
             <div className="space-y-3">
@@ -233,7 +217,7 @@ export function ScopeEditDialog({
             </div>
           ) : scope.isError ? null : (
             <form id="scope-edit-dialog-form" onSubmit={onSubmit} className="min-h-0 min-w-0 overflow-y-auto">
-              <ScopeFormFields form={form} disabled={isBusy} catalog={tools.data} section={section} />
+              <ScopeFormFields form={form} disabled={isBusy} catalog={tools.isError || tools.isLoading ? undefined : tools.data} section={section} />
             </form>
           )}
 
@@ -279,25 +263,6 @@ export function ScopeEditDialog({
           </footer>
         </SheetContent>
       </Sheet>
-
-      <ConfirmDialog
-        open={pendingSave !== null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setPendingSave(null)
-          }
-        }}
-        title="确认开启敏感能力？"
-        description="保存后立即生效。以下能力会扩大机器人可访问的数据范围。"
-        details={pendingSave?.flags}
-        confirmLabel="确认并保存"
-        pending={save.isPending}
-        onConfirm={() => {
-          if (pendingSave) {
-            submitSave(pendingSave.values)
-          }
-        }}
-      />
 
       <ConfirmDialog
         open={confirmDiscard}

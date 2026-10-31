@@ -63,7 +63,7 @@ func (f *fakeLedger) Reserve(_ context.Context, req outboundapp.Request) (outbou
 	}
 	f.reserved = append(f.reserved, req)
 	f.nextSeq++
-	return outbounddomain.Record{ID: "rec", Sequence: f.nextSeq}, nil
+	return outbounddomain.Record{ID: "rec", Sequence: f.nextSeq, Status: outbounddomain.StatusPrepared}, nil
 }
 
 func (f *fakeLedger) MarkSending(_ context.Context, _ string, _ ...string) error { return nil }
@@ -233,5 +233,53 @@ func TestDenialPersistenceErrorIsPropagated(t *testing.T) {
 	tool := newTool(t, &fakeSender{}, ledger, &fakeRecorder{})
 	if _, err := tool.Invoke(groupContext(), "{invalid"); !errors.Is(err, ledger.denyErr) {
 		t.Fatalf("denial persistence failure lost: %v", err)
+	}
+}
+
+func TestPublicSendRequiresSpecificAndCrossConversationGrants(t *testing.T) {
+	for _, tc := range []struct {
+		name                            string
+		specific, cross, targetDisabled bool
+		revoke                          string
+		wantCalls, wantReservations     int
+	}{
+		{name: "cross alone", cross: true},
+		{name: "specific alone", specific: true},
+		{name: "both grants", specific: true, cross: true, wantCalls: 1, wantReservations: 1},
+		{name: "disabled target", specific: true, cross: true, targetDisabled: true},
+		{name: "specific revoked", specific: true, cross: true, revoke: "qq.api.send_private_msg", wantReservations: 1},
+		{name: "cross revoked", specific: true, cross: true, revoke: "qq.cross_conversation", wantReservations: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ledger := &fakeLedger{}
+			checks := make(map[string]int)
+			scope := pluginsapp.Scope{BotID: 1, JobID: 9, ConversationID: "conv-1", Kind: "group", TargetID: 700,
+				Permissions: map[string]bool{"qq.api.send_private_msg": tc.specific, "qq.cross_conversation": tc.cross},
+				Reauthorize: func(_ context.Context, d contracts.ToolDescriptor) error {
+					checks[d.Permission]++
+					if d.Permission == tc.revoke && checks[d.Permission] == 2 {
+						return errors.New("revoked")
+					}
+					return nil
+				},
+			}
+			calls := 0
+			text := "hello"
+			_, err := SendPublic(pluginsapp.WithScope(context.Background(), scope), Options{
+				Ledger: ledger, Limits: outbounddomain.Limits{MaxMessages: 3},
+				AuthorizeTarget: func(context.Context, string, int64) error {
+					if tc.targetDisabled {
+						return errors.New("target disabled")
+					}
+					return nil
+				},
+			}, obdomain.PublicCommand{Name: obdomain.ActionSendPrivate, UserID: 22, Text: &text}, func(context.Context, obdomain.PublicCommand) (obdomain.PublicResult, error) {
+				calls++
+				return obdomain.PublicResult{MessageID: 1}, nil
+			})
+			if calls != tc.wantCalls || len(ledger.reserved) != tc.wantReservations || (err == nil) != (tc.wantCalls == 1) {
+				t.Fatalf("calls=%d reservations=%d err=%v", calls, len(ledger.reserved), err)
+			}
+		})
 	}
 }

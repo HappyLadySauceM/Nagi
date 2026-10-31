@@ -1,15 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../client'
 import {
-  DEFAULT_SCOPE_FORM,
   isScopeEqual,
-  scopeDangerFlags,
   toScopeForm,
   toScopePolicy,
   toScopePolicyList,
   toScopePutBody,
 } from '../adapters/scope'
-import type { ScopeForm } from '../contracts'
 
 const POLICY = {
   ScopeType: 'group',
@@ -142,26 +139,10 @@ describe('scope adapter', () => {
     expect(isScopeEqual(base, { ...base, replyMode: 'always_reply' })).toBe(false)
   })
 
-  it('lists the risky capabilities that need confirmation', () => {
-    const baseline: ScopeForm = { ...DEFAULT_SCOPE_FORM }
-    const flags = scopeDangerFlags({ ...baseline, allowHistoryRead: true }, baseline)
-
-    expect(flags).toHaveLength(1)
-    expect(flags[0]).toContain('聊天历史')
-  })
-
   it('treats permission overrides as part of form equality', () => {
     const base = toScopeForm(toScopePolicy(POLICY))
     expect(isScopeEqual(base, { ...base, toolPermissions: { 'qq.group.read': true } })).toBe(false)
   })
 
-  it('warns when a tool permission is explicitly granted', () => {
-    const baseline: ScopeForm = { ...DEFAULT_SCOPE_FORM }
-    const flags = scopeDangerFlags(
-      { ...baseline, toolPermissions: { 'qq.group.read': true } },
-      baseline,
-    )
 
-    expect(flags.some((flag) => flag.includes('qq.group.read'))).toBe(true)
-  })
 })
