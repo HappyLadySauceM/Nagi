@@ -62,11 +62,13 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontSize: {
-        // Semantic scale: small text never drops below 11px, body stays at 14px.
-        // 语义字号：辅助文字不小于 11px，正文固定 14px。
-        caption: ['11px', { lineHeight: '1.5' }],
-        meta: ['12px', { lineHeight: '1.55' }],
-        body: ['14px', { lineHeight: '1.65' }],
+        xs: ['13px', { lineHeight: '1.5' }],
+        sm: ['16px', { lineHeight: '1.5' }],
+        // Semantic scale: small text never drops below 13px, body stays at 16px.
+        // 语义字号：辅助文字不小于 13px，正文固定 16px。
+        caption: ['13px', { lineHeight: '1.5' }],
+        meta: ['14px', { lineHeight: '1.55' }],
+        body: ['16px', { lineHeight: '1.65' }],
         title: ['20px', { lineHeight: '1.3' }],
         display: ['28px', { lineHeight: '1.15' }],
       },

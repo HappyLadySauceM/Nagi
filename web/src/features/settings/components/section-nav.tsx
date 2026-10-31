@@ -42,16 +42,16 @@ export function SectionNav({ items, activeId, onSelect }: SectionNavProps) {
                   : 'border-transparent hover:border-border hover:bg-secondary/50',
               )}
             >
-              <AnimatedNavIcon icon={item.icon}
+              <AnimatedNavIcon icon={item.icon} active={active}
                 className={cn(
-                  'mt-0.5 size-4 shrink-0',
+                  'mt-0.5 size-5 shrink-0',
                   active ? 'text-primary' : 'text-muted-foreground',
                 )}
               />
               <span className="min-w-0">
                 <span
                   className={cn(
-                    'block text-xs font-medium',
+                    'block text-sm font-medium',
                     active ? 'text-primary' : 'text-foreground',
                   )}
                 >
@@ -76,13 +76,13 @@ export function SectionNav({ items, activeId, onSelect }: SectionNavProps) {
               aria-current={active ? 'true' : undefined}
               onClick={() => onSelect(item.id)}
               className={cn(
-                'flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-meta transition-colors duration-150',
+                'flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors duration-150',
                 active
                   ? 'border-primary/40 bg-primary/10 text-primary'
                   : 'border-border bg-card text-muted-foreground',
               )}
             >
-              <AnimatedNavIcon icon={item.icon} className="size-3.5" />
+              <AnimatedNavIcon icon={item.icon} active={active} className="size-5" />
               {item.label}
             </button>
           )

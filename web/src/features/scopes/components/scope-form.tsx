@@ -1,3 +1,4 @@
+import { Check, Search, MessageCircle, ShieldCheck, Clock, UsersRound, UserRound, LogOut, Pencil, Wrench, type LucideIcon } from 'lucide-react'
 import { type ReactNode } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
 import { FormField } from '../../../components/form-field'
@@ -8,9 +9,7 @@ import { Switch } from '../../../components/ui/switch'
 import {
   REPLY_MODE_HINTS,
   REPLY_MODE_LABELS,
-  SCOPE_TYPE_LABELS,
   type ReplyMode,
-  type ToolCatalogEntry,
   type ToolPermission,
   type ToolsCatalog,
 } from '../../../lib/api/contracts'
@@ -49,7 +48,7 @@ function SwitchRow({
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border/60 py-3 last:border-b-0">
       <div className="min-w-0">
-        <Label htmlFor={id} className="text-xs">
+        <Label htmlFor={id} className="text-sm">
           {label}
         </Label>
         <p id={`${id}-hint`} className="mt-0.5 text-meta leading-relaxed text-muted-foreground">
@@ -159,19 +158,24 @@ function grantedPermission(
   return overrides[permission.id] ?? permission.defaultGranted
 }
 
-/**
- * Explains why a tool is not usable in the scope being edited.
- * 说明工具在当前编辑的作用域中为何不可用。
- */
-function unavailableLabel(tool: ToolCatalogEntry): string {
-  if (tool.unavailableReason === 'scope_kind_mismatch') {
-    const labels = tool.scopeKinds.map((kind) => SCOPE_TYPE_LABELS[kind])
-    if (labels.length > 0) {
-      return `仅适用于${labels.join('、')}`
-    }
-  }
-  return '不适用于当前会话'
+const CAPABILITY_PRESENTATION: Record<string, { label: string; description: string; icon: LucideIcon; category: string }> = {
+  'system.current_time': { label: '查询当前时间', description: '获取当前日期、时间与时区。', icon: Clock, category: '系统' },
+  'qq.send_current': { label: '连续回复当前会话', description: '在当前会话发送消息，遵循发送预算。', icon: MessageCircle, category: '基础' },
+  'qq.get_group_info': { label: '查询当前群信息', description: '查看群名称、成员数量等基本资料。', icon: Search, category: '基础' },
+  'qq.get_group_member_info': { label: '查询群成员', description: '查看群成员的名片、昵称与角色。', icon: UserRound, category: '基础' },
+  'qq.mute_group_member': { label: '禁言群成员', description: '对当前群的指定成员禁言或解除禁言。', icon: ShieldCheck, category: '群管' },
+  'qq.set_group_whole_ban': { label: '全员禁言', description: '开启或关闭当前群的全员禁言。', icon: ShieldCheck, category: '群管' },
+  'qq.set_group_card': { label: '修改群名片', description: '修改当前群中指定成员的群名片。', icon: Pencil, category: '群管' },
+  'qq.kick_group_member': { label: '移出群成员', description: '将指定成员移出当前群。', icon: UsersRound, category: '群管' },
+  'qq.leave_current_group': { label: '退出当前群', description: '让机器人退出当前群。', icon: LogOut, category: '群管' },
 }
+
+const CAPABILITY_CATEGORIES = [
+  { label: '群管', color: 'bg-violet-500/10 text-violet-700 dark:text-violet-300' },
+  { label: '基础', color: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300' },
+  { label: '系统', color: 'bg-blue-500/10 text-blue-700 dark:text-blue-300' },
+  { label: '扩展', color: 'bg-secondary text-muted-foreground' },
+]
 
 export function ScopeFormFields({ form, disabled = false, catalog, section }: ScopeFormProps) {
   const { register, formState, watch, setValue } = form
@@ -179,6 +183,13 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
   const enabled = watch('enabled')
   const replyMode = watch('replyMode')
   const overrides = watch('toolPermissions')
+  const capabilities = (catalog?.permissions ?? []).map(permission => {
+    const tools = catalog?.tools.filter(tool => tool.applicable && permission.tools.includes(tool.id)) ?? []
+    const categories = CAPABILITY_CATEGORIES.filter(category => tools.some(tool => (CAPABILITY_PRESENTATION[tool.id]?.category ?? '扩展') === category.label))
+    return { permission, tools, categories }
+  }).filter(item => item.tools.length > 0)
+    .sort((a, b) => CAPABILITY_CATEGORIES.indexOf(a.categories[0]) - CAPABILITY_CATEGORIES.indexOf(b.categories[0]))
+
 
   // Overrides equal to the backend default are removed, so changing the
   // default baseline later still applies to this scope.
@@ -254,59 +265,34 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
         />
       </Section>
 
-      {catalog && catalog.permissions.length > 0 ? (
-        <Section
-          hidden={Boolean(section && section !== 'capabilities')} title="能力授权"
-          description="工具随进程全部注册；这里只控制该会话能否使用对应能力，默认值来自服务端。"
-        >
-          {catalog.permissions.filter((permission) => catalog.tools.some((tool) => tool.applicable && permission.tools.includes(tool.id))).map((permission) => {
-            const tools = catalog.tools.filter((tool) => tool.applicable && permission.tools.includes(tool.id))
-            const unavailable = tools.filter((tool) => !tool.applicable)
-            const allUnavailable = tools.length > 0 && unavailable.length === tools.length
-            const unavailableReasons = [...new Set(unavailable.map(unavailableLabel))]
-            const descriptions = tools
-              .map((tool) => {
-                const label = tool.description || tool.id
-                return tool.applicable ? label : `${label}（${unavailableLabel(tool)}）`
-              })
-              .join('；')
-            const granted = grantedPermission(permission, overrides)
-            // Collect every reason that applies. There is no process-level
-            // side-effect switch any more, so only the session kind, the
-            // pipeline state and the scope switch can warn here.
-            // 汇总所有适用的原因。进程级副作用开关已被移除，
-            // 因此这里只剩会话类型、流水线状态与作用域开关会给出提示。
-            const warnings: string[] = [...new Set(tools.flatMap(tool => tool.blockedReasons ?? []))]
-            if (!enabled) warnings.push('当前策略尚未启用，会话不会参与对话。')
-            if (allUnavailable) {
-              warnings.push(`该能力${unavailableReasons.join('、')}，当前会话无法授权。`)
-            }
-            return (
-              <SwitchRow
-                key={permission.id}
-                id={`tool-${permission.id}`}
-                label={tools.map((tool) => ({ "system.current_time": "查询当前时间", "qq.send_current": "连续回复当前会话", "qq.get_group_info": "查询当前群信息", "qq.get_group_member_info": "查询群成员", "qq.mute_group_member": "禁言群成员", "qq.set_group_whole_ban": "全员禁言", "qq.set_group_card": "修改群名片", "qq.kick_group_member": "移出群成员", "qq.leave_current_group": "退出当前群" }[tool.id] ?? tool.id)).join("、")}
-                description={
-                  `授权：${granted ? '开启' : '关闭'} · 实际状态：${!granted ? '未授权' : warnings.length ? '被阻断' : '可用'} · ${tools.map((tool) => tool.id).join('、')} · ${descriptions || '无工具声明'} · ${
-                    permission.defaultGranted ? '默认允许' : '默认拒绝'
-                  }`
-                }
-                checked={granted}
-                // Revoking a default-allowed capability that no longer applies
-                // persists an explicit false override, and this dialog then
-                // disables the switch, so it cannot be re-enabled here.
-                // 撤销「默认允许但当前不适用」的能力会写入显式 false 覆盖；
-                // 本对话框随即禁用开关，因此本会话内无法再开启。
-                disabled={disabled || (allUnavailable && !granted)}
-                onChange={(next) => togglePermission(permission, next)}
-                showWarningWhenUnchecked={allUnavailable}
-                warning={warnings.length > 0 ? warnings.join(' ') : undefined}
-              />
-            )
-          })}
-          <p className="pt-2 text-meta leading-relaxed text-muted-foreground">
-            清单来自后端实际注册结果；未列出的工具，模型无法调用。
-          </p>
+      {catalog ? (
+        <Section hidden={Boolean(section && section !== 'capabilities')} title="能力授权" description="为当前会话选择允许使用的能力，保存后生效。勾选仅表示授权，实际使用仍受运行条件限制。">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <header className="flex items-center justify-between gap-3 px-4 py-4">
+              <h3 className="text-sm font-semibold">Agent 能力</h3>
+              <span className="rounded-full bg-secondary px-2 py-1 text-caption text-muted-foreground">{capabilities.length} 项能力</span>
+            </header>
+            {!enabled ? <p className="px-4 pb-3 text-meta text-warning">当前策略尚未启用，会话不会参与对话；勾选后仍需启用并保存策略。</p> : null}
+            {capabilities.map(({ permission, tools, categories }) => {
+              const label = tools.map(tool => CAPABILITY_PRESENTATION[tool.id]?.label ?? tool.id).join('、')
+              const description = tools.map(tool => CAPABILITY_PRESENTATION[tool.id]?.description ?? (tool.description || '服务端已注册的扩展能力。')).join(' ')
+              const Icon = CAPABILITY_PRESENTATION[tools[0].id]?.icon ?? (tools.some(tool => tool.riskLevel === 'admin') ? ShieldCheck : Wrench)
+              const granted = grantedPermission(permission, overrides)
+              const reasons = [...new Set(tools.flatMap(tool => tool.blockedReasons ?? []))]
+              const id = `tool-${permission.id}`
+              return <article key={permission.id} className="border-t border-border/70 px-3 py-2">
+                <label htmlFor={id} className={cn('flex min-h-16 items-center gap-3 rounded-lg px-1 py-2 transition-colors', disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-secondary/50')}>
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary"><Icon className="size-5" aria-hidden /></span>
+                  <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className="text-sm font-medium">{label}</span>{categories.map(category => <span key={category.label} className={cn('rounded-md px-2 py-0.5 text-caption font-normal', category.color)}>{category.label}</span>)}</span><span id={`${id}-hint`} className="mt-0.5 block text-meta leading-relaxed text-muted-foreground">{description}</span>{granted && (reasons.length > 0 || !enabled) ? <span className="mt-1 block text-caption text-warning">已授权，当前不可用</span> : null}</span>
+                  <input id={id} type="checkbox" aria-label={label} aria-describedby={`${id}-hint`} checked={granted} disabled={disabled} onChange={event => togglePermission(permission, event.target.checked)} className="peer sr-only" />
+                  <span className={cn('mr-1 flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-ring', granted ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/60')} aria-hidden>{granted ? <Check className="size-3.5" strokeWidth={3} /> : null}</span>
+                </label>
+                <details className="ml-12 pb-1 text-caption text-muted-foreground"><summary className="w-fit cursor-pointer rounded px-1 py-1 focus-visible:outline-ring" aria-label={`${label}详情`}>详情</summary><div className="space-y-2 break-words px-1 py-2 [overflow-wrap:anywhere]"><p>默认授权：{permission.defaultGranted ? '允许' : '拒绝'}；当前授权：{granted ? '开启' : '关闭'}。</p>{tools.map(tool => <p key={tool.id}><span className="font-mono">{tool.id}</span> · {tool.description || '无工具声明'}</p>)}{reasons.map(reason => <p key={reason} className="text-warning">{reason}</p>)}</div></details>
+              </article>
+            })}
+            {capabilities.length === 0 ? <p className="px-4 py-5 text-meta text-muted-foreground">当前会话没有可授权的能力。</p> : null}
+            <p className="border-t border-border/60 px-4 py-3 text-meta leading-relaxed text-muted-foreground">清单来自后端实际注册结果；未列出的工具，模型无法调用。</p>
+          </div>
         </Section>
       ) : null}
 
@@ -314,7 +300,7 @@ export function ScopeFormFields({ form, disabled = false, catalog, section }: Sc
         hidden={Boolean(section && section !== 'sending')} title="发送设置"
         description="数值由后端校验，0 表示不限制。消息留存已在「系统配置」中统一设置。"
       >
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {([
             ['maxMessagesPerRun', '每轮最多消息', '条', '0 表示不限；对工具发送和最终回复共同生效。'],
             ['maxCharsPerMessage', '单条字数上限', '字', '默认 4500，即 QQ 单条文本上限；0 表示不限。'],

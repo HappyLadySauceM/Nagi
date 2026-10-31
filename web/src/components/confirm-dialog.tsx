@@ -58,7 +58,7 @@ export function ConfirmDialog({
           <AlertDialogCancel asChild disabled={pending}>
             <button
               type="button"
-              className="inline-flex h-8 cursor-pointer items-center justify-center rounded-lg border border-border px-3 text-xs text-foreground transition-colors hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border border-border px-3 text-sm text-foreground transition-colors hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {cancelLabel}
             </button>
@@ -72,7 +72,7 @@ export function ConfirmDialog({
               }}
               disabled={pending}
               className={cn(
-                'inline-flex h-8 cursor-pointer items-center justify-center rounded-lg px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                'inline-flex h-10 cursor-pointer items-center justify-center rounded-lg px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                 destructive
                   ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
                   : 'bg-primary text-primary-foreground hover:bg-primary/90',

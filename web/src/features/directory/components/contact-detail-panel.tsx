@@ -8,7 +8,7 @@ import { Button } from '../../../components/ui/button'
 import { InfoRow } from '../../../components/info-row'
 import type { ScopePolicy } from '../../../lib/api/contracts'
 import { REPLY_MODE_LABELS } from '../../../lib/api/contracts'
-import { formatCount, formatDateTime, formatRelativeTime } from '../../../lib/format'
+import { formatCount, formatRelativeTime } from '../../../lib/format'
 import { useAccountContext } from '../../accounts/account-context'
 import { ScopeEditDialog } from './scope-edit-dialog'
 import { ScopeStatusBadge } from './scope-status-badge'
@@ -56,7 +56,7 @@ export function ContactDetailPanel({ selection }: { selection?: DirectorySelecti
         <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
           <div className="flex min-w-0 items-center gap-4">
             <Avatar id={selection.id} kind={isGroup ? 'group' : 'user'} name={title} size="lg" />
-            <div className="min-w-0"><h2 className="break-words text-xl font-semibold">{title}</h2><p className="mt-1 font-mono text-meta text-muted-foreground">{isGroup ? '群号' : 'QQ'} {selection.id}</p></div>
+            <div className="min-w-0"><h2 className="line-clamp-2 break-words text-xl font-semibold">{title}</h2><p className="mt-1 font-mono text-meta text-muted-foreground">{isGroup ? '群号' : 'QQ'} {selection.id}</p></div>
           </div>
           <Badge variant="secondary">{isGroup ? '群聊' : '好友'}</Badge>
         </header>
@@ -74,13 +74,9 @@ export function ContactDetailPanel({ selection }: { selection?: DirectorySelecti
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h3 className="text-sm font-medium">参与策略</h3><ScopeStatusBadge policy={selection.policy} /></div>
           <InfoRow label="策略来源" value={!selection.policy ? '正在读取' : selection.policy.source === 'default' ? (isGroup ? '跟随群聊默认' : '跟随好友默认') : '独立策略'} />
           <InfoRow label="回复模式" value={selection.policy ? REPLY_MODE_LABELS[selection.policy.replyMode] : '未加载'} />
-          <InfoRow label="显式授权能力" value={selection.policy ? String(Object.values(selection.policy.toolPermissions).filter(Boolean).length) : '未加载'} />
-          <InfoRow label="发送预算" value={selection.policy ? `每轮 ${selection.policy.maxMessagesPerRun ?? 3} 条 · 单条 ${selection.policy.maxCharsPerMessage ?? 500} 字 · 整轮 ${selection.policy.maxTotalCharsPerRun ?? 1500} 字` : '未加载'} />
-          <InfoRow label="气泡间隔" value={selection.policy ? `${selection.policy.messageIntervalMs ?? 700} ms` : '未加载'} />
           {selection.policy && !selection.policy.enabled ? <p className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-meta leading-relaxed text-muted-foreground">当前会话已关闭：机器人不会回复、不保存消息，也不写入记忆。编辑并启用策略后开始参与。</p> : null}
           <Button className="mt-5" size="sm" disabled={selectedBotId === undefined} onClick={() => setEditOpen(true)}><ShieldCheck aria-hidden />编辑策略</Button>
         </section>
-        {selection.lastSeenAt ? <p className="text-caption text-muted-foreground">最近一次同步：{formatDateTime(selection.lastSeenAt)}</p> : null}
       </div>
       {selectedBotId !== undefined && editOpen ? (
         <ScopeEditDialog

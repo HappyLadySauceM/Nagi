@@ -34,7 +34,7 @@ export function AccountSwitcher() {
   const { accounts, selectedAccount, selectedBotId, selectAccount, isLoading } = useAccountContext()
 
   if (isLoading && accounts.length === 0) {
-    return <span className="h-9 w-40 animate-pulse rounded-lg bg-secondary/60" aria-hidden />
+    return <span className="h-10 w-40 animate-pulse rounded-lg bg-secondary/60" aria-hidden />
   }
 
   if (accounts.length === 0) {
@@ -56,7 +56,7 @@ export function AccountSwitcher() {
         <Button
           variant="outline"
           size="sm"
-          className="h-9 gap-2 pl-1.5 pr-2.5"
+          className="h-10 gap-2 pl-1.5 pr-2.5"
           aria-label="切换 QQ 账号"
         >
           <Avatar
