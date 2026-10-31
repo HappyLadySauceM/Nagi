@@ -15,7 +15,7 @@
 
 | 依赖 | 说明 |
 | --- | --- |
-| Go 1.26+ | `go.mod` 声明最低 1.26.0，本地可用更高补丁版（当前用 1.27.2 构建） |
+| Go 1.26+ | `go.mod` 声明最低 1.26.0，本地可用更高补丁版（当前用 1.27.x 构建） |
 | SnowLuma | 已登录目标 QQ 账号，并在 WebUI 中配置 OneBot v11 **正向 WS 服务端** |
 | Docker + Compose | `docker compose up -d` 启动 PostgreSQL 17 业务库、保留的 PostgreSQL 16 与 Langfuse 全栈 |
 | PostgreSQL 17（业务库，可选） | 未配置 DSN 时机器人仍可运行，但只有 echo 与状态接口 |
@@ -291,11 +291,20 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
 
 ## 构建
 
-- 基础镜像默认走集群内 Zot（`zot.infra-registry.svc.cluster.local:5000/infrastructure/{alpine,nginx,node}`），
-  由 `gitops-infra` 的 `sync-base-images` 工作流同步；本地构建可用
-  `docker build --build-arg BASE_IMAGE=alpine:3.22 .` 覆盖。
-- CI 里前端依赖走 `registry.npmmirror.com`，Go 模块与 pnpm store 用 `actions/cache` 复用，
-  cosign 二进制同样缓存；artifacts 只保留 1 天。
+- 两个镜像都在 Dockerfile 内多阶段构建：api 用 `infrastructure/golang:1.27` 编译，只把二进制放进
+  `infrastructure/alpine:3.22`；web 用 `infrastructure/node:24-alpine` 跑 pnpm 构建，只把 `dist`
+  放进 `infrastructure/nginx:alpine`。基础镜像默认走集群内 Zot
+  （`zot.infra-registry.svc.cluster.local:5000/infrastructure/{alpine,nginx,node,golang}`，
+  同一命名空间下还有 CI 用的 `postgres:17` 与 `buildkit`），由 `gitops-infra` 的
+  `sync-base-images` 工作流同步。
+- 本地复现同一条构建（需要 BuildKit；本机不信任 Zot 自签证书，用 Docker Hub 同名镜像覆盖）：
+  ```bash
+  docker build --build-arg GO_IMAGE=golang:1.27-alpine --build-arg BASE_IMAGE=alpine:3.22 -t nagi-api .
+  docker build --build-arg NODE_IMAGE=node:24-alpine --build-arg BASE_IMAGE=nginx:alpine -t nagi-web web
+  ```
+- CI 里前端依赖走 `registry.npmmirror.com`；Go 模块用 `actions/setup-go` 的内建缓存（只在 main 保存），
+  pnpm store 与 cosign 二进制用 `actions/cache`；镜像依赖层走 buildx 的 gha 层缓存。
+  `verify` 只做校验，不再上传编译产物。
 - 镜像 tag 是 7 位短 SHA，由 gitops 仓库的 Image Updater 自动开 PR；本仓库不再推送 digest 事件。
 - 旧镜像由 Zot 保留策略（每仓库最近 10 个）与 ghcr 保留策略（每包最近 10 个）清理；
   ghcr 侧是 `.github/workflows/ghcr-retention.yml`（显示名

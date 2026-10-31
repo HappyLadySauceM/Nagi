@@ -13,7 +13,15 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - ".github/workflows/build-images.yml"
+  # PR 也要跑 verify：分支保护把它作为合并门槛，具体跑哪些步骤由 changes 作业判定。
+  # 镜像构建与推送仍然只在 main 的 push 与手动触发时执行。
+  pull_request:
   workflow_dispatch:
+
+# PR 上连续推送时取消旧运行；main 与手动触发不取消，避免打断发布流水线。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ZOT: zot.infra-registry.svc.cluster.local:5000
@@ -22,7 +30,7 @@ env:
   # 前端依赖走国内镜像，冷启动也快；不改仓库 .npmrc，避免影响本地开发。
   NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
   # docker/build-push-action 默认每个矩阵任务上传一个 build record artifact，
-  # 这里关掉，Artifacts 只保留工作流自己上传的 nagi-api / nagi-web。
+  # 这里关掉：编译已在镜像多阶段内完成，本工作流不再上传任何 artifact。
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
@@ -32,6 +40,8 @@ jobs:
     runs-on: hls-standard
     permissions:
       contents: read
+      # PR 事件下 paths-filter 走 GitHub API 取变更文件列表，需要读 pull request。
+      pull-requests: read
     outputs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
@@ -57,6 +67,8 @@ jobs:
               - "go.sum"
               - "Dockerfile"
               - ".dockerignore"
+              # just verify 的口径由 Justfile 定义，改了它必须跑 Go 校验。
+              - "Justfile"
             web:
               - "web/**"
 
@@ -76,15 +88,47 @@ jobs:
   verify:
     needs: changes
     runs-on: hls-builder
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # 库名自带 _test：dbtest 会原样使用，而跨连接池用例会用该变量再开一个池，
+      # 两个池必须指向同一个库，否则 TestClaimsSerializeConversationAcrossPools 会失败。
+      NAGI_TEST_DSN: postgres://nagi:nagi-local@127.0.0.1:5432/nagi_test?sslmode=disable
+    # 集成测试要求 PostgreSQL 17（pkg/db.Connect 的版本闸门）；runner 上直接用服务容器，
+    # 端口映射到宿主机，步骤里的 127.0.0.1:5432 即可连上。
+    services:
+      postgres:
+        # runner 的 dind 拉不到 Docker Hub（EOF），镜像统一走集群内 Zot，
+        # infrastructure/postgres:17 由官方 postgres:17 同步而来。
+        image: zot.infra-registry.svc.cluster.local:5000/infrastructure/postgres:17
+        credentials:
+          username: ${{ secrets.ZOT_USERNAME }}
+          password: ${{ secrets.ZOT_PASSWORD }}
+        env:
+          POSTGRES_USER: nagi
+          POSTGRES_PASSWORD: nagi-local
+          POSTGRES_DB: nagi_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U nagi -d nagi_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v7
 
-      - name: 缓存 Go 模块
-        uses: actions/cache@v6
+      # 生成的 ent 代码依赖 encoding/json/jsontext：该包在 1.26 仍需
+      # GOEXPERIMENT=jsonv2，1.27 起才默认可用，所以显式装 1.27.x，
+      # 不用 runner 预装的 /usr/local/go，也不跟随 go.mod 的 1.26.0。
+      # 只在 main 上保存模块缓存：PR 收尾要上传几百 MB 缓存到 Actions cache，
+      # 自托管 runner 上传很慢；PR 直接走 goproxy.cn 现拉，反而更快。
+      - uses: actions/setup-go@v6
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-gomod-${{ hashFiles('go.sum') }}
-          restore-keys: ${{ runner.os }}-gomod-
+          go-version: "1.27.x"
+          cache: ${{ github.event_name != 'pull_request' }}
+          cache-dependency-path: go.sum
 
       - name: 缓存 pnpm store
         uses: actions/cache@v6
@@ -112,31 +156,19 @@ jobs:
           pnpm test
           pnpm build
 
-      - name: 编译二进制
+      # 编译在 build 作业的镜像内完成，这里只做一次编译检查（不落盘产物）。
+      - name: 编译检查
         if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
         run: |
           set -euo pipefail
-          go build -trimpath -ldflags="-s -w" -o bin/nagi ./cmd
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
-        with:
-          name: nagi-api
-          path: bin/nagi
-          retention-days: 1
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
-        with:
-          name: nagi-web
-          path: web/dist
-          retention-days: 1
+          go build -o /dev/null ./cmd
 
   build:
     name: Build Nagi-${{ matrix.name }}
     needs: [changes, verify]
     # 只跑变更过的镜像；images 为空时整体跳过（job 级 if 不认 matrix，故用动态矩阵）。
-    if: needs.changes.outputs.images != '[]'
+    # PR 只校验不构建：镜像构建、签名与推送只在 main 的 push 与手动触发时执行。
+    if: github.event_name != 'pull_request' && needs.changes.outputs.images != '[]'
     runs-on: hls-builder
     permissions:
       contents: read
@@ -151,11 +183,6 @@ jobs:
       # tag 用 7 位提交前缀，与 Argo CD Image Updater 的 allowTags 正则一致。
       - name: 计算镜像 tag
         run: echo "SHORT_SHA=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: nagi-${{ matrix.name }}
-          path: ${{ matrix.name == 'api' && 'bin' || 'web/dist' }}
 
       # dind 拉不到 Docker Hub（EOF），buildkit 镜像必须用 Zot 里的那份；
       # 登录必须早于 setup-buildx，否则 buildx 创建 builder 时拉不到镜像。
