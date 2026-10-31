@@ -73,7 +73,7 @@ SnowLuma 的 WS 服务端强制校验 token，不带或填错会被拒绝握手�
 | GET | `/api/v1/metrics` | 消息、任务、决策、记忆聚合计数 |
 | GET | `/api/v1/tools` | 已注册工具、权限项与默认授予状态 |
 | GET | `/api/v1/intent/decisions(/{id})` | 决策记录与可解释步骤 |
-| GET/POST/PATCH | `/api/v1/intent/rulesets(/{id})` | 规则版本、草稿与发布 |
+| GET/POST/PATCH/DELETE | `/api/v1/intent/rulesets(/{id})` | 规则版本、草稿、发布与删除（删除后回到全局或内置规则，版本号不复用） |
 | POST | `/api/v1/intent/rulesets/{id}/publish` `/rollback` | 发布与回滚规则版本 |
 | POST | `/api/v1/intent/simulate` | 只读模拟：不写库、不发送 |
 | GET | `/api/v1/agent/outbound?job_id=` | 单次运行的投递记录 |

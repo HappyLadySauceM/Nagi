@@ -49,6 +49,7 @@ func (h *Handler) RegisterRules(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/intent/rulesets", h.CreateRuleset)
 	mux.HandleFunc("GET /api/v1/intent/rulesets/{id}", h.GetRuleset)
 	mux.HandleFunc("PATCH /api/v1/intent/rulesets/{id}", h.UpdateRuleset)
+	mux.HandleFunc("DELETE /api/v1/intent/rulesets/{id}", h.DeleteRuleset)
 	mux.HandleFunc("POST /api/v1/intent/rulesets/{id}/publish", h.PublishRuleset)
 	mux.HandleFunc("POST /api/v1/intent/rulesets/{id}/rollback", h.RollbackRuleset)
 	mux.HandleFunc("POST /api/v1/intent/simulate", h.Simulate)
@@ -125,6 +126,10 @@ func (h *Handler) CreateRuleset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	set, err := h.svcCtx.Rulesets.CreateDraft(r.Context(), body.BotID, body.ScopeType, body.ScopeID, body.Note, body.CloneActive, body.CloneFromID)
+	if errors.Is(err, intentinfra.ErrRulesetNotFound) {
+		common.WriteFailure(w, http.StatusNotFound, "所选版本不存在或已被删除")
+		return
+	}
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "创建草稿失败")
 		return
@@ -376,6 +381,11 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		final = &result
 		steps = evaluatedSteps
 	}
+	reasonCode := rule.ReasonCode
+	if rule.ForceReply {
+		reasonCode = rule.ForceReason
+	}
+
 	common.WriteSuccess(w, map[string]any{
 		"Final":          final,
 		"Steps":          steps,
@@ -387,7 +397,7 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		"NeedSemantic":   rule.NeedSemantic,
 		"AlwaysReply":    rule.AlwaysReply,
 		"ForceReply":     rule.ForceReply,
-		"ReasonCode":     rule.ReasonCode,
+		"ReasonCode":     reasonCode,
 		"RulesetVersion": version,
 	})
 }
@@ -401,4 +411,28 @@ func toRulesetInfo(set intentdomain.Ruleset) rulesetInfo {
 		info.Entries = append(info.Entries, entryInfo{Enabled: entry.Enabled, Priority: entry.Priority, Match: entry.Match, Action: entry.Action})
 	}
 	return info
+}
+
+// DeleteRuleset deletes one version belonging to the selected account.
+// DeleteRuleset 删除所选账号下的单个版本。
+func (h *Handler) DeleteRuleset(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "规则集 id 无效")
+		return
+	}
+	botID, err := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
+	if err != nil || botID <= 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "bot_id 必填且必须为正整数")
+		return
+	}
+	switch err = h.svcCtx.Rulesets.Delete(r.Context(), botID, id); {
+	case errors.Is(err, intentinfra.ErrRulesetNotFound):
+		common.WriteFailure(w, http.StatusNotFound, "规则集不存在")
+		return
+	case err != nil:
+		common.WriteFailure(w, http.StatusInternalServerError, "删除规则集失败")
+		return
+	}
+	common.WriteSuccess(w, map[string]any{"ID": id})
 }

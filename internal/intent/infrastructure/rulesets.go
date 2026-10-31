@@ -49,7 +49,7 @@ func (r *RulesetsRepo) Active(ctx context.Context, botID int64, scopeType string
 		SELECT s.id, s.bot_id, s.scope_type, s.scope_id, s.version, s.status, s.note, s.builtin_rules, s.targets
 		FROM intent_rulesets s
 		JOIN intent_rule_activations a ON a.ruleset_id = s.id
-		WHERE a.bot_id = $1 AND a.scope_type = $2 AND a.scope_id = $3
+		WHERE s.deleted_at IS NULL AND a.bot_id = $1 AND a.scope_type = $2 AND a.scope_id = $3
 	`, botID, scopeType, scopeID).Scan(&set.ID, &set.BotID, &set.ScopeType, &set.ScopeID,
 		&set.Version, &set.Status, &set.Note, &set.BuiltinRules, &set.Targets)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -72,7 +72,7 @@ func (r *RulesetsRepo) List(ctx context.Context, botID int64, scopeType string, 
 	rows, err := r.pool.Query(ctx, `
 		SELECT `+rulesetColumns+`
 		FROM intent_rulesets
-		WHERE bot_id = $1 AND ($2 = '' OR (scope_type = $2 AND scope_id = $3))
+		WHERE deleted_at IS NULL AND bot_id = $1 AND ($2 = '' OR (scope_type = $2 AND scope_id = $3))
 		ORDER BY id DESC
 	`, botID, scopeType, scopeID)
 	if err != nil {
@@ -98,7 +98,7 @@ func (r *RulesetsRepo) List(ctx context.Context, botID int64, scopeType string, 
 // Get 读取一个规则集及其条目。
 func (r *RulesetsRepo) Get(ctx context.Context, id int64) (domain.Ruleset, error) {
 	var set domain.Ruleset
-	err := r.pool.QueryRow(ctx, `SELECT `+rulesetColumns+` FROM intent_rulesets WHERE id = $1`, id).
+	err := r.pool.QueryRow(ctx, `SELECT `+rulesetColumns+` FROM intent_rulesets WHERE deleted_at IS NULL AND id = $1`, id).
 		Scan(&set.ID, &set.BotID, &set.ScopeType, &set.ScopeID, &set.Version, &set.Status, &set.Note, &set.BuiltinRules, &set.Targets)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Ruleset{}, ErrRulesetNotFound
@@ -149,9 +149,9 @@ func (r *RulesetsRepo) CreateDraft(ctx context.Context, botID int64, scopeType s
 	if cloneActive || (len(cloneFrom) > 0 && cloneFrom[0] > 0) {
 		var sourceID int64
 		if len(cloneFrom) > 0 && cloneFrom[0] > 0 {
-			err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE id=$1 AND bot_id=$2 AND scope_type=$3 AND scope_id=$4 AND status IN ('draft','published','archived') FOR SHARE", cloneFrom[0], botID, scopeType, scopeID).Scan(&sourceID)
+			err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE deleted_at IS NULL AND id=$1 AND bot_id=$2 AND scope_type=$3 AND scope_id=$4 AND status IN ('draft','published','archived') FOR SHARE", cloneFrom[0], botID, scopeType, scopeID).Scan(&sourceID)
 		} else {
-			err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE bot_id=$1 AND scope_type=$2 AND scope_id=$3 AND status='published' ORDER BY version DESC LIMIT 1", botID, scopeType, scopeID).Scan(&sourceID)
+			err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE bot_id=$1 AND scope_type=$2 AND scope_id=$3 AND deleted_at IS NULL AND status='published' ORDER BY version DESC LIMIT 1", botID, scopeType, scopeID).Scan(&sourceID)
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return domain.Ruleset{}, err
@@ -193,7 +193,7 @@ func (r *RulesetsRepo) ReplaceEntries(ctx context.Context, id int64, entries []d
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM intent_rulesets WHERE id = $1 FOR UPDATE`, id).
+	if err := tx.QueryRow(ctx, `SELECT status FROM intent_rulesets WHERE deleted_at IS NULL AND id = $1 FOR UPDATE`, id).
 		Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRulesetNotFound
@@ -256,7 +256,7 @@ func (r *RulesetsRepo) Publish(ctx context.Context, id int64) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var accountID int64
-	if err := tx.QueryRow(ctx, "SELECT bot_id FROM intent_rulesets WHERE id=$1", id).Scan(&accountID); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT bot_id FROM intent_rulesets WHERE deleted_at IS NULL AND id=$1", id).Scan(&accountID); err != nil {
 		return ErrRulesetNotFound
 	}
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("intent:%d", accountID)); err != nil {
@@ -264,7 +264,7 @@ func (r *RulesetsRepo) Publish(ctx context.Context, id int64) error {
 	}
 	var set domain.Ruleset
 	if err := tx.QueryRow(ctx, `
-		SELECT `+rulesetColumns+` FROM intent_rulesets WHERE id = $1 FOR UPDATE
+		SELECT `+rulesetColumns+` FROM intent_rulesets WHERE deleted_at IS NULL AND id = $1 FOR UPDATE
 	`, id).Scan(&set.ID, &set.BotID, &set.ScopeType, &set.ScopeID, &set.Version, &set.Status, &set.Note, &set.BuiltinRules, &set.Targets); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRulesetNotFound
@@ -315,7 +315,7 @@ func (r *RulesetsRepo) Rollback(ctx context.Context, botID int64, scopeType stri
 	var id int64
 	if err := r.pool.QueryRow(ctx, `
 		SELECT id FROM intent_rulesets
-		WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3 AND version = $4
+		WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3 AND version = $4 AND deleted_at IS NULL
 	`, botID, scopeType, scopeID, version).Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrRulesetNotFound
@@ -323,7 +323,7 @@ func (r *RulesetsRepo) Rollback(ctx context.Context, botID int64, scopeType stri
 		return fmt.Errorf("intent: find version: %w", err)
 	}
 	var status string
-	if err := r.pool.QueryRow(ctx, `SELECT status FROM intent_rulesets WHERE id=$1`, id).Scan(&status); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT status FROM intent_rulesets WHERE deleted_at IS NULL AND id=$1`, id).Scan(&status); err != nil {
 		return err
 	}
 	if status != "archived" {
@@ -380,4 +380,32 @@ func (r *RulesetsRepo) entries(ctx context.Context, rulesetID int64) ([]domain.R
 		return nil, fmt.Errorf("intent: scan entries: %w", err)
 	}
 	return out, nil
+}
+
+// Delete removes activations and hides a version without reusing its number.
+// Delete 移除生效绑定并隐藏版本，保留其编号不被复用。
+func (r *RulesetsRepo) Delete(ctx context.Context, botID, id int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("intent:%d", botID)); err != nil {
+		return err
+	}
+	var found int64
+	err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE id=$1 AND bot_id=$2 FOR UPDATE", id, botID).Scan(&found)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrRulesetNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, "DELETE FROM intent_rule_activations WHERE ruleset_id=$1", id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, "UPDATE intent_rulesets SET deleted_at=COALESCE(deleted_at,now()) WHERE id=$1", id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
