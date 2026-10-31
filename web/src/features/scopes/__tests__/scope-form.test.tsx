@@ -102,21 +102,19 @@ describe('ScopeFormFields capability checkboxes', () => {
     expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{}')
   })
 
-  it('separates authorization from blocked runtime status and keeps technical details collapsed', () => {
-    renderCatalog(catalogOf([tool({ id: 'qq.get_group_info', blockedReasons: ['流水线未启用'] })]), false, true)
+  it('keeps authorization editable without runtime warnings or technical details', () => {
+    renderCatalog(catalogOf([tool({ id: 'qq.get_group_info', blockedReasons: ['未启用生成模型', '未启用意图流水线'] })]), false, true)
     expect(screen.getByRole('checkbox', { name: '查询当前群信息' })).toBeChecked()
-    expect(screen.getByText('已授权，当前不可用')).toBeVisible()
-    const details = screen.getByLabelText('查询当前群信息详情').closest('details')
-    expect(details).not.toHaveAttribute('open')
-    fireEvent.click(screen.getByLabelText('查询当前群信息详情'))
-    expect(details).toHaveAttribute('open')
-    expect(screen.getByText('流水线未启用')).toBeVisible()
+    expect(screen.queryByText('已授权，当前不可用')).toBeNull()
+    expect(screen.queryByText('详情')).toBeNull()
+    expect(screen.queryByText('未启用生成模型')).toBeNull()
+    expect(screen.queryByText('未启用意图流水线')).toBeNull()
   })
 
   it('disables capability checkboxes while saving', () => {
     renderCatalog(catalogOf([tool({ id: 'qq.get_group_info' })]), true)
     expect(screen.getByRole('checkbox', { name: '查询当前群信息' })).toBeDisabled()
-    expect(screen.getByText(/当前策略尚未启用/)).toBeVisible()
+    expect(screen.queryByText(/当前策略尚未启用/)).toBeNull()
   })
 
 })
@@ -130,7 +128,7 @@ it('shows separate cross-conversation permissions with Chinese description and r
   expect(checkbox).not.toBeChecked()
   fireEvent.click(checkbox)
   expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{"qq.cross_conversation":true}')
-  expect(screen.getByText('风险级别：管理。')).toBeInTheDocument()
+  expect(screen.getByText('高风险')).toBeVisible()
 })
 
 it('names a multi-tool cross-conversation group by permission instead of its first mapped tool', () => {
@@ -149,4 +147,48 @@ it('names a multi-tool cross-conversation group by permission instead of its fir
   })
   expect(screen.getByRole('checkbox', { name: '查询当前群信息' })).toBeInTheDocument()
   expect(screen.getByRole('checkbox', { name: '跨会话操作' })).toBeInTheDocument()
+})
+
+
+it('cross-conversation grants change only the scope permission and do not list other tools as granted', () => {
+  const send = tool({ id: 'qq.send_group_msg', permission: 'qq.api.send_group_msg', readOnly: false, sideEffect: true })
+  renderCatalog({ providers: ['builtin.qq'], tools: [send], permissions: [
+    { id: send.permission, tools: [send.id], defaultGranted: false },
+    { id: 'qq.cross_conversation', tools: [send.id], defaultGranted: false },
+  ] })
+  fireEvent.click(screen.getByRole('checkbox', { name: '跨会话操作' }))
+  expect(screen.getByRole('checkbox', { name: '发送群消息' })).not.toBeChecked()
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{"qq.cross_conversation":true}')
+  expect(screen.queryByText('详情')).toBeNull()
+  expect(screen.getByRole('checkbox', { name: '跨会话操作' }).closest('article')).not.toHaveTextContent('基础')
+})
+
+it.each([
+  ['qq.can_send_image', '检查图片发送能力', '基础'],
+  ['qq.get_record', '转换语音格式', '基础'],
+  ['qq.get_group_member_list', '查询群成员列表', '基础'],
+  ['qq.set_group_admin', '设置群管理员', '群管'],
+  ['qq.set_group_add_request', '审批加群申请', '群管'],
+  ['qq.get_credentials', '获取登录凭证', '系统'],
+  ['qq.clean_cache', '清理缓存', '系统'],
+])('classifies %s without an extension label', (id, label, category) => {
+  const entry = tool({ id, permission: `permission.${id}` })
+  renderCatalog({ providers: ['builtin.qq'], tools: [entry], permissions: [
+    { id: entry.permission, tools: [id], defaultGranted: false },
+  ] })
+  const card = screen.getByRole('checkbox', { name: label }).closest('article')
+  expect(screen.queryByText(category, { exact: true })).toBeNull()
+  expect(card?.querySelector('label > span')).toHaveClass(category === '群管' ? 'text-violet-700' : category === '基础' ? 'text-cyan-700' : 'text-blue-700')
+  expect(card).toHaveTextContent('低风险')
+  expect(screen.queryByText('扩展')).toBeNull()
+})
+
+it.each([['read', '低风险'], ['write', '中风险'], ['admin', '高风险']] as const)('shows %s risk without category labels or details', (riskLevel, riskLabel) => {
+  const entry = tool({ id: 'qq.get_group_info', riskLevel })
+  renderCatalog({ providers: ['builtin.qq'], tools: [entry], permissions: [
+    { id: entry.permission, tools: [entry.id], defaultGranted: false, riskLevel },
+  ] })
+  expect(screen.getByText(riskLabel)).toBeVisible()
+  expect(screen.queryByText('基础')).toBeNull()
+  expect(screen.queryByText('详情')).toBeNull()
 })

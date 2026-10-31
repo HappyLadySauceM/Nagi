@@ -220,6 +220,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	extraDescriptions := map[string]string{"qq.cross_conversation": "跨会话操作：仅来源会话授权即可操作当前机器人的其他目标", "qq.content.links": "发送链接：允许消息包含链接或远程媒体地址", "qq.content.at_all": "发送 @全体：允许通知群内所有成员", "qq.content.media": "发送媒体：允许图片、语音及其他非文本消息段"}
 	for _, registered := range visible {
 		for _, permission := range registered.Descriptor.AdditionalPermissions {
+			if scopeKind == contracts.ScopeKindPrivate && permission == "qq.content.at_all" {
+				continue
+			}
 			group := byPermission[permission]
 			if group == nil {
 				// Conditional grants are write-level content gates; cross-conversation

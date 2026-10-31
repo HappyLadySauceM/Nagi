@@ -14,6 +14,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/builtin"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -326,5 +327,42 @@ func TestListDerivesRiskLevelFromReadOnly(t *testing.T) {
 		if got := toolByID(t, envelope.Data.Tools, toolID).RiskLevel; got != want {
 			t.Fatalf("tool %q risk level = %q, want %q", toolID, got, want)
 		}
+	}
+}
+
+func TestPublicCatalogSeparatesConversationKinds(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	if err := registry.Register(context.Background(), builtin.NewPublicProvider(builtin.PublicOptions{})); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(&svc.ServiceContext{Config: &config.Config{}, Tools: registry})
+	for _, kind := range []string{"private", "group"} {
+		t.Run(kind, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.List(rec, httptest.NewRequest(http.MethodGet, "/api/v1/tools?scope_kind="+kind, nil))
+			if rec.Code != http.StatusOK {
+				t.Fatal(rec.Body.String())
+			}
+			var envelope struct{ Data catalog }
+			if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			for id, want := range map[string]bool{
+				"qq.set_group_admin": kind == "group", "qq.send_group_msg": kind == "group",
+				"qq.send_private_msg": kind == "private", "qq.set_friend_add_request": kind == "private",
+				"qq.get_status": true, "qq.send_msg": true,
+			} {
+				if toolByID(t, envelope.Data.Tools, id).Applicable != want {
+					t.Errorf("%s in %s: want applicability %v", id, kind, want)
+				}
+			}
+			foundAtAll := false
+			for _, permission := range envelope.Data.Permissions {
+				foundAtAll = foundAtAll || permission.ID == "qq.content.at_all"
+			}
+			if foundAtAll != (kind == "group") {
+				t.Errorf("at-all permission in %s=%v", kind, foundAtAll)
+			}
+		})
 	}
 }

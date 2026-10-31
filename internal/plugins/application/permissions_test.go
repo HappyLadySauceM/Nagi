@@ -122,3 +122,22 @@ func TestExplicitDefaultAndAdditionalPermissionPrecedence(t *testing.T) {
 		t.Fatalf("precedence: %v", grants)
 	}
 }
+
+func TestCrossConversationGrantDoesNotExposeUnrelatedTools(t *testing.T) {
+	denied := false
+	descriptor := contracts.ToolDescriptor{ID: "qq.send_group_msg", Permission: "qq.api.send_group_msg", DefaultAllowed: &denied, AdditionalPermissions: []string{"qq.cross_conversation"}}
+	tools := []contracts.RegisteredTool{{Descriptor: descriptor}}
+	for _, overrides := range []map[string]bool{
+		{"qq.cross_conversation": true},
+		{"qq.cross_conversation": true, "qq.api.send_group_msg": false},
+	} {
+		grants := ResolvePermissions(tools, nil, overrides)
+		if !grants["qq.cross_conversation"] || Allowed(descriptor, grants) {
+			t.Fatalf("cross grant widened tool exposure: %+v", grants)
+		}
+	}
+	grants := ResolvePermissions(tools, nil, map[string]bool{"qq.cross_conversation": true, "qq.api.send_group_msg": true})
+	if !Allowed(descriptor, grants) {
+		t.Fatal("explicit tool grant must expose the tool")
+	}
+}

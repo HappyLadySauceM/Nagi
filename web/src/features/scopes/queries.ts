@@ -25,10 +25,9 @@ export function useScopeIndex(botId: number | undefined) {
 
 /**
  * Catalogue of tools registered at startup, filtered by the edited scope kind.
- * A 503 means the tool subsystem is disabled; the dialog then hides the
- * capability section instead of failing.
- * 启动时注册成功的工具清单，按当前编辑的会话类型过滤。503 表示工具子系统未启用；
- * 此时对话框隐藏能力区块，而不是整体失败。
+ * The dialog displays loading and failure feedback without hiding navigation.
+ * 启动时注册成功的工具清单，按当前编辑的会话类型过滤。
+ * 对话框展示加载和失败反馈，并保留分区导航。
  */
 export function useToolsCatalog(scopeKind: ScopeType) {
   return useQuery({

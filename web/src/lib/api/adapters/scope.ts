@@ -212,28 +212,3 @@ export function isScopeEqual(left: ScopeForm, right: ScopeForm): boolean {
     isPermissionMapEqual(left.toolPermissions, right.toolPermissions)
   )
 }
-
-/** Risky capabilities that need an explicit confirmation before saving. */
-export function scopeDangerFlags(form: ScopeForm, baseline?: ScopeForm): string[] {
-  const flags: string[] = []
-  const turnedOn = (key: 'allowHistoryRead' | 'allowMemoryWrite') =>
-    form[key] && (!baseline || !baseline[key])
-
-  if (turnedOn('allowHistoryRead')) {
-    flags.push('允许机器人读取该会话的聊天历史')
-  }
-  if (turnedOn('allowMemoryWrite')) {
-    flags.push('允许机器人向长期记忆写入该会话的内容')
-  }
-  // An explicit true overrides a default-denied permission (the UI drops
-  // overrides that match the default), so it always widens the tool surface.
-  // 显式 true 覆盖的是默认拒绝的权限（与默认一致的覆盖会被界面移除），
-  // 因此一定扩大了工具能力面。
-  const baselineOverrides = baseline?.toolPermissions ?? {}
-  for (const [permission, granted] of Object.entries(form.toolPermissions)) {
-    if (granted && baselineOverrides[permission] !== true) {
-      flags.push(`授予工具权限 ${permission}（模型可调用对应工具）`)
-    }
-  }
-  return flags
-}

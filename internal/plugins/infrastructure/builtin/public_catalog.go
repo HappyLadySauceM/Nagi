@@ -187,6 +187,14 @@ func (p publicProvider) Tools(context.Context) ([]pc.RegisteredTool, error) {
 			risk = pc.RiskWrite
 		}
 		d := pc.ToolDescriptor{ID: "qq." + string(s.name), Description: s.description, Parameters: s.params, Permission: permission, DefaultAllowed: defaultAllowed, ReadOnly: s.read, SideEffect: !s.read, RiskLevel: risk, Category: category, Sensitive: s.sensitive, AdditionalPermissions: nil}
+		// Group actions belong to group policies; friend actions belong to private
+		// policies. Account-wide and generic message tools support both kinds.
+		// 群操作只属于群聊策略，好友操作只属于私聊策略；账号级与通用消息工具适用两者。
+		if s.group || s.name == ob.ActionSetGroupAddRequest || s.name == ob.ActionGetGroupList {
+			d.ScopeKinds = []string{pc.ScopeKindGroup}
+		} else if s.name == ob.ActionSendPrivate || s.name == ob.ActionSendLike || s.name == ob.ActionSetFriendAddRequest || s.name == ob.ActionGetFriendList {
+			d.ScopeKinds = []string{pc.ScopeKindPrivate}
+		}
 		if s.group || s.name == ob.ActionSendPrivate || s.name == ob.ActionSendMessage || s.name == ob.ActionSendLike || s.name == ob.ActionGetStrangerInfo || s.name == ob.ActionGetMessage || s.name == ob.ActionDeleteMsg || s.name == ob.ActionGetForwardMessage || s.name == ob.ActionSetFriendAddRequest || s.name == ob.ActionSetGroupAddRequest {
 			d.AdditionalPermissions = append(d.AdditionalPermissions, "qq.cross_conversation")
 		}

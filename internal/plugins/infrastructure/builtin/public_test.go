@@ -192,6 +192,8 @@ func TestPublicPermissionsAndTargets(t *testing.T) {
 	}{
 		{name: "ungranted", tool: "get_group_info", args: `{}`, kind: "group", bot: 100, target: 11, wantCalls: 0},
 		{name: "current", tool: "get_group_info", args: `{}`, kind: "group", bot: 100, target: 11, grants: map[string]bool{"qq.group.read": true}, wantCalls: 1, wantTarget: 11},
+		{name: "cross alone grants no tool", tool: "get_group_info", args: `{"group_id":12}`, kind: "group", bot: 100, target: 11, grants: map[string]bool{"qq.cross_conversation": true}},
+		{name: "cross cannot override explicit denial", tool: "get_group_info", args: `{"group_id":12}`, kind: "group", bot: 100, target: 11, grants: map[string]bool{"qq.cross_conversation": true, "qq.group.read": false}},
 		{name: "cross denied", tool: "get_group_info", args: `{"group_id":12}`, kind: "group", bot: 100, target: 11, grants: map[string]bool{"qq.group.read": true}},
 		{name: "only source grants needed", tool: "get_group_info", args: `{"group_id":12}`, kind: "group", bot: 100, target: 11, grants: map[string]bool{"qq.group.read": true, "qq.cross_conversation": true}, wantCalls: 1, wantTarget: 12},
 		{name: "private may explicitly target group", tool: "get_group_info", args: `{"group_id":12}`, kind: "private", bot: 100, target: 22, grants: map[string]bool{"qq.group.read": true, "qq.cross_conversation": true}, wantCalls: 1, wantTarget: 12},
@@ -301,5 +303,22 @@ func TestPublicDestructiveDefaultsMustBeExplicit(t *testing.T) {
 	}
 	if api.calls != 0 {
 		t.Fatalf("platform calls = %d", api.calls)
+	}
+}
+
+func TestPublicToolConversationApplicability(t *testing.T) {
+	tools, err := NewPublicProvider(PublicOptions{}).Tools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateOnly := map[string]bool{"qq.send_private_msg": true, "qq.send_like": true, "qq.set_friend_add_request": true, "qq.get_friend_list": true}
+	groupOnly := map[string]bool{"qq.set_group_add_request": true, "qq.get_group_list": true}
+	for _, tool := range tools {
+		id := tool.Descriptor.ID
+		group := groupOnly[id] || strings.HasPrefix(id, "qq.set_group_") || strings.HasPrefix(id, "qq.get_group_") || id == "qq.send_group_msg"
+		wantPrivate, wantGroup := !group, !privateOnly[id]
+		if tool.Descriptor.AppliesTo(pc.ScopeKindPrivate) != wantPrivate || tool.Descriptor.AppliesTo(pc.ScopeKindGroup) != wantGroup {
+			t.Errorf("%s applicability private=%v group=%v", id, tool.Descriptor.AppliesTo(pc.ScopeKindPrivate), tool.Descriptor.AppliesTo(pc.ScopeKindGroup))
+		}
 	}
 }
