@@ -291,20 +291,39 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
 
 ## 构建
 
-- 两个镜像都在 Dockerfile 内多阶段构建：api 用 `infrastructure/golang:1.27` 编译，只把二进制放进
+- 两个镜像各自在所属 Dockerfile 内多阶段构建：api 用 `infrastructure/golang:1.27` 编译，只把二进制放进
   `infrastructure/alpine:3.22`；web 用 `infrastructure/node:24-alpine` 跑 pnpm 构建，只把 `dist`
   放进 `infrastructure/nginx:alpine`。基础镜像默认走集群内 Zot
   （`zot.infra-registry.svc.cluster.local:5000/infrastructure/{alpine,nginx,node,golang}`，
   同一命名空间下还有 CI 用的 `postgres:17` 与 `buildkit`），由 `gitops-infra` 的
   `sync-base-images` 工作流同步。
-- 本地复现同一条构建（需要 BuildKit；本机不信任 Zot 自签证书，用 Docker Hub 同名镜像覆盖）：
+- 本地复现同一条构建（需要 BuildKit；本机不信任 Zot 自签证书，用 Docker Hub 上的对应镜像覆盖集群内
+  基础镜像）：
   ```bash
-  docker build --build-arg GO_IMAGE=golang:1.27-alpine --build-arg BASE_IMAGE=alpine:3.22 -t nagi-api .
+  sha=$(git rev-parse HEAD | cut -c1-7)
+  docker build --build-arg GO_IMAGE=golang:1.27-alpine --build-arg BASE_IMAGE=alpine:3.22 \
+    --build-arg VERSION=0.1.0-dev+$sha --build-arg COMMIT=$sha \
+    --build-arg BUILD_DATE=$(git log -1 --format=%cI) -t nagi-api .
   docker build --build-arg NODE_IMAGE=node:24-alpine --build-arg BASE_IMAGE=nginx:alpine -t nagi-web web
   ```
-- CI 里前端依赖走 `registry.npmmirror.com`；Go 模块用 `actions/setup-go` 的内建缓存（只在 main 保存），
-  pnpm store 与 cosign 二进制用 `actions/cache`；镜像依赖层走 buildx 的 gha 层缓存。
-  `verify` 只做校验，不再上传编译产物。
+- CI 构建时给 api 二进制注入版本信息：`Commit` 是与镜像 tag 一致的 7 位短 SHA，`BuildDate` 是提交时间，
+  `Version` 形如 `0.1.0-dev+<短 SHA>`；`nagi -version` 与 `/api/v1/status` 能直接对回镜像 tag。
+  镜像 config 里另有 `org.opencontainers.image.revision`（全量 SHA）、`.version`、`.source` 等标签。
+  本地按上面的命令构建后可用 `docker run --rm nagi-api -version` 自查。
+  注意本地示例用 Docker Hub 的对应镜像替代 Zot 基础镜像（如 `golang:1.27-alpine` 对应
+  `infrastructure/golang:1.27`），产物不保证与 CI 逐字节一致。
+- 构建作业依赖 runner 的 docker daemon 信任 Zot（自签证书 + 已登录）：基础镜像由 buildkit 拉取，
+  构建后的版本校验由 daemon 拉取该镜像完成，runner 换机时需要同步这份配置。
+- 缓存分两层：`go mod download`、`pnpm install` 的依赖层留在镜像层，由 buildx 的 gha 层缓存跨运行复用；
+  `GOCACHE` 与 pnpm store 用 `--mount=type=cache`：CI 每次新建 builder，它们的作用只是让缓存不进镜像层、
+  不参与 gha 导出；本地或常驻 builder 才顺带加速。
+  runner 上的 `verify` 不缓存 Go 模块与 pnpm store：编译已搬进镜像，依赖现拉已经够快。
+- 门槛语义：`verify` 是 `main` 的必需检查，但只改文档或只改 `.github/workflows/` 的 PR 会因路径过滤
+  跳过 Go 与前端校验（run 页面会出现「无相关改动」说明），这类 PR 的绿只代表没有可校验的改动。
+  PR 阶段不构建镜像，所以「镜像能否构建」「版本是否注入」只在 main / 手动触发时验证：改 Dockerfile
+  或编译参数的 PR 合入后建议手动 `workflow_dispatch` 跑一次。
+- 签名只打在 Zot 的镜像引用上（`cosign sign .../zot...@digest`），ghcr 上的同 digest 副本没有签名，
+  验签要从 Zot 拉。
 - 镜像 tag 是 7 位短 SHA，由 gitops 仓库的 Image Updater 自动开 PR；本仓库不再推送 digest 事件。
 - 旧镜像由 Zot 保留策略（每仓库最近 10 个）与 ghcr 保留策略（每包最近 10 个）清理；
   ghcr 侧是 `.github/workflows/ghcr-retention.yml`（显示名

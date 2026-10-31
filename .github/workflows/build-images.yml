@@ -12,6 +12,8 @@ on:
       - "go.sum"
       - "Dockerfile"
       - ".dockerignore"
+      # just verify 的口径由 Justfile 定义，与 api filter 保持一致。
+      - "Justfile"
       - ".github/workflows/build-images.yml"
   # PR 也要跑 verify：分支保护把它作为合并门槛，具体跑哪些步骤由 changes 作业判定。
   # 镜像构建与推送仍然只在 main 的 push 与手动触发时执行。
@@ -38,6 +40,8 @@ jobs:
   # 避免 web 改动顺带推一个没变的 api 镜像、让 Image Updater 白滚一次。
   changes:
     runs-on: hls-standard
+    # paths-filter 卡住会把唯一的 builder 与后续作业一起堵死。
+    timeout-minutes: 5
     permissions:
       contents: read
       # PR 事件下 paths-filter 走 GitHub API 取变更文件列表，需要读 pull request。
@@ -97,6 +101,8 @@ jobs:
       NAGI_TEST_DSN: postgres://nagi:nagi-local@127.0.0.1:5432/nagi_test?sslmode=disable
     # 集成测试要求 PostgreSQL 17（pkg/db.Connect 的版本闸门）；runner 上直接用服务容器，
     # 端口映射到宿主机，步骤里的 127.0.0.1:5432 即可连上。
+    # job 级 services 无法按路径条件化：只改 web 的 PR 也会拉起它（几秒容器启动），
+    # 要彻底省掉只能把 Go 校验拆成独立作业，代价是多一个必需检查。
     services:
       postgres:
         # runner 的 dind 拉不到 Docker Hub（EOF），镜像统一走集群内 Zot，
@@ -122,26 +128,24 @@ jobs:
       # 生成的 ent 代码依赖 encoding/json/jsontext：该包在 1.26 仍需
       # GOEXPERIMENT=jsonv2，1.27 起才默认可用，所以显式装 1.27.x，
       # 不用 runner 预装的 /usr/local/go，也不跟随 go.mod 的 1.26.0。
-      # 只在 main 上保存模块缓存：PR 收尾要上传几百 MB 缓存到 Actions cache，
-      # 自托管 runner 上传很慢；PR 直接走 goproxy.cn 现拉，反而更快。
+      # 不缓存 go.mod 依赖与 pnpm store：编译已搬进镜像（依赖走 buildx 层缓存），
+      # runner 上只剩校验要用的依赖，goproxy.cn / npmmirror 现拉足够快；
+      # 而自托管 runner 上传缓存很慢（main 上 setup-go 约 2.5 min、pnpm store 约 3.5 min），
+      # 缓存反而拖慢流水线。
+      # 只在 Go 校验会执行时装工具链：web-only / 只改 workflow 的 PR 不再拉 Go。
       - uses: actions/setup-go@v6
+        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
         with:
           go-version: "1.27.x"
-          cache: ${{ github.event_name != 'pull_request' }}
-          cache-dependency-path: go.sum
+          cache: false
 
-      - name: 缓存 pnpm store
-        uses: actions/cache@v6
-        with:
-          path: ~/.local/share/pnpm/store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('web/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
-
+      # GOPROXY 用步骤级环境变量：go env -w 会写进自托管 runner 的全局配置，跨作业残留。
       - name: Go 校验
         if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
+        env:
+          GOPROXY: https://goproxy.cn,direct
         run: |
           set -euo pipefail
-          go env -w GOPROXY=https://goproxy.cn,direct
           just verify
           git diff --exit-code
 
@@ -156,12 +160,17 @@ jobs:
           pnpm test
           pnpm build
 
-      # 编译在 build 作业的镜像内完成，这里只做一次编译检查（不落盘产物）。
-      - name: 编译检查
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
+      # 编译本身在 build 作业的镜像内完成，`just verify` 的 go vet/test 已覆盖全部包，
+      # 这里不再重复编译。
+      # 只改文档或只改 workflow 时两个 filter 都不命中：不跑任何校验，但要显式说明，
+      # 避免「全绿」被误读成校验过（该口径也写在 README 的构建小节）。
+      # 用 == 'false' 而不是 != 'true'：filter 输出异常时宁可没有说明，也不要写成「确认无相关改动」。
+      # workflow_dispatch 会强制全量校验，不需要这条说明。
+      - name: 无相关改动
+        if: github.event_name != 'workflow_dispatch' && needs.changes.outputs.api == 'false' && needs.changes.outputs.web == 'false'
         run: |
           set -euo pipefail
-          go build -o /dev/null ./cmd
+          echo "本次运行（${GITHUB_EVENT_NAME}）没有改动 Go 或前端代码，verify 未执行实际校验（仅路径过滤后的空过）。" >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: Build Nagi-${{ matrix.name }}
@@ -170,6 +179,8 @@ jobs:
     # PR 只校验不构建：镜像构建、签名与推送只在 main 的 push 与手动触发时执行。
     if: github.event_name != 'pull_request' && needs.changes.outputs.images != '[]'
     runs-on: hls-builder
+    # 自托管 runner 只有一个，卡死的构建会把后续发布一起堵住。
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -181,8 +192,17 @@ jobs:
       - uses: actions/checkout@v7
 
       # tag 用 7 位提交前缀，与 Argo CD Image Updater 的 allowTags 正则一致。
+      # BuildDate 取提交时间而不是当前时间：同一提交重复构建仍能命中编译缓存。
       - name: 计算镜像 tag
-        run: echo "SHORT_SHA=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          # 严格取 7 位：--short 在对象库有歧义时会自动加长，与 Image Updater 的 allowTags 口径不一致。
+          short=$(git rev-parse HEAD | cut -c1-7)
+          {
+            echo "SHORT_SHA=$short"
+            echo "IMAGE_VERSION=0.1.0-dev+$short"
+            echo "COMMIT_DATE=$(git log -1 --format=%cI)"
+          } >> "$GITHUB_ENV"
 
       # dind 拉不到 Docker Hub（EOF），buildkit 镜像必须用 Zot 里的那份；
       # 登录必须早于 setup-buildx，否则 buildx 创建 builder 时拉不到镜像。
@@ -194,9 +214,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
         with:
-          driver-opts: image=zot.infra-registry.svc.cluster.local:5000/infrastructure/buildkit:buildx-stable-1
+          driver-opts: image=${{ env.ZOT }}/infrastructure/buildkit:buildx-stable-1
           buildkitd-config-inline: |
-            [registry."zot.infra-registry.svc.cluster.local:5000"]
+            [registry."${{ env.ZOT }}"]
               insecure = true
 
       - uses: docker/login-action@v4
@@ -212,11 +232,89 @@ jobs:
           context: ${{ matrix.name == 'api' && '.' || 'web' }}
           file: ${{ matrix.name == 'api' && 'Dockerfile' || 'web/Dockerfile' }}
           push: true
+          # 不生成 provenance 证明：没有消费方，而且关掉后推送的 digest 就是镜像 manifest 本身，
+          # 签名与构建摘要都指向同一个对象，统计层大小也不用再解析多平台索引。
+          provenance: false
           cache-from: type=gha,scope=nagi-${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=nagi-${{ matrix.name }}
+          # ignore-error：缓存导出失败（配额、网络）只降级缓存，不让发布失败。
+          cache-to: type=gha,mode=max,scope=nagi-${{ matrix.name }},ignore-error=true
+          # 版本注入只对 api 的 Dockerfile 生效；web 没声明这些 ARG，构建日志里会有一条
+          # 「were not consumed」警告，不影响构建。
+          build-args: |
+            VERSION=${{ env.IMAGE_VERSION }}
+            COMMIT=${{ env.SHORT_SHA }}
+            BUILD_DATE=${{ env.COMMIT_DATE }}
+          # labels 只写镜像 config，不新增层，不影响层缓存命中。
+          labels: |
+            org.opencontainers.image.title=Nagi-${{ matrix.name }}
+            org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           tags: |
             ghcr.io/happyladysaucem/${{ env.PROJECT }}-${{ matrix.name }}:${{ env.SHORT_SHA }}
             ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:${{ env.SHORT_SHA }}
+
+      # -X 指向不存在的符号是静默 no-op：从刚推上去的镜像里断言版本真的注入成功，
+      # 否则线上 /api/v1/status 会一直是 0.1.0-dev 而 CI 全绿。
+      # 注意本步骤在 push 之后：断言失败时镜像已进 registry，需要人工回收该 tag（不能让 Image Updater 滚上去）。
+      # 先 pull 再用本地这份跑：既保证校验的是刚推上去的产物，也把「拉不到」和「起不来」分开报错。
+      - name: 校验版本注入
+        if: matrix.name == 'api'
+        run: |
+          set -euo pipefail
+          : "${SHORT_SHA:?}" "${IMAGE_VERSION:?}"
+          ref="${{ env.ZOT }}/${{ env.PROJECT }}/api:${SHORT_SHA}"
+          if ! docker pull "$ref"; then
+            echo "::error::无法拉取 ${ref}：检查 runner 的 docker daemon 是否信任 Zot 与登录是否生效"
+            exit 1
+          fi
+          if ! version=$(docker run --rm "$ref" -version 2>&1); then
+            echo "::error::镜像 ${ref} 能拉取但跑不起来，检查运行阶段的 ENTRYPOINT 与架构；输出：${version}"
+            exit 1
+          fi
+          echo "$version"
+          grep -qF -- "nagi ${IMAGE_VERSION} (commit ${SHORT_SHA}" <<<"$version" || {
+            echo "::error::期望 'nagi ${IMAGE_VERSION} (commit ${SHORT_SHA})'，实际：${version}；检查 Dockerfile 的 -X 符号路径。镜像已推送，需回收 ${ref}"
+            exit 1
+          }
+
+      # 构建摘要直接进 run 页面：digest、压缩后大小、推送地址。纯观测，失败不影响发布。
+      - name: 记录构建摘要
+        continue-on-error: true
+        env:
+          REF: ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:${{ env.SHORT_SHA }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          ZOT_USER: ${{ secrets.ZOT_USERNAME }}
+          ZOT_PASS: ${{ secrets.ZOT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          repo="${REF%:*}"
+          host="${repo%%/*}"
+          path="${repo#*/}"
+          accept="application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json"
+          # provenance 已关掉：digest 就是镜像 manifest 本身，层大小可直接累加。
+          # 观测步骤不能因为 registry 抖动整段消失：取不到就回落成「未知」。
+          manifest=$(curl -fsSk -u "$ZOT_USER:$ZOT_PASS" -H "Accept: $accept" \
+            "https://$host/v2/$path/manifests/${IMAGE_DIGEST}" || true)
+          layers=$(echo "$manifest" | sed -n 's/.*"layers":\(\[[^]]*\]\).*/\1/p' || true)
+          # awk 对空输入也输出 0，兜底用 || true：否则 grep 找不到 size 时会被 pipefail + set -e 直接中断，
+          # 摘要整段消失；写成 || echo 0 又会拼出 "0\n0"。
+          size=$(echo "$layers" | grep -o '"size":[0-9]*' | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}' || true)
+          # 极端情况下 $size 可能不是数字，先归一化，避免整数比较报错让摘要整段消失。
+          case "$size" in ''|*[!0-9]*) size=0 ;; esac
+          if [ "$size" -gt 0 ]; then size_text="$((size/1024/1024)) MiB"; else size_text="未知（取不到 layers）"; fi
+
+          {
+            echo "### ${PROJECT}-${{ matrix.name }} ${SHORT_SHA}"
+            echo
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| digest | \`${IMAGE_DIGEST}\` |"
+            echo "| 压缩后大小 | ${size_text} |"
+            echo "| Zot | \`${REF}\` |"
+            echo "| ghcr | \`ghcr.io/happyladysaucem/${PROJECT}-${{ matrix.name }}:${SHORT_SHA}\` |"
+            echo "| 缓存 scope | \`nagi-${{ matrix.name }}\`（命中明细看构建日志里的 CACHED） |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 缓存 cosign
         id: cosign-cache
@@ -238,12 +336,19 @@ jobs:
         env:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          ZOT_USER: ${{ secrets.ZOT_USERNAME }}
+          ZOT_PASS: ${{ secrets.ZOT_PASSWORD }}
         run: |
           set -euo pipefail
-          printf '%s' "$COSIGN_KEY" > /tmp/cosign.key
-          chmod 600 /tmp/cosign.key
-          "$HOME/.local/bin/cosign" sign --key /tmp/cosign.key --yes --tlog-upload=false \
+          # 自托管 runner 是持久化的：私钥放临时目录，正常退出、失败、取消、超时都清掉。
+          # SIGKILL 兜不住，但那已经超出脚本能处理的范围。
+          umask 077
+          keydir=$(mktemp -d)
+          trap 'rc=$?; rm -rf -- "$keydir" || true; exit $rc' EXIT
+          trap 'exit 130' INT TERM
+          printf '%s' "$COSIGN_KEY" > "$keydir/cosign.key"
+          "$HOME/.local/bin/cosign" sign --key "$keydir/cosign.key" --yes --tlog-upload=false \
             --allow-insecure-registry \
-            --registry-username "${{ secrets.ZOT_USERNAME }}" \
-            --registry-password "${{ secrets.ZOT_PASSWORD }}" \
+            --registry-username "$ZOT_USER" \
+            --registry-password "$ZOT_PASS" \
             "${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
