@@ -3,14 +3,20 @@
 package infrastructure
 
 import (
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
+	d "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	ds "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
+	m "github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
+	j "github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
+
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
@@ -19,12 +25,12 @@ import (
 // DecisionsRepo persists final decisions into intent_decisions.
 // DecisionsRepo 将最终决策持久化到 intent_decisions。
 type DecisionsRepo struct {
-	pool *pgxpool.Pool
+	pool *db.Pool
 }
 
 // NewDecisionsRepo builds the repository; the pool must not be nil.
 // NewDecisionsRepo 构建仓库；pool 不能为 nil。
-func NewDecisionsRepo(pool *pgxpool.Pool) (*DecisionsRepo, error) {
+func NewDecisionsRepo(pool *db.Pool) (*DecisionsRepo, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("intent: pool required")
 	}
@@ -35,62 +41,90 @@ func NewDecisionsRepo(pool *pgxpool.Pool) (*DecisionsRepo, error) {
 // written in one transaction so a decision never loses its reasons.
 // Record 在一个事务内写入决策记录及其可解释步骤，
 // 保证决策不会与原因脱节。
-func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain.FinalDecision) error {
+func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain.FinalDecision, claim ...string) error {
+	if len(claim) != 1 || claim[0] == "" {
+		return fmt.Errorf("intent: claim required")
+	}
+	token, err := uuid.Parse(claim[0])
+	if err != nil {
+		return err
+	}
+	_ = token
+	tx, err := r.pool.Client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	client := tx.Client()
+	rows, err := client.QueryContext(ctx, `SELECT c.id FROM conversations c JOIN messages m ON m.conversation_id=c.id JOIN message_jobs j ON j.incoming_message_id=m.id WHERE j.id=$1 FOR UPDATE OF c`, jobID)
+	if err != nil {
+		return err
+	}
+	var id string
+	if !rows.Next() {
+		rows.Close()
+		return fmt.Errorf("intent: job missing")
+	}
+	err = rows.Scan(&id)
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	rows, err = client.QueryContext(ctx, `SELECT id FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp() FOR UPDATE`, jobID, claim[0])
+	if err != nil {
+		return err
+	}
+	valid := rows.Next()
+	rows.Close()
+	if !valid {
+		return fmt.Errorf("intent: lease lost")
+	}
 	scores := decision.Scores
 	if scores == nil {
 		scores = map[string]float64{}
 	}
-	scoresJSON, err := json.Marshal(scores)
+	data, err := json.Marshal(scores)
 	if err != nil {
-		return fmt.Errorf("intent: encode scores: %w", err)
+		return err
 	}
-	tx, err := r.pool.Begin(ctx)
+	record, err := client.IntentDecision.Create().SetJobID(jobID).SetProvider(decision.Provider).SetModel(decision.Model).SetDecision(string(decision.Decision)).SetReasonCode(decision.ReasonCode).SetScores(data).SetLatencyMs(int(decision.LatencyMS)).SetRulesetVersion(decision.RulesetVersion).Save(ctx)
 	if err != nil {
-		return fmt.Errorf("intent: begin record decision: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var decisionID int64
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO intent_decisions (job_id, provider, model, decision, reason_code, scores, latency_ms, ruleset_version)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id
-	`, jobID, decision.Provider, decision.Model, string(decision.Decision),
-		decision.ReasonCode, scoresJSON, decision.LatencyMS, decision.RulesetVersion,
-	).Scan(&decisionID); err != nil {
-		return fmt.Errorf("intent: record decision: %w", err)
+		return err
 	}
 	for _, step := range decision.Steps {
 		detail := step.Detail
 		if detail == nil {
 			detail = map[string]any{}
 		}
-		detailJSON, err := json.Marshal(detail)
+		data, err := json.Marshal(detail)
 		if err != nil {
-			return fmt.Errorf("intent: encode step %s: %w", step.Phase, err)
+			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO intent_decision_steps (decision_id, step_index, phase, reason_code, detail)
-			VALUES ($1, $2, $3, $4, $5)
-		`, decisionID, step.Index, step.Phase, step.ReasonCode, detailJSON); err != nil {
-			return fmt.Errorf("intent: record step %s: %w", step.Phase, err)
+		if err := client.IntentDecisionStep.Create().SetDecisionID(record.ID).SetStepIndex(step.Index).SetPhase(step.Phase).SetReasonCode(step.ReasonCode).SetDetail(data).Exec(ctx); err != nil {
+			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("intent: commit decision: %w", err)
+	rows, err = client.QueryContext(ctx, "SELECT EXISTS(SELECT 1 FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp())", jobID, claim[0])
+	if err != nil {
+		return err
 	}
-	return nil
+	valid = false
+	if rows.Next() {
+		err = rows.Scan(&valid)
+	}
+	scanErr := rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if scanErr != nil {
+		return scanErr
+	}
+	if !valid {
+		return fmt.Errorf("intent: lease lost before commit")
+	}
+	return tx.Commit()
 }
-
-// decisionSelect is shared by the list and detail queries so both expose the
-// same account and conversation columns.
-// decisionSelect 被列表与详情查询共用，保证两者暴露相同的账号与会话字段。
-const decisionSelect = `
-	SELECT d.id, d.job_id, m.bot_id, m.conversation_id::text, d.decision, d.reason_code,
-	       d.provider, d.model, d.ruleset_version, d.scores, d.latency_ms, d.created_at
-	FROM intent_decisions d
-	JOIN message_jobs j ON j.id = d.job_id
-	JOIN messages m ON m.id = j.incoming_message_id`
 
 // List returns the newest decisions of one account, optionally narrowed to one
 // conversation and paginated by decision id.
@@ -99,32 +133,35 @@ func (r *DecisionsRepo) List(ctx context.Context, q contracts.DecisionQuery) ([]
 	if q.BotID <= 0 {
 		return nil, fmt.Errorf("intent: list decisions requires bot id")
 	}
+	query := r.pool.Client.IntentDecision.Query().Where(d.HasJobIDRefWith(j.HasIncomingMessageIDRefWith(m.BotID(q.BotID))))
+	if q.ConversationID != "" {
+		id, err := uuid.Parse(q.ConversationID)
+		if err != nil {
+			return nil, err
+		}
+		query.Where(d.HasJobIDRefWith(j.HasIncomingMessageIDRefWith(m.ConversationID(id))))
+	}
+	if q.BeforeID > 0 {
+		query.Where(d.IDLT(q.BeforeID))
+	}
+	if q.ReasonCode != "" {
+		query.Where(d.ReasonCode(q.ReasonCode))
+	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := r.pool.Query(ctx, decisionSelect+`
-		WHERE m.bot_id = $1
-		  AND ($2 = '' OR m.conversation_id = $2::uuid)
-		  AND ($3 = 0 OR d.id < $3)
- AND ($5 = '' OR d.reason_code=$5)
-		ORDER BY d.id DESC
-		LIMIT $4
-	`, q.BotID, q.ConversationID, q.BeforeID, limit, q.ReasonCode)
+	rows, err := query.WithJobIDRef(func(q *ent.MessageJobQuery) { q.WithIncomingMessageIDRef() }).Order(ent.Desc(d.FieldID)).Limit(limit).All(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("intent: list decisions: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 	var out []contracts.DecisionRecord
-	for rows.Next() {
-		record, err := scanDecision(rows)
+	for _, v := range rows {
+		record, err := decisionModel(v)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("intent: scan decisions: %w", err)
 	}
 	return out, nil
 }
@@ -132,38 +169,29 @@ func (r *DecisionsRepo) List(ctx context.Context, q contracts.DecisionQuery) ([]
 // Get loads one decision with its explainable steps.
 // Get 读取一条决策及其可解释步骤。
 func (r *DecisionsRepo) Get(ctx context.Context, id int64) (contracts.DecisionRecord, error) {
-	record, err := scanDecision(r.pool.QueryRow(ctx, decisionSelect+` WHERE d.id = $1`, id))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return contracts.DecisionRecord{}, ErrDecisionNotFound
-		}
-		return contracts.DecisionRecord{}, fmt.Errorf("intent: get decision: %w", err)
+	v, err := r.pool.Client.IntentDecision.Query().Where(d.ID(id)).WithJobIDRef(func(q *ent.MessageJobQuery) { q.WithIncomingMessageIDRef() }).Only(ctx)
+	if ent.IsNotFound(err) {
+		return contracts.DecisionRecord{}, ErrDecisionNotFound
 	}
-	rows, err := r.pool.Query(ctx, `
-		SELECT step_index, phase, reason_code, detail, created_at
-		FROM intent_decision_steps WHERE decision_id = $1 ORDER BY step_index
-	`, id)
 	if err != nil {
-		return contracts.DecisionRecord{}, fmt.Errorf("intent: get decision steps: %w", err)
+		return contracts.DecisionRecord{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			step   contracts.DecisionStep
-			detail []byte
-		)
-		if err := rows.Scan(&step.Index, &step.Phase, &step.ReasonCode, &detail, &step.CreatedAt); err != nil {
-			return contracts.DecisionRecord{}, fmt.Errorf("intent: scan decision step: %w", err)
-		}
-		if len(detail) > 0 {
-			if err := json.Unmarshal(detail, &step.Detail); err != nil {
-				return contracts.DecisionRecord{}, fmt.Errorf("intent: decode step detail: %w", err)
+	record, err := decisionModel(v)
+	if err != nil {
+		return record, err
+	}
+	steps, err := r.pool.Client.IntentDecisionStep.Query().Where(ds.DecisionID(id)).Order(ent.Asc(ds.FieldStepIndex)).All(ctx)
+	if err != nil {
+		return record, err
+	}
+	for _, v := range steps {
+		step := contracts.DecisionStep{Index: v.StepIndex, Phase: v.Phase, ReasonCode: v.ReasonCode, CreatedAt: v.CreatedAt}
+		if len(v.Detail) > 0 {
+			if err := json.Unmarshal(v.Detail, &step.Detail); err != nil {
+				return record, err
 			}
 		}
 		record.Steps = append(record.Steps, step)
-	}
-	if err := rows.Err(); err != nil {
-		return contracts.DecisionRecord{}, fmt.Errorf("intent: scan decision steps: %w", err)
 	}
 	return record, nil
 }
@@ -171,29 +199,6 @@ func (r *DecisionsRepo) Get(ctx context.Context, id int64) (contracts.DecisionRe
 // ErrDecisionNotFound reports a decision id that does not exist.
 // ErrDecisionNotFound 表示决策 id 不存在。
 var ErrDecisionNotFound = errors.New("intent: decision not found")
-
-// scanDecision decodes one row of decisionSelect.
-// scanDecision 解码 decisionSelect 的一行。
-func scanDecision(row pgx.Row) (contracts.DecisionRecord, error) {
-	var (
-		record       contracts.DecisionRecord
-		scores       []byte
-		conversation string
-	)
-	err := row.Scan(&record.ID, &record.JobID, &record.BotID, &conversation, &record.Decision,
-		&record.ReasonCode, &record.Provider, &record.Model, &record.RulesetVersion,
-		&scores, &record.LatencyMS, &record.CreatedAt)
-	if err != nil {
-		return contracts.DecisionRecord{}, err
-	}
-	record.ConversationID = conversation
-	if len(scores) > 0 {
-		if err := json.Unmarshal(scores, &record.Scores); err != nil {
-			return contracts.DecisionRecord{}, fmt.Errorf("intent: decode scores: %w", err)
-		}
-	}
-	return record, nil
-}
 
 func (r *DecisionsRepo) Stats(ctx context.Context, botID int64, since time.Time) (contracts.DecisionStats, error) {
 	var result contracts.DecisionStats
@@ -212,4 +217,22 @@ func (r *DecisionsRepo) Stats(ctx context.Context, botID int64, since time.Time)
  count(*) FILTER(WHERE decision='silent'),COALESCE(avg(latency_ms) FILTER(WHERE called),0)
  FROM decisions`, botID, since).Scan(&result.Total, &result.SemanticCalls, &result.SemanticSuccess, &result.Degraded, &result.Replies, &result.Silent, &result.AverageLatencyMS)
 	return result, err
+}
+
+func decisionModel(v *ent.IntentDecision) (contracts.DecisionRecord, error) {
+	record := contracts.DecisionRecord{ID: v.ID, JobID: v.JobID, Decision: v.Decision, ReasonCode: v.ReasonCode, Provider: v.Provider, Model: v.Model, RulesetVersion: v.RulesetVersion, LatencyMS: v.LatencyMs, CreatedAt: v.CreatedAt}
+	job, err := v.Edges.JobIDRefOrErr()
+	if err != nil {
+		return record, err
+	}
+	message, err := job.Edges.IncomingMessageIDRefOrErr()
+	if err != nil {
+		return record, err
+	}
+	record.BotID = message.BotID
+	record.ConversationID = message.ConversationID.String()
+	if len(v.Scores) > 0 {
+		err = json.Unmarshal(v.Scores, &record.Scores)
+	}
+	return record, err
 }

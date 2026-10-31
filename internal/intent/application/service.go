@@ -46,7 +46,7 @@ type ActivityReader interface {
 // DecisionRecorder persists final decisions for later evaluation.
 // DecisionRecorder 持久化最终决策，供后续评估。
 type DecisionRecorder interface {
-	Record(ctx context.Context, jobID int64, decision domain.FinalDecision) error
+	Record(ctx context.Context, jobID int64, decision domain.FinalDecision, claim ...string) error
 }
 
 // ReplyExecutor acts on reply decisions; nil in decision-only deployments.
@@ -191,7 +191,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.RulesetVersion = rulesetVersion
 	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic, d.th)
 
-	if err := d.recorder.Record(ctx, task.JobID, decision); err != nil {
+	if err := d.recorder.Record(ctx, task.JobID, decision, task.ClaimToken); err != nil {
 		d.logger.Warn("record decision failed", "error", err, "job_id", task.JobID)
 	}
 	d.logger.Info("intent decided",

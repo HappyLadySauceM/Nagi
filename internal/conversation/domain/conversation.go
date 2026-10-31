@@ -89,6 +89,8 @@ type IngestResult struct {
 // Job is one pending decision task derived from an inbound message.
 // Job 是从入站消息派生的一个待处理决策任务。
 type Job struct {
+	ClaimToken     string
+	LeaseExpiresAt time.Time
 	ID             int64
 	MessageID      int64
 	ConversationID string
@@ -102,4 +104,11 @@ type Job struct {
 	// TraceParent 为空表示历史任务，将自行开启新的 trace。
 	TraceParent string
 	TraceState  string
+}
+
+// RecoveryPolicy bounds retries after an expired claim.
+// RecoveryPolicy 限定过期认领恢复后的重试策略。
+type RecoveryPolicy struct {
+	MaxAttempts  int
+	RetryBackoff time.Duration
 }

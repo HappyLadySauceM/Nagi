@@ -34,6 +34,7 @@ type Message struct {
 // Task is one decision task derived from an inbound message job.
 // Task 是从入站消息任务派生的决策任务。
 type Task struct {
+	ClaimToken     string
 	JobID          int64
 	BotID          int64
 	Kind           string

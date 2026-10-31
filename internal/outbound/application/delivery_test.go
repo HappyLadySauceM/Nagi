@@ -13,8 +13,8 @@ type deliveryLedger struct {
 	settleContext error
 }
 
-func (l *deliveryLedger) MarkSending(context.Context, string) error { return nil }
-func (l *deliveryLedger) Settle(ctx context.Context, _ string, o Outcome) error {
+func (l *deliveryLedger) MarkSending(_ context.Context, _ string, _ ...string) error { return nil }
+func (l *deliveryLedger) Settle(ctx context.Context, _ string, o Outcome, claim ...string) error {
 	l.outcome = o
 	l.settleContext = ctx.Err()
 	return nil

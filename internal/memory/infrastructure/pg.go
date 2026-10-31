@@ -1,220 +1,153 @@
-// PostgreSQL repository for long-term memories.
-// 长期记忆的 PostgreSQL 仓库。
 package infrastructure
 
 import (
 	"context"
-	"errors"
 	"fmt"
-
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
+	m "github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
+	"github.com/google/uuid"
+	"time"
 )
 
-// uuidNewString generates a memory identifier.
-// uuidNewString 生成记忆标识。
-func uuidNewString() string { return uuid.NewString() }
+type Repo struct{ pool *db.Pool }
 
-// Repo is the pgx-backed memory repository.
-// Repo 是基于 pgx 的记忆仓库。
-type Repo struct {
-	pool *pgxpool.Pool
-}
-
-// NewRepo builds the repository; the pool must not be nil.
-// NewRepo 构建仓库；pool 不能为 nil。
-func NewRepo(pool *pgxpool.Pool) (*Repo, error) {
+func NewRepo(pool *db.Pool) (*Repo, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("memory: pool required")
 	}
-	return &Repo{pool: pool}, nil
+	return &Repo{pool}, nil
 }
-
-const memoryColumns = `memory_id, bot_id, visibility, owner_key, content, COALESCE(source_message_id, 0),
-	source, confidence, status, approved_by, COALESCE(expires_at, to_timestamp(0)), created_at, updated_at`
-
-// Insert stores one memory row.
-// Insert 存储一条记忆行。
-func (r *Repo) Insert(ctx context.Context, m domain.Memory) (string, error) {
-	id := m.ID
+func uuidNewString() string { return uuid.NewString() }
+func (r *Repo) Insert(ctx context.Context, v domain.Memory) (string, error) {
+	id := v.ID
 	if id == "" {
 		id = uuidNewString()
 	}
-	var expires any
-	if !m.ExpiresAt.IsZero() {
-		expires = m.ExpiresAt
-	}
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO memories (memory_id, bot_id, visibility, owner_key, content, source_message_id,
-			source, confidence, status, approved_by, expires_at)
-		VALUES ($1, $2, $3, $4, $5, NULLIF($6, 0), $7, $8, $9, $10, $11)
-	`, id, m.BotID, string(m.Visibility), m.OwnerKey, m.Content, m.SourceMessageID,
-		m.Source, m.Confidence, string(m.Status), m.ApprovedBy, expires)
+	key, err := uuid.Parse(id)
 	if err != nil {
-		return "", fmt.Errorf("memory: insert: %w", err)
+		return "", err
+	}
+	b := r.pool.Client.Memory.Create().SetID(key).SetBotID(v.BotID).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetContent(v.Content).SetSource(v.Source).SetConfidence(float32(v.Confidence)).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy)
+	if v.SourceMessageID != 0 {
+		b.SetSourceMessageID(v.SourceMessageID)
+	}
+	if !v.ExpiresAt.IsZero() {
+		b.SetExpiresAt(v.ExpiresAt)
+	}
+	if err := b.Exec(ctx); err != nil {
+		return "", err
 	}
 	return id, nil
 }
-
-// Get loads one memory; found is false when it does not exist.
-// Get 读取一条记忆；不存在时 found 为 false。
-func (r *Repo) Get(ctx context.Context, memoryID string) (domain.Memory, bool, error) {
-	row := r.pool.QueryRow(ctx, `
-		SELECT `+memoryColumns+` FROM memories WHERE memory_id = $1
-	`, memoryID)
-	m, err := scanMemory(row.Scan)
-	if errors.Is(err, pgx.ErrNoRows) {
+func (r *Repo) Get(ctx context.Context, id string) (domain.Memory, bool, error) {
+	key, err := uuid.Parse(id)
+	if err != nil {
+		return domain.Memory{}, false, err
+	}
+	v, err := r.pool.Client.Memory.Get(ctx, key)
+	if ent.IsNotFound(err) {
 		return domain.Memory{}, false, nil
 	}
 	if err != nil {
-		return domain.Memory{}, false, fmt.Errorf("memory: get: %w", err)
+		return domain.Memory{}, false, err
 	}
-	return m, true, nil
+	return memoryModel(v), true, nil
 }
-
-// Update writes mutable fields of one memory.
-// Update 写入一条记忆的可变字段。
-func (r *Repo) Update(ctx context.Context, m domain.Memory) error {
-	var expires any
-	if !m.ExpiresAt.IsZero() {
-		expires = m.ExpiresAt
-	}
-	_, err := r.pool.Exec(ctx, `
-		UPDATE memories SET content = $2, visibility = $3, owner_key = $4, status = $5,
-			approved_by = $6, expires_at = $7, updated_at = now()
-		WHERE memory_id = $1
-	`, m.ID, m.Content, string(m.Visibility), m.OwnerKey, string(m.Status), m.ApprovedBy, expires)
+func (r *Repo) Update(ctx context.Context, v domain.Memory) error {
+	key, err := uuid.Parse(v.ID)
 	if err != nil {
-		return fmt.Errorf("memory: update: %w", err)
+		return err
 	}
-	return nil
+	b := r.pool.Client.Memory.UpdateOneID(key).SetContent(v.Content).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy).SetUpdatedAt(time.Now())
+	if v.ExpiresAt.IsZero() {
+		b.ClearExpiresAt()
+	} else {
+		b.SetExpiresAt(v.ExpiresAt)
+	}
+	return b.Exec(ctx)
 }
-
-// SoftDelete marks one memory deleted so it never shows up in retrieval again.
-// SoftDelete 将记忆标记为删除，使其不再出现在检索结果中。
-func (r *Repo) SoftDelete(ctx context.Context, memoryID string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE memories SET status = 'deleted', updated_at = now() WHERE memory_id = $1
-	`, memoryID)
+func (r *Repo) SoftDelete(ctx context.Context, id string) error {
+	key, err := uuid.Parse(id)
 	if err != nil {
-		return fmt.Errorf("memory: soft delete: %w", err)
+		return err
 	}
-	return nil
+	_, err = r.pool.Client.Memory.Update().Where(m.ID(key)).SetStatus("deleted").SetUpdatedAt(time.Now()).Save(ctx)
+	return err
 }
-
-// List returns one page of memories matching the filter plus the total count.
-// List 返回匹配过滤条件的一页记忆及总数。
 func (r *Repo) List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, int64, error) {
-	var total int64
-	if err := r.pool.QueryRow(ctx, `
-		SELECT count(*) FROM memories
-		WHERE ($1::bigint IS NULL OR bot_id = $1)
-		  AND ($2 = '' OR visibility = $2)
-		  AND ($3 = '' OR owner_key = $3)
-		  AND ($4 = '' OR status = $4)
-		  AND ($5 = '' OR content ILIKE '%' || $5 || '%')
-	`, f.BotID, string(f.Visibility), f.OwnerKey, string(f.Status), f.Search,
-	).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("memory: count: %w", err)
+	q := r.pool.Client.Memory.Query()
+	if f.BotID != nil {
+		q.Where(m.BotID(*f.BotID))
 	}
-	rows, err := r.pool.Query(ctx, `
-		SELECT `+memoryColumns+` FROM memories
-		WHERE ($1::bigint IS NULL OR bot_id = $1)
-		  AND ($2 = '' OR visibility = $2)
-		  AND ($3 = '' OR owner_key = $3)
-		  AND ($4 = '' OR status = $4)
-		  AND ($5 = '' OR content ILIKE '%' || $5 || '%')
-		ORDER BY updated_at DESC
-		LIMIT $6 OFFSET $7
-	`, f.BotID, string(f.Visibility), f.OwnerKey, string(f.Status), f.Search, f.Limit, f.Offset())
+	if f.Visibility != "" {
+		q.Where(m.Visibility(string(f.Visibility)))
+	}
+	if f.OwnerKey != "" {
+		q.Where(m.OwnerKey(f.OwnerKey))
+	}
+	if f.Status != "" {
+		q.Where(m.Status(string(f.Status)))
+	}
+	if f.Search != "" {
+		q.Where(m.ContentContainsFold(f.Search))
+	}
+	n, err := q.Clone().Count(ctx)
 	if err != nil {
-		return nil, 0, fmt.Errorf("memory: list: %w", err)
+		return nil, 0, err
 	}
-	defer rows.Close()
-	items := []domain.Memory{}
-	for rows.Next() {
-		m, scanErr := scanMemory(rows.Scan)
-		if scanErr != nil {
-			return nil, 0, scanErr
-		}
-		items = append(items, m)
-	}
-	return items, total, rows.Err()
+	rows, err := q.Order(ent.Desc(m.FieldUpdatedAt)).Limit(f.Limit).Offset(f.Offset()).All(ctx)
+	return memoryModels(rows), int64(n), err
 }
-
-// FindSame looks up an exact content duplicate within the same visibility scope.
-// FindSame 在同一可见性范围内查找内容完全一致的重复项。
-func (r *Repo) FindSame(ctx context.Context, botID int64, visibility domain.Visibility, ownerKey, content string) (domain.Memory, bool, error) {
-	row := r.pool.QueryRow(ctx, `
-		SELECT `+memoryColumns+` FROM memories
-		WHERE bot_id = $1 AND visibility = $2 AND owner_key = $3 AND content = $4
-		  AND status IN ('candidate','active')
-		ORDER BY created_at DESC LIMIT 1
-	`, botID, string(visibility), ownerKey, content)
-	m, err := scanMemory(row.Scan)
-	if errors.Is(err, pgx.ErrNoRows) {
+func (r *Repo) FindSame(ctx context.Context, bot int64, visibility domain.Visibility, owner, content string) (domain.Memory, bool, error) {
+	v, err := r.pool.Client.Memory.Query().Where(m.BotID(bot), m.Visibility(string(visibility)), m.OwnerKey(owner), m.Content(content), m.StatusIn("candidate", "active")).Order(ent.Desc(m.FieldCreatedAt)).First(ctx)
+	if ent.IsNotFound(err) {
 		return domain.Memory{}, false, nil
 	}
 	if err != nil {
-		return domain.Memory{}, false, fmt.Errorf("memory: find same: %w", err)
+		return domain.Memory{}, false, err
 	}
-	return m, true, nil
+	return memoryModel(v), true, nil
 }
-
-// SearchVisible returns active unexpired memories the conversation may read.
-// SearchVisible 返回会话可读取的激活且未过期的记忆。
 func (r *Repo) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error) {
-	scopeVisibility := "group"
+	visibility := "group"
 	if in.Kind == "private" {
-		scopeVisibility = "private_user"
+		visibility = "private_user"
 	}
-	ownerKey := ""
+	owner := ""
 	if in.TargetID > 0 {
-		ownerKey = fmt.Sprintf("%d", in.TargetID)
+		owner = fmt.Sprint(in.TargetID)
 	}
-	rows, err := r.pool.Query(ctx, `
-		SELECT `+memoryColumns+` FROM memories
-		WHERE bot_id = $1 AND status = 'active'
-		  AND (expires_at IS NULL OR expires_at > now())
-		  AND (
-		    visibility = 'bot_shared'
-		    OR ($2 <> '' AND visibility = $3 AND owner_key = $2)
-		    OR ($4 <> '' AND visibility = 'conversation' AND owner_key = $4)
-		  )
-		  AND ($5 = '' OR content ILIKE '%' || $5 || '%')
-		ORDER BY confidence DESC, updated_at DESC
-		LIMIT $6
-	`, in.BotID, ownerKey, scopeVisibility, in.ConversationID, in.Query, in.Limit)
-	if err != nil {
-		return nil, fmt.Errorf("memory: search visible: %w", err)
+	visible := []predicate.Memory{m.Visibility("bot_shared")}
+	if owner != "" {
+		visible = append(visible, m.And(m.Visibility(visibility), m.OwnerKey(owner)))
 	}
-	defer rows.Close()
-	items := []domain.Memory{}
-	for rows.Next() {
-		m, scanErr := scanMemory(rows.Scan)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		items = append(items, m)
+	if in.ConversationID != "" {
+		visible = append(visible, m.And(m.Visibility("conversation"), m.OwnerKey(in.ConversationID)))
 	}
-	return items, rows.Err()
+	q := r.pool.Client.Memory.Query().Where(m.BotID(in.BotID), m.Status("active"), m.Or(m.ExpiresAtIsNil(), m.ExpiresAtGT(time.Now())), m.Or(visible...))
+	if in.Query != "" {
+		q.Where(m.ContentContainsFold(in.Query))
+	}
+	rows, err := q.Order(ent.Desc(m.FieldConfidence, m.FieldUpdatedAt)).Limit(in.Limit).All(ctx)
+	return memoryModels(rows), err
 }
-
-type rowScanner func(dest ...any) error
-
-// scanMemory scans the shared memory column order.
-// scanMemory 扫描共享的记忆列顺序。
-func scanMemory(scan rowScanner) (domain.Memory, error) {
-	var m domain.Memory
-	var visibility, status string
-	if err := scan(&m.ID, &m.BotID, &visibility, &m.OwnerKey, &m.Content, &m.SourceMessageID,
-		&m.Source, &m.Confidence, &status, &m.ApprovedBy, &m.ExpiresAt, &m.CreatedAt, &m.UpdatedAt); err != nil {
-		return domain.Memory{}, fmt.Errorf("memory: scan: %w", err)
+func memoryModel(v *ent.Memory) domain.Memory {
+	out := domain.Memory{ID: v.ID.String(), BotID: v.BotID, Visibility: domain.Visibility(v.Visibility), OwnerKey: v.OwnerKey, Content: v.Content, Source: v.Source, Confidence: float64(v.Confidence), Status: domain.Status(v.Status), ApprovedBy: v.ApprovedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	if v.SourceMessageID != nil {
+		out.SourceMessageID = *v.SourceMessageID
 	}
-	m.Visibility = domain.Visibility(visibility)
-	m.Status = domain.Status(status)
-	return m, nil
+	if v.ExpiresAt != nil {
+		out.ExpiresAt = *v.ExpiresAt
+	}
+	return out
+}
+func memoryModels(rows []*ent.Memory) []domain.Memory {
+	out := make([]domain.Memory, 0, len(rows))
+	for _, v := range rows {
+		out = append(out, memoryModel(v))
+	}
+	return out
 }

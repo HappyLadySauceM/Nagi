@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
@@ -20,7 +20,7 @@ import (
 // seedJob inserts one inbound message and returns its job id together with the
 // account and conversation it belongs to.
 // seedJob 插入一条入站消息，返回任务 id 及其所属账号与会话。
-func seedJob(t *testing.T, pool *pgxpool.Pool) (jobID, botID int64, conversationID string) {
+func seedJob(t *testing.T, pool *db.Pool) (jobID, botID int64, conversationID string) {
 	t.Helper()
 	repo, err := conversationinfra.NewRepo(pool)
 	if err != nil {
@@ -69,7 +69,7 @@ func TestRecordPersistsStepsAndReadModel(t *testing.T) {
 			{Index: 2, Phase: domain.StepFinal, ReasonCode: "always_reply", Detail: map[string]any{"decision": "reply"}},
 		},
 	}
-	if err := repo.Record(ctx, jobID, decision); err != nil {
+	if err := repo.Record(ctx, jobID, decision, dbtest.Claim(t, pool, jobID)); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 
@@ -116,7 +116,7 @@ func TestListFiltersByConversation(t *testing.T) {
 	ctx := context.Background()
 	if err := repo.Record(ctx, jobID, domain.FinalDecision{
 		Decision: domain.DecisionSilent, ReasonCode: "cooldown", Steps: []domain.Step{{Index: 0, Phase: domain.StepFinal}},
-	}); err != nil {
+	}, dbtest.Claim(t, pool, jobID)); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 
@@ -321,5 +321,30 @@ func TestRulesetDeleteSerializesWithPublish(t *testing.T) {
 	}
 	if _, found, err := repo.Active(ctx, botID, "private", 778); err != nil || found {
 		t.Fatalf("deleted published active: %v", err)
+	}
+}
+
+func TestDecisionTransactionRollsBackIfLeaseExpiresDuringWrite(t *testing.T) {
+	pool := dbtest.Open(t)
+	ctx := context.Background()
+	jobID, _, _ := seedJob(t, pool)
+	token := dbtest.Claim(t, pool, jobID)
+	repo, _ := NewDecisionsRepo(pool)
+	_, err := pool.Exec(ctx, `CREATE FUNCTION nagi_test_expire_decision() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=NEW.job_id; RETURN NEW; END $$; CREATE TRIGGER nagi_test_expire_decision AFTER INSERT ON intent_decisions FOR EACH ROW EXECUTE FUNCTION nagi_test_expire_decision()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, "DROP TRIGGER IF EXISTS nagi_test_expire_decision ON intent_decisions; DROP FUNCTION IF EXISTS nagi_test_expire_decision()"); err != nil {
+			t.Error(err)
+		}
+	})
+	err = repo.Record(ctx, jobID, domain.FinalDecision{Decision: domain.DecisionSilent, ReasonCode: "expiry", Steps: []domain.Step{{Index: 0, Phase: domain.StepFinal}}}, token)
+	if err == nil {
+		t.Fatal("expired decision transaction committed")
+	}
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM intent_decisions WHERE job_id=$1", jobID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("partial decision persisted: %d %v", count, err)
 	}
 }

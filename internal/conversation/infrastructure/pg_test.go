@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
@@ -21,7 +21,7 @@ import (
 // need a delivery outcome without running the agent.
 // insertLedgerRecord 为需要投递结果的任务级测试写入一条出站台账记录，
 // 无需运行 Agent。
-func insertLedgerRecord(t *testing.T, pool *pgxpool.Pool, jobID int64, conversationID string, botID int64,
+func insertLedgerRecord(t *testing.T, pool *db.Pool, jobID int64, conversationID string, botID int64,
 	sequence int, status string,
 ) string {
 	t.Helper()
@@ -38,7 +38,7 @@ func insertLedgerRecord(t *testing.T, pool *pgxpool.Pool, jobID int64, conversat
 
 // jobState reads the status, error code and attempt count of one job.
 // jobState 读取单个任务的状态、错误码与尝试次数。
-func jobState(t *testing.T, pool *pgxpool.Pool, jobID int64) (status, code string, attempts int) {
+func jobState(t *testing.T, pool *db.Pool, jobID int64) (status, code string, attempts int) {
 	t.Helper()
 	if err := pool.QueryRow(context.Background(),
 		`SELECT status, COALESCE(last_error_code, ''), attempts FROM message_jobs WHERE id = $1`, jobID,
@@ -136,7 +136,7 @@ func TestConversationIngestDedupAndJobCycle(t *testing.T) {
 		t.Fatalf("get conversation: ok=%v conv=%+v err=%v", ok, conv, err)
 	}
 
-	if err := repo.CompleteJob(ctx, first.JobID); err != nil {
+	if err := repo.CompleteJob(ctx, first.JobID, dbtest.Claim(t, pool, first.JobID)); err != nil {
 		t.Fatalf("complete job: %v", err)
 	}
 	jobs, err = repo.ClaimReadyJobs(ctx, 500)
@@ -196,8 +196,14 @@ func TestClaimReadyJobsExclusiveAndRecovery(t *testing.T) {
 		t.Fatalf("processing job %d must not be claimed again", ingest.JobID)
 	}
 
+	if _, err := pool.Exec(context.Background(), "UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE status='processing'"); err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.RecoverStaleJobs(ctx); err != nil {
 		t.Fatalf("recover stale jobs: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE message_jobs SET next_run_at=clock_timestamp() WHERE status='pending'"); err != nil {
+		t.Fatal(err)
 	}
 	third, err := repo.ClaimReadyJobs(ctx, 50)
 	if err != nil {
@@ -207,7 +213,7 @@ func TestClaimReadyJobsExclusiveAndRecovery(t *testing.T) {
 		t.Fatalf("recovered job %d must be claimable again", ingest.JobID)
 	}
 
-	if err := repo.CompleteJob(ctx, ingest.JobID); err != nil {
+	if err := repo.CompleteJob(ctx, ingest.JobID, dbtest.Claim(t, pool, ingest.JobID)); err != nil {
 		t.Fatalf("complete job: %v", err)
 	}
 }
@@ -264,7 +270,7 @@ func TestClaimReadyJobsConcurrentExclusive(t *testing.T) {
 						issue = append(issue, fmt.Sprintf("job %d claimed twice", j.ID))
 					}
 					mu.Unlock()
-					if err := repo.CompleteJob(ctx, j.ID); err != nil {
+					if err := repo.CompleteJob(ctx, j.ID, dbtest.Claim(t, pool, j.ID)); err != nil {
 						mu.Lock()
 						issue = append(issue, err.Error())
 						mu.Unlock()
@@ -427,7 +433,7 @@ func TestFailJobDoesNotRetryDeliveredJob(t *testing.T) {
 	res := ingestAndClaim(t, repo, botID, 994002, "部分成功")
 	insertLedgerRecord(t, pool, res.JobID, res.ConversationID, botID, 1, "sent")
 
-	if err := repo.FailJob(context.Background(), res.JobID, "process_error", 5*time.Second, 5); err != nil {
+	if err := repo.FailJob(context.Background(), res.JobID, "process_error", 5*time.Second, 5, dbtest.Claim(t, pool, res.JobID)); err != nil {
 		t.Fatalf("fail job: %v", err)
 	}
 	status, code, attempts := jobState(t, pool, res.JobID)
@@ -456,7 +462,7 @@ func TestFailJobRetriesWithoutDelivery(t *testing.T) {
 	}
 	res := ingestAndClaim(t, repo, 994003, 994004, "普通失败")
 
-	if err := repo.FailJob(context.Background(), res.JobID, "process_error", 5*time.Second, 5); err != nil {
+	if err := repo.FailJob(context.Background(), res.JobID, "process_error", 5*time.Second, 5, dbtest.Claim(t, pool, res.JobID)); err != nil {
 		t.Fatalf("fail job: %v", err)
 	}
 	status, code, attempts := jobState(t, pool, res.JobID)
@@ -482,6 +488,9 @@ func TestRecoverStaleJobsPartitionsByLedger(t *testing.T) {
 	deliveredRecord := insertLedgerRecord(t, pool, deliveredJob.JobID, deliveredJob.ConversationID, botID, 1, "sent")
 	cleanJob := ingestAndClaim(t, repo, botID, 994008, "未发送重启")
 
+	if _, err := pool.Exec(context.Background(), "UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE status='processing'"); err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.RecoverStaleJobs(context.Background()); err != nil {
 		t.Fatalf("recover stale jobs: %v", err)
 	}
@@ -498,7 +507,7 @@ func TestRecoverStaleJobsPartitionsByLedger(t *testing.T) {
 			t.Fatalf("ledger %s = %s/%s, want %s/%s", id, status, code, wantStatus, wantCode)
 		}
 	}
-	assertLedger(sendingRecord, "unknown", "recovered")
+	assertLedger(sendingRecord, "unknown", "lease_expired")
 	assertLedger(deliveredRecord, "sent", "")
 
 	if status, code, _ := jobState(t, pool, sendingJob.JobID); status != "failed" || code != "partial" {
@@ -507,7 +516,7 @@ func TestRecoverStaleJobsPartitionsByLedger(t *testing.T) {
 	if status, code, _ := jobState(t, pool, deliveredJob.JobID); status != "failed" || code != "partial" {
 		t.Fatalf("delivered job = %s/%s, want failed/partial", status, code)
 	}
-	if status, code, _ := jobState(t, pool, cleanJob.JobID); status != "pending" || code != "" {
+	if status, code, _ := jobState(t, pool, cleanJob.JobID); status != "pending" || code != "lease_expired" {
 		t.Fatalf("clean job = %s/%s, want pending/empty", status, code)
 	}
 }
@@ -527,7 +536,7 @@ func TestFailJobDoesNotRetryInFlightSend(t *testing.T) {
 	res := ingestAndClaim(t, repo, botID, 994010, "发送中失败")
 	insertLedgerRecord(t, pool, res.JobID, res.ConversationID, botID, 1, "sending")
 
-	if err := repo.FailJob(context.Background(), res.JobID, "panic", 5*time.Second, 5); err != nil {
+	if err := repo.FailJob(context.Background(), res.JobID, "panic", 5*time.Second, 5, dbtest.Claim(t, pool, res.JobID)); err != nil {
 		t.Fatalf("fail job: %v", err)
 	}
 	if status, code, _ := jobState(t, pool, res.JobID); status != "failed" || code != "partial" {
@@ -543,6 +552,9 @@ func TestRecoveryDoesNotReplayFailedPlatformAttempt(t *testing.T) {
 	}
 	job := ingestAndClaim(t, repo, 994015, 994016, "明确失败后崩溃")
 	insertLedgerRecord(t, pool, job.JobID, job.ConversationID, 994015, 1, "failed")
+	if _, err := pool.Exec(context.Background(), "UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE status='processing'"); err != nil {
+		t.Fatal(err)
+	}
 	if err = repo.RecoverStaleJobs(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -632,7 +644,11 @@ func TestReplyActivityExcludesFailedAndCountsUncertainDeliveryOnce(t *testing.T)
 	if err != nil || last.IsZero() || count != 1 {
 		t.Fatalf("uncertain delivery was not counted: %v %d %v", last, count, err)
 	}
-	if err := repo.RecordOutgoing(ctx, input.ConversationID, botID, "unknown", 0, "unknown", unknown); err != nil {
+	claim := dbtest.Claim(t, pool, input.JobID)
+	if _, err := pool.Exec(ctx, "UPDATE agent_outbound_messages SET claim_token=$2::uuid WHERE id=$1", unknown, claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RecordOutgoing(ctx, input.ConversationID, botID, "unknown", 0, "unknown", unknown, claim); err != nil {
 		t.Fatal(err)
 	}
 	_, count, err = repo.BotReplyMeta(ctx, input.ConversationID)

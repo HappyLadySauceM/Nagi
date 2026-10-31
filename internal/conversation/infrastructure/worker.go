@@ -26,11 +26,12 @@ type JobProcessor interface {
 // WorkerOptions bounds the worker pool.
 // WorkerOptions 限定工作器池。
 type WorkerOptions struct {
-	Concurrency  int
-	MaxPending   int
-	PollInterval time.Duration
-	MaxAttempts  int
-	RetryBackoff time.Duration
+	RenewInterval time.Duration
+	Concurrency   int
+	MaxPending    int
+	PollInterval  time.Duration
+	MaxAttempts   int
+	RetryBackoff  time.Duration
 	// Identity may be nil, in which case traces carry no user dimension.
 	// Identity 可为 nil，此时 trace 不携带用户维度。
 	Identity *observability.Identities
@@ -53,6 +54,9 @@ type Worker struct {
 func NewWorker(repo application.Repository, processor JobProcessor, opts WorkerOptions, logger *slog.Logger) (*Worker, error) {
 	if repo == nil || processor == nil || logger == nil {
 		return nil, fmt.Errorf("conversation: worker dependencies required")
+	}
+	if opts.RenewInterval <= 0 {
+		opts.RenewInterval = 30 * time.Second
 	}
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 4
@@ -77,97 +81,103 @@ func NewWorker(repo application.Repository, processor JobProcessor, opts WorkerO
 // Run 先恢复遗留任务，随后循环直至 ctx 取消；返回前排空在途任务，
 // 保证退出不会中断正在执行的决策流水线。
 func (w *Worker) Run(ctx context.Context) error {
-	if err := w.repo.RecoverStaleJobs(ctx); err != nil {
-		w.logger.Warn("recover stale jobs failed", "error", err)
-	}
-
 	var wg sync.WaitGroup
-	var qmu sync.Mutex
-	queues := make(map[string]chan domain.Job)
-	sem := make(chan struct{}, w.opts.Concurrency)
-
-	defer func() {
-		qmu.Lock()
-		for _, ch := range queues {
-			close(ch)
+	var mu sync.Mutex
+	active := map[string]context.CancelFunc{}
+	renewalCtx, stopRenewal := context.WithCancel(context.Background())
+	defer stopRenewal()
+	renewDone := make(chan struct{})
+	defer func() { stopRenewal(); <-renewDone }()
+	go func() {
+		defer close(renewDone)
+		ticker := time.NewTicker(w.opts.RenewInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-renewalCtx.Done():
+				return
+			case <-ticker.C:
+				mu.Lock()
+				tokens := make([]string, 0, len(active))
+				for token := range active {
+					tokens = append(tokens, token)
+				}
+				mu.Unlock()
+				if renewer, ok := w.repo.(interface {
+					RenewClaims(context.Context, []string) ([]string, error)
+				}); ok {
+					c, cancel := context.WithTimeout(renewalCtx, 5*time.Second)
+					renewed, err := renewer.RenewClaims(c, tokens)
+					cancel()
+					good := map[string]bool{}
+					if err == nil {
+						for _, token := range renewed {
+							good[token] = true
+						}
+					}
+					mu.Lock()
+					for _, token := range tokens {
+						if !good[token] {
+							if cancel := active[token]; cancel != nil {
+								cancel()
+							}
+						}
+					}
+					mu.Unlock()
+				}
+			}
 		}
-		qmu.Unlock()
-		wg.Wait()
 	}()
-
-	nextReconcile := time.Time{}
+	defer wg.Wait()
+	nextRecovery := time.Time{}
+	ticker := time.NewTicker(w.opts.PollInterval)
+	defer ticker.Stop()
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		if time.Now().After(nextReconcile) {
-			nextReconcile = time.Now().Add(30 * time.Second)
+		if time.Now().After(nextRecovery) {
+			nextRecovery = time.Now().Add(30 * time.Second)
+			if err := w.repo.RecoverStaleJobs(ctx, domain.RecoveryPolicy{MaxAttempts: w.opts.MaxAttempts, RetryBackoff: w.opts.RetryBackoff}); err != nil {
+				w.logger.Warn("recover expired claims failed", "error", err)
+			}
 			if repair, ok := w.repo.(interface{ ReconcileOutgoing(context.Context) error }); ok {
 				if err := repair.ReconcileOutgoing(ctx); err != nil {
 					w.logger.Warn("reconcile outgoing history failed", "error", err)
 				}
 			}
 		}
-		w.dispatchBatch(ctx, &qmu, queues, &wg, sem)
+		free := w.opts.Concurrency - int(w.pending.Load())
+		if free > 0 {
+			if free > w.opts.MaxPending {
+				free = w.opts.MaxPending
+			}
+			jobs, err := w.repo.ClaimReadyJobs(ctx, free)
+			if err != nil {
+				w.logger.Warn("claim jobs failed", "error", err)
+			} else {
+				for _, job := range jobs {
+					jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+					mu.Lock()
+					active[job.ClaimToken] = cancel
+					mu.Unlock()
+					w.pending.Add(1)
+					wg.Add(1)
+					go func(job domain.Job) {
+						defer wg.Done()
+						defer w.pending.Add(-1)
+						defer cancel()
+						defer func() { mu.Lock(); delete(active, job.ClaimToken); mu.Unlock() }()
+						w.process(jobCtx, job)
+					}(job)
+				}
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(w.opts.PollInterval):
+		case <-ticker.C:
 		}
-	}
-}
-
-// dispatchBatch claims ready jobs into per-conversation queues without blocking.
-// Jobs that do not fit are released back to the pending state.
-// dispatchBatch 将就绪任务非阻塞地放入会话队列；放不下的任务退回待处理状态。
-func (w *Worker) dispatchBatch(ctx context.Context, qmu *sync.Mutex, queues map[string]chan domain.Job, wg *sync.WaitGroup, sem chan struct{}) {
-	if w.pending.Load() >= int64(w.opts.MaxPending) {
-		return
-	}
-	jobs, err := w.repo.ClaimReadyJobs(ctx, int(w.opts.MaxPending)-int(w.pending.Load()))
-	if err != nil {
-		// The database being down must not crash the loop; retry on the next tick.
-		// 数据库故障不能中断循环；下一个轮询周期重试。
-		w.logger.Warn("claim ready jobs failed", "error", err)
-		return
-	}
-	for _, job := range jobs {
-		qmu.Lock()
-		ch, ok := queues[job.ConversationID]
-		if !ok {
-			ch = make(chan domain.Job, 64)
-			queues[job.ConversationID] = ch
-			wg.Add(1)
-			go w.consume(ctx, ch, sem, wg.Done)
-		}
-		qmu.Unlock()
-		select {
-		case ch <- job:
-			w.pending.Add(1)
-		default:
-			// Conversation queue full: release the claim so the job is retried
-			// on a later poll instead of staying stuck in processing.
-			// 会话队列已满：释放认领，任务留待后续轮询重试。
-			if err := w.repo.ReleaseJob(ctx, job.ID); err != nil {
-				w.logger.Warn("release job failed", "job_id", job.ID, "error", err)
-			}
-		}
-	}
-}
-
-// consume processes one conversation's jobs strictly in order.
-// consume 严格按顺序处理单个会话的任务。
-func (w *Worker) consume(ctx context.Context, ch <-chan domain.Job, sem chan struct{}, done func()) {
-	defer done()
-	for job := range ch {
-		select {
-		case <-ctx.Done():
-			return
-		case sem <- struct{}{}:
-		}
-		w.process(ctx, job)
-		w.pending.Add(-1)
-		<-sem
 	}
 }
 
@@ -181,7 +191,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 	// not sever the parent chain while the job is still finishing.
 	// 追踪上下文必须在脱离取消的上下文上还原，避免关停期间切断父链。
 	jobCtx := observability.TraceContext{TraceParent: job.TraceParent, TraceState: job.TraceState}.
-		Restore(context.WithoutCancel(ctx))
+		Restore(ctx)
 	jobCtx, span := tracer().Start(jobCtx, "nagi.worker.process")
 	defer span.End()
 	// A job without a stored context predates trace propagation; marking it
@@ -218,7 +228,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		if rec := recover(); rec != nil {
 			w.logger.Error("job processor panicked", "job_id", job.ID, "panic", fmt.Sprint(rec))
 			span.RecordError(fmt.Errorf("panic: %v", rec))
-			w.finish(jobCtx, job.ID, "failed", "panic")
+			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "panic")
 		}
 	}()
 	if err := w.processor.Process(jobCtx, job); err != nil {
@@ -227,7 +237,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 			"status": "failed",
 		})
-		w.finish(jobCtx, job.ID, "failed", "process_error")
+		w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "process_error")
 		return
 	}
 	if reader, ok := w.repo.(interface {
@@ -235,20 +245,20 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 	}); ok {
 		if err := reader.DeliveryError(jobCtx, job.ID); err != nil {
 			span.RecordError(err)
-			w.finish(jobCtx, job.ID, "failed", "delivery_incomplete")
+			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "delivery_incomplete")
 			return
 		}
 	}
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"status": "done",
 	})
-	w.finish(jobCtx, job.ID, "done", "")
+	w.finish(jobCtx, job.ID, job.ClaimToken, "done", "")
 }
 
 // finish records the terminal job state inside its own span so a completed job
 // is never mistaken for a delivered message.
 // finish 在独立 span 中记录任务终态，避免把任务完成误认为消息已送达。
-func (w *Worker) finish(ctx context.Context, jobID int64, status, code string) {
+func (w *Worker) finish(ctx context.Context, jobID int64, claim, status, code string) {
 	ctx, span := tracer().Start(ctx, "nagi.message.finalize")
 	defer span.End()
 	span.SetAttributes(attribute.String("nagi.job.status", status))
@@ -261,9 +271,9 @@ func (w *Worker) finish(ctx context.Context, jobID int64, status, code string) {
 	})
 	var err error
 	if status == "done" {
-		err = w.repo.CompleteJob(ctx, jobID)
+		err = w.repo.CompleteJob(ctx, jobID, claim)
 	} else {
-		err = w.repo.FailJob(ctx, jobID, code, w.opts.RetryBackoff, w.opts.MaxAttempts)
+		err = w.repo.FailJob(ctx, jobID, code, w.opts.RetryBackoff, w.opts.MaxAttempts, claim)
 	}
 	if err != nil {
 		span.RecordError(err)

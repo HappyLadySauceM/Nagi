@@ -438,8 +438,8 @@ func (c *Config) Validate() error {
 	if c.Echo.Enabled && strings.TrimSpace(c.Echo.Prefix) == "" {
 		return fmt.Errorf("config: echo.enabled 时 echo.prefix 不能为空")
 	}
-	if c.Database.MaxConns <= 0 {
-		return fmt.Errorf("config: database.max-conns 必须为正数")
+	if c.Database.MaxConns <= 0 || c.Database.MaxConns > 12 {
+		return fmt.Errorf("config: database.max-conns 必须介于 1 和 12 之间")
 	}
 	if c.Worker.Concurrency <= 0 {
 		return fmt.Errorf("config: worker.concurrency 必须为正数")

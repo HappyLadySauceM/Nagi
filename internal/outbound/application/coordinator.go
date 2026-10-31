@@ -14,15 +14,15 @@ import (
 // Repository 持久化投递台账；由 infrastructure 实现。
 type Repository interface {
 	Reserve(ctx context.Context, in domain.ReserveInput) (domain.Record, error)
-	MarkSending(ctx context.Context, id string) error
-	Settle(ctx context.Context, id string, outcome Outcome) error
+	MarkSending(ctx context.Context, id string, claim ...string) error
+	Settle(ctx context.Context, id string, outcome Outcome, claim ...string) error
 	HasDelivered(ctx context.Context, jobID int64) (bool, error)
-	RecoverStale(ctx context.Context) (int, error)
 }
 
 // Request describes one message to reserve inside an agent run.
 // Request 描述一次 Agent 运行内待预留的一条消息。
 type Request struct {
+	ClaimToken     string
 	JobID          int64
 	BotID          int64
 	ConversationID string
@@ -72,6 +72,7 @@ func (c *Coordinator) Reserve(ctx context.Context, req Request) (domain.Record, 
 	}
 	return c.repo.Reserve(ctx, domain.ReserveInput{
 		JobID:          req.JobID,
+		ClaimToken:     req.ClaimToken,
 		BotID:          req.BotID,
 		ConversationID: req.ConversationID,
 		RunID:          req.RunID,
@@ -84,23 +85,23 @@ func (c *Coordinator) Reserve(ctx context.Context, req Request) (domain.Record, 
 // MarkSending advances one reserved record to sending; the platform call must
 // only happen after this succeeds.
 // MarkSending 把一条已预留记录推进为 sending；只有调用成功后才能发起平台发送。
-func (c *Coordinator) MarkSending(ctx context.Context, id string) error {
+func (c *Coordinator) MarkSending(ctx context.Context, id string, claim ...string) error {
 	if id == "" {
 		return fmt.Errorf("outbound: mark sending requires record id")
 	}
-	return c.repo.MarkSending(ctx, id)
+	return c.repo.MarkSending(ctx, id, claim...)
 }
 
 // Settle records the terminal state of one sending record.
 // Settle 记录一条 sending 记录的终态。
-func (c *Coordinator) Settle(ctx context.Context, id string, outcome Outcome) error {
+func (c *Coordinator) Settle(ctx context.Context, id string, outcome Outcome, claim ...string) error {
 	if id == "" {
 		return fmt.Errorf("outbound: settle requires record id")
 	}
 	if !outcome.Status.Settleable() {
 		return fmt.Errorf("outbound: settle %s: %w", id, domain.ErrInvalidSettlement)
 	}
-	return c.repo.Settle(ctx, id, outcome)
+	return c.repo.Settle(ctx, id, outcome, claim...)
 }
 
 // HasDelivered reports whether the job already has a record whose delivery is
@@ -112,14 +113,6 @@ func (c *Coordinator) HasDelivered(ctx context.Context, jobID int64) (bool, erro
 		return false, fmt.Errorf("outbound: has delivered requires job id")
 	}
 	return c.repo.HasDelivered(ctx, jobID)
-}
-
-// RecoverStale converts records left in sending by a previous process into
-// unknown; the outcome cannot be confirmed and must never be resent.
-// RecoverStale 把上次进程遗留的 sending 记录改为 unknown：结果无法确认，
-// 不得自动重发。
-func (c *Coordinator) RecoverStale(ctx context.Context) (int, error) {
-	return c.repo.RecoverStale(ctx)
 }
 
 // DeliveryError reports incomplete deliveries without replaying the run.
@@ -135,22 +128,22 @@ func (c *Coordinator) DeliveryError(ctx context.Context, jobID int64) error {
 
 // Cancel releases a reservation that has not reached the platform.
 // Cancel 释放尚未进入平台调用的预留。
-func (c *Coordinator) Cancel(ctx context.Context, id string) error {
+func (c *Coordinator) Cancel(ctx context.Context, id string, claim ...string) error {
 	if repo, ok := c.repo.(interface {
-		Cancel(context.Context, string) error
+		Cancel(context.Context, string, ...string) error
 	}); ok {
-		return repo.Cancel(ctx, id)
+		return repo.Cancel(ctx, id, claim...)
 	}
 	return fmt.Errorf("outbound: cancel unavailable")
 }
 
 // RecordDenied persists a run termination without claiming a platform attempt.
 // RecordDenied 持久化运行拒绝原因，不将其算作平台发送尝试。
-func (c *Coordinator) RecordDenied(ctx context.Context, jobID int64, reason string) error {
+func (c *Coordinator) RecordDenied(ctx context.Context, jobID int64, reason string, claim ...string) error {
 	if repo, ok := c.repo.(interface {
-		RecordDenied(context.Context, int64, string) error
+		RecordDenied(context.Context, int64, string, ...string) error
 	}); ok {
-		return repo.RecordDenied(ctx, jobID, reason)
+		return repo.RecordDenied(ctx, jobID, reason, claim...)
 	}
 	return fmt.Errorf("outbound: outcome recorder unavailable")
 }

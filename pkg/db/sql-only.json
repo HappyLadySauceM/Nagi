@@ -1,0 +1,15 @@
+{
+  "database": "nagi",
+  "schema": "public",
+  "objects": [
+    {
+      "name": "schema_migrations",
+      "kind": "table",
+      "owner": "reviewed versioned SQL",
+      "exclude": "schema_migrations",
+      "purpose": "Bytebase-applied schema version; applications only read it"
+    }
+  ],
+  "expression_indexes": [],
+  "business_table_exclusions": []
+}

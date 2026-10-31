@@ -44,10 +44,10 @@ echo:
 database:
   # PostgreSQL 连接字符串，直接填写。本地基础设施由仓库 docker-compose.yml 提供
   # （docker compose up -d），DSN 形如：
-  #   postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable
+  #   postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent?sslmode=disable
   # 进程启动时自动应用 migrations/ 下的版本化迁移，无需手工执行。
   # 留空时数据库相关功能（目录/作用域/会话/记忆/观测）不启用。
-  dsn: "postgres://nagi:nagi-local@127.0.0.1:5433/nagi?sslmode=disable"
+  dsn: "postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent?sslmode=disable"
   # 连接池上限
   max-conns: 10
 

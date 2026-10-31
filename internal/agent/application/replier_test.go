@@ -103,7 +103,7 @@ type fakeRecorder struct {
 	outboundIDs   []string
 }
 
-func (f *fakeRecorder) RecordOutgoing(_ context.Context, conversationID string, _ int64, _ string, platformMessageID int64, sentStatus string, outboundID string) error {
+func (f *fakeRecorder) RecordOutgoing(_ context.Context, conversationID string, _ int64, _ string, platformMessageID int64, sentStatus string, outboundID string, claim ...string) error {
 	f.conversations = append(f.conversations, conversationID)
 	f.statuses = append(f.statuses, sentStatus)
 	f.messageIDs = append(f.messageIDs, platformMessageID)
@@ -137,7 +137,7 @@ func (f *fakeLedger) Reserve(_ context.Context, req outboundapp.Request) (outbou
 	}, nil
 }
 
-func (f *fakeLedger) MarkSending(_ context.Context, id string) error {
+func (f *fakeLedger) MarkSending(_ context.Context, id string, claim ...string) error {
 	if f.markErr != nil {
 		return f.markErr
 	}
@@ -145,7 +145,7 @@ func (f *fakeLedger) MarkSending(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeLedger) Settle(_ context.Context, _ string, outcome outboundapp.Outcome) error {
+func (f *fakeLedger) Settle(_ context.Context, _ string, outcome outboundapp.Outcome, claim ...string) error {
 	if f.settleErr != nil {
 		return f.settleErr
 	}
@@ -783,7 +783,7 @@ type definiteSendError struct{}
 func (definiteSendError) Error() string         { return "platform action rejected" }
 func (definiteSendError) DefiniteFailure() bool { return true }
 
-func (f *fakeLedger) RecordDenied(_ context.Context, _ int64, reason string) error {
+func (f *fakeLedger) RecordDenied(_ context.Context, _ int64, reason string, claim ...string) error {
 	f.denied = append(f.denied, reason)
 	return nil
 }
@@ -818,5 +818,22 @@ func TestGuardRefusalIsRecordedBeforeGenerationCompletes(t *testing.T) {
 	}
 	if len(ledger.denied) != 1 || len(sender.texts) != 0 {
 		t.Fatalf("duplicate refusal or fallback: denied=%v sends=%v", ledger.denied, sender.texts)
+	}
+}
+
+func TestReplierDoesNotWriteHistoryWhenSettlementFails(t *testing.T) {
+	runtime := &fakeRuntime{text: "receipt without settlement"}
+	sender := &fakeSender{msgID: 7788}
+	recorder := &fakeRecorder{}
+	ledger := &fakeLedger{settleErr: errors.New("injected commit failure")}
+	replier := newReplierWithLedger(t, runtime, sender, recorder, enabledGroupPolicy(), ledger)
+	if err := replier.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err == nil {
+		t.Fatal("failed settlement was reported as success")
+	}
+	if len(recorder.statuses) != 0 {
+		t.Fatalf("history escaped failed settlement: %+v", recorder)
+	}
+	if len(sender.group) != 1 {
+		t.Fatalf("platform calls=%d", len(sender.group))
 	}
 }

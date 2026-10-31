@@ -4,27 +4,30 @@ package infrastructure
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
+	eo "github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
 
-// Repo is the pgx-backed delivery ledger.
-// Repo 是基于 pgx 的投递台账。
+// Repo is the Ent-backed delivery ledger.
+// Repo 是基于 Ent 的投递台账。
 type Repo struct {
-	pool *pgxpool.Pool
+	pool *db.Pool
 }
 
 // NewRepo builds the repository; the pool must not be nil.
 // NewRepo 构建仓库；pool 不能为 nil。
-func NewRepo(pool *pgxpool.Pool) (*Repo, error) {
+func NewRepo(pool *db.Pool) (*Repo, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("outbound: pool required")
 	}
@@ -46,15 +49,20 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if in.ClaimToken == "" {
+		return domain.Record{}, ErrLeaseLost
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var conversation string
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM conversations WHERE id=$1 FOR UPDATE`, in.ConversationID).Scan(&conversation); err != nil {
 		return domain.Record{}, err
 	}
 	var jobID int64
 	if err := tx.QueryRow(ctx,
-		`SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE j.id=$1 AND m.bot_id=$2 AND m.conversation_id=$3 FOR UPDATE OF j`, in.JobID, in.BotID, in.ConversationID,
+		`SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE j.id=$1 AND m.bot_id=$2 AND m.conversation_id=$3 AND j.claim_token=$4::uuid AND j.status='processing' AND j.lease_expires_at>clock_timestamp() FOR UPDATE OF j`, in.JobID, in.BotID, in.ConversationID, in.ClaimToken,
 	).Scan(&jobID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Record{}, fmt.Errorf("outbound: reserve job %d: %w", in.JobID, domain.ErrRecordNotFound)
 		}
 		return domain.Record{}, fmt.Errorf("outbound: lock job %d: %w", in.JobID, err)
@@ -81,11 +89,19 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 						old.NotBefore = last.Add(time.Duration(in.Limits.MinIntervalMS) * time.Millisecond)
 					}
 				}
+				var live bool
+				if err := tx.QueryRow(ctx, "SELECT status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp() FROM message_jobs WHERE id=$1", in.JobID, in.ClaimToken).Scan(&live); err != nil {
+					return domain.Record{}, err
+				}
+				if !live {
+					return domain.Record{}, ErrLeaseLost
+				}
+				old.ClaimToken = in.ClaimToken
 				old.Status = domain.Status(status)
 				return old, nil
 			}
 		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return domain.Record{}, err
 		}
 	}
@@ -108,7 +124,7 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	var used domain.Usage
 	if err := tx.QueryRow(ctx,
 		`SELECT reserved_messages, reserved_chars FROM agent_run_budgets WHERE job_id = $1`, in.JobID,
-	).Scan(&used.Messages, &used.Chars); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	).Scan(&used.Messages, &used.Chars); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return domain.Record{}, fmt.Errorf("outbound: read run budget: %w", err)
 	}
 	if err := domain.CheckBudget(in.Limits, used, in.Text); err != nil {
@@ -123,6 +139,7 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	}
 
 	record := domain.Record{
+		ClaimToken:     in.ClaimToken,
 		ID:             uuid.NewString(),
 		JobID:          in.JobID,
 		ConversationID: in.ConversationID,
@@ -136,16 +153,16 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	if reusable != nil {
 		record.ID = reusable.ID
 		record.Sequence = reusable.Sequence
-		if _, err := tx.Exec(ctx, "UPDATE agent_outbound_messages SET status='prepared',platform_message_id=NULL,error_code=NULL,run_id=$2,created_at=now(),updated_at=now() WHERE id=$1 AND status='cancelled'", record.ID, record.RunID); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE agent_outbound_messages SET status='prepared',platform_message_id=NULL,error_code=NULL,run_id=$2,claim_token=$3::uuid,created_at=now(),updated_at=now() WHERE id=$1 AND status='cancelled'", record.ID, record.RunID, in.ClaimToken); err != nil {
 			return domain.Record{}, err
 		}
 	} else {
 		if _, err := tx.Exec(ctx, `
 		INSERT INTO agent_outbound_messages
-			(id, job_id, conversation_id, bot_id, run_id, sequence, tool_call_id, text_content, status)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
+			(id, job_id, conversation_id, bot_id, run_id, sequence, tool_call_id, text_content, status,claim_token)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9,$10::uuid)
 	`, record.ID, record.JobID, record.ConversationID, record.BotID, record.RunID,
-			record.Sequence, record.ToolCallID, record.Text, string(record.Status),
+			record.Sequence, record.ToolCallID, record.Text, string(record.Status), in.ClaimToken,
 		); err != nil {
 			return domain.Record{}, fmt.Errorf("outbound: insert record: %w", err)
 		}
@@ -173,6 +190,13 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 		return domain.Record{}, fmt.Errorf("outbound: reserve budget: %w", err)
 	}
 
+	var live bool
+	if err := tx.QueryRow(ctx, "SELECT status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp() FROM message_jobs WHERE id=$1", in.JobID, in.ClaimToken).Scan(&live); err != nil {
+		return domain.Record{}, err
+	}
+	if !live {
+		return domain.Record{}, ErrLeaseLost
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Record{}, fmt.Errorf("outbound: commit reserve: %w", err)
 	}
@@ -183,135 +207,101 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 // state reports a transition error so callers never send twice.
 // MarkSending 把一条 prepared 记录推进为 sending；状态不符时返回迁移错误，
 // 调用方因此不会重复发送。
-func (r *Repo) MarkSending(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE agent_outbound_messages SET status = 'sending', updated_at = now()
-		WHERE id = $1 AND status = 'prepared'
-	`, id)
-	if err != nil {
-		return fmt.Errorf("outbound: mark sending: %w", err)
+func (r *Repo) MarkSending(ctx context.Context, id string, claim ...string) error {
+	if len(claim) != 1 || claim[0] == "" {
+		return ErrLeaseLost
 	}
-	if tag.RowsAffected() > 0 {
-		return nil
-	}
-	current, err := r.currentStatus(ctx, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	return &domain.TransitionError{RecordID: id, From: current, To: domain.StatusSending}
+	defer tx.Rollback(ctx)
+	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
+		return err
+	}
+	result, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status='sending',updated_at=clock_timestamp() WHERE id=$1 AND status='prepared' AND claim_token=$2::uuid AND EXISTS(SELECT 1 FROM message_jobs j WHERE j.id=agent_outbound_messages.job_id AND j.status='processing' AND j.claim_token=agent_outbound_messages.claim_token AND j.lease_expires_at>clock_timestamp())`, id, claim[0])
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		var current string
+		if err := tx.QueryRow(ctx, "SELECT status FROM agent_outbound_messages WHERE id=$1", id).Scan(&current); err != nil {
+			return err
+		}
+		return &domain.TransitionError{RecordID: id, From: domain.Status(current), To: domain.StatusSending}
+	}
+	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Settle moves one sending record into sent, failed or unknown and stores the
 // platform receipt or error code.
 // Settle 把一条 sending 记录落定为 sent/failed/unknown，并写入平台回执或错误码。
-func (r *Repo) Settle(ctx context.Context, id string, outcome application.Outcome) error {
+func (r *Repo) Settle(ctx context.Context, id string, outcome application.Outcome, claim ...string) error {
 	if !outcome.Status.Settleable() {
-		return fmt.Errorf("outbound: settle %s: %w", id, domain.ErrInvalidSettlement)
+		return domain.ErrInvalidSettlement
 	}
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE agent_outbound_messages SET
-			status = $2,
-			platform_message_id = NULLIF($3, 0),
-			error_code = NULLIF($4, ''),
-			updated_at = now()
-		WHERE id = $1 AND status = 'sending'
-	`, id, string(outcome.Status), outcome.PlatformMessageID, outcome.ErrorCode)
-	if err != nil {
-		return fmt.Errorf("outbound: settle: %w", err)
+	if len(claim) != 1 || claim[0] == "" {
+		return ErrLeaseLost
 	}
-	if tag.RowsAffected() > 0 {
-		return nil
-	}
-	current, err := r.currentStatus(ctx, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	return &domain.TransitionError{RecordID: id, From: current, To: outcome.Status}
+	defer tx.Rollback(ctx)
+	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
+		return err
+	}
+	result, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status=$2,platform_message_id=NULLIF($3,0),error_code=NULLIF($4,''),updated_at=clock_timestamp() WHERE id=$1 AND status='sending' AND claim_token=$5::uuid AND EXISTS(SELECT 1 FROM message_jobs j WHERE j.id=agent_outbound_messages.job_id AND j.status='processing' AND j.claim_token=agent_outbound_messages.claim_token AND j.lease_expires_at>clock_timestamp())`, id, string(outcome.Status), outcome.PlatformMessageID, outcome.ErrorCode, claim[0])
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		var state string
+		if err := tx.QueryRow(ctx, "SELECT status FROM agent_outbound_messages WHERE id=$1", id).Scan(&state); err != nil {
+			return err
+		}
+		return &domain.TransitionError{RecordID: id, From: domain.Status(state), To: outcome.Status}
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id,created_at) SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id,o.updated_at FROM agent_outbound_messages o JOIN conversations c ON c.id=o.conversation_id JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages WHERE o.id=$1 ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, id)
+	if err != nil {
+		return err
+	}
+	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // HasDelivered reports whether the job already has a sent or unknown record.
 // HasDelivered 报告该任务是否已有 sent 或 unknown 记录。
 func (r *Repo) HasDelivered(ctx context.Context, jobID int64) (bool, error) {
-	var delivered bool
-	if err := r.pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM agent_outbound_messages
-			WHERE job_id = $1 AND status IN ('sent', 'unknown')
-		)
-	`, jobID).Scan(&delivered); err != nil {
-		return false, fmt.Errorf("outbound: has delivered: %w", err)
-	}
-	return delivered, nil
-}
-
-// RecoverStale converts every record left in sending into unknown with the
-// recovered error code and reports how many were changed.
-// RecoverStale 把所有遗留的 sending 记录改为 unknown（错误码 recovered），
-// 并返回变更条数。
-func (r *Repo) RecoverStale(ctx context.Context) (int, error) {
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE agent_outbound_messages SET status = 'unknown', error_code = 'recovered', updated_at = now()
-		WHERE status = 'sending'
-	`)
-	if err != nil {
-		return 0, fmt.Errorf("outbound: recover stale records: %w", err)
-	}
-	return int(tag.RowsAffected()), nil
-}
-
-// currentStatus loads the stored status for a failed conditional update; a
-// missing row is reported as ErrRecordNotFound.
-// currentStatus 在条件更新未命中时读取已存状态；记录不存在时返回 ErrRecordNotFound。
-func (r *Repo) currentStatus(ctx context.Context, id string) (domain.Status, error) {
-	var current string
-	err := r.pool.QueryRow(ctx,
-		`SELECT status FROM agent_outbound_messages WHERE id = $1`, id,
-	).Scan(&current)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("outbound: record %s: %w", id, domain.ErrRecordNotFound)
-	}
-	if err != nil {
-		return "", fmt.Errorf("outbound: read record status: %w", err)
-	}
-	return domain.Status(current), nil
+	return r.pool.Client.AgentOutboundMessage.Query().Where(eo.JobID(jobID), eo.StatusIn("sent", "unknown")).Exist(ctx)
 }
 
 // ListByJob returns the delivery records of one job in sequence order; the
 // admin API uses it to explain what a run actually sent.
 // ListByJob 按序号返回某个任务的投递记录；管理 API 用它解释一次运行究竟发了什么。
 func (r *Repo) ListByJob(ctx context.Context, jobID int64) ([]domain.Record, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT id::text, job_id, conversation_id::text, bot_id, run_id, sequence, tool_call_id,
-		       text_content, status, COALESCE(platform_message_id, 0), COALESCE(error_code, ''),
-		       created_at, updated_at
-		FROM agent_outbound_messages
-		WHERE job_id = $1
-		ORDER BY sequence
-	`, jobID)
+	rows, err := r.pool.Client.AgentOutboundMessage.Query().Where(eo.JobID(jobID)).Order(ent.Asc(eo.FieldSequence)).All(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("outbound: list records: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	var out []domain.Record
-	for rows.Next() {
-		var (
-			record  domain.Record
-			status  string
-			created time.Time
-			updated time.Time
-		)
-		if err := rows.Scan(&record.ID, &record.JobID, &record.ConversationID, &record.BotID,
-			&record.RunID, &record.Sequence, &record.ToolCallID, &record.Text, &status,
-			&record.PlatformMessageID, &record.ErrorCode, &created, &updated); err != nil {
-			return nil, fmt.Errorf("outbound: scan record: %w", err)
+	out := []domain.Record{}
+	for _, v := range rows {
+		record := domain.Record{ID: v.ID.String(), JobID: v.JobID, ConversationID: v.ConversationID.String(), BotID: v.BotID, RunID: v.RunID, Sequence: v.Sequence, Text: v.TextContent, Status: domain.Status(v.Status), ClaimToken: v.ClaimToken.String(), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+		if v.ToolCallID != nil {
+			record.ToolCallID = *v.ToolCallID
 		}
-		record.Status = domain.Status(status)
-		record.CreatedAt = created
-		record.UpdatedAt = updated
+		if v.PlatformMessageID != nil {
+			record.PlatformMessageID = *v.PlatformMessageID
+		}
+		if v.ErrorCode != nil {
+			record.ErrorCode = *v.ErrorCode
+		}
 		out = append(out, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("outbound: scan records: %w", err)
 	}
 	return out, nil
 }
@@ -331,9 +321,39 @@ func (r *Repo) DeliveryError(ctx context.Context, jobID int64) error {
 
 // Cancel atomically cancels a prepared record and releases its run budget.
 // Cancel 原子取消 prepared 记录并释放运行预算。
-func (r *Repo) Cancel(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `WITH cancelled AS (UPDATE agent_outbound_messages SET status='cancelled',updated_at=now() WHERE id=$1 AND status='prepared' RETURNING job_id,char_length(text_content) AS chars) UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-1),reserved_chars=GREATEST(0,reserved_chars-c.chars) FROM cancelled c WHERE b.job_id=c.job_id`, id)
-	return err
+func (r *Repo) Cancel(ctx context.Context, id string, claim ...string) error {
+	if len(claim) != 1 || claim[0] == "" {
+		return ErrLeaseLost
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
+		return err
+	}
+	var state string
+	if err := tx.QueryRow(ctx, "SELECT status FROM agent_outbound_messages WHERE id=$1", id).Scan(&state); err != nil {
+		return err
+	}
+	if state == "cancelled" {
+		return nil
+	}
+	if state != "prepared" {
+		return &domain.TransitionError{RecordID: id, From: domain.Status(state), To: domain.StatusCancelled}
+	}
+	result, err := tx.Exec(ctx, `WITH cancelled AS(UPDATE agent_outbound_messages SET status='cancelled',updated_at=clock_timestamp() WHERE id=$1 AND status='prepared' AND claim_token=$2::uuid AND EXISTS(SELECT 1 FROM message_jobs j WHERE j.id=agent_outbound_messages.job_id AND j.status='processing' AND j.claim_token=agent_outbound_messages.claim_token AND j.lease_expires_at>clock_timestamp()) RETURNING job_id,char_length(text_content) chars) UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-1),reserved_chars=GREATEST(0,reserved_chars-c.chars) FROM cancelled c WHERE b.job_id=c.job_id`, id, claim[0])
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrLeaseLost
+	}
+	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // OwnsJob checks the account boundary before exposing delivery contents.
@@ -346,9 +366,18 @@ func (r *Repo) OwnsJob(ctx context.Context, botID, jobID int64) (bool, error) {
 
 // RecordDenied stores an administrative explanation for blocked output.
 // RecordDenied 保存输出被阻止时的管理诊断信息。
-func (r *Repo) RecordDenied(ctx context.Context, jobID int64, reason string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE message_jobs SET delivery_outcome='blocked',delivery_reason=$2,denied_count=denied_count+1 WHERE id=$1`, jobID, reason)
-	return err
+func (r *Repo) RecordDenied(ctx context.Context, jobID int64, reason string, claim ...string) error {
+	if len(claim) != 1 || claim[0] == "" {
+		return ErrLeaseLost
+	}
+	result, err := r.pool.Exec(ctx, `UPDATE message_jobs SET delivery_outcome='blocked',delivery_reason=$2,denied_count=denied_count+1 WHERE id=$1 AND status='processing' AND claim_token=$3::uuid AND lease_expires_at>clock_timestamp()`, jobID, reason, claim[0])
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrLeaseLost
+	}
+	return nil
 }
 
 // RunOutcome reads persisted refusal metadata for the delivery timeline.

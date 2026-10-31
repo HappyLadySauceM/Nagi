@@ -6,10 +6,11 @@ import (
 	"context"
 	"io/fs"
 	"testing"
+	"time"
 
-	"github.com/HappyLadySauceM/Nagi/migrations"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/migrations"
 )
 
 // TestMigrateAppliesAndReverses verifies that Migrate creates the core and
@@ -83,5 +84,83 @@ func TestMigrateAppliesAndReverses(t *testing.T) {
 	// 完整 Down 之后的首次 Migrate 必须报告所有版本均已应用，启动日志依赖该返回值。
 	if len(applied) != count {
 		t.Fatalf("migrate after down should report %d applied versions, got %v", count, applied)
+	}
+}
+
+func TestCheckVersionRejectsWrongRevisionAndMetadata(t *testing.T) {
+	pool := dbtest.Open(t)
+	ctx := context.Background()
+	if err := db.CheckVersion(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE schema_migrations SET version=version+1 WHERE version=$1", db.RequiredVersion); err != nil {
+		t.Fatal(err)
+	}
+	restore := func() {
+		_, err := pool.Exec(ctx, "UPDATE schema_migrations SET version=$1 WHERE version=$1::bigint+1", db.RequiredVersion)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(restore)
+	if err := db.CheckVersion(ctx, pool); err == nil {
+		t.Fatal("unexpected migration revision accepted")
+	}
+	restore()
+	if _, err := pool.Exec(ctx, "ALTER TABLE schema_migrations RENAME COLUMN applied_at TO wrong_column"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, "ALTER TABLE schema_migrations RENAME COLUMN wrong_column TO applied_at"); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := db.CheckVersion(ctx, pool); err == nil {
+		t.Fatal("SQL-only metadata drift accepted")
+	}
+}
+
+func TestEntAndSQLUseOneBoundedPool(t *testing.T) {
+	pool := dbtest.Open(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if limit := pool.DB.Stats().MaxOpenConnections; limit != 4 {
+		t.Fatalf("pool maximum=%d", limit)
+	}
+	// A single available connection makes an accidental second pool or pool call inside a transaction observable.
+	// 仅允许一个连接，使额外连接池或事务内误用外层连接池能够被观测。
+	pool.DB.SetMaxOpenConns(1)
+	tx, err := pool.Client.Tx(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.Client().QueryContext(ctx, "SELECT pg_backend_pid()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	if !rows.Next() {
+		t.Fatal("transaction query returned no row")
+	}
+	if err := rows.Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	if _, err := tx.Client().BotAccount.Query().Count(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if open := pool.DB.Stats().OpenConnections; open != 1 {
+		t.Fatalf("open connections=%d", open)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	var outside int
+	if err := pool.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&outside); err != nil {
+		t.Fatal(err)
+	}
+	if outside != pid {
+		t.Fatalf("Ent and SQL used separate pools: %d/%d", pid, outside)
 	}
 }

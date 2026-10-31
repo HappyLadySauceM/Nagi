@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/assembly"
@@ -24,7 +23,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
-	"github.com/HappyLadySauceM/Nagi/migrations"
+
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/HappyLadySauceM/Nagi/pkg/logging"
@@ -351,11 +350,11 @@ func verifyIdentity(logger *slog.Logger, account *assembly.AccountRuntime, botID
 	logger.Info("account identified", "bot_id", botID, "nickname", nickname)
 }
 
-// connectDatabase opens the pool and applies migrations when a DSN is configured;
+// connectDatabase opens the pool and validates externally applied migrations;
 // it returns nil when the DSN is empty, keeping the bot usable without a database.
-// connectDatabase 在配置了 DSN 时打开连接池并应用迁移；DSN 为空时返回 nil，
+// connectDatabase 打开连接池并校验外部迁移版本；DSN 为空时返回 nil，
 // 机器人可在无数据库的情况下继续运行。
-func connectDatabase(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*pgxpool.Pool, error) {
+func connectDatabase(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*db.Pool, error) {
 	dsn := strings.TrimSpace(cfg.Database.DSN)
 	if dsn == "" {
 		return nil, nil
@@ -366,18 +365,16 @@ func connectDatabase(ctx context.Context, cfg *config.Config, logger *slog.Logge
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	applied, err := db.Migrate(ctx, pool, migrations.FS)
+	err = db.CheckVersion(ctx, pool)
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	// Automatic migration is the only schema entry point; log what this start
-	// actually applied so operators never have to guess.
-	// 启动自动迁移是唯一的 schema 入口；记录本次实际应用的版本，运维无需猜测。
+	// Log the verified schema revision without executing migrations.
+	// 记录已验证的 schema 版本，不执行迁移。
 	logger.Info("database ready",
 		"max_conns", cfg.Database.MaxConns,
-		"migrations_applied", len(applied),
-		"migration_versions", applied)
+		"migration_version", db.RequiredVersion)
 	return pool, nil
 }
 

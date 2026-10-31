@@ -10,11 +10,11 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-PG_CONTAINER="${PG_CONTAINER:-nagi-postgres}"
+PG_CONTAINER="${PG_CONTAINER:-nagi-postgres17}"
 CH_CONTAINER="${CH_CONTAINER:-nagi-clickhouse-1}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-nagi-redis-1}"
 PG_USER="${PG_USER:-nagi}"
-PG_DB="${PG_DB:-nagi}"
+PG_DB="${PG_DB:-nagi_ent}"
 CH_USER="${CH_USER:-clickhouse}"
 CH_PASSWORD="${CLICKHOUSE_PASSWORD:-clickhouse}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-nagi-local-redis}"
@@ -178,7 +178,7 @@ build_backend_if_needed() {
   local need=0
   if [[ ! -x "$BACKEND_BIN" ]]; then
     need=1
-  elif [[ -n "$(find cmd internal pkg migrations go.mod -newer "$BACKEND_BIN" -print -quit 2>/dev/null)" ]]; then
+  elif [[ -n "$(find cmd internal pkg go.mod -newer "$BACKEND_BIN" -print -quit 2>/dev/null)" ]]; then
     need=1
   fi
   if ((need)); then

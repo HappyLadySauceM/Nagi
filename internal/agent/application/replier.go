@@ -50,15 +50,15 @@ type SenderResolver interface {
 // 由 outbound 协调器实现。
 type OutboundLedger interface {
 	Reserve(ctx context.Context, req outboundapp.Request) (outbounddomain.Record, error)
-	MarkSending(ctx context.Context, id string) error
-	Settle(ctx context.Context, id string, outcome outboundapp.Outcome) error
+	MarkSending(ctx context.Context, id string, claim ...string) error
+	Settle(ctx context.Context, id string, outcome outboundapp.Outcome, claim ...string) error
 	HasDelivered(ctx context.Context, jobID int64) (bool, error)
 }
 
 // OutboundRecorder persists the bot's outgoing reply for future context.
 // OutboundRecorder 持久化机器人出站回复，保证后续上下文可见。
 type OutboundRecorder interface {
-	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error
+	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string, claim ...string) error
 }
 
 // Options configure the replier.
@@ -191,6 +191,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		SenderID:            task.Message.SenderID,
 		MessageID:           task.Message.MessageID,
 		JobID:               task.JobID,
+		ClaimToken:          task.ClaimToken,
 		Messages:            toRuntimeMessages(messages),
 		PermissionOverrides: policy.ToolPermissions,
 		MaxOutputTokens:     r.currentMaxTokens(),
@@ -198,7 +199,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			toolMu.Lock()
 			toolRuns = append(toolRuns, run)
 			if run.ToolID == "qq.send_current" && (run.ErrorCode == "authorization_revoked" || run.ErrorCode == "tool_call_budget") {
-				if deniedErr := r.recordDenied(ctx, task.JobID, run.ErrorCode); deniedErr != nil && toolRecordErr == nil {
+				if deniedErr := r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken); deniedErr != nil && toolRecordErr == nil {
 					toolRecordErr = deniedErr
 				}
 			}
@@ -261,7 +262,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		}
 		sendAttempted = true
 		if len(runs) == 0 && (run.ErrorCode == "tool_call_budget" || run.ErrorCode == "authorization_revoked") {
-			if err := r.recordDenied(ctx, task.JobID, run.ErrorCode); err != nil {
+			if err := r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken); err != nil {
 				return err
 			}
 		}
@@ -279,7 +280,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return resolveErr
 	}
 	if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly {
-		return r.recordDenied(ctx, task.JobID, "authorization_revoked")
+		return r.recordDenied(ctx, task.JobID, "authorization_revoked", task.ClaimToken)
 	}
 	_, validateSpan := tracer.Start(ctx, "nagi.response.validate")
 	observability.RecordObservation(validateSpan, "langfuse.observation.input", map[string]any{
@@ -326,6 +327,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	reserveCtx, reserveSpan := tracer.Start(ctx, "nagi.outbound.reserve")
 	record, err := r.outbound.Reserve(reserveCtx, outboundapp.Request{
 		JobID:          task.JobID,
+		ClaimToken:     task.ClaimToken,
 		BotID:          task.BotID,
 		ConversationID: task.ConversationID,
 		Text:           reply,
@@ -347,7 +349,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 				"dimension": string(budget.Dimension),
 			})
 			reserveSpan.End()
-			if err := r.recordDenied(ctx, task.JobID, "budget_"+string(budget.Dimension)); err != nil {
+			if err := r.recordDenied(ctx, task.JobID, "budget_"+string(budget.Dimension), task.ClaimToken); err != nil {
 				return err
 			}
 			r.logger.Warn("outbound denied: run budget exceeded", "job_id", task.JobID,
@@ -363,11 +365,11 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 
 	defer func() {
 		if ledger, ok := r.outbound.(interface {
-			Cancel(context.Context, string) error
+			Cancel(context.Context, string, ...string) error
 		}); ok {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer cancel()
-			_ = ledger.Cancel(cleanup, record.ID)
+			_ = ledger.Cancel(cleanup, record.ID, record.ClaimToken)
 		}
 	}()
 	if !record.NotBefore.IsZero() {
@@ -384,13 +386,13 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return err
 	}
 	if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly {
-		return r.recordDenied(ctx, task.JobID, "authorization_revoked")
+		return r.recordDenied(ctx, task.JobID, "authorization_revoked", task.ClaimToken)
 	}
 	if validator, ok := r.outbound.(interface {
 		ValidateReserved(context.Context, string, outbounddomain.Limits) error
 	}); ok {
 		if err := validator.ValidateReserved(ctx, record.ID, r.limitsFor(ctx, task)); err != nil {
-			_ = r.recordDenied(ctx, task.JobID, "budget_changed")
+			_ = r.recordDenied(ctx, task.JobID, "budget_changed", task.ClaimToken)
 			return err
 		}
 	}
@@ -412,12 +414,12 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 
 		sendSpan.SetAttributes(attribute.String("nagi.sent_status", state), attribute.Int64("nagi.onebot_message_id", id))
 		return id, err
-	})
+	}, record.ClaimToken)
 	status, messageID := outcome.Status, outcome.PlatformMessageID
 	if !status.Settleable() {
 		return deliveryErr
 	}
-	if err := r.recorder.RecordOutgoing(ctx, task.ConversationID, task.BotID, reply, messageID, string(status), record.ID); err != nil {
+	if err := r.recorder.RecordOutgoing(ctx, task.ConversationID, task.BotID, reply, messageID, string(status), record.ID, record.ClaimToken); err != nil {
 		r.logger.Warn("record outgoing reply failed", "error", err, "job_id", task.JobID)
 	}
 	r.logger.Info("reply executed", "job_id", task.JobID, "sent_status", status,
@@ -636,13 +638,13 @@ func (r *Replier) limitsFor(ctx context.Context, task intentdomain.Task) outboun
 
 // recordDenied records why a run produced no additional message.
 // recordDenied 记录本轮停止继续输出的原因。
-func (r *Replier) recordDenied(ctx context.Context, jobID int64, reason string) error {
+func (r *Replier) recordDenied(ctx context.Context, jobID int64, reason string, claim ...string) error {
 	if recorder, ok := r.outbound.(interface {
-		RecordDenied(context.Context, int64, string) error
+		RecordDenied(context.Context, int64, string, ...string) error
 	}); ok {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
-		return recorder.RecordDenied(cleanup, jobID, reason)
+		return recorder.RecordDenied(cleanup, jobID, reason, claim...)
 	}
 	return nil
 }

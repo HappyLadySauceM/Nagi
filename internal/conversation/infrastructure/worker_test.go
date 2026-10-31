@@ -4,6 +4,7 @@ package infrastructure
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,39 +25,54 @@ type fakeJobRepo struct {
 	completed []int64
 	failed    []int64
 	recovered bool
+	claimed   map[int64]domain.Job
 }
 
 func (f *fakeJobRepo) ClaimReadyJobs(_ context.Context, limit int) ([]domain.Job, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	n := limit
-	if n > len(f.jobs) {
-		n = len(f.jobs)
+	if f.claimed == nil {
+		f.claimed = map[int64]domain.Job{}
 	}
-	out := append([]domain.Job(nil), f.jobs[:n]...)
-	f.jobs = f.jobs[n:]
+	busy := map[string]bool{}
+	for _, j := range f.claimed {
+		busy[j.ConversationID] = true
+	}
+	var out, remaining []domain.Job
+	for _, j := range f.jobs {
+		if len(out) < limit && !busy[j.ConversationID] {
+			out = append(out, j)
+			busy[j.ConversationID] = true
+			f.claimed[j.ID] = j
+		} else {
+			remaining = append(remaining, j)
+		}
+	}
+	f.jobs = remaining
 	return out, nil
 }
 
-func (f *fakeJobRepo) ReleaseJob(_ context.Context, _ int64) error {
+func (f *fakeJobRepo) ReleaseJob(_ context.Context, _ int64, claim ...string) error {
 	return nil
 }
 
-func (f *fakeJobRepo) CompleteJob(_ context.Context, jobID int64) error {
+func (f *fakeJobRepo) CompleteJob(_ context.Context, jobID int64, claim ...string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	delete(f.claimed, jobID)
 	f.completed = append(f.completed, jobID)
 	return nil
 }
 
-func (f *fakeJobRepo) FailJob(_ context.Context, jobID int64, _ string, _ time.Duration, _ int) error {
+func (f *fakeJobRepo) FailJob(_ context.Context, jobID int64, _ string, _ time.Duration, _ int, claim ...string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	delete(f.claimed, jobID)
 	f.failed = append(f.failed, jobID)
 	return nil
 }
 
-func (f *fakeJobRepo) RecoverStaleJobs(_ context.Context) error {
+func (f *fakeJobRepo) RecoverStaleJobs(_ context.Context, policies ...domain.RecoveryPolicy) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recovered = true
@@ -78,7 +94,7 @@ func (f *fakeJobRepo) GetConversation(context.Context, int64, domain.Kind, int64
 func (f *fakeJobRepo) BotReplyMeta(context.Context, string) (time.Time, int, error) {
 	return time.Time{}, 0, nil
 }
-func (f *fakeJobRepo) RecordOutgoing(context.Context, string, int64, string, int64, string, string) error {
+func (f *fakeJobRepo) RecordOutgoing(context.Context, string, int64, string, int64, string, string, ...string) error {
 	return nil
 }
 func (f *fakeJobRepo) PurgeBefore(context.Context, time.Time, int) (int, error) { return 0, nil }
@@ -363,5 +379,57 @@ func TestWorkerRecordsFailures(t *testing.T) {
 	defer repo.mu.Unlock()
 	if len(repo.failed) != 1 || repo.failed[0] != 9 || len(repo.completed) != 0 {
 		t.Fatalf("completed=%v failed=%v", repo.completed, repo.failed)
+	}
+}
+
+type failedRenewalRepo struct{ *fakeJobRepo }
+
+func (r *failedRenewalRepo) RenewClaims(context.Context, []string) ([]string, error) {
+	return nil, fmt.Errorf("database unavailable")
+}
+
+type leaseBlockingProcessor struct {
+	started   chan struct{}
+	cancelled chan struct{}
+}
+
+func (p *leaseBlockingProcessor) Process(ctx context.Context, _ domain.Job) error {
+	close(p.started)
+	<-ctx.Done()
+	close(p.cancelled)
+	return ctx.Err()
+}
+
+func TestWorkerCancelsExecutionWhenRenewalFails(t *testing.T) {
+	job := makeJob(9123, "lease-worker")
+	job.ClaimToken = "test-worker-claim"
+	repo := &failedRenewalRepo{&fakeJobRepo{jobs: []domain.Job{job}}}
+	processor := &leaseBlockingProcessor{started: make(chan struct{}), cancelled: make(chan struct{})}
+	worker, err := NewWorker(repo, processor, WorkerOptions{Concurrency: 1, PollInterval: time.Millisecond, RenewInterval: 5 * time.Millisecond}, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+	select {
+	case <-processor.started:
+	case <-time.After(time.Second):
+		t.Fatal("processor did not start")
+	}
+	select {
+	case <-processor.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("renewal failure did not cancel execution")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop")
 	}
 }

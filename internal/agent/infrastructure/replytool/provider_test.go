@@ -66,9 +66,9 @@ func (f *fakeLedger) Reserve(_ context.Context, req outboundapp.Request) (outbou
 	return outbounddomain.Record{ID: "rec", Sequence: f.nextSeq}, nil
 }
 
-func (f *fakeLedger) MarkSending(context.Context, string) error { return nil }
+func (f *fakeLedger) MarkSending(_ context.Context, _ string, _ ...string) error { return nil }
 
-func (f *fakeLedger) Settle(_ context.Context, _ string, outcome outboundapp.Outcome) error {
+func (f *fakeLedger) Settle(_ context.Context, _ string, outcome outboundapp.Outcome, claim ...string) error {
 	f.settled = append(f.settled, outcome)
 	return nil
 }
@@ -78,7 +78,7 @@ type fakeRecorder struct {
 	text  string
 }
 
-func (f *fakeRecorder) RecordOutgoing(_ context.Context, _ string, _ int64, text string, _ int64, _ string, _ string) error {
+func (f *fakeRecorder) RecordOutgoing(_ context.Context, _ string, _ int64, text string, _ int64, _ string, _ string, claim ...string) error {
 	f.calls++
 	f.text = text
 	return nil
@@ -211,7 +211,7 @@ func TestSendCurrentPropagatesLedgerErrors(t *testing.T) {
 	}
 }
 
-func (f *fakeLedger) RecordDenied(_ context.Context, _ int64, reason string) error {
+func (f *fakeLedger) RecordDenied(_ context.Context, _ int64, reason string, claim ...string) error {
 	f.denied = append(f.denied, reason)
 	return f.denyErr
 }

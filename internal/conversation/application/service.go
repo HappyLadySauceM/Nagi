@@ -19,11 +19,11 @@ type Repository interface {
 	GetConversation(ctx context.Context, botID int64, kind domain.Kind, targetID int64) (domain.Conversation, bool, error)
 	BotReplyMeta(ctx context.Context, conversationID string) (time.Time, int, error)
 	ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, error)
-	CompleteJob(ctx context.Context, jobID int64) error
-	FailJob(ctx context.Context, jobID int64, code string, retryAfter time.Duration, maxAttempts int) error
-	ReleaseJob(ctx context.Context, jobID int64) error
-	RecoverStaleJobs(ctx context.Context) error
-	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error
+	CompleteJob(ctx context.Context, jobID int64, claim ...string) error
+	FailJob(ctx context.Context, jobID int64, code string, retryAfter time.Duration, maxAttempts int, claim ...string) error
+	ReleaseJob(ctx context.Context, jobID int64, claim ...string) error
+	RecoverStaleJobs(ctx context.Context, policies ...domain.RecoveryPolicy) error
+	RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string, claim ...string) error
 	// PurgeBefore deletes at most limit messages created before the cutoff and
 	// reports how many rows were removed.
 	// PurgeBefore 删除最多 limit 条早于截止时间的消息，并返回删除行数。
@@ -127,9 +127,9 @@ func (s *Service) PurgeBefore(ctx context.Context, before time.Time, limit int) 
 // outboundID links it to the delivery ledger record and may be empty.
 // RecordOutgoing 持久化一条机器人回复，保证后续上下文能看到机器人说过什么；
 // outboundID 关联投递台账记录，可为空。
-func (s *Service) RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string) error {
+func (s *Service) RecordOutgoing(ctx context.Context, conversationID string, botID int64, text string, platformMessageID int64, sentStatus string, outboundID string, claim ...string) error {
 	if conversationID == "" || botID <= 0 {
 		return fmt.Errorf("conversation: outgoing record requires conversation and bot id")
 	}
-	return s.repo.RecordOutgoing(ctx, conversationID, botID, text, platformMessageID, sentStatus, outboundID)
+	return s.repo.RecordOutgoing(ctx, conversationID, botID, text, platformMessageID, sentStatus, outboundID, claim...)
 }

@@ -34,6 +34,7 @@ const (
 // Scope 是单次 Agent 运行的消息级安全上下文；由回复流水线注入，
 // 绝不进入提示词。
 type Scope struct {
+	ClaimToken  string
 	Reauthorize func(context.Context, contracts.ToolDescriptor) error
 	BotID       int64
 	// JobID identifies the message job that produced this run; sending tools

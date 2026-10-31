@@ -1,5 +1,3 @@
-// PostgreSQL storage for versioned intent rulesets.
-// 版本化意图规则的 PostgreSQL 存储。
 package infrastructure
 
 import (
@@ -7,174 +5,142 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
+	ra "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
+	re "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
+	rs "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
+	"time"
 )
 
-// ErrRulesetNotFound reports a ruleset id that does not exist.
-// ErrRulesetNotFound 表示规则集 id 不存在。
 var ErrRulesetNotFound = errors.New("intent: ruleset not found")
-
-// ErrRulesetImmutable reports an edit attempt on a non-draft ruleset.
-// ErrRulesetImmutable 表示试图修改非草稿规则集。
 var ErrTargetConflict = errors.New("intent: target already bound to another ruleset")
-
 var ErrRulesetImmutable = errors.New("intent: ruleset is not a draft")
 
-// RulesetsRepo stores and activates rulesets.
-// RulesetsRepo 存储并激活规则集。
-type RulesetsRepo struct {
-	pool *pgxpool.Pool
-}
+type RulesetsRepo struct{ pool *db.Pool }
 
-// NewRulesetsRepo builds the repository; the pool must not be nil.
-// NewRulesetsRepo 构建仓储；pool 不能为 nil。
-func NewRulesetsRepo(pool *pgxpool.Pool) (*RulesetsRepo, error) {
-	if pool == nil {
+func NewRulesetsRepo(p *db.Pool) (*RulesetsRepo, error) {
+	if p == nil {
 		return nil, fmt.Errorf("intent: pool required")
 	}
-	return &RulesetsRepo{pool: pool}, nil
+	return &RulesetsRepo{p}, nil
 }
-
-const rulesetColumns = `id, bot_id, scope_type, scope_id, version, status, note, builtin_rules, targets`
-
-// Active returns the ruleset currently in force for one scope.
-// Active 返回某作用域当前生效的规则集。
-func (r *RulesetsRepo) Active(ctx context.Context, botID int64, scopeType string, scopeID int64) (domain.Ruleset, bool, error) {
-	var set domain.Ruleset
-	err := r.pool.QueryRow(ctx, `
-		SELECT s.id, s.bot_id, s.scope_type, s.scope_id, s.version, s.status, s.note, s.builtin_rules, s.targets
-		FROM intent_rulesets s
-		JOIN intent_rule_activations a ON a.ruleset_id = s.id
-		WHERE s.deleted_at IS NULL AND a.bot_id = $1 AND a.scope_type = $2 AND a.scope_id = $3
-	`, botID, scopeType, scopeID).Scan(&set.ID, &set.BotID, &set.ScopeType, &set.ScopeID,
-		&set.Version, &set.Status, &set.Note, &set.BuiltinRules, &set.Targets)
-	if errors.Is(err, pgx.ErrNoRows) {
+func (r *RulesetsRepo) Active(ctx context.Context, bot int64, kind string, id int64) (domain.Ruleset, bool, error) {
+	a, err := r.pool.Client.IntentRuleActivation.Query().Where(ra.BotID(bot), ra.ScopeType(kind), ra.ScopeID(id)).Only(ctx)
+	if ent.IsNotFound(err) {
 		return domain.Ruleset{}, false, nil
 	}
 	if err != nil {
-		return domain.Ruleset{}, false, fmt.Errorf("intent: load active ruleset: %w", err)
-	}
-	entries, err := r.entries(ctx, set.ID)
-	if err != nil {
 		return domain.Ruleset{}, false, err
 	}
-	set.Entries = entries
-	return set, true, nil
+	v, err := r.Get(ctx, a.RulesetID)
+	if errors.Is(err, ErrRulesetNotFound) {
+		return domain.Ruleset{}, false, nil
+	}
+	return v, err == nil, err
 }
-
-// List returns every version of one scope, newest first.
-// List 返回某作用域的所有版本，最新在前。
-func (r *RulesetsRepo) List(ctx context.Context, botID int64, scopeType string, scopeID int64) ([]domain.Ruleset, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT `+rulesetColumns+`
-		FROM intent_rulesets
-		WHERE deleted_at IS NULL AND bot_id = $1 AND ($2 = '' OR (scope_type = $2 AND scope_id = $3))
-		ORDER BY id DESC
-	`, botID, scopeType, scopeID)
+func (r *RulesetsRepo) List(ctx context.Context, bot int64, kind string, id int64) ([]domain.Ruleset, error) {
+	q := r.pool.Client.IntentRuleset.Query().Where(rs.BotID(bot), rs.DeletedAtIsNil())
+	if kind != "" {
+		q.Where(rs.ScopeType(kind), rs.ScopeID(id))
+	}
+	rows, err := q.Order(ent.Desc(rs.FieldID)).All(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("intent: list rulesets: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 	var out []domain.Ruleset
-	for rows.Next() {
-		var set domain.Ruleset
-		if err := rows.Scan(&set.ID, &set.BotID, &set.ScopeType, &set.ScopeID,
-			&set.Version, &set.Status, &set.Note, &set.BuiltinRules, &set.Targets); err != nil {
-			return nil, fmt.Errorf("intent: scan ruleset: %w", err)
+	for _, v := range rows {
+		model, err := rulesetModel(v)
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, set)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("intent: scan rulesets: %w", err)
+		out = append(out, model)
 	}
 	return out, nil
 }
-
-// Get loads one ruleset with entries.
-// Get 读取一个规则集及其条目。
 func (r *RulesetsRepo) Get(ctx context.Context, id int64) (domain.Ruleset, error) {
-	var set domain.Ruleset
-	err := r.pool.QueryRow(ctx, `SELECT `+rulesetColumns+` FROM intent_rulesets WHERE deleted_at IS NULL AND id = $1`, id).
-		Scan(&set.ID, &set.BotID, &set.ScopeType, &set.ScopeID, &set.Version, &set.Status, &set.Note, &set.BuiltinRules, &set.Targets)
-	if errors.Is(err, pgx.ErrNoRows) {
+	v, err := r.pool.Client.IntentRuleset.Query().Where(rs.ID(id), rs.DeletedAtIsNil()).Only(ctx)
+	if ent.IsNotFound(err) {
 		return domain.Ruleset{}, ErrRulesetNotFound
 	}
 	if err != nil {
-		return domain.Ruleset{}, fmt.Errorf("intent: get ruleset: %w", err)
-	}
-	entries, err := r.entries(ctx, id)
-	if err != nil {
 		return domain.Ruleset{}, err
 	}
-	set.Entries = entries
-	return set, nil
+	out, err := rulesetModel(v)
+	if err != nil {
+		return out, err
+	}
+	out.Entries, err = ruleEntries(ctx, r.pool.Client, id)
+	return out, err
 }
-
-// CreateDraft creates the next version as a draft, optionally cloning the
-// entries of the currently active version.
-// CreateDraft 以草稿创建下一个版本，可选择复制当前生效版本的条目。
-func (r *RulesetsRepo) CreateDraft(ctx context.Context, botID int64, scopeType string, scopeID int64, note string, cloneActive bool, cloneFrom ...int64) (domain.Ruleset, error) {
-	tx, err := r.pool.Begin(ctx)
+func rulesetLock(ctx context.Context, c *ent.Client, bot int64) error {
+	_, err := c.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("intent:%d", bot))
+	return err
+}
+func (r *RulesetsRepo) CreateDraft(ctx context.Context, bot int64, kind string, scope int64, note string, cloneActive bool, cloneFrom ...int64) (domain.Ruleset, error) {
+	tx, err := r.pool.Client.Tx(ctx)
 	if err != nil {
-		return domain.Ruleset{}, fmt.Errorf("intent: begin draft: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("intent:%d", botID)); err != nil {
 		return domain.Ruleset{}, err
 	}
-	var version int
-	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE(MAX(version), 0) + 1 FROM intent_rulesets
-		WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3
-	`, botID, scopeType, scopeID).Scan(&version); err != nil {
-		return domain.Ruleset{}, fmt.Errorf("intent: next version: %w", err)
+	defer tx.Rollback()
+	c := tx.Client()
+	if err := rulesetLock(ctx, c, bot); err != nil {
+		return domain.Ruleset{}, err
 	}
-	var id int64
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO intent_rulesets (bot_id, scope_type, scope_id, version, status, note)
-		VALUES ($1, $2, $3, $4, 'draft', $5) RETURNING id
-	`, botID, scopeType, scopeID, version, note).Scan(&id); err != nil {
-		return domain.Ruleset{}, fmt.Errorf("intent: create draft: %w", err)
+	q := c.IntentRuleset.Query().Where(rs.BotID(bot), rs.ScopeType(kind), rs.ScopeID(scope))
+	latest, err := q.Clone().Order(ent.Desc(rs.FieldVersion)).First(ctx)
+	if err != nil && !ent.IsNotFound(err) {
+		return domain.Ruleset{}, err
 	}
-	if scopeID > 0 {
-		if _, err := tx.Exec(ctx, "UPDATE intent_rulesets SET targets=jsonb_build_array(jsonb_build_object('kind',$2::text,'id',$3::bigint)) WHERE id=$1", id, scopeType, scopeID); err != nil {
-			return domain.Ruleset{}, err
-		}
+	version := 1
+	if latest != nil {
+		version = latest.Version + 1
 	}
+	b := c.IntentRuleset.Create().SetBotID(bot).SetScopeType(kind).SetScopeID(scope).SetVersion(version).SetStatus("draft").SetNote(note)
+	if scope > 0 {
+		data, _ := json.Marshal([]domain.RuleTarget{{Kind: kind, ID: scope}})
+		b.SetTargets(data)
+	}
+	var source *ent.IntentRuleset
 	if cloneActive || (len(cloneFrom) > 0 && cloneFrom[0] > 0) {
-		var sourceID int64
-		if len(cloneFrom) > 0 && cloneFrom[0] > 0 {
-			err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE deleted_at IS NULL AND id=$1 AND bot_id=$2 AND scope_type=$3 AND scope_id=$4 AND status IN ('draft','published','archived') FOR SHARE", cloneFrom[0], botID, scopeType, scopeID).Scan(&sourceID)
+		sourceQ := q.Clone().Where(rs.DeletedAtIsNil())
+		explicit := len(cloneFrom) > 0 && cloneFrom[0] > 0
+		if explicit {
+			sourceQ.Where(rs.ID(cloneFrom[0]), rs.StatusIn("draft", "published", "archived"))
 		} else {
-			err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE bot_id=$1 AND scope_type=$2 AND scope_id=$3 AND deleted_at IS NULL AND status='published' ORDER BY version DESC LIMIT 1", botID, scopeType, scopeID).Scan(&sourceID)
+			sourceQ.Where(rs.Status("published"))
 		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		source, err = sourceQ.Order(ent.Desc(rs.FieldVersion)).First(ctx)
+		if err != nil && !ent.IsNotFound(err) {
 			return domain.Ruleset{}, err
 		}
-		if len(cloneFrom) > 0 && cloneFrom[0] > 0 && errors.Is(err, pgx.ErrNoRows) {
+		if explicit && ent.IsNotFound(err) {
 			return domain.Ruleset{}, ErrRulesetNotFound
 		}
-		if sourceID == id {
-			return domain.Ruleset{}, ErrRulesetNotFound
+		if source != nil {
+			b.SetTargets(source.Targets).SetBuiltinRules(source.BuiltinRules)
 		}
-		if sourceID > 0 {
-			if _, err = tx.Exec(ctx, "UPDATE intent_rulesets target SET targets=source.targets,builtin_rules=source.builtin_rules FROM intent_rulesets source WHERE target.id=$1 AND source.id=$2", id, sourceID); err != nil {
-				return domain.Ruleset{}, err
-			}
-			if _, err = tx.Exec(ctx, "INSERT INTO intent_rule_entries(ruleset_id,priority,match,action,enabled) SELECT $1,priority,match,action,enabled FROM intent_rule_entries WHERE ruleset_id=$2", id, sourceID); err != nil {
+	}
+	v, err := b.Save(ctx)
+	if err != nil {
+		return domain.Ruleset{}, err
+	}
+	if source != nil {
+		entries, err := c.IntentRuleEntry.Query().Where(re.RulesetID(source.ID)).All(ctx)
+		if err != nil {
+			return domain.Ruleset{}, err
+		}
+		for _, entry := range entries {
+			if err := c.IntentRuleEntry.Create().SetRulesetID(v.ID).SetPriority(entry.Priority).SetMatch(entry.Match).SetAction(entry.Action).SetEnabled(entry.Enabled).Exec(ctx); err != nil {
 				return domain.Ruleset{}, err
 			}
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return domain.Ruleset{}, fmt.Errorf("intent: commit draft: %w", err)
+	if err := tx.Commit(); err != nil {
+		return domain.Ruleset{}, err
 	}
-	return r.Get(ctx, id)
+	return r.Get(ctx, v.ID)
 }
 
 type RuleOptions struct {
@@ -182,230 +148,199 @@ type RuleOptions struct {
 	Targets      *[]domain.RuleTarget
 }
 
-// ReplaceEntries rewrites the entries of a draft; published versions are
-// immutable so history stays reproducible.
-// ReplaceEntries 重写草稿条目；已发布版本不可变，历史因此可复现。
 func (r *RulesetsRepo) ReplaceEntries(ctx context.Context, id int64, entries []domain.RuleEntry, options ...RuleOptions) error {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.pool.Client.Tx(ctx)
 	if err != nil {
-		return fmt.Errorf("intent: begin replace entries: %w", err)
+		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM intent_rulesets WHERE deleted_at IS NULL AND id = $1 FOR UPDATE`, id).
-		Scan(&status); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrRulesetNotFound
-		}
-		return fmt.Errorf("intent: lock ruleset: %w", err)
+	defer tx.Rollback()
+	c := tx.Client()
+	v, err := c.IntentRuleset.Query().Where(rs.ID(id), rs.DeletedAtIsNil()).ForUpdate().Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrRulesetNotFound
 	}
-	if status != "draft" {
+	if err != nil {
+		return err
+	}
+	if v.Status != "draft" {
 		return ErrRulesetImmutable
 	}
 	if len(options) > 0 {
-		raw, err := json.Marshal(options[0].BuiltinRules)
+		data, err := json.Marshal(options[0].BuiltinRules)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, "UPDATE intent_rulesets SET builtin_rules=$2 WHERE id=$1", id, raw); err != nil {
+		b := c.IntentRuleset.UpdateOneID(id).SetBuiltinRules(data)
+		if options[0].Targets != nil {
+			data, err = json.Marshal(*options[0].Targets)
+			if err != nil {
+				return err
+			}
+			b.SetTargets(data)
+		}
+		if err := b.Exec(ctx); err != nil {
 			return err
 		}
 	}
-	if len(options) > 0 && options[0].Targets != nil {
-		raw, err := json.Marshal(*options[0].Targets)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, "UPDATE intent_rulesets SET targets=$2 WHERE id=$1", id, raw); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM intent_rule_entries WHERE ruleset_id = $1`, id); err != nil {
-		return fmt.Errorf("intent: clear entries: %w", err)
-	}
-	for _, entry := range entries {
-		matchJSON, err := json.Marshal(entry.Match)
-		if err != nil {
-			return fmt.Errorf("intent: encode match: %w", err)
-		}
-		actionJSON, err := json.Marshal(entry.Action)
-		if err != nil {
-			return fmt.Errorf("intent: encode action: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO intent_rule_entries (ruleset_id, priority, match, action, enabled)
-			VALUES ($1, $2, $3, $4, $5)
-		`, id, entry.Priority, matchJSON, actionJSON, entry.Enabled == nil || *entry.Enabled); err != nil {
-			return fmt.Errorf("intent: insert entry: %w", err)
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("intent: commit entries: %w", err)
-	}
-	return nil
-}
-
-// Publish activates one draft and archives the previously active version.
-// Publish 激活一个草稿，并把此前生效的版本归档。
-func (r *RulesetsRepo) Publish(ctx context.Context, id int64) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("intent: begin publish: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var accountID int64
-	if err := tx.QueryRow(ctx, "SELECT bot_id FROM intent_rulesets WHERE deleted_at IS NULL AND id=$1", id).Scan(&accountID); err != nil {
-		return ErrRulesetNotFound
-	}
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("intent:%d", accountID)); err != nil {
+	if _, err := c.IntentRuleEntry.Delete().Where(re.RulesetID(id)).Exec(ctx); err != nil {
 		return err
 	}
-	var set domain.Ruleset
-	if err := tx.QueryRow(ctx, `
-		SELECT `+rulesetColumns+` FROM intent_rulesets WHERE deleted_at IS NULL AND id = $1 FOR UPDATE
-	`, id).Scan(&set.ID, &set.BotID, &set.ScopeType, &set.ScopeID, &set.Version, &set.Status, &set.Note, &set.BuiltinRules, &set.Targets); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrRulesetNotFound
+	for _, entry := range entries {
+		match, err := json.Marshal(entry.Match)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("intent: lock ruleset: %w", err)
+		action, err := json.Marshal(entry.Action)
+		if err != nil {
+			return err
+		}
+		if err := c.IntentRuleEntry.Create().SetRulesetID(id).SetPriority(entry.Priority).SetMatch(match).SetAction(action).SetEnabled(entry.Enabled == nil || *entry.Enabled).Exec(ctx); err != nil {
+			return err
+		}
 	}
-	if set.Status == "published" {
+	return tx.Commit()
+}
+func (r *RulesetsRepo) Publish(ctx context.Context, id int64) error {
+	tx, err := r.pool.Client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	c := tx.Client()
+	initial, err := c.IntentRuleset.Query().Where(rs.ID(id), rs.DeletedAtIsNil()).Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrRulesetNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := rulesetLock(ctx, c, initial.BotID); err != nil {
+		return err
+	}
+	v, err := c.IntentRuleset.Query().Where(rs.ID(id), rs.DeletedAtIsNil()).ForUpdate().Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrRulesetNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if v.Status == "published" {
 		return nil
 	}
-	targets := set.Targets
+	model, err := rulesetModel(v)
+	if err != nil {
+		return err
+	}
+	targets := model.Targets
 	if len(targets) == 0 {
 		targets = []domain.RuleTarget{{Kind: "group", ID: 0}}
 	}
 	for _, target := range targets {
-		var otherType string
-		var otherID int64
-		err := tx.QueryRow(ctx, "SELECT s.scope_type,s.scope_id FROM intent_rule_activations a JOIN intent_rulesets s ON s.id=a.ruleset_id WHERE a.bot_id=$1 AND a.scope_type=$2 AND a.scope_id=$3", set.BotID, target.Kind, target.ID).Scan(&otherType, &otherID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		a, err := c.IntentRuleActivation.Query().Where(ra.BotID(v.BotID), ra.ScopeType(target.Kind), ra.ScopeID(target.ID)).Only(ctx)
+		if err != nil && !ent.IsNotFound(err) {
 			return err
 		}
-		if err == nil && (otherType != set.ScopeType || otherID != set.ScopeID) {
-			return ErrTargetConflict
+		if a != nil {
+			other, err := c.IntentRuleset.Get(ctx, a.RulesetID)
+			if err != nil {
+				return err
+			}
+			if other.ScopeType != v.ScopeType || other.ScopeID != v.ScopeID {
+				return ErrTargetConflict
+			}
 		}
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM intent_rule_activations WHERE ruleset_id IN (SELECT id FROM intent_rulesets WHERE bot_id=$1 AND scope_type=$2 AND scope_id=$3)", set.BotID, set.ScopeType, set.ScopeID); err != nil {
+	family := rs.And(rs.BotID(v.BotID), rs.ScopeType(v.ScopeType), rs.ScopeID(v.ScopeID))
+	ids, err := c.IntentRuleset.Query().Where(family).IDs(ctx)
+	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, "UPDATE intent_rulesets SET status='archived' WHERE bot_id=$1 AND scope_type=$2 AND scope_id=$3 AND status='published'", set.BotID, set.ScopeType, set.ScopeID); err != nil {
+	if _, err := c.IntentRuleActivation.Delete().Where(ra.RulesetIDIn(ids...)).Exec(ctx); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, "UPDATE intent_rulesets SET status='published',published_at=now() WHERE id=$1", id); err != nil {
+	if _, err := c.IntentRuleset.Update().Where(family, rs.Status("published")).SetStatus("archived").Save(ctx); err != nil {
+		return err
+	}
+	if err := c.IntentRuleset.UpdateOneID(id).SetStatus("published").SetPublishedAt(time.Now()).Exec(ctx); err != nil {
 		return err
 	}
 	for _, target := range targets {
-		if _, err := tx.Exec(ctx, "INSERT INTO intent_rule_activations(bot_id,scope_type,scope_id,ruleset_id) VALUES($1,$2,$3,$4)", set.BotID, target.Kind, target.ID, id); err != nil {
+		if err := c.IntentRuleActivation.Create().SetBotID(v.BotID).SetScopeType(target.Kind).SetScopeID(target.ID).SetRulesetID(id).Exec(ctx); err != nil {
 			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("intent: commit publish: %w", err)
-	}
-	return nil
+	return tx.Commit()
 }
-
-// Rollback republishes a historical version.
-// Rollback 重新发布一个历史版本。
-func (r *RulesetsRepo) Rollback(ctx context.Context, botID int64, scopeType string, scopeID int64, version int) error {
-	var id int64
-	if err := r.pool.QueryRow(ctx, `
-		SELECT id FROM intent_rulesets
-		WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3 AND version = $4 AND deleted_at IS NULL
-	`, botID, scopeType, scopeID, version).Scan(&id); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrRulesetNotFound
-		}
-		return fmt.Errorf("intent: find version: %w", err)
-	}
-	var status string
-	if err := r.pool.QueryRow(ctx, `SELECT status FROM intent_rulesets WHERE deleted_at IS NULL AND id=$1`, id).Scan(&status); err != nil {
-		return err
-	}
-	if status != "archived" {
-		return ErrRulesetImmutable
-	}
-	return r.Publish(ctx, id)
-}
-
-// archiveActive marks the currently active version archived inside tx.
-// archiveActive 在事务内把当前生效版本标记为归档。
-func (r *RulesetsRepo) archiveActive(ctx context.Context, tx pgx.Tx, botID int64, scopeType string, scopeID int64) error {
-	if _, err := tx.Exec(ctx, `
-		UPDATE intent_rulesets SET status = 'archived'
-		WHERE id IN (
-			SELECT ruleset_id FROM intent_rule_activations
-			WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3
-		) AND status = 'published'
-	`, botID, scopeType, scopeID); err != nil {
-		return fmt.Errorf("intent: archive active: %w", err)
-	}
-	return nil
-}
-
-// entries loads one ruleset's entries ordered by priority.
-// entries 按优先级读取规则集条目。
-func (r *RulesetsRepo) entries(ctx context.Context, rulesetID int64) ([]domain.RuleEntry, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT priority, match, action, enabled FROM intent_rule_entries
-		WHERE ruleset_id = $1 ORDER BY priority
-	`, rulesetID)
-	if err != nil {
-		return nil, fmt.Errorf("intent: load entries: %w", err)
-	}
-	defer rows.Close()
-	var out []domain.RuleEntry
-	for rows.Next() {
-		var (
-			entry      domain.RuleEntry
-			matchJSON  []byte
-			actionJSON []byte
-		)
-		if err := rows.Scan(&entry.Priority, &matchJSON, &actionJSON, &entry.Enabled); err != nil {
-			return nil, fmt.Errorf("intent: scan entry: %w", err)
-		}
-		if err := json.Unmarshal(matchJSON, &entry.Match); err != nil {
-			return nil, fmt.Errorf("intent: decode match: %w", err)
-		}
-		if err := json.Unmarshal(actionJSON, &entry.Action); err != nil {
-			return nil, fmt.Errorf("intent: decode action: %w", err)
-		}
-		out = append(out, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("intent: scan entries: %w", err)
-	}
-	return out, nil
-}
-
-// Delete removes activations and hides a version without reusing its number.
-// Delete 移除生效绑定并隐藏版本，保留其编号不被复用。
-func (r *RulesetsRepo) Delete(ctx context.Context, botID, id int64) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("intent:%d", botID)); err != nil {
-		return err
-	}
-	var found int64
-	err = tx.QueryRow(ctx, "SELECT id FROM intent_rulesets WHERE id=$1 AND bot_id=$2 FOR UPDATE", id, botID).Scan(&found)
-	if errors.Is(err, pgx.ErrNoRows) {
+func (r *RulesetsRepo) Rollback(ctx context.Context, bot int64, kind string, id int64, version int) error {
+	v, err := r.pool.Client.IntentRuleset.Query().Where(rs.BotID(bot), rs.ScopeType(kind), rs.ScopeID(id), rs.Version(version), rs.DeletedAtIsNil()).Only(ctx)
+	if ent.IsNotFound(err) {
 		return ErrRulesetNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, "DELETE FROM intent_rule_activations WHERE ruleset_id=$1", id); err != nil {
+	if v.Status != "archived" {
+		return ErrRulesetImmutable
+	}
+	return r.Publish(ctx, v.ID)
+}
+func (r *RulesetsRepo) Delete(ctx context.Context, bot, id int64) error {
+	tx, err := r.pool.Client.Tx(ctx)
+	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, "UPDATE intent_rulesets SET deleted_at=COALESCE(deleted_at,now()) WHERE id=$1", id); err != nil {
+	defer tx.Rollback()
+	c := tx.Client()
+	if err := rulesetLock(ctx, c, bot); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	v, err := c.IntentRuleset.Query().Where(rs.ID(id), rs.BotID(bot)).ForUpdate().Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrRulesetNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := c.IntentRuleActivation.Delete().Where(ra.RulesetID(id)).Exec(ctx); err != nil {
+		return err
+	}
+	if v.DeletedAt == nil {
+		if err := c.IntentRuleset.UpdateOneID(id).SetDeletedAt(time.Now()).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+func rulesetModel(v *ent.IntentRuleset) (domain.Ruleset, error) {
+	out := domain.Ruleset{ID: v.ID, BotID: v.BotID, ScopeType: v.ScopeType, ScopeID: v.ScopeID, Version: v.Version, Status: v.Status, Note: v.Note}
+	if len(v.BuiltinRules) > 0 {
+		if err := json.Unmarshal(v.BuiltinRules, &out.BuiltinRules); err != nil {
+			return out, err
+		}
+	}
+	if len(v.Targets) > 0 {
+		if err := json.Unmarshal(v.Targets, &out.Targets); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+func ruleEntries(ctx context.Context, c *ent.Client, id int64) ([]domain.RuleEntry, error) {
+	rows, err := c.IntentRuleEntry.Query().Where(re.RulesetID(id)).Order(ent.Asc(re.FieldPriority)).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []domain.RuleEntry
+	for _, v := range rows {
+		enabled := v.Enabled
+		entry := domain.RuleEntry{Priority: v.Priority, Enabled: &enabled}
+		if err := json.Unmarshal(v.Match, &entry.Match); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(v.Action, &entry.Action); err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, nil
 }

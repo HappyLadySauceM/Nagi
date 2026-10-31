@@ -5,11 +5,14 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	entsql "entgo.io/ent/dialect/sql"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
+	sp "github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"time"
+
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
 
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -17,12 +20,12 @@ import (
 // Repo is the pgx-backed scope policy repository.
 // Repo 是基于 pgx 的作用域策略仓库。
 type Repo struct {
-	pool *pgxpool.Pool
+	pool *db.Pool
 }
 
 // NewRepo builds the repository; the pool must not be nil.
 // NewRepo 构建仓库；pool 不能为 nil。
-func NewRepo(pool *pgxpool.Pool) (*Repo, error) {
+func NewRepo(pool *db.Pool) (*Repo, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("scope: pool required")
 	}
@@ -35,56 +38,37 @@ const policyColumns = `enabled, reply_mode, store_messages, allow_memory_write, 
 // Get loads one stored policy; found is false when the scope has no row.
 // Get 读取单条已存储策略；作用域无行时 found 为 false。
 func (r *Repo) Get(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (domain.Policy, bool, error) {
-	row := r.pool.QueryRow(ctx, `
-		SELECT `+policyColumns+` FROM scope_policies
-		WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3
-	`, botID, string(scopeType), scopeID)
-	p, err := scanPolicy(row.Scan)
-	if errors.Is(err, pgx.ErrNoRows) {
+	v, err := r.pool.Client.ScopePolicy.Query().Where(sp.BotID(botID), sp.ScopeType(string(scopeType)), sp.ScopeID(scopeID)).Only(ctx)
+	if ent.IsNotFound(err) {
 		return domain.Policy{}, false, nil
 	}
 	if err != nil {
-		return domain.Policy{}, false, fmt.Errorf("scope: get policy: %w", err)
+		return domain.Policy{}, false, err
 	}
-	// scanPolicy only reads the value columns; the identity comes from the query
-	// arguments so callers never receive a policy without its scope.
-	// scanPolicy 只读取值列；身份来自查询参数，确保调用方拿到的策略始终带作用域身份。
-	p.ScopeType = scopeType
-	p.ScopeID = scopeID
-	return p, true, nil
+	p, err := policyModel(v)
+	return p, err == nil, err
 }
 
 // List returns all stored policies, optionally filtered by bot.
 // List 返回全部已存储策略，可按机器人过滤。
 func (r *Repo) List(ctx context.Context, botID *int64) ([]domain.Policy, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT bot_id, scope_type, scope_id, `+policyColumns+`
-		FROM scope_policies
-		WHERE ($1::bigint IS NULL OR bot_id = $1)
-		ORDER BY scope_type, scope_id
-	`, botID)
+	q := r.pool.Client.ScopePolicy.Query()
+	if botID != nil {
+		q.Where(sp.BotID(*botID))
+	}
+	rows, err := q.Order(ent.Asc(sp.FieldScopeType, sp.FieldScopeID)).All(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("scope: list policies: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	policies := []domain.Policy{}
-	for rows.Next() {
-		var scopeType string
-		var scopeID int64
-		// scanPolicy returns the scanned value columns; the identity columns are
-		// prepended here and applied afterwards.
-		// scanPolicy 返回扫描到的值列；身份列在此前置换入，随后补齐到策略上。
-		p, scanErr := scanPolicy(func(dest ...any) error {
-			return rows.Scan(append([]any{new(int64), &scopeType, &scopeID}, dest...)...)
-		})
-		if scanErr != nil {
-			return nil, fmt.Errorf("scope: scan policy: %w", scanErr)
+	out := []domain.Policy{}
+	for _, v := range rows {
+		p, err := policyModel(v)
+		if err != nil {
+			return nil, err
 		}
-		p.ScopeType = domain.ScopeType(scopeType)
-		p.ScopeID = scopeID
-		policies = append(policies, p)
+		out = append(out, p)
 	}
-	return policies, rows.Err()
+	return out, nil
 }
 
 type rowScanner func(dest ...any) error
@@ -150,55 +134,60 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 	if err != nil {
 		return err
 	}
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.pool.Client.Tx(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", fmt.Sprintf("scope:%d:%s", botID, policy.ScopeType)); err != nil {
+	defer tx.Rollback()
+	client := tx.Client()
+	if _, err := client.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("scope:%d:%s", botID, policy.ScopeType)); err != nil {
 		return err
 	}
 	if policy.ExpectedTemplateVersion != nil {
-		var version int64
-		err = tx.QueryRow(ctx, "SELECT version FROM scope_policies WHERE bot_id=$1 AND scope_type=$2 AND scope_id=0", botID, string(policy.ScopeType)).Scan(&version)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		v, err := client.ScopePolicy.Query().Where(sp.BotID(botID), sp.ScopeType(string(policy.ScopeType)), sp.ScopeID(0)).Only(ctx)
+		if err != nil && !ent.IsNotFound(err) {
 			return err
+		}
+		var version int64
+		if v != nil {
+			version = v.Version
 		}
 		if version != *policy.ExpectedTemplateVersion {
 			return domain.ErrTemplateConflict
 		}
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO scope_policies
-			(bot_id, scope_type, scope_id, enabled, reply_mode, store_messages, allow_memory_write,
-			 allow_history_read, min_reply_interval_ms, max_replies_per_hour,
-			 tool_permissions, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
-		ON CONFLICT (bot_id, scope_type, scope_id) DO UPDATE SET
-			enabled = EXCLUDED.enabled, reply_mode = EXCLUDED.reply_mode,
-			store_messages = EXCLUDED.store_messages, allow_memory_write = EXCLUDED.allow_memory_write,
-			allow_history_read = EXCLUDED.allow_history_read,
-			min_reply_interval_ms = EXCLUDED.min_reply_interval_ms,
-			max_replies_per_hour = EXCLUDED.max_replies_per_hour,
-			max_messages_per_run = EXCLUDED.max_messages_per_run, max_chars_per_message = EXCLUDED.max_chars_per_message, max_total_chars_per_run = EXCLUDED.max_total_chars_per_run, message_interval_ms = EXCLUDED.message_interval_ms, tool_permissions = EXCLUDED.tool_permissions, version = scope_policies.version + 1, updated_at = now()
-	`, botID, string(policy.ScopeType), policy.ScopeID, policy.Enabled, string(policy.ReplyMode),
-		policy.StoreMessages, policy.AllowMemoryWrite, policy.AllowHistoryRead,
-		policy.MinReplyIntervalMS, policy.MaxRepliesPerHour, permissions, policy.MaxMessagesPerRun, policy.MaxCharsPerMessage, policy.MaxTotalCharsPerRun, policy.MessageIntervalMS)
+	err = client.ScopePolicy.Create().SetBotID(botID).SetScopeType(string(policy.ScopeType)).SetScopeID(policy.ScopeID).SetEnabled(policy.Enabled).SetReplyMode(string(policy.ReplyMode)).SetStoreMessages(policy.StoreMessages).SetAllowMemoryWrite(policy.AllowMemoryWrite).SetAllowHistoryRead(policy.AllowHistoryRead).SetMinReplyIntervalMs(policy.MinReplyIntervalMS).SetMaxRepliesPerHour(policy.MaxRepliesPerHour).SetMaxMessagesPerRun(policy.MaxMessagesPerRun).SetMaxCharsPerMessage(policy.MaxCharsPerMessage).SetMaxTotalCharsPerRun(policy.MaxTotalCharsPerRun).SetMessageIntervalMs(policy.MessageIntervalMS).SetToolPermissions(permissions).SetUpdatedAt(time.Now()).OnConflict(entsql.ConflictColumns("bot_id", "scope_type", "scope_id")).Update(func(u *ent.ScopePolicyUpsert) {
+		u.UpdateEnabled()
+		u.UpdateReplyMode()
+		u.UpdateStoreMessages()
+		u.UpdateAllowMemoryWrite()
+		u.UpdateAllowHistoryRead()
+		u.UpdateMinReplyIntervalMs()
+		u.UpdateMaxRepliesPerHour()
+		u.UpdateMaxMessagesPerRun()
+		u.UpdateMaxCharsPerMessage()
+		u.UpdateMaxTotalCharsPerRun()
+		u.UpdateMessageIntervalMs()
+		u.UpdateToolPermissions()
+		u.UpdateUpdatedAt()
+		u.AddVersion(1)
+	}).Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("scope: upsert policy: %w", err)
+		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }
 
 // Delete removes one stored policy and reports whether a row was deleted.
 // Delete 删除一条已存策略并报告是否删除了行。
 func (r *Repo) Delete(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (bool, error) {
-	tag, err := r.pool.Exec(ctx, `
-		DELETE FROM scope_policies
-		WHERE bot_id = $1 AND scope_type = $2 AND scope_id = $3
-	`, botID, string(scopeType), scopeID)
-	if err != nil {
-		return false, fmt.Errorf("scope: delete policy: %w", err)
-	}
-	return tag.RowsAffected() > 0, nil
+	n, err := r.pool.Client.ScopePolicy.Delete().Where(sp.BotID(botID), sp.ScopeType(string(scopeType)), sp.ScopeID(scopeID)).Exec(ctx)
+	return n > 0, err
+}
+
+func policyModel(v *ent.ScopePolicy) (domain.Policy, error) {
+	p := domain.Policy{ScopeType: domain.ScopeType(v.ScopeType), ScopeID: v.ScopeID, Version: v.Version, Enabled: v.Enabled, ReplyMode: domain.ReplyMode(v.ReplyMode), StoreMessages: v.StoreMessages, AllowMemoryWrite: v.AllowMemoryWrite, AllowHistoryRead: v.AllowHistoryRead, MinReplyIntervalMS: v.MinReplyIntervalMs, MaxRepliesPerHour: v.MaxRepliesPerHour, MaxMessagesPerRun: v.MaxMessagesPerRun, MaxCharsPerMessage: v.MaxCharsPerMessage, MaxTotalCharsPerRun: v.MaxTotalCharsPerRun, MessageIntervalMS: v.MessageIntervalMs}
+	permissions, err := decodeToolPermissions(v.ToolPermissions)
+	p.ToolPermissions = permissions
+	return p, err
 }
