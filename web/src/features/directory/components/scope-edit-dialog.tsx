@@ -1,3 +1,5 @@
+import {useModels,modelReady} from '../../settings/models'
+import { ConversationModel } from '../../settings/components/model-section'
 import { AnimatedNavIcon } from '../../../components/animated-nav-icon'
 import { useEffect, useRef, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -78,7 +80,9 @@ export function ScopeEditDialog({
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(false)
 
-  const form = useForm<ScopeFormValues>({
+  const modelCatalog=useModels()
+ const modelAvailability={generation:modelReady(modelCatalog.data?.Catalog,'generation',botId,scopeType,scopeId),asr:modelReady(modelCatalog.data?.Catalog,'asr'),tts:modelReady(modelCatalog.data?.Catalog,'tts')}
+ const form = useForm<ScopeFormValues>({
     resolver: zodResolver(scopeFormSchema),
     defaultValues: toScopeFormValues(DEFAULT_SCOPE_FORM),
     mode: 'onBlur',
@@ -216,9 +220,9 @@ export function ScopeEditDialog({
               <Skeleton className="h-40 w-full" />
             </div>
           ) : scope.isError ? null : (
-            <form id="scope-edit-dialog-form" onSubmit={onSubmit} className="min-h-0 min-w-0 overflow-y-auto">
-              <ScopeFormFields form={form} disabled={isBusy} catalog={tools.isError || tools.isLoading ? undefined : tools.data} section={section} />
-            </form>
+            <><ConversationModel botId={botId} kind={scopeType} targetId={scopeId}/><form id="scope-edit-dialog-form" onSubmit={onSubmit} className="min-h-0 min-w-0 overflow-y-auto">
+              <ScopeFormFields modelAvailability={modelAvailability} form={form} disabled={isBusy} catalog={tools.isError || tools.isLoading ? undefined : tools.data} section={section} />
+            </form></>
           )}
 
             </div>

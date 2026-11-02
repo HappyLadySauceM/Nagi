@@ -8,7 +8,7 @@ import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Skeleton } from '../../components/ui/skeleton'
 import { ApiError } from '../../lib/api/client'
-import type { SystemSettings } from '../../lib/api/contracts'
+import type { SystemSettings, SystemSettingsView } from '../../lib/api/contracts'
 import { describeError } from '../../lib/errors'
 import { formatDateTime } from '../../lib/format'
 import { ModelSection } from './components/model-section'
@@ -22,7 +22,7 @@ import { settingsErrorCopy } from './error-copy'
 import { useResetSystemSettings, useSaveSystemSettings, useSystemSettings } from './queries'
 
 const SECTIONS: SectionNavItem[] = [
-  { id: 'model', label: '模型与意图', hint: '生成模型与决策阈值', icon: BrainCircuit },
+  { id: 'model', label: '模型配置', hint: '模型、凭证与默认选择', icon: BrainCircuit },
   { id: 'tools', label: '工具与能力', hint: '提供方、运行限制与调用预算', icon: Wrench },
   { id: 'retention', label: '消息与留存', hint: '全局消息保留期限', icon: Archive },
 ]
@@ -44,11 +44,13 @@ export function SettingsPage() {
   const [message, setMessage] = useState<{ tone: 'success' | 'warning'; text: string } | null>(null)
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const data = settingsQuery.data
+ const [baseline,setBaseline]=useState<SystemSettingsView|null>(null)
 
   useEffect(() => {
-    if (data) {
-      reset(data.settings)
-    }
+    if (data && (!baseline || !draft || countChanges(baseline.settings,draft)===0)) {
+ reset(data.settings)
+ setBaseline(data)
+ }
     // Re-seed only when the stored revision changes, never on every render.
     // 仅在已存储的修订变化时重置草稿，避免覆盖正在编辑的内容。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,7 +94,7 @@ export function SettingsPage() {
     [draft, data],
   )
   const errors = Object.keys(serverErrors).length > 0 ? serverErrors : clientErrors
-  const dirtyCount = draft && data ? countChanges(data.settings, draft) : 0
+  const dirtyCount = draft && data ? countChanges(baseline?.settings??data.settings, draft) : 0
 
   const flash = (next: { tone: 'success' | 'warning'; text: string }) => {
     setMessage(next)
@@ -120,10 +122,11 @@ export function SettingsPage() {
       return
     }
     saveMutation.mutate(
-      { settings: draft, version: data.version },
+      { settings: draft, version: baseline?.version??data.version },
       {
         onSuccess: (view) => {
           reset(view.settings)
+ setBaseline(view)
           flash({ tone: 'success', text: '配置已保存，立即生效' })
           toast.success('系统配置已保存')
         },
@@ -191,11 +194,11 @@ export function SettingsPage() {
     <div className="space-y-4 pb-4">
       <PageHeader
         title="系统配置"
-        description="集中管理模型、意图、运行限制与全局消息留存；保存后立即生效，无需重启进程。密钥类配置仍由配置文件或环境变量维护。"
+        description="管理模型、凭证、运行限制与消息留存；意图行为在“意图识别”中调整。"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={data.credentials.ai ? 'success' : 'warning'}>
-              {data.credentials.ai ? 'AI 密钥已配置' : 'AI 密钥缺失'}
+              模型凭证在模型配置中管理
             </Badge>
             <Badge variant={data.persisted ? 'outline' : 'destructive'}>
               {data.persisted ? `修订 v${data.version}` : '未持久化'}
@@ -237,6 +240,7 @@ export function SettingsPage() {
             onSave={handleSave}
             onDiscard={() => {
               reset(data.settings)
+ setBaseline(data)
               flash({ tone: 'success', text: '已放弃未保存的修改' })
             }}
             onReset={() => setResetOpen(true)}
@@ -248,7 +252,7 @@ export function SettingsPage() {
         open={resetOpen}
         onOpenChange={setResetOpen}
         title="恢复配置文件默认值？"
-        description="这会把所有分区（模型、意图、预算、工具）写回配置文件的基线，并生成一个新修订。"
+        description="这会把意图行为、运行限制与消息留存恢复为配置文件基线，并生成新修订；模型目录和已保存的凭证会保留。"
         details={['已单独保存过的会话策略不会被修改', '恢复后立即生效，进行中的运行不受影响']}
         confirmLabel="恢复默认"
         destructive
@@ -257,6 +261,7 @@ export function SettingsPage() {
           resetMutation.mutate(undefined, {
             onSuccess: (view) => {
               reset(view.settings)
+ setBaseline(view)
               setResetOpen(false)
               flash({ tone: 'success', text: '已恢复配置文件默认值' })
             },

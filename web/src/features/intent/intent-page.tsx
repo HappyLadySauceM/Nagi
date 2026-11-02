@@ -1,3 +1,6 @@
+import { useModels, modelReady } from '../settings/models'
+import { allowWorkspaceChange } from './edit-guard'
+import { IntentConfig } from './config'
 import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -31,7 +34,7 @@ const KIND_VARIANTS: Record<DecisionEntry['decision'], 'success' | 'secondary' |
 }
 const TABS = [
   ['overview', '运行概览'], ['rules', '规则管理'],
-  ['simulate', '模拟验证'],
+  ['simulate', '模拟验证'], ['config','识别配置'],
 ] as const
 type IntentTab = typeof TABS[number][0]
 
@@ -43,8 +46,8 @@ export function IntentPage() {
 function IntentWorkspace() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<IntentTab>('overview')
-  function changeTab(next: IntentTab) {
-    if (next !== tab && !window.dispatchEvent(new Event('nagi:account-changing', { cancelable: true }))) return false
+  async function changeTab(next: IntentTab) {
+    if (next !== tab && !(await allowWorkspaceChange())) return false
     setTab(next)
     return true
   }
@@ -57,11 +60,11 @@ function IntentWorkspace() {
             aria-selected={tab === key} aria-controls={tab === key ? `intent-panel-${key}` : undefined} tabIndex={tab === key ? 0 : -1}
             className={cn('shrink-0 border-b-2 px-0.5 pb-3 text-sm font-medium transition-colors', tab === key ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
             onClick={() => changeTab(key)}
-            onKeyDown={event => {
+            onKeyDown={async event => {
               const next = event.key === 'ArrowRight' ? (index + 1) % TABS.length : event.key === 'ArrowLeft' ? (index + TABS.length - 1) % TABS.length : event.key === 'Home' ? 0 : event.key === 'End' ? TABS.length - 1 : null
               if (next === null) return
               event.preventDefault()
-              if (changeTab(TABS[next][0])) document.getElementById(`intent-tab-${TABS[next][0]}`)?.focus()
+              if (await changeTab(TABS[next][0])) document.getElementById(`intent-tab-${TABS[next][0]}`)?.focus()
             }}>
             {label}
           </button>
@@ -71,12 +74,14 @@ function IntentWorkspace() {
         {tab === 'overview' ? <IntentOverview onViewAll={() => { void navigate({ to: '/decisions/history' }) }} /> : null}
         {tab === 'rules' ? <RulesPage embedded /> : null}
         {tab === 'simulate' ? <SimulationPanel /> : null}
+ {tab === 'config' ? <IntentConfig/> : null}
       </div>
     </div>
   )
 }
 
 function IntentOverview({ onViewAll }: { onViewAll: () => void }) {
+ const models=useModels()
   const { selectedBotId, dbConfigured } = useAccountContext()
   const [hours, setHours] = useState('24')
   const query = useQuery({
@@ -93,6 +98,7 @@ function IntentOverview({ onViewAll }: { onViewAll: () => void }) {
   if (!dbConfigured) return <FeedbackState variant="unconfigured" title="未配置数据库" description="配置数据库后即可查看意图识别统计与决策记录。" />
   return (
     <div className="space-y-7">
+ {models.data && !modelReady(models.data.Catalog,'intent') && <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">尚未选择可用的默认意图模型，语义判断将降级为规则判断。<Link className="ml-2 underline" to="/settings">前往模型配置</Link></div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-medium">决策摘要</h2>
         <div className="flex items-center gap-2">
