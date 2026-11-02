@@ -84,7 +84,7 @@ flowchart LR
 见 `configs/config-example.yaml`。端点列表 `onebot.endpoints[]`（`url`、`access-token`、
 可选 `expect-qq`）是唯一的连接配置形态；未显式配置时使用默认端点
 `ws://127.0.0.1:3001`，显式配置为空列表会在启动时报错。
-端点 token、`database.dsn`、`ai.api-key`、`intent.api-key`、`observability.{base-url,public-key,secret-key}`
+端点 token、`database.dsn`、`observability.{base-url,public-key,secret-key}`
 与 `observability.user-id-secret` 都直接写在配置文件中；提交仓库的示例文件只含占位符，真实值只存在于
 gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl rand -hex 32`，至少 32 字符），
 示例占位符或过短的值会被启动检查拒绝并关闭用户维度。`observability.raw-identifiers=true` 是可回退的
@@ -155,11 +155,19 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   action、规范化载荷和字符消耗，出站历史写入实际目标会话。异步接受与结果未知不作为确认送达，
   不自动重发。合并转发查询使用字符串资源 `id` 和标准 `message` 节点数组。
 - `internal/settings`：运行时可编辑配置。单行 `system_settings` 表保存 `AI`/`Intent`/`Agent`/`Tools`
-  四个分区与版本号，`application.Provider` 以原子快照供每次运行读取，保存后立即替换、
-  多副本每 30s 轮询版本；`domain` 负责范围、URL 与跨字段校验，密钥类配置不进入该模型。
+  等分区与版本号，`application.Provider` 以原子快照供每次运行读取，保存后立即替换、
+  多副本每 30s 轮询版本；`domain` 负责范围、URL 与跨字段校验。`Models` 分区保存模型目录、默认值、
+  会话选模和加密凭证，管理视图移除密文，凭证只通过写入操作替换或清除。
   `GET/PUT /api/v1/settings` 与 `POST /api/v1/settings/reset` 提供读取、乐观锁保存与恢复默认；
   工具解析器、发送预算、意图阈值与模型客户端都按快照取值，因此控制台改动无需重启。
   提供方清单在接口中只读展示，模型可调用哪些工具由会话的「能力授权」决定。
+- `internal/models/contracts`：发布模型配置快照、解析和凭证加密端口；`infrastructure` 提供
+  AES-GCM 与系统配置目录下的持久化密钥。`/api/v1/models` 管理目录，模型变更与普通设置共享
+  乐观锁版本；凭证首次导入后不再读取 YAML 作为运行时兜底。
+- `internal/media`：按来源账号获取图片/语音，图片内容经生成契约传给 Eino，成功转写在任务租约内
+  写回消息文本。B 站/QQ 视频工具获取受限媒体并用 FFmpeg 抽帧，结构化结果经 Eino 增强工具接口
+  进入下一次模型请求。工具图片被放在完整工具回执批次之后的用户消息，维持调用配对。
+  语音发送绑定当前会话并复用投递台账；二进制不写入追踪。模型密钥及 B 站 Cookie 始终留在服务端。
 - `internal/memory`：长期记忆。候选 → 去重 → 管理员审批 → 激活；检索先按
   `bot_id + visibility + owner_key + status` 过滤（bot_shared / group / private_user /
   conversation），embedding 向量列留待选定模型后添加。
