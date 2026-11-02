@@ -1,4 +1,5 @@
-# 两阶段构建：构建阶段在镜像内编译，运行阶段只放二进制。
+# Build separately; the runtime contains the executable and media tools.
+# 分阶段编译；运行镜像包含程序和媒体处理工具。
 # 基础镜像默认走集群内 Zot（runner 的 dind 拉不到 Docker Hub），本地可 --build-arg 覆盖。
 # 不写 # syntax= 指令：buildx 自带的前端已支持所用指令，
 # 而自定义语法镜像要从 Docker Hub 拉，runner 上会失败。
@@ -47,6 +48,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -o /out/nagi ./cmd
 
 FROM ${BASE_IMAGE}
+RUN apk add --no-cache ffmpeg
 COPY --from=build /out/nagi /usr/local/bin/nagi
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/nagi"]

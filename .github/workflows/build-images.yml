@@ -139,6 +139,17 @@ jobs:
           go-version: "1.27.x"
           cache: false
 
+      - name: 安装并检查媒体工具
+        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+
       # GOPROXY 用步骤级环境变量：go env -w 会写进自托管 runner 的全局配置，跨作业残留。
       - name: Go 校验
         if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
