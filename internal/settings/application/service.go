@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"log/slog"
+	"sync"
 	"time"
 
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
@@ -50,9 +52,13 @@ type View struct {
 // Options wires the service dependencies.
 // Options 装配服务依赖。
 type Options struct {
-	Repository Repository
-	Provider   *Provider
-	Defaults   settingsdomain.Settings
+	ModelTester     models.Tester
+	Cipher          models.Cipher
+	LegacyAIKey     string
+	LegacyIntentKey string
+	Repository      Repository
+	Provider        *Provider
+	Defaults        settingsdomain.Settings
 	// Providers lists the registered tool providers for read-only display.
 	// Providers 列出已注册的工具提供方，仅用于只读展示。
 	Providers        []string
@@ -64,6 +70,11 @@ type Options struct {
 // Service exposes reads, writes and the reload loop of the settings row.
 // Service 提供配置行的读取、写入与重载循环。
 type Service struct {
+	modelTester      models.Tester
+	modelMu          sync.Mutex
+	cipher           models.Cipher
+	legacyAIKey      string
+	legacyIntentKey  string
 	repo             Repository
 	provider         *Provider
 	defaults         settingsdomain.Settings
@@ -84,6 +95,7 @@ func NewService(opts Options) (*Service, error) {
 	}
 	opts.Defaults.Normalize()
 	return &Service{
+		modelTester: opts.ModelTester, cipher: opts.Cipher, legacyAIKey: opts.LegacyAIKey, legacyIntentKey: opts.LegacyIntentKey,
 		repo:             opts.Repository,
 		provider:         opts.Provider,
 		defaults:         opts.Defaults,
@@ -113,21 +125,33 @@ func (s *Service) Ensure(ctx context.Context) error {
 		s.logger.Info("system settings seeded from config", "version", revision.Version)
 	}
 	s.provider.Store(snapshotOf(revision))
-	return nil
+	return s.EnsureModels(ctx)
 }
 
 // View returns the current revision together with the defaults baseline.
 // View 返回当前修订以及默认基线。
 func (s *Service) View() View {
 	current := s.provider.Current()
+	credentials := s.credentials
+	if current.Settings.Models.Initialized {
+		credentials = Credentials{}
+		for _, p := range current.Settings.Models.Profiles {
+			if p.ID == current.Settings.Models.Defaults["generation"] {
+				credentials.AI = p.Secret != ""
+			}
+			if p.ID == current.Settings.Models.Defaults["intent"] {
+				credentials.Intent = p.Secret != ""
+			}
+		}
+	}
 	return View{
-		Settings:    current.Settings.Clone(),
-		Defaults:    s.defaults.Clone(),
+		Settings:    publicSettings(current.Settings),
+		Defaults:    publicSettings(s.defaults),
 		Version:     current.Version,
 		UpdatedAt:   current.UpdatedAt,
 		UpdatedBy:   current.UpdatedBy,
 		Persisted:   current.Persisted,
-		Credentials: s.credentials,
+		Credentials: credentials,
 		Providers:   append([]string{}, s.providers...),
 	}
 }
@@ -137,17 +161,13 @@ func (s *Service) View() View {
 // Update 校验并持久化新修订，随后替换实时快照，
 // 下一次会话无需重启即可使用新配置。
 func (s *Service) Update(ctx context.Context, incoming settingsdomain.Settings, expected int64, actor string) (View, error) {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	incoming.Models = s.provider.Settings().Models.Clone()
+	applyModelConnections(&incoming)
 	incoming.Normalize()
 	if err := incoming.Validate(s.knownPermissions); err != nil {
 		return View{}, err
-	}
-	// Enabling generation without a key would fail on the first reply; reject it
-	// while the operator is still looking at the switch.
-	// 没有密钥就启用生成会在第一次回复时失败；趁运维还在开关前直接拒绝。
-	if incoming.AI.Enabled && !s.credentials.AI {
-		invalid := &settingsdomain.ValidationError{}
-		invalid.Add("AI.Enabled", "配置文件缺少 ai.api-key，无法启用生成模型")
-		return View{}, invalid
 	}
 	if s.repo == nil {
 		current := s.provider.Current()
@@ -205,6 +225,8 @@ func (s *Service) Watch(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Service) reloadIfChanged(ctx context.Context) error {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
 	version, found, err := s.repo.Version(ctx)
 	if err != nil {
 		return err

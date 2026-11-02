@@ -147,11 +147,12 @@ func TestLoadAcceptsAIEnabledWithIntent(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsAIEnabledWithoutAPIKey(t *testing.T) {
-	// 验证 ai.enabled 但未填写 api-key 时启动失败，而不是运行期才发现 401。
+func TestLoadAllowsModelCredentialsManagedByConsole(t *testing.T) {
+	// The model catalogue owns credentials, so the startup file need not contain a token.
+	// 模型目录负责凭证，因此启动文件无需包含 Token。
 	file := writeTempConfig(t, "ai:\n  enabled: true\n  base-url: https://llm.example/v1\n  model: test-model\nintent:\n  enabled: true\n")
-	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
-		t.Fatal("expected error for ai.enabled without api-key")
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err != nil {
+		t.Fatal(err)
 	}
 }
 

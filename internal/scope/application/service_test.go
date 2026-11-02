@@ -4,6 +4,8 @@ package application
 
 import (
 	"context"
+	"fmt"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
@@ -263,5 +265,55 @@ func TestDefaultTemplatesAreIsolatedAndIndependentPoliciesWin(t *testing.T) {
 	p, err = svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
 	if err != nil || p.Enabled {
 		t.Fatalf("template update stale: %+v, %v", p, err)
+	}
+}
+
+type gateModels struct{ allowed map[string]bool }
+
+func (m gateModels) ResolveModel(_ context.Context, usage string, _ int64, _ string, _ int64) (models.Resolved, error) {
+	if !m.allowed[usage] {
+		return models.Resolved{}, fmt.Errorf("not verified")
+	}
+	return models.Resolved{}, nil
+}
+func (gateModels) BilibiliCredential(context.Context) (string, error) { return "", nil }
+
+// TestPolicyModelPrerequisites verifies server-side enabling and voice grants cannot bypass model validation.
+// TestPolicyModelPrerequisites 验证后端阻止绕过模型验证启用策略或语音能力。
+func TestPolicyModelPrerequisites(t *testing.T) {
+	repo := newFakeRepo()
+	s, _ := NewService(repo)
+	allowed := map[string]bool{}
+	s.SetModels(gateModels{allowed})
+	policy := domain.Default(domain.ScopePrivate, 123)
+	policy.Enabled = true
+	if err := s.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("enabled without generation model")
+	}
+	allowed["generation"] = true
+	if err := s.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Resolve(context.Background(), 1, domain.ScopePrivate, 123)
+	if got.ToolPermissions["media.voice.transcribe"] {
+		t.Fatal("new scope automatically granted transcription")
+	}
+	policy.ToolPermissions = map[string]bool{"media.voice.send": true}
+	if err := s.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("granted TTS without model")
+	}
+	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": true}
+	if err := s.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("granted ASR without model")
+	}
+	allowed["asr"] = true
+	if err := s.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatal(err)
+	}
+	delete(allowed, "generation")
+	policy.Enabled = false
+	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": false}
+	if err := s.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatal("cannot revoke while models unavailable", err)
 	}
 }

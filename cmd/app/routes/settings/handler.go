@@ -35,6 +35,7 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/settings", h.Get)
+	h.registerModels(mux)
 	mux.HandleFunc("PUT /api/v1/settings", h.Put)
 	mux.HandleFunc("POST /api/v1/settings/reset", h.Reset)
 }

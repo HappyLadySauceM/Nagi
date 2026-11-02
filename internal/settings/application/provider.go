@@ -51,7 +51,11 @@ func (p *Provider) Current() Snapshot {
 // Settings returns just the configuration of the current snapshot.
 // Settings 仅返回当前快照中的配置。
 func (p *Provider) Settings() settingsdomain.Settings {
-	return p.Current().Settings
+	out := p.Current().Settings
+	if out.Models.Initialized {
+		applyModelConnections(&out)
+	}
+	return out
 }
 
 // Store replaces the snapshot atomically.
