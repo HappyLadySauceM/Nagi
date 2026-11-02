@@ -218,7 +218,39 @@ tools:
 
 `ai`、`intent`、`agent`、`messages` 与 `tools` 这几个分区在首次启动时写入数据库，此后由控制台的
 「系统配置」页面维护，保存即生效、无需重启；`tools.permission-defaults` 作为内部基线不再由界面编辑，
-`onebot`、`server`、`database`、`observability` 以及各类 `api-key` 仍只从配置文件或环境变量读取，不在界面展示。
+`onebot`、`server`、`database`、`observability` 的基础设施凭证仍由配置文件或环境变量维护。
+
+模型在「系统配置 → 模型配置」中逐项打开右侧抽屉，管理生成、意图、语音识别和语音合成模型，
+并选择各用途的全局默认值。OpenAI 兼容配置填写基础地址（例如 `https://example.com/v1`），
+SystemOne 配置填写完整判定地址。Token 留空保留，填入新值则替换；所有读取接口只显示凭证状态。
+提交按钮为“测试保存模型”，真实调用成功后才持久化，可能产生少量模型费用；旧模型需要重新测试。
+高级配置支持多组自定义 HTTP 请求头，值加密保存且不回显。
+已有 `ai.api-key`、`intent.api-key` 和模型连接配置仅在模型目录初始化时导入一次，之后以数据库为准。
+「恢复默认」保留模型目录、会话选模与凭证，不会重新导入已清除的 Token。
+
+Token 与 B 站 Cookie 使用 AES-GCM 加密，密钥首次使用自动保存在系统配置目录的
+`nagi/credentials.key`（Linux 通常为 `~/.config/nagi/credentials.key`，权限 `0600`）。
+备份、迁移时必须同时保留数据库和此文件；共享数据库的多实例必须部署同一份密钥。
+
+联系人策略抽屉中的生成模型选择独立保存，按「会话 → 该账号的好友/群默认模板 → 全局默认」生效；
+恢复跟随默认请将该选择设为跟随模板。模型被默认值或会话引用时不能删除。
+意图启用、自称、上下文条数和判定阈值在「意图识别 → 识别配置」中调整。
+
+图片自动传给支持图片的生成模型。语音识别需选择已验证的全局默认 ASR 并授予会话“语音识别”；
+OpenAI 兼容 ASR 在意图判断前经 `/audio/transcriptions` 转写；
+已启用会话的当前输入由对应模型处理，历史媒体遵守历史读取授权。
+OpenAI 兼容合成语音使用 `/audio/speech`，需要选择已验证的全局默认 TTS，并同时授予「合成语音回复」「当前会话回复」「发送媒体」。
+语音发送复用投递台账及字符预算，结果未知时不重发，也不重复发送最终文字回复。
+ASR／TTS 还支持“火山 Agent Plan 语音协议”：填写专属 API Key 和完整接口地址，
+ASR 通过 WebSocket 上传服务器持有的音频，TTS 通过 HTTP 合成，音色可从官方 2.0 列表选择。
+
+视频需要服务器安装 `ffmpeg`、`ffprobe`。`dsh-video-vision` 提供 `media.video.inspect`，
+接受 B 站视频链接、BV 号、短链、分 P，以及 `attachment:current`（当前消息）或 `attachment:消息ID` 形式的 QQ 视频附件；
+不接受任意本地路径或其他视频网站。授予「查看视频」后可使用；「使用B站登录凭证」
+额外允许工具使用在模型配置页保存的 Cookie，未授予时匿名访问。
+工具支持 `start`、`end`（秒）和 `frames`：默认 6 帧、最多 12 帧；字幕/转写每次覆盖最多
+180 秒，需继续查看时指定下一时间窗口。下载最多 512 MiB，媒体工具超时 120 秒，
+整条消息处理（含转写、意图判断和生成）的硬上限为 180 秒；管理员设置更短的 Agent 运行时限时优先遵守该值。缓存保留 24 小时。画面与平台字幕或转写均标注时间范围。
 
 内置工具分三类：只读的 `system.current_time`、`qq.get_group_info`（`qq.group.read`）与
 `qq.get_group_member_info`（`qq.group.member.read`）；回合内发送 `qq.send_current`
