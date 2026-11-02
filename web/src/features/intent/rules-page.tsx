@@ -1,3 +1,4 @@
+import { confirmAction } from '../../components/confirm-action'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '../../components/ui/sheet'
 import { useEditGuard } from './edit-guard'
@@ -111,8 +112,8 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   const targetQuery=targetKind==='private'?matchingFriends:matchingGroups
   const choices=targetKind==='private'?(matchingFriends.data?.items ?? []).map(row=>({id:row.userId,name:row.remark||row.nickname})):(matchingGroups.data?.items ?? []).map(row=>({id:row.groupId,name:row.name}))
 
-  function selectVersion(id: number) {
-    if (save.isPending || publish.isPending || rollback.isPending || createDraft.isPending || remove.isPending || (dirty && !window.confirm('放弃未保存的修改并切换版本？'))) return
+  async function selectVersion(id: number) {
+    if (save.isPending || publish.isPending || rollback.isPending || createDraft.isPending || remove.isPending || (dirty && !await confirmAction('放弃未保存的修改并切换版本？'))) return
     setDirty(false)
     setSelectedId(id)
     setEditorView('edit')
@@ -120,8 +121,8 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
 
   const busy = remove.isPending || save.isPending || publish.isPending || rollback.isPending || createDraft.isPending
   useEditGuard(dirty, busy)
-  function changeTarget(change: () => void) {
-    if (busy || (dirty && !window.confirm('放弃未保存的修改并切换目标？'))) return
+  async function changeTarget(change: () => void) {
+    if (busy || (dirty && !await confirmAction('放弃未保存的修改并切换目标？'))) return
     setDirty(false)
     setSelectedId(null); setEntries([]);
     change()
@@ -139,7 +140,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="space-y-1 text-sm">
             <span className="text-muted-foreground">会话类型</span>
-            <Select value={scopeType} disabled={busy} onChange={(e) => changeTarget(() => setScopeType(e.target.value as ScopeType))}>
+            <Select value={scopeType} disabled={busy} onChange={(e) => {const value=e.target.value as ScopeType;void changeTarget(() => setScopeType(value))}}>
               <option value="group">群聊</option>
               <option value="private">私聊</option>
             </Select>
@@ -148,7 +149,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
             <span className="text-muted-foreground">新建规则的初始目标 · 0 为所有会话</span>
             <Input
               value={scopeId}
-              disabled={busy} onChange={(e) => changeTarget(() => setScopeId(e.target.value))}
+              disabled={busy} onChange={(e) => {const value=e.target.value;void changeTarget(() => setScopeId(value))}}
               placeholder="0 表示所有会话"
               inputMode="numeric"
             />
@@ -157,8 +158,8 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
             <Button
               variant="outline"
               disabled={!scope || busy}
-              onClick={() =>
-                scope && !busy && (!dirty || window.confirm('放弃未保存的修改并新建草稿？')) &&
+              onClick={async () =>
+                scope && !busy && (!dirty || await confirmAction('放弃未保存的修改并新建草稿？')) &&
                 createDraft.mutate(
                   { note: '', cloneActive: true, cloneFromId: current?.id },
                   {
@@ -235,8 +236,8 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
         </Card>
       )}
 
-      <Sheet open={selectedId !== null} onOpenChange={open => {
-        if (open || busy || (dirty && !window.confirm('放弃未保存的修改并关闭？'))) return
+      <Sheet open={selectedId !== null} onOpenChange={async open => {
+        if (open || busy || (dirty && !await confirmAction('放弃未保存的修改并关闭？'))) return
         setDirty(false)
         setSelectedId(null)
         setEditorView('edit')
@@ -345,7 +346,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
           </aside></div>
           <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-4">
             {current ? <Button variant="ghost" className="text-destructive" disabled={busy} onClick={() => setDeleting(current)}><Trash2 />删除版本</Button> : null}
-            {current ? <Button variant="outline" disabled={busy} onClick={() => current && (!dirty || window.confirm('放弃未保存的修改并新建草稿？')) && createDraft.mutate({ note: '', cloneActive: true, cloneFromId: current.id }, { onSuccess: set => { setDirty(false); setSelectedId(set.id); setEditorView('edit'); toast.success(`已创建 v${set.version} 草稿`) }, onError: error => toast.error(describeError(error).title) })}>从此版本创建草稿</Button> : null}
+            {current ? <Button variant="outline" disabled={busy} onClick={async () => current && (!dirty || await confirmAction('放弃未保存的修改并新建草稿？')) && createDraft.mutate({ note: '', cloneActive: true, cloneFromId: current.id }, { onSuccess: set => { setDirty(false); setSelectedId(set.id); setEditorView('edit'); toast.success(`已创建 v${set.version} 草稿`) }, onError: error => toast.error(describeError(error).title) })}>从此版本创建草稿</Button> : null}
 {current ? (            <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => { setEntries([...entries, { ...EMPTY_ENTRY, priority: Math.max(-1, ...entries.map(entry => entry.priority)) + 1 }]); setDirty(true) }} disabled={!isDraft || busy}>
                 <Plus />

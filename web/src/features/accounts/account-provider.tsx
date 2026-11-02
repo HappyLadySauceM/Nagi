@@ -1,3 +1,4 @@
+import { allowWorkspaceChange } from '../intent/edit-guard'
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { AccountSummary } from '../../lib/api/contracts'
 import { useAccounts } from '../system/queries'
@@ -50,8 +51,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [accounts, storedBotId],
   )
 
-  const selectAccount = useCallback((botId?: number) => {
-    if (!window.dispatchEvent(new Event('nagi:account-changing', { cancelable: true }))) return
+  const selectAccount = useCallback(async (botId?: number) => {
+    if (!(await allowWorkspaceChange())) return
     setStoredBotId(botId)
     if (typeof window === 'undefined') {
       return

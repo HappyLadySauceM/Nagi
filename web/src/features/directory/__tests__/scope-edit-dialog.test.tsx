@@ -22,7 +22,8 @@ it('saves an unchanged inherited template as an independent snapshot and freezes
       writes.push(JSON.parse(String(init.body)))
       return new Promise<Response>(resolve => { finish = resolve })
     }
-    if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], }))
+    if(String(input).includes('/models')) return Promise.resolve(response({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1}))
+ if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], }))
     return Promise.resolve(response({ ...policy, ScopeID: String(input).includes('/default') ? 0 : 123 }))
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -45,7 +46,8 @@ it('saves an unchanged inherited template as an independent snapshot and freezes
 
 it('shows permission changes before restoring the default template', async () => {
   vi.stubGlobal('fetch', vi.fn((input: string) => {
-    if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], }))
+    if(String(input).includes('/models')) return Promise.resolve(response({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1}))
+ if (String(input).includes('/tools')) return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [], }))
     return Promise.resolve(response({ ...policy, ScopeID: String(input).includes('/default') ? 0 : 123, Source: 'independent', AllowHistoryRead: String(input).includes('/default') }))
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -59,7 +61,7 @@ it('shows permission changes before restoring the default template', async () =>
 
 it('keeps edits across workspace sections and asks before closing', async () => {
   vi.stubGlobal('fetch', vi.fn((input: string) => Promise.resolve(response(
-    String(input).includes('/tools') ? { Providers: [], Tools: [], Permissions: [] } : policy,
+    String(input).includes('/models') ? {Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1} : String(input).includes('/tools') ? { Providers: [], Tools: [], Permissions: [] } : policy,
   ))))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   function Harness() {
@@ -85,7 +87,8 @@ it('shows loading, error, retry and empty feedback in the capability section', a
   let finish: ((value: Response) => void) | undefined
   let attempts = 0
   vi.stubGlobal('fetch', vi.fn((input: string) => {
-    if (String(input).includes('/tools')) {
+    if(String(input).includes('/models')) return Promise.resolve(response({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1}))
+ if (String(input).includes('/tools')) {
       attempts++
       if (attempts === 1) return new Promise<Response>(resolve => { finish = resolve })
       return Promise.resolve(response({ Providers: [], Tools: [], Permissions: [] }))
@@ -117,7 +120,8 @@ it.each([['private', 123], ['group', 123], ['private', 0], ['group', 0]] as cons
   let stored = { ...policy, ScopeType: scopeType, ScopeID: scopeId, ToolPermissions: {} }
   let body: Record<string, unknown> | undefined
   vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
-    if (String(input).includes('/tools')) return Promise.resolve(response(tools))
+    if(String(input).includes('/models')) return Promise.resolve(response({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1}))
+ if (String(input).includes('/tools')) return Promise.resolve(response(tools))
     if (init?.method === 'PUT') {
       body = JSON.parse(String(init.body))
       stored = { ...stored, Source: 'independent', ToolPermissions: body!.tool_permissions as Record<string, boolean> }

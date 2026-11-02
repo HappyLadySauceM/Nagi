@@ -99,14 +99,15 @@ describe('SettingsPage', () => {
   it('renders every section and counts unsaved changes', async () => {
     // 渲染三个分区，并统计未保存的改动。
     mockedRequest.mockImplementation((path: string) => {
-      if (path.startsWith('/api/v1/tools')) {
+      if (path==='/api/v1/models') return Promise.resolve({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1})
+ if (path.startsWith('/api/v1/tools')) {
         return Promise.resolve(toolsCatalog)
       }
       return Promise.resolve(settingsView())
     })
     renderPage()
 
-    expect(await screen.findByText('生成模型')).toBeInTheDocument()
+    expect((await screen.findAllByText('模型配置')).length).toBeGreaterThan(0)
     // The label appears in both the section nav and the card title.
     // 该文案同时出现在分区导航与卡片标题中。
     expect(screen.getAllByText('消息与留存').length).toBeGreaterThan(0)
@@ -116,7 +117,7 @@ describe('SettingsPage', () => {
     expect(screen.queryByText('权限默认值')).toBeNull()
     expect(screen.getByText('已是最新配置')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('switch', { name: '启用生成模型' }))
+    fireEvent.change(await screen.findByLabelText('最大推理步数'),{target:{value:'7'}})
     expect(await screen.findByText('有 1 项未保存')).toBeInTheDocument()
   })
 
@@ -124,7 +125,8 @@ describe('SettingsPage', () => {
     // 保存后采用服务端修订号，未保存提示消失。
     let putBody: unknown
     mockedRequest.mockImplementation((path: string, options?: { method?: string; body?: unknown }) => {
-      if (path.startsWith('/api/v1/tools')) {
+      if (path==='/api/v1/models') return Promise.resolve({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1})
+ if (path.startsWith('/api/v1/tools')) {
         return Promise.resolve(toolsCatalog)
       }
       if (options?.method === 'PUT') {
@@ -135,7 +137,7 @@ describe('SettingsPage', () => {
     })
     renderPage()
 
-    fireEvent.click(await screen.findByRole('switch', { name: '启用生成模型' }))
+    fireEvent.change(await screen.findByLabelText('最大推理步数'),{target:{value:'7'}})
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
 
     await waitFor(() => expect(screen.getByText('配置已保存，立即生效')).toBeInTheDocument())
@@ -146,7 +148,8 @@ describe('SettingsPage', () => {
   it('shows a conflict without discarding the draft', async () => {
     // 版本冲突提示刷新，草稿保持不变。
     mockedRequest.mockImplementation((path: string, options?: { method?: string }) => {
-      if (path.startsWith('/api/v1/tools')) {
+      if (path==='/api/v1/models') return Promise.resolve({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1})
+ if (path.startsWith('/api/v1/tools')) {
         return Promise.resolve(toolsCatalog)
       }
       if (options?.method === 'PUT') {
@@ -158,7 +161,7 @@ describe('SettingsPage', () => {
     })
     renderPage()
 
-    fireEvent.click(await screen.findByRole('switch', { name: '启用生成模型' }))
+    fireEvent.change(await screen.findByLabelText('最大推理步数'),{target:{value:'7'}})
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
 
     expect(
@@ -170,7 +173,8 @@ describe('SettingsPage', () => {
   it('blocks saving while a field is invalid', async () => {
     // 非法输入立即标红，保存按钮保持禁用。
     mockedRequest.mockImplementation((path: string) => {
-      if (path.startsWith('/api/v1/tools')) {
+      if (path==='/api/v1/models') return Promise.resolve({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1})
+ if (path.startsWith('/api/v1/tools')) {
         return Promise.resolve(toolsCatalog)
       }
       return Promise.resolve(settingsView())
@@ -187,7 +191,8 @@ describe('SettingsPage', () => {
   it('lists registered providers without an enable switch', async () => {
     // 提供方随进程注册，全部可用；页面只展示清单，没有启用开关。
     mockedRequest.mockImplementation((path: string) => {
-      if (path.startsWith('/api/v1/tools')) {
+      if (path==='/api/v1/models') return Promise.resolve({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1})
+ if (path.startsWith('/api/v1/tools')) {
         return Promise.resolve(toolsCatalog)
       }
       return Promise.resolve(settingsView())
@@ -202,7 +207,8 @@ describe('SettingsPage', () => {
   it('blames an old binary, not the database, when the route is missing', async () => {
     // 404 未注册表示旧二进制/未重启，页面不能再说「需要数据库」。
     mockedRequest.mockImplementation((path: string) => {
-      if (path.startsWith('/api/v1/tools')) {
+      if (path==='/api/v1/models') return Promise.resolve({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1})
+ if (path.startsWith('/api/v1/tools')) {
         return Promise.resolve(toolsCatalog)
       }
       return Promise.reject(
@@ -225,7 +231,8 @@ describe('SettingsPage', () => {
   it('asks for a database only when the endpoint reports 503', async () => {
     // 503 才提示填写 database.dsn。
     mockedRequest.mockImplementation((path: string) => {
-      if (path.startsWith('/api/v1/tools')) {
+      if (path==='/api/v1/models') return Promise.resolve({Catalog:{Profiles:[],Defaults:{},Selections:{},HasBilibiliCredential:false},Version:1})
+ if (path.startsWith('/api/v1/tools')) {
         return Promise.resolve(toolsCatalog)
       }
       return Promise.reject(
@@ -242,4 +249,33 @@ describe('SettingsPage', () => {
     expect(await screen.findByText('系统配置需要数据库')).toBeInTheDocument()
     expect(screen.getByText(/database\.dsn/)).toBeInTheDocument()
   })
+})
+
+it('preserves unsaved settings when an independent model credential is saved', async () => {
+  let version = 1
+  let savedSettingsVersion: unknown
+  mockedRequest.mockImplementation((path: string, options?: { method?: string; body?: unknown }) => {
+    if (path === '/api/v1/models') {
+      if (options?.method === 'PATCH') version = 2
+      return Promise.resolve({ Catalog: { Profiles: [], Defaults: {}, Selections: {}, HasBilibiliCredential: version === 2 }, Version: version })
+    }
+    if (path.startsWith('/api/v1/tools')) return Promise.resolve(toolsCatalog)
+    if (options?.method === 'PUT') {
+      savedSettingsVersion = (options.body as { Version: number }).Version
+      return Promise.reject(new ApiError({ kind: 'conflict', endpoint: path, message: 'configuration changed' }))
+    }
+    return Promise.resolve(settingsView({ Version: version }))
+  })
+  renderPage()
+  const enabled = await screen.findByLabelText('最大推理步数')
+  fireEvent.change(enabled,{target:{value:'7'}})
+  fireEvent.change(screen.getByLabelText('B站 Cookie'), { target: { value: 'test-cookie' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存站点凭证' }))
+  await screen.findByText('B 站登录凭证 · 已配置')
+  expect(enabled).toHaveValue(7)
+  expect(screen.getByText('有 1 项未保存')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+  await screen.findByText('配置已被其他页面修改，请刷新后重试')
+  expect(savedSettingsVersion).toBe(1)
+  expect(enabled).toHaveValue(7)
 })
