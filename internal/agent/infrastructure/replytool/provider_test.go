@@ -5,6 +5,7 @@ package replytool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -279,6 +280,66 @@ func TestPublicSendRequiresSpecificAndCrossConversationGrants(t *testing.T) {
 			})
 			if calls != tc.wantCalls || len(ledger.reserved) != tc.wantReservations || (err == nil) != (tc.wantCalls == 1) {
 				t.Fatalf("calls=%d reservations=%d err=%v", calls, len(ledger.reserved), err)
+			}
+		})
+	}
+}
+
+type speechFixture struct{ calls int }
+
+func (s *speechFixture) Synthesize(context.Context, string) ([]byte, error) {
+	s.calls++
+	return []byte("fixture-mp3"), nil
+}
+
+type voiceSender struct {
+	fakeSender
+	segments []obdomain.Segment
+}
+
+func (s *voiceSender) SendGroupMessageReceipt(ctx context.Context, to obdomain.GroupID, segments ...obdomain.Segment) (int64, error) {
+	s.segments = obdomain.CloneSegments(segments)
+	return s.fakeSender.SendGroupMessageReceipt(ctx, to, segments...)
+}
+func (s *voiceSender) ReceiptSender(int64) (Sender, bool) { return s, true }
+
+// TestVoiceUsesLedgerAndMediaPermission verifies voice bytes, Unicode charge and uncertain delivery status.
+// TestVoiceUsesLedgerAndMediaPermission 验证语音字节、Unicode 预算与未知投递状态。
+func TestVoiceUsesLedgerAndMediaPermission(t *testing.T) {
+	for _, uncertain := range []bool{false, true} {
+		t.Run(fmt.Sprint(uncertain), func(t *testing.T) {
+			sender := &voiceSender{fakeSender: fakeSender{message: 33}}
+			if uncertain {
+				sender.err = context.DeadlineExceeded
+			}
+			ledger := &fakeLedger{}
+			recorder := &fakeRecorder{}
+			speech := &speechFixture{}
+			list, err := NewVoiceProvider(Options{Senders: sender, Ledger: ledger, Recorder: recorder, Speech: speech}).Tools(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope := pluginsapp.Scope{BotID: 1, JobID: 9, ConversationID: "conv", Kind: "group", TargetID: 88, Permissions: map[string]bool{"media.voice.send": true, "qq.reply.current": true, "qq.content.media": true}}
+			_, sendErr := list[0].Invoke(pluginsapp.WithScope(context.Background(), scope), `{"text":"你好"}`)
+			if !uncertain && sendErr != nil {
+				t.Fatal(sendErr)
+			}
+			if len(sender.segments) != 1 || sender.segments[0].Type != obdomain.SegRecord || !strings.HasPrefix(sender.segments[0].Data["file"], "base64://") {
+				t.Fatal("voice not transmitted")
+			}
+			if len(ledger.reserved) != 1 || ledger.reserved[0].ChargeChars != 2 || ledger.reserved[0].Action != "qq.send_voice_current" {
+				t.Fatal("voice budget missing")
+			}
+			if len(ledger.settled) != 1 {
+				t.Fatal("missing settlement")
+			}
+			if uncertain && ledger.settled[0].Status != outbounddomain.StatusUnknown {
+				t.Fatal("uncertain delivery must stay unknown")
+			}
+			delete(scope.Permissions, "qq.content.media")
+			_, err = list[0].Invoke(pluginsapp.WithScope(context.Background(), scope), `{"text":"拒绝"}`)
+			if err == nil || speech.calls != 1 {
+				t.Fatal("media permission bypassed")
 			}
 		})
 	}

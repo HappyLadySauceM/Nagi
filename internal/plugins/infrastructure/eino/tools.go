@@ -6,6 +6,8 @@ package eino
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/cloudwego/eino/compose"
 	"github.com/eino-contrib/jsonschema"
@@ -48,7 +50,7 @@ func ToBaseTools(tools []contracts.RegisteredTool) []tool.BaseTool {
 		raw, _ := json.Marshal(parameterSchema(contracts.Parameter{Type: "object", Properties: registered.Descriptor.Parameters}))
 		var params jsonschema.Schema
 		_ = json.Unmarshal(raw, &params)
-		out = append(out, invokableTool{
+		adapted := invokableTool{
 			info: &schema.ToolInfo{
 				Name:        toolName(registered.Descriptor.ID),
 				Desc:        registered.Descriptor.Description,
@@ -56,7 +58,12 @@ func ToBaseTools(tools []contracts.RegisteredTool) []tool.BaseTool {
 			},
 			invoke:    registered.Invoke,
 			sensitive: registered.Descriptor.Sensitive,
-		})
+		}
+		if registered.Descriptor.Multimodal {
+			out = append(out, multimodalTool{base: adapted})
+		} else {
+			out = append(out, adapted)
+		}
 	}
 	return out
 }
@@ -114,3 +121,33 @@ func parameterSchema(p contracts.Parameter) map[string]any {
 // Sensitive reports whether tool output contains credentials.
 // Sensitive 报告工具输出是否包含凭证。
 func (t invokableTool) Sensitive() bool { return t.sensitive }
+
+// multimodalTool returns images through Eino's structured tool interface.
+// multimodalTool 经由 Eino 的结构化工具接口返回图片。
+type multimodalTool struct{ base invokableTool }
+
+func (t multimodalTool) Info(ctx context.Context) (*schema.ToolInfo, error) { return t.base.Info(ctx) }
+func (t multimodalTool) Sensitive() bool                                    { return true }
+func (t multimodalTool) InvokableRun(ctx context.Context, arg *schema.ToolArgument, _ ...tool.Option) (*schema.ToolResult, error) {
+	raw, err := t.base.InvokableRun(ctx, arg.Text)
+	if err != nil {
+		return nil, err
+	}
+	var result struct{ Parts []media.Part }
+	if json.Unmarshal([]byte(raw), &result) != nil {
+		return &schema.ToolResult{Parts: []schema.ToolOutputPart{{Type: schema.ToolPartTypeText, Text: raw}}}, nil
+	}
+	out := &schema.ToolResult{}
+	for _, p := range result.Parts {
+		if p.Base64 != "" {
+			if p.MIME == "" {
+				return nil, fmt.Errorf("image MIME missing")
+			}
+			data := p.Base64
+			out.Parts = append(out.Parts, schema.ToolOutputPart{Type: schema.ToolPartTypeImage, Image: &schema.ToolOutputImage{MessagePartCommon: schema.MessagePartCommon{MIMEType: p.MIME, Base64Data: &data}}})
+		} else {
+			out.Parts = append(out.Parts, schema.ToolOutputPart{Type: schema.ToolPartTypeText, Text: p.Text})
+		}
+	}
+	return out, nil
+}

@@ -373,3 +373,70 @@ func TestFullSimulationUsesActualHourlyActivity(t *testing.T) {
 		t.Fatalf("full simulation bypassed actual quota: %+v calls=%d", final, semantic.calls)
 	}
 }
+
+type transcriptFixture struct {
+	calls        int
+	saved        string
+	onTranscribe func()
+}
+
+func (f *transcriptFixture) Transcribe(_ context.Context, _ int64, _ []obdomain.Segment, text string) (string, error) {
+	f.calls++
+	if f.onTranscribe != nil {
+		f.onTranscribe()
+	}
+	return text + "转写内容", nil
+}
+func (f *transcriptFixture) SaveTranscript(_ context.Context, _ int64, _ string, text string) error {
+	f.saved = text
+	return nil
+}
+
+// TestDisabledIntentStillTranscribesAuthorizedVoice verifies transcription is independent of reply participation.
+// TestDisabledIntentStillTranscribesAuthorizedVoice 验证语音转写独立于意图回复开关。
+func TestDisabledIntentStillTranscribesAuthorizedVoice(t *testing.T) {
+	fixture := &transcriptFixture{}
+	recorder := &fakeRecorder{}
+	scopes := &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): {Enabled: true, StoreMessages: true, ToolPermissions: map[string]bool{"media.voice.transcribe": true}, ReplyMode: scopedomain.ModeAlwaysReply}}}
+	d := newDecider(t, Options{Scopes: scopes, Recorder: recorder, Media: fixture, Transcripts: fixture, Dynamic: func() RuntimeConfig { return RuntimeConfig{Enabled: false} }})
+	task := groupTask()
+	task.Segments = []obdomain.Segment{{Type: obdomain.SegRecord}}
+	if err := d.ProcessTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.calls != 1 || fixture.saved == "" || len(recorder.decisions) != 0 {
+		t.Fatal("disabled decision blocked authorized transcription")
+	}
+}
+
+// TestTranscriptionRevocationDiscardsDerivedText verifies revocation while ASR is running prevents storage.
+// TestTranscriptionRevocationDiscardsDerivedText 验证 ASR 进行中撤销权限会阻止转写落库。
+func TestTranscriptionRevocationDiscardsDerivedText(t *testing.T) {
+	for _, kind := range []string{"disabled", "storage", "observe"} {
+		t.Run(kind, func(t *testing.T) {
+			key := keyOf(100, "group", 700)
+			scopes := &fakeScopes{policies: map[string]scopedomain.Policy{key: {Enabled: true, StoreMessages: true, ToolPermissions: map[string]bool{"media.voice.transcribe": true}, ReplyMode: scopedomain.ModeAlwaysReply}}}
+			fixture := &transcriptFixture{}
+			fixture.onTranscribe = func() {
+				p := scopes.policies[key]
+				switch kind {
+				case "disabled":
+					p.Enabled = false
+				case "storage":
+					p.StoreMessages = false
+				case "observe":
+					p.ReplyMode = scopedomain.ModeObserveOnly
+				}
+				scopes.policies[key] = p
+			}
+			recorder := &fakeRecorder{}
+			d := newDecider(t, Options{Scopes: scopes, Recorder: recorder, Media: fixture, Transcripts: fixture})
+			if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
+				t.Fatal(err)
+			}
+			if fixture.saved != "" || len(recorder.decisions) != 0 {
+				t.Fatal("revoked transcription persisted or triggered a decision")
+			}
+		})
+	}
+}

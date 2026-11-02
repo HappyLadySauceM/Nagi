@@ -5,7 +5,11 @@ package assembly
 import (
 	"context"
 	"fmt"
+	mediainfra "github.com/HappyLadySauceM/Nagi/internal/media/infrastructure"
+	modelinfra "github.com/HappyLadySauceM/Nagi/internal/models/infrastructure"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
@@ -218,6 +222,9 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		}
 		handlers = append(handlers, membership)
 		callbacks := buildLangfuseCallback(cfg, logger, provider)
+		sensitiveConfig := *cfg
+		sensitiveConfig.Observability.ExportRawContent = false
+		sensitiveCallbacks := buildLangfuseCallback(&sensitiveConfig, logger, provider)
 		outboundRepo, outboundErr := outboundinfra.NewRepo(pool)
 		if outboundErr != nil {
 			return nil, outboundErr
@@ -237,10 +244,21 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil, rulesErr
 		}
 		rt.Rulesets = rulesRepo
+		cacheRoot, cacheErr := os.UserCacheDir()
+		if cacheErr != nil {
+			return nil, cacheErr
+		}
+		mediaService := mediainfra.NewService(nil, mediaAccounts{accounts: registry}, filepath.Join(cacheRoot, "nagi", "media"))
+		mediaService.Audio = modelinfra.ArkAudio{}
+		attachmentRepo, attachmentErr := conversationinfra.NewRepo(pool)
+		if attachmentErr != nil {
+			return nil, attachmentErr
+		}
 		var toolsResolver func(context.Context, agentcontracts.Request) []tool.BaseTool
 		toolRegistry := pluginsapp.NewRegistry()
 		providers := []pluginscontracts.ToolProvider{
 			builtin.NewTimeProvider(),
+			&mediainfra.VideoProvider{Service: mediaService, Attachments: attachmentRepo},
 			builtin.WithoutPublicDuplicates(builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry})),
 			builtin.WithoutPublicDuplicates(builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry})),
 			builtin.WithoutPublicDuplicates(builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry})),
@@ -328,6 +346,11 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 				MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
 			},
 		}))
+		voiceOptions := publicOptions
+		voiceOptions.Senders = replySenders{accounts: registry}
+		voiceOptions.Recorder = rt.Conversation
+		voiceOptions.Speech = mediaService
+		providers = append(providers, replytool.NewVoiceProvider(voiceOptions))
 		for _, providerImpl := range providers {
 			if registerErr := toolRegistry.Register(context.Background(), providerImpl); registerErr != nil {
 				_ = toolRegistry.Close(context.Background())
@@ -343,13 +366,15 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if settingsErr != nil {
 			return nil, settingsErr
 		}
+		rt.Scope.SetModels(settingsService)
 		rt.Settings = settingsService
 		rt.SettingsProvider = settingsProvider
 		logger.Info("tools registered",
 			"count", len(toolRegistry.Snapshot()),
 			"providers", len(toolRegistry.Manifests()))
+		mediaService.Models = settingsService
 		toolsResolver = buildToolsResolver(settingsProvider, toolRegistry, rt.Scope)
-		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, rt.Scope, rt.Conversation, registry, callbacks, ledger,
+		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, registry, callbacks, sensitiveCallbacks, ledger,
 			func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits {
 				limits, err := sendingLimitsFor(ctx, policiesRepo, settingsProvider.Settings(), botID, kind, targetID)
 				if err != nil {
@@ -365,9 +390,16 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		}
 		if callbacks != nil {
 			handler := callbacks
-			rt.ShutdownLangfuse = func(ctx context.Context) error { return handler.Shutdown(ctx) }
+			rt.ShutdownLangfuse = func(ctx context.Context) error {
+				if sensitiveCallbacks != nil {
+					if err := sensitiveCallbacks.Shutdown(ctx); err != nil {
+						return err
+					}
+				}
+				return handler.Shutdown(ctx)
+			}
 		}
-		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, settingsProvider, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
+		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
 		if workerErr != nil {
 			return nil, workerErr
 		}

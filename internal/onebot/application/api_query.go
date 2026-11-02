@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
@@ -343,15 +344,33 @@ func (s *ClientService) GetImage(ctx context.Context, file string) (domain.FileR
 // decodeFileResult 解析文件形响应。
 func decodeFileResult(payload json.RawMessage) (domain.FileResult, error) {
 	var row struct {
-		File     string `json:"file"`
-		Filename string `json:"filename"`
-		URL      string `json:"url"`
-		Size     int64  `json:"file_size"`
+		File      string          `json:"file"`
+		Filename  string          `json:"filename"`
+		URL       string          `json:"url"`
+		Size      json.RawMessage `json:"file_size"`
+		Base64    string          `json:"base64"`
+		OutFormat string          `json:"out_format"`
 	}
 	if err := decodeJSON(payload, &row); err != nil {
 		return domain.FileResult{}, err
 	}
-	return domain.FileResult{File: row.File, Filename: row.Filename, URL: row.URL, Size: row.Size}, nil
+	var size int64
+	if len(row.Size) > 0 && string(row.Size) != "null" {
+		raw := string(row.Size)
+		if row.Size[0] == '"' {
+			if err := json.Unmarshal(row.Size, &raw); err != nil {
+				return domain.FileResult{}, err
+			}
+		}
+		if raw != "" {
+			parsed, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil {
+				return domain.FileResult{}, err
+			}
+			size = parsed
+		}
+	}
+	return domain.FileResult{File: row.File, Filename: row.Filename, URL: row.URL, Size: size, Base64: row.Base64, OutFormat: row.OutFormat}, nil
 }
 
 // CanSendImage implements contracts.InfoReader.

@@ -5,6 +5,7 @@ package infrastructure
 import (
 	"context"
 	"fmt"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"sync"
 	"testing"
 	"time"
@@ -768,5 +769,83 @@ func TestDecodeSegmentsAcceptsOutboundWireShape(t *testing.T) {
 	}
 	if _, ok := data["content"].([]map[string]any); !ok {
 		t.Fatalf("node content not restored to array: %#v", data["content"])
+	}
+}
+
+// TestTranscriptPersistenceChecksCurrentPolicy exercises the atomic authorization check on the real database.
+// TestTranscriptPersistenceChecksCurrentPolicy 在真实数据库验证转写落库时的原子授权检查。
+func TestTranscriptPersistenceChecksCurrentPolicy(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	base := time.Now().UnixNano() % 1_000_000_000
+	for i, tc := range []struct {
+		name           string
+		enabled, store bool
+		mode           string
+		allowed        bool
+	}{{"allowed", true, true, "always_reply", true}, {"disabled", false, true, "always_reply", false}, {"storage-revoked", true, false, "always_reply", false}, {"observe", true, true, "observe_only", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := base + int64(i) + 1
+			bot := base + 100
+			input := domain.IngestInput{BotID: bot, Kind: domain.KindGroup, TargetID: target, PlatformMessageID: target, SenderID: 991004, Text: "original voice", Segments: []obdomain.Segment{{Type: obdomain.SegRecord, Data: map[string]string{"file": "record"}}}}
+			got, err := repo.Ingest(ctx, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claim := uuid.NewString()
+			if _, err = pool.Exec(ctx, `UPDATE message_jobs SET status='processing',claim_token=$2,lease_expires_at=clock_timestamp()+interval '60 seconds' WHERE id=$1`, got.JobID, claim); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = pool.Exec(ctx, `INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,store_messages,reply_mode) VALUES($1,'group',$2,$3,$4,$5)`, bot, target, tc.enabled, tc.store, tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			err = repo.SaveTranscript(ctx, got.JobID, claim, "derived transcription")
+			if (err == nil) != tc.allowed {
+				t.Fatalf("allowed=%v err=%v", tc.allowed, err)
+			}
+			var text string
+			if err = pool.QueryRow(ctx, `SELECT text_content FROM messages WHERE id=$1`, got.MessageID).Scan(&text); err != nil {
+				t.Fatal(err)
+			}
+			want := "original voice"
+			if tc.allowed {
+				want = "derived transcription"
+			}
+			if text != want {
+				t.Fatalf("stored %q, expected %q", text, want)
+			}
+			var encoded []byte
+			if err = pool.QueryRow(ctx, `SELECT segments FROM messages WHERE id=$1`, got.MessageID).Scan(&encoded); err != nil {
+				t.Fatal(err)
+			}
+			segments, err := decodeSegments(encoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (segments[0].Data[media.TranscriptMarker] == "true") != tc.allowed {
+				t.Fatal("transcription status differs from persisted success")
+			}
+
+			if err = repo.CompleteJob(ctx, got.JobID, claim); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// TestIngressCannotForgeTranscriptStatus prevents user metadata from suppressing ASR.
+// TestIngressCannotForgeTranscriptStatus 验证入站消息不能伪造转写成功状态。
+func TestIngressCannotForgeTranscriptStatus(t *testing.T) {
+	b, err := encodeSegments([]obdomain.Segment{{Type: obdomain.SegRecord, Data: map[string]string{"file": "voice", media.TranscriptMarker: "true"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	segments, err := decodeSegments(b)
+	if err != nil || segments[0].Data[media.TranscriptMarker] != "" {
+		t.Fatal("incoming transcription status was trusted")
 	}
 }

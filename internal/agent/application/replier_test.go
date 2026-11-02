@@ -241,7 +241,7 @@ func groupTaskForAgent() intentdomain.Task {
 func enabledGroupPolicy() map[string]scopedomain.Policy {
 	return map[string]scopedomain.Policy{
 		scopeKey(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700,
-			StoreMessages: true, Enabled: true, ReplyMode: scopedomain.ModeIntentBased,
+			StoreMessages: true, Enabled: true, AllowHistoryRead: true, ReplyMode: scopedomain.ModeIntentBased,
 			ToolPermissions: map[string]bool{"qq.group.read": false}},
 	}
 }
@@ -919,5 +919,22 @@ func TestReplierDoesNotWriteHistoryWhenSettlementFails(t *testing.T) {
 	}
 	if len(sender.group) != 1 {
 		t.Fatalf("platform calls=%d", len(sender.group))
+	}
+}
+
+// TestReplierDropsHistoryAfterPermissionRevocation verifies stale intent history never reaches generation.
+// TestReplierDropsHistoryAfterPermissionRevocation 验证撤销权限后意图阶段的旧历史不会进入生成。
+func TestReplierDropsHistoryAfterPermissionRevocation(t *testing.T) {
+	fake := &fakeRuntime{text: "ok"}
+	policies := enabledGroupPolicy()
+	p := policies[scopeKey(100, "group", 700)]
+	p.AllowHistoryRead = false
+	policies[scopeKey(100, "group", 700)] = p
+	r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, policies)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), []intentdomain.Message{{MessageID: 1, Text: "private history", Segments: []obdomain.Segment{obdomain.Image("https://example.com/private.png")}}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.req.Messages) != 2 {
+		t.Fatal("revoked history reached the model")
 	}
 }

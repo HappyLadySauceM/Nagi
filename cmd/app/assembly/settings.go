@@ -7,9 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	mediainfra "github.com/HappyLadySauceM/Nagi/internal/media/infrastructure"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	modelinfra "github.com/HappyLadySauceM/Nagi/internal/models/infrastructure"
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +64,7 @@ func buildSettings(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			}
 		}
 	}
+	knownPermissions["media.voice.transcribe"] = true
 	defaults := settingsapp.FromConfig(cfg)
 	provider := settingsapp.NewProvider(settingsapp.Snapshot{Settings: defaults.Clone()})
 
@@ -70,7 +76,12 @@ func buildSettings(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		}
 		repo = repository
 	}
+	vault, err := modelinfra.NewVault()
+	if err != nil {
+		return nil, nil, err
+	}
 	service, err := settingsapp.NewService(settingsapp.Options{
+		ModelTester: modelTester{}, Cipher: vault, LegacyAIKey: cfg.AI.APIKey, LegacyIntentKey: cfg.Intent.APIKey,
 		Repository:       repo,
 		Provider:         provider,
 		Defaults:         defaults,
@@ -97,59 +108,66 @@ func buildSettings(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 // modelRuntime 在模型相关配置变化时重建 Eino 运行时，
 // 切换模型或端点因此无需重启。构建是惰性的：从不生成的进程不会创建客户端。
 type modelRuntime struct {
-	mu          sync.Mutex
-	settings    *settingsapp.Provider
-	apiKey      string
-	tools       func(context.Context, agentcontracts.Request) []tool.BaseTool
-	handlers    []callbacks.Handler
-	logger      *slog.Logger
-	current     agentcontracts.Runtime
-	fingerprint string
+	mu                sync.Mutex
+	settings          *settingsapp.Provider
+	models            models.Resolver
+	tools             func(context.Context, agentcontracts.Request) []tool.BaseTool
+	handlers          []callbacks.Handler
+	sensitiveHandlers []callbacks.Handler
+	logger            *slog.Logger
+	runtimes          map[string]agentcontracts.Runtime
 }
 
 // newModelRuntime builds the proxy around one lazily created runtime.
 // newModelRuntime 构建按需创建运行时的代理。
-func newModelRuntime(settings *settingsapp.Provider, apiKey string,
+func newModelRuntime(settings *settingsapp.Provider, resolver models.Resolver,
 	tools func(context.Context, agentcontracts.Request) []tool.BaseTool,
 	handlers []callbacks.Handler, logger *slog.Logger,
 ) *modelRuntime {
-	return &modelRuntime{settings: settings, apiKey: apiKey, tools: tools, handlers: handlers, logger: logger}
+	return &modelRuntime{settings: settings, models: resolver, tools: tools, handlers: handlers, logger: logger, runtimes: map[string]agentcontracts.Runtime{}}
 }
 
 // Run resolves the current model configuration, rebuilding once per change.
 // Run 解析当前模型配置，每次变化只重建一次。
 func (r *modelRuntime) Run(ctx context.Context, req agentcontracts.Request) (agentcontracts.Result, error) {
+	if snapshots, ok := r.models.(models.Snapshotter); ok {
+		ctx = snapshots.ModelSnapshot(ctx)
+	}
 	live := r.settings.Settings()
-	if !live.AI.Enabled {
-		return agentcontracts.Result{}, errGenerationDisabled
+	resolved, err := r.models.ResolveModel(ctx, "generation", req.BotID, req.Kind, req.TargetID)
+	if err != nil {
+		return agentcontracts.Result{}, err
 	}
-	if r.apiKey == "" {
-		return agentcontracts.Result{}, fmt.Errorf("agent: ai.api-key 未在配置文件中配置")
-	}
-	fingerprint := modelFingerprint(live)
+	p := resolved.Profile
+	live.AI.BaseURL = p.BaseURL
+	live.AI.Model = p.Model
+	live.AI.MaxOutputTokens = p.MaxOutputTokens
+	live.AI.GenerationTimeoutSeconds = p.TimeoutSeconds
+	req.MaxOutputTokens = p.MaxOutputTokens
+	req.CapabilitiesKnown = true
+	req.ModelImages = p.Images
+	req.ModelTools = p.Tools
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.current == nil || r.fingerprint != fingerprint {
-		runtime, err := einoinfra.NewRuntime(ctx, einoinfra.Config{
-			BaseURL:         live.AI.BaseURL,
-			APIKey:          r.apiKey,
-			Model:           live.AI.Model,
-			MaxOutputTokens: live.AI.MaxOutputTokens,
-			Timeout:         time.Duration(live.Agent.MaxRunDurationSeconds) * time.Second,
-			HTTPTimeout:     time.Duration(live.AI.GenerationTimeoutSeconds) * time.Second,
-			MaxSteps:        live.Agent.MaxSteps,
-			Tools:           r.tools,
-			Handlers:        r.handlers,
-		})
+	fingerprint := fmt.Sprintf("%s:%d:%s", p.ID, p.Version, modelFingerprint(live))
+	runtime := r.runtimes[fingerprint]
+	if runtime == nil {
+		runtime, err = einoinfra.NewRuntime(ctx, einoinfra.Config{HTTPHeaders: p.HTTPHeaders, ProviderDefaultOutput: p.MaxOutputTokens == 0, BaseURL: p.BaseURL, APIKey: resolved.APIKey, Model: p.Model, Thinking: p.Thinking, ReasoningEffort: p.ReasoningEffort, ContextWindow: p.ContextWindow, MaxOutputTokens: p.MaxOutputTokens, Timeout: time.Duration(live.Agent.MaxRunDurationSeconds) * time.Second, HTTPTimeout: time.Duration(p.TimeoutSeconds) * time.Second, MaxSteps: live.Agent.MaxSteps, Tools: r.tools, Handlers: r.handlers, SensitiveHandlers: r.sensitiveHandlers})
 		if err != nil {
+			r.mu.Unlock()
 			return agentcontracts.Result{}, err
 		}
-		r.current = runtime
-		r.fingerprint = fingerprint
-		r.logger.Info("ai runtime rebuilt from settings",
-			"model", live.AI.Model, "base_url", live.AI.BaseURL, "max_steps", live.Agent.MaxSteps)
+		for key := range r.runtimes {
+			if strings.HasPrefix(key, p.ID+":") {
+				delete(r.runtimes, key)
+			}
+		}
+		if len(r.runtimes) >= 32 {
+			clear(r.runtimes)
+		}
+		r.runtimes[fingerprint] = runtime
 	}
-	return r.current.Run(ctx, req)
+	r.mu.Unlock()
+	return runtime.Run(ctx, req)
 }
 
 // modelFingerprint covers every value baked into the Eino runtime.
@@ -166,9 +184,10 @@ func modelFingerprint(settings settingsdomain.Settings) string {
 // semanticRouter 依据实时配置选择 jev 或 openai 客户端，
 // 端点、模型或超时变化时重建。
 type semanticRouter struct {
+	transport   *http.Transport
 	mu          sync.Mutex
 	settings    *settingsapp.Provider
-	apiKey      string
+	models      models.Resolver
 	logger      *slog.Logger
 	current     intentapp.SemanticDecider
 	fingerprint string
@@ -176,47 +195,39 @@ type semanticRouter struct {
 
 // newSemanticRouter builds the proxy around the semantic clients.
 // newSemanticRouter 构建语义客户端代理。
-func newSemanticRouter(settings *settingsapp.Provider, apiKey string, logger *slog.Logger) *semanticRouter {
-	return &semanticRouter{settings: settings, apiKey: apiKey, logger: logger}
+func newSemanticRouter(settings *settingsapp.Provider, resolver models.Resolver, logger *slog.Logger) *semanticRouter {
+	return &semanticRouter{settings: settings, models: resolver, logger: logger, transport: &http.Transport{Proxy: nil}}
 }
 
 // Decide forwards one semantic question to the currently configured client.
 // Decide 把一次语义判定转发给当前配置的客户端。
 func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (intentdomain.SemanticAnswer, error) {
-	decider, err := r.resolve()
+	decider, err := r.resolve(ctx)
 	if err != nil {
 		return intentdomain.SemanticAnswer{}, err
 	}
 	return decider.Decide(ctx, in)
 }
 
-func (r *semanticRouter) resolve() (intentapp.SemanticDecider, error) {
-	live := r.settings.Settings()
-	fingerprint := fmt.Sprintf("%s|%s|%s|%d|%s",
-		live.Intent.Provider, live.Intent.Endpoint, live.Intent.Model,
-		live.Intent.TimeoutSeconds, live.Intent.BotName)
+func (r *semanticRouter) resolve(ctx context.Context) (intentapp.SemanticDecider, error) {
+	resolved, err := r.models.ResolveModel(ctx, "intent", 0, "", 0)
+	if err != nil {
+		return nil, err
+	}
+	p := resolved.Profile
+	botName := r.settings.Settings().Intent.BotName
+	fingerprint := fmt.Sprintf("%s:%d:%s", p.ID, p.Version, botName)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.current != nil && r.fingerprint == fingerprint {
 		return r.current, nil
 	}
-	timeout := time.Duration(live.Intent.TimeoutSeconds) * time.Second
-	cfg := intentinfra.JevConfig{
-		Endpoint: live.Intent.Endpoint,
-		APIKey:   r.apiKey,
-		Model:    live.Intent.Model,
-		BotName:  live.Intent.BotName,
-		Timeout:  timeout,
-	}
-	var (
-		decider intentapp.SemanticDecider
-		err     error
-	)
-	if live.Intent.Provider == "openai" {
-		decider = &intentinfra.LocalClient{
-			Config: cfg,
-			Client: &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}},
-		}
+	timeout := time.Duration(p.TimeoutSeconds) * time.Second
+	cfg := intentinfra.JevConfig{HTTPHeaders: p.HTTPHeaders, MaxOutputTokens: p.MaxOutputTokens, Thinking: p.Thinking, ReasoningEffort: p.ReasoningEffort, ContextWindow: p.ContextWindow, Endpoint: p.BaseURL, APIKey: resolved.APIKey, Model: p.Model, BotName: botName, Timeout: timeout}
+	var decider intentapp.SemanticDecider
+	if p.Protocol == "openai" {
+		cfg.Endpoint = strings.TrimRight(p.BaseURL, "/") + "/chat/completions"
+		decider = &intentinfra.LocalClient{Config: cfg, Client: &http.Client{Timeout: timeout, Transport: r.transport}}
 	} else {
 		decider, err = intentinfra.NewJevClient(cfg, r.logger)
 		if err != nil {
@@ -225,6 +236,17 @@ func (r *semanticRouter) resolve() (intentapp.SemanticDecider, error) {
 	}
 	r.current = decider
 	r.fingerprint = fingerprint
-	r.logger.Info("semantic client rebuilt from settings", "provider", live.Intent.Provider, "model", live.Intent.Model)
 	return decider, nil
+}
+
+// mediaAccounts binds media lookups to the account that received the message.
+// mediaAccounts 将媒体查询绑定到接收消息的账号。
+type mediaAccounts struct{ accounts *svc.Accounts }
+
+func (a mediaAccounts) MediaReader(botID int64) (mediainfra.Reader, bool) {
+	r, ok := a.accounts.InfoReader(botID)
+	if !ok {
+		return nil, false
+	}
+	return r, true
 }

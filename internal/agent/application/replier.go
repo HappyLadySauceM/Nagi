@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"log/slog"
 	"strings"
 	"sync"
@@ -64,6 +65,7 @@ type OutboundRecorder interface {
 // Options configure the replier.
 // Options 配置回复器。
 type Options struct {
+	Media    media.MessageReader
 	Runtime  agentcontracts.Runtime
 	Scopes   scopecontracts.Authorizer
 	Senders  SenderResolver
@@ -88,6 +90,7 @@ type Options struct {
 // Replier generates, checks, sends and records replies for intent decisions.
 // Replier 为意图决策生成、检查、发送并记录回复。
 type Replier struct {
+	media         media.MessageReader
 	runtime       agentcontracts.Runtime
 	scopes        scopecontracts.Authorizer
 	senders       SenderResolver
@@ -113,7 +116,7 @@ func NewReplier(opts Options) (*Replier, error) {
 		opts.MaxTokens = 400
 	}
 	return &Replier{
-		runtime: opts.Runtime, scopes: opts.Scopes, senders: opts.Senders,
+		media: opts.Media, runtime: opts.Runtime, scopes: opts.Scopes, senders: opts.Senders,
 		recorder: opts.Recorder, outbound: opts.Outbound, sending: opts.Sending, sendingLimits: opts.SendingLimits,
 		botName: opts.BotName, maxTokens: opts.MaxTokens,
 		botNameNow: opts.BotNameProvider, maxTokensNow: opts.MaxTokensProvider,
@@ -149,6 +152,8 @@ func (r *Replier) currentBotName() string {
 // ExecuteReply 复核作用域、构建上下文、生成、净化，经投递台账发送并记录回复。
 // 采用关闭式失败：生成出错或台账不可用就不发送；预算拒绝则直接结束任务而不发送。
 func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, history []intentdomain.Message) error {
+	ctx, cancelMedia := context.WithTimeout(ctx, 180*time.Second)
+	defer cancelMedia()
 	ctx = observability.WithContentState(ctx)
 	policy, err := r.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if err != nil {
@@ -162,7 +167,42 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return nil
 	}
 
+	if !policy.AllowHistoryRead {
+		history = nil
+	}
 	messages := r.buildMessages(task, history)
+	runtimeMessages := toRuntimeMessages(messages)
+	if r.media != nil {
+		remaining := 8
+		prepare := func(segments []obdomain.Segment, text string) []media.Part {
+			bounded := make([]obdomain.Segment, 0, len(segments))
+			for _, seg := range segments {
+				if seg.Type == obdomain.SegImage {
+					if remaining == 0 {
+						bounded = append(bounded, obdomain.Text("[图片超出本轮上限]"))
+						continue
+					}
+					remaining--
+				}
+				bounded = append(bounded, seg)
+			}
+			parts, _ := r.media.Parts(ctx, task.BotID, task.ConversationID, bounded, text)
+			return parts
+		}
+		runtimeMessages[len(messages)-1].Parts = prepare(task.Segments, messages[len(messages)-1].Content)
+		index := len(messages) - 2
+		for i := len(history) - 1; i >= 0; i-- {
+			m := history[i]
+			if task.Message.MessageID != 0 && m.MessageID == task.Message.MessageID {
+				continue
+			}
+			if !m.IsBot {
+				runtimeMessages[index].Parts = prepare(m.Segments, messages[index].Content)
+			}
+			index--
+		}
+	}
+
 	tracer := otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/agent")
 	genCtx, genSpan := tracer.Start(ctx, "nagi.agent.run")
 	genSpan.SetAttributes(attribute.String("gen_ai.system", "openai_compatible"))
@@ -197,15 +237,16 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		MessageID:           task.Message.MessageID,
 		JobID:               task.JobID,
 		ClaimToken:          task.ClaimToken,
-		Messages:            toRuntimeMessages(messages),
+		Messages:            runtimeMessages,
 		PermissionOverrides: policy.ToolPermissions,
+		AllowHistoryRead:    policy.AllowHistoryRead,
 		MaxOutputTokens:     r.currentMaxTokens(),
 		OnToolRun: func(run agentcontracts.ToolRun) {
 			toolMu.Lock()
 			toolRuns = append(toolRuns, run)
 			if isSendingTool(run.ToolID) && (run.ErrorCode == "authorization_revoked" || run.ErrorCode == "tool_call_budget") {
 				var refusedErr error
-				if run.ToolID == "qq.send_current" {
+				if run.ToolID == "qq.send_current" || run.ToolID == "qq.send_voice_current" {
 					refusedErr = r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken)
 				} else {
 					// A refusal on another target must not block the source reply.
@@ -288,14 +329,14 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		sendAttempted = true
 		// The current-only tool always targets the source conversation.
 		// 当前会话专用工具的目标恒为来源会话。
-		if run.ToolID == "qq.send_current" {
+		if run.ToolID == "qq.send_current" || run.ToolID == "qq.send_voice_current" {
 			sendToSource = true
 		}
 		// Runtimes that fill runs directly never fire the live callback, so the
 		// refusal is recorded here unless the callback already did.
 		// 直接填充工具运行的实现不会触发实时回调；回调未记录时在此补记拒绝。
 		if (run.ErrorCode == "authorization_revoked" || run.ErrorCode == "tool_call_budget") && !deniedCodes[run.ToolID+"|"+run.ErrorCode] {
-			if run.ToolID == "qq.send_current" {
+			if run.ToolID == "qq.send_current" || run.ToolID == "qq.send_voice_current" {
 				if err := r.recordDenied(ctx, task.JobID, run.ErrorCode, task.ClaimToken); err != nil {
 					return err
 				}
@@ -732,7 +773,7 @@ func (r *Replier) deliveredToSource(ctx context.Context, task intentdomain.Task)
 
 func isSendingTool(id string) bool {
 	switch id {
-	case "qq.send_current", "qq.send_private_msg", "qq.send_group_msg", "qq.send_msg":
+	case "qq.send_current", "qq.send_voice_current", "qq.send_private_msg", "qq.send_group_msg", "qq.send_msg":
 		return true
 	}
 	return false

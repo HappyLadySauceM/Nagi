@@ -1,5 +1,5 @@
 # Nagi 示例配置。复制为 configs/config.yaml 后填写真实值。
-# 所有地址、凭据与密钥都直接写在本文件中；提交仓库的示例只含占位符，
+# 基础设施地址和凭据写在本文件中；模型配置与 Token 可在控制台维护。提交的示例只含占位符，
 # 真实值只写进已被 .gitignore 忽略的 configs/config.yaml。
 # 优先级：默认值 → 本文件 → 通用运行时覆盖（NAGI_SERVER_LISTEN / NAGI_LOG_LEVEL / Flags）。
 
@@ -60,8 +60,8 @@ worker:
   poll-interval: 200ms
 
 ai:
-  # LLM 生成（OpenAI 兼容 chat/completions）。密钥直接填写；
-  # enabled=true 时 api-key 必填，缺失会在启动阶段报错。
+  # LLM 生成初始值（OpenAI 兼容 chat/completions）。模型目录首次初始化时导入；
+  # 之后通过控制台模型配置维护接口、模型和 Token，不再从此处恢复凭证。
   enabled: false
   base-url: "https://YOUR_LLM_ENDPOINT/v1"
   api-key: "REPLACE_WITH_LLM_API_KEY"

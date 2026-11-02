@@ -3,6 +3,8 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,23 +19,29 @@ func TestLocalCandidateProbabilities(t *testing.T) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("empty-key adapter must omit authorization")
 		}
+		data, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(data), "base64://") || strings.Contains(string(data), "signed-secret") {
+			t.Error("media resource entered text intent prompt")
+		}
 		var body struct {
 			Model     string `json:"model"`
 			Logprobs  bool   `json:"logprobs"`
 			MaxTokens int    `json:"max_tokens"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.Unmarshal(data, &body); err != nil {
 			t.Error(err)
 		}
 		if body.Model != "test" || !body.Logprobs || body.MaxTokens != 1 {
 			t.Error("missing scoring contract")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"logprobs":{"content":[{"top_logprobs":[{"token":"A","logprob":-0.1},{"token":"B","logprob":-2},{"token":"C","logprob":-3},{"token":"D","logprob":-4},{"token":"E","logprob":-5}]}]}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"logprobs":{"content":[{"token":"\n","top_logprobs":[]},{"token":"A","top_logprobs":[{"token":"A","logprob":-0.1},{"token":"B","logprob":-2},{"token":"C","logprob":-3},{"token":"D","logprob":-4},{"token":"E","logprob":-5}]}]}}]}`))
 	}))
 	defer server.Close()
 	client := &LocalClient{Config: JevConfig{Endpoint: server.URL, Model: "test", Timeout: time.Second}, Client: server.Client()}
-	answer, err := client.Decide(context.Background(), testInput())
+	input := testInput()
+	input.Recent[0].Segments = []ob.Segment{{Type: ob.SegImage, Data: map[string]string{"file": "base64://" + strings.Repeat("a", 100000), "url": "https://image.example/signed-secret"}}}
+	answer, err := client.Decide(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

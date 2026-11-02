@@ -14,6 +14,7 @@ import (
 // 多个工具共用一个权限时取最严格的兜底，注册顺序因此不会放大权限。
 func ResolvePermissions(tools []contracts.RegisteredTool, configDefaults, overrides map[string]bool) map[string]bool {
 	fallback := make(map[string]bool, len(tools))
+	fallback["media.voice.transcribe"] = true
 	for _, registered := range tools {
 		permission := registered.Descriptor.Permission
 		if permission == "" {

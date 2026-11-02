@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	entsql "entgo.io/ent/dialect/sql"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	ec "github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	em "github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
@@ -417,7 +418,7 @@ func (r *Repo) RecordOutgoing(ctx context.Context, conversationID string, botID 
 	if err := r.lockClaim(ctx, tx, jobID, claimValue(claim)); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id) SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN conversations c ON c.id=o.conversation_id JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages WHERE o.id=$1 AND j.status='processing' AND j.claim_token=$2::uuid AND j.lease_expires_at>clock_timestamp() ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, outboundID, claimValue(claim))
+	_, err = tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id,segments) SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id,CASE WHEN o.action='qq.send_voice_current' THEN jsonb_build_array(jsonb_build_object('type','record','data',jsonb_build_object('file','outbound:'||o.id::text))) ELSE '[]'::jsonb END FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN conversations c ON c.id=o.conversation_id JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages WHERE o.id=$1 AND j.status='processing' AND j.claim_token=$2::uuid AND j.lease_expires_at>clock_timestamp() ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, outboundID, claimValue(claim))
 	if err != nil {
 		return err
 	}
@@ -463,6 +464,9 @@ func encodeSegments(segs []obdomain.Segment) ([]byte, error) {
 	for _, s := range segs {
 		data := make(map[string]string, len(s.Data))
 		for k, v := range s.Data {
+			if k == media.TranscriptMarker {
+				continue
+			}
 			data[k] = v
 		}
 		wire = append(wire, map[string]any{"type": string(s.Type), "data": data})
@@ -615,4 +619,41 @@ func messageModel(v *ent.Message) (domain.Message, error) {
 	segments, err := decodeSegments(v.Segments)
 	out.Segments = segments
 	return out, err
+}
+
+// SaveTranscript persists derived text only with an active lease and current storage authorization.
+// SaveTranscript 仅在租约和当前存储授权均有效时保存衍生文本。
+func (r *Repo) SaveTranscript(ctx context.Context, jobID int64, claim, text string) error {
+	res, err := r.pool.Exec(ctx, `UPDATE messages m SET text_content=$3,
+ segments=(SELECT COALESCE(jsonb_agg(CASE WHEN s.value->>'type'='record' THEN jsonb_set(s.value,'{data}',COALESCE(s.value->'data','{}'::jsonb)||jsonb_build_object($4::text,'true')) ELSE s.value END ORDER BY s.ordinality),'[]'::jsonb) FROM jsonb_array_elements(m.segments) WITH ORDINALITY AS s(value,ordinality))
+ FROM message_jobs j
+ WHERE j.id=$1 AND j.incoming_message_id=m.id AND j.claim_token=$2::uuid
+ AND j.status='processing' AND j.lease_expires_at>clock_timestamp()
+ AND EXISTS (
+   SELECT 1 FROM conversations c
+   JOIN LATERAL (
+     SELECT enabled,store_messages,reply_mode,tool_permissions FROM scope_policies
+     WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0)
+     ORDER BY scope_id DESC LIMIT 1
+   ) p ON p.enabled AND p.store_messages AND p.reply_mode<>'observe_only' AND COALESCE((p.tool_permissions->>'media.voice.transcribe')::boolean,true)
+   WHERE c.id=m.conversation_id
+ )`, jobID, claim, text, media.TranscriptMarker)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() != 1 {
+		return fmt.Errorf("transcript: lease or authorization lost")
+	}
+	return nil
+}
+
+// MediaAttachment returns only an incoming message in the bound account and conversation.
+// MediaAttachment 仅返回绑定账号和会话内的入站消息。
+func (r *Repo) MediaAttachment(ctx context.Context, bot int64, conversation string, id int64) ([]obdomain.Segment, error) {
+	var data []byte
+	err := r.pool.QueryRow(ctx, `SELECT segments FROM messages WHERE bot_id=$1 AND conversation_id=$2::uuid AND platform_message_id=$3 AND direction='incoming'`, bot, conversation, id).Scan(&data)
+	if err != nil {
+		return nil, err
+	}
+	return obdomain.SegmentsFromWire(data)
 }
