@@ -47,6 +47,8 @@ const (
 // ToolDescriptor describes one tool without leaking framework types.
 // ToolDescriptor 描述单个工具，不泄露框架类型。
 type ToolDescriptor struct {
+	Multimodal bool
+	Media      bool
 	// ID is the namespaced identifier, e.g. qq.get_group_info.
 	// ID 是带命名空间的标识，例如 qq.get_group_info。
 	ID           string

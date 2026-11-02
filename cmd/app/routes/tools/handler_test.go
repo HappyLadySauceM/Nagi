@@ -147,8 +147,8 @@ func TestListReportsDefaults(t *testing.T) {
 	if !data.Tools[1].DefaultGranted {
 		t.Fatalf("permissionless read-only tool must be granted: %+v", data.Tools[1])
 	}
-	if len(data.Permissions) != 1 || data.Permissions[0].ID != "qq.group.read" ||
-		data.Permissions[0].DefaultGranted || len(data.Permissions[0].Tools) != 1 {
+	if len(data.Permissions) != 2 || data.Permissions[1].ID != "qq.group.read" ||
+		data.Permissions[1].DefaultGranted || len(data.Permissions[1].Tools) != 1 {
 		t.Fatalf("permissions = %+v", data.Permissions)
 	}
 }

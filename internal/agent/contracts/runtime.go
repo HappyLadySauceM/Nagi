@@ -7,12 +7,14 @@ package contracts
 
 import (
 	"context"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"time"
 )
 
 // Message is one chat turn handed to the runtime, including the system prompt.
 // Message 是交给运行时的一轮对话，包含系统提示。
 type Message struct {
+	Parts   []media.Part
 	Role    string
 	Content string
 }
@@ -20,14 +22,18 @@ type Message struct {
 // Request is one reply generation request scoped to a single message.
 // Request 是一次回复生成请求，作用域绑定单条消息。
 type Request struct {
-	ClaimToken     string
-	BotID          int64
-	ConversationID string
-	Kind           string
-	TargetID       int64
-	SenderID       int64
-	MessageID      int64
-	JobID          int64
+	CapabilitiesKnown bool
+	ModelImages       bool
+	ModelTools        bool
+	AllowHistoryRead  bool
+	ClaimToken        string
+	BotID             int64
+	ConversationID    string
+	Kind              string
+	TargetID          int64
+	SenderID          int64
+	MessageID         int64
+	JobID             int64
 	// Messages already contains the system prompt, authorized history and the
 	// current message; the runtime must not add business context of its own.
 	// Messages 已包含系统提示、授权历史与当前消息；运行时不自行补充业务上下文。

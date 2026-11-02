@@ -34,9 +34,12 @@ const (
 // Scope 是单次 Agent 运行的消息级安全上下文；由回复流水线注入，
 // 绝不进入提示词。
 type Scope struct {
-	ClaimToken  string
-	Reauthorize func(context.Context, contracts.ToolDescriptor) error
-	BotID       int64
+	ClaimToken       string
+	MessageID        int64
+	AllowHistoryRead bool
+	AuthorizeHistory func(context.Context) error
+	Reauthorize      func(context.Context, contracts.ToolDescriptor) error
+	BotID            int64
 	// JobID identifies the message job that produced this run; sending tools
 	// write their delivery records against it.
 	// JobID 标识产生本次运行的消息任务；发送类工具据此写投递记录。
@@ -112,6 +115,9 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			observability.SuppressContent(ctx)
 		}
 		timeout := scope.Timeout
+		if descriptor.Media {
+			timeout = 120 * time.Second
+		}
 		if timeout <= 0 {
 			timeout = 5 * time.Second
 		}
@@ -149,9 +155,20 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			}
 			return finish(ctx, span, scope, descriptor, started, status, 0, message)
 		}
-		if scope.MaxResultBytes > 0 && len(result) > scope.MaxResultBytes {
+		limit := scope.MaxResultBytes
+		if descriptor.Multimodal {
+			limit = 16 << 20
+		}
+		if limit > 0 && len(result) > limit {
 			return finish(ctx, span, scope, descriptor, started, StatusTooLarge, len(result),
 				"error: tool result too large")
+		}
+		if descriptor.Multimodal {
+			if scope.Record != nil {
+				scope.Record(contracts.ToolRun{ToolID: descriptor.ID, Status: StatusOK, Duration: time.Since(started), Bytes: len(result)})
+			}
+			span.SetAttributes(attribute.String("nagi.tool_status", StatusOK), attribute.Int("nagi.tool_bytes", len(result)))
+			return result, nil
 		}
 		return finish(ctx, span, scope, descriptor, started, StatusOK, len(result), result)
 	}

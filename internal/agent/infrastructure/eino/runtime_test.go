@@ -4,12 +4,20 @@ package eino
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	einoTools "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/tool"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -204,16 +212,21 @@ func (m *toolCapableModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatM
 	return m, nil
 }
 
-func TestSensitiveToolGrantSkipsTraceWithoutMuting(t *testing.T) {
+func TestSensitiveToolGrantUsesRedactedTraceWithoutMuting(t *testing.T) {
 	for _, sensitive := range []bool{false, true} {
 		t.Run(map[bool]string{false: "ordinary", true: "credentials"}[sensitive], func(t *testing.T) {
 			secret := "fixture-credential-secret"
 			calls := 0
+			redactedCalls := 0
+			redactedHandler := callbacks.NewHandlerBuilder().OnStartFn(func(ctx context.Context, _ *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
+				redactedCalls++
+				return ctx
+			}).Build()
 			handler := callbacks.NewHandlerBuilder().OnStartFn(func(ctx context.Context, _ *callbacks.RunInfo, _ callbacks.CallbackInput) context.Context {
 				calls++
 				return ctx
 			}).Build()
-			cfg := Config{Timeout: time.Second, MaxSteps: 3, Handlers: []callbacks.Handler{handler}, Tools: func(context.Context, contracts.Request) []tool.BaseTool {
+			cfg := Config{Timeout: time.Second, MaxSteps: 3, Handlers: []callbacks.Handler{handler}, SensitiveHandlers: []callbacks.Handler{redactedHandler}, Tools: func(context.Context, contracts.Request) []tool.BaseTool {
 				return einoTools.ToBaseTools([]pc.RegisteredTool{{Descriptor: pc.ToolDescriptor{ID: "qq.get_credentials", Description: "credentials", Sensitive: sensitive}, Invoke: func(context.Context, string) (string, error) { return secret, nil }}})
 			}}
 			chatModel := &toolCapableModel{&fakeModel{replies: []*schema.Message{
@@ -236,9 +249,128 @@ func TestSensitiveToolGrantSkipsTraceWithoutMuting(t *testing.T) {
 			if sensitive && calls != 0 {
 				t.Fatalf("credential run kept raw callbacks: %d", calls)
 			}
+			if sensitive && redactedCalls == 0 {
+				t.Fatal("sensitive run lost redacted telemetry")
+			}
+			if !sensitive && redactedCalls != 0 {
+				t.Fatal("ordinary run used redacted callback")
+			}
 			if !sensitive && calls == 0 {
 				t.Fatal("ordinary run lost callbacks")
 			}
 		})
+	}
+}
+
+// TestImagesSurviveConversionAndToolBatchNormalization verifies real image parts and complete tool pairing.
+// TestImagesSurviveConversionAndToolBatchNormalization 验证图片内容及完整工具配对不丢失。
+func TestImagesSurviveConversionAndToolBatchNormalization(t *testing.T) {
+	messages := toSchemaMessages([]contracts.Message{{Role: "user", Parts: []mediacontracts.Part{{Text: "看图片"}, {MIME: "image/png", Base64: "iVBORw0KGgo="}}}})
+	if len(messages) != 1 || len(messages[0].UserInputMultiContent) != 2 || messages[0].UserInputMultiContent[1].Image.Base64Data == nil {
+		t.Fatal("image input lost")
+	}
+	image := messages[0].UserInputMultiContent[1]
+	state := &adk.ChatModelAgentState{Messages: []*schema.Message{schema.AssistantMessage("", []schema.ToolCall{{ID: "a"}, {ID: "b"}}), {Role: schema.Tool, ToolCallID: "a", UserInputMultiContent: []schema.MessageInputPart{{Type: schema.ChatMessagePartTypeText, Text: "时间戳1秒"}, image}}, {Role: schema.Tool, ToolCallID: "b", Content: "other result"}}}
+	if err := normalizeToolImages(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Messages) != 4 || state.Messages[1].Role != schema.Tool || state.Messages[2].Role != schema.Tool || state.Messages[3].Role != schema.User || len(state.Messages[3].UserInputMultiContent) != 1 {
+		t.Fatal("tool images broke pairing")
+	}
+	if err := normalizeToolImages(context.Background(), state); err != nil || len(state.Messages) != 4 {
+		t.Fatal("normalization duplicated images")
+	}
+}
+
+func TestSensitiveCallbackRedactsErrorEventsAndCancellation(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "error", true: "cancellation"}[cancelled], func(t *testing.T) {
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			defer provider.Shutdown(context.Background())
+			raw, err := NewLangfuseHandler(context.Background(), provider, LangfuseConfig{BaseURL: "http://example.invalid", PublicKey: "fixture", SecretKey: "fixture", RedactContent: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := privateErrorHandler{raw}
+			secret := "private-cookie-and-data-image-base64"
+			parent, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			info := &callbacks.RunInfo{Name: "private-tool", Type: "tool", Component: components.ComponentOfTool}
+			ctx := handler.OnStart(parent, info, secret)
+			cause := errors.New(secret)
+			if cancelled {
+				cancel(cause)
+				if ctx.Err() != context.Canceled {
+					t.Fatal("cancellation lost")
+				}
+				cause = context.Canceled
+			}
+			handler.OnError(ctx, info, cause)
+			if err = raw.Shutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			spans := recorder.Ended()
+			if len(spans) == 0 {
+				t.Fatal("missing telemetry")
+			}
+			for _, span := range spans {
+				b, _ := json.Marshal(map[string]any{"attributes": span.Attributes(), "events": span.Events(), "status": span.Status()})
+				if strings.Contains(string(b), secret) {
+					t.Fatal("private error leaked to telemetry")
+				}
+			}
+		})
+	}
+}
+
+func TestSensitiveRuntimeFailureKeepsSafeGenerationTrace(t *testing.T) {
+	secret := "private-image-data-and-cookie-error"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": secret, "type": "invalid_request_error"}})
+	}))
+	defer server.Close()
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer provider.Shutdown(context.Background())
+	h, err := NewLangfuseHandler(context.Background(), provider, LangfuseConfig{BaseURL: "http://example.invalid", PublicKey: "fixture", SecretKey: "fixture", RedactContent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{BaseURL: server.URL, APIKey: "fixture", Model: "fixture", Timeout: time.Second, HTTPTimeout: time.Second, SensitiveHandlers: []callbacks.Handler{h}, Tools: func(context.Context, contracts.Request) []tool.BaseTool {
+		return einoTools.ToBaseTools([]pc.RegisteredTool{{Descriptor: pc.ToolDescriptor{ID: "private_tool", Description: "private tool", Sensitive: true}, Invoke: func(context.Context, string) (string, error) { return "unused", nil }}})
+	}}
+	runtime, err := NewRuntime(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runtime.Run(context.Background(), testRequest()); err == nil {
+		t.Fatal("expected upstream error")
+	} else if strings.Contains(err.Error(), secret) {
+		t.Fatal("private upstream error escaped into application logs")
+	}
+	if err = h.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	spans := recorder.Ended()
+	if len(spans) == 0 {
+		t.Fatal("model trace missing")
+	}
+	generation := false
+	for _, span := range spans {
+		b, _ := json.Marshal(map[string]any{"attributes": span.Attributes(), "events": span.Events(), "status": span.Status()})
+		if strings.Contains(string(b), secret) {
+			t.Fatal("private upstream error leaked")
+		}
+		for _, attr := range span.Attributes() {
+			if string(attr.Key) == "langfuse.observation.type" && attr.Value.AsString() == "generation" {
+				generation = true
+			}
+		}
+	}
+	if !generation {
+		t.Fatal("generation observation missing")
 	}
 }

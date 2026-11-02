@@ -6,9 +6,11 @@ package replytool
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"strings"
 	"time"
 
@@ -62,6 +64,7 @@ type Recorder interface {
 // Options wires the tool dependencies.
 // Options 装配工具依赖。
 type Options struct {
+	Speech    media.Speech
 	Senders   SenderResolver
 	Ledger    Ledger
 	Recorder  Recorder
@@ -161,6 +164,14 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 		deny("invalid_arguments")
 		return "", fmt.Errorf("reply tool: invalid arguments")
 	}
+	if p.opts.Speech != nil {
+		for _, permission := range []string{"media.voice.send", "qq.reply.current", "qq.content.media"} {
+			if err := pluginsapp.RequirePermission(ctx, permission); err != nil {
+				deny("authorization_revoked")
+				return "", err
+			}
+		}
+	}
 	text, err := agentdomain.SanitizeReply(args.Text)
 	if err != nil {
 		deny("output_rejected")
@@ -180,7 +191,19 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 			return "", err
 		}
 	}
+	var audio []byte
+	payload := ""
+	action := ""
+	if p.opts.Speech != nil {
+		audio, err = p.opts.Speech.Synthesize(ctx, text)
+		if err != nil {
+			return "", err
+		}
+		payload = `{"type":"record"}`
+		action = "qq.send_voice_current"
+	}
 	record, err := p.opts.Ledger.Reserve(ctx, outboundapp.Request{
+		Payload: payload, Action: action, ChargeChars: len([]rune(text)),
 		JobID:          scope.JobID,
 		ClaimToken:     scope.ClaimToken,
 		BotID:          scope.BotID,
@@ -241,6 +264,18 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	}
 	outcome, sendErr := outboundapp.Deliver(ctx, p.opts.Ledger, record.ID, func(sendCtx context.Context) (int64, error) {
 		platformStarted = true
+		if p.opts.Speech != nil {
+			for _, permission := range []string{"media.voice.send", "qq.reply.current", "qq.content.media"} {
+				if err := pluginsapp.RequirePermission(sendCtx, permission); err != nil {
+					return 0, err
+				}
+			}
+			seg := obdomain.Segment{Type: obdomain.SegRecord, Data: map[string]string{"file": "base64://" + base64.StdEncoding.EncodeToString(audio)}}
+			if scope.Kind == contracts.ScopeKindGroup {
+				return sender.SendGroupMessageReceipt(sendCtx, obdomain.GroupID(scope.TargetID), seg)
+			}
+			return sender.SendPrivateMessageReceipt(sendCtx, obdomain.UserID(scope.TargetID), seg)
+		}
 		return p.deliver(sendCtx, sender, scope, text)
 	}, record.ClaimToken)
 	status, errorCode, messageID := outcome.Status, outcome.ErrorCode, outcome.PlatformMessageID
@@ -279,4 +314,20 @@ func jsonString(r receipt) string {
 		return fmt.Sprintf(`{"status":%q}`, r.Status)
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// NewVoiceProvider sends synthesized speech through the existing delivery ledger.
+// NewVoiceProvider 通过现有投递台账发送合成语音。
+func NewVoiceProvider(opts Options) contracts.ToolProvider {
+	return voiceProvider{provider{opts: opts}}
+}
+
+type voiceProvider struct{ provider }
+
+func (voiceProvider) Manifest() contracts.Manifest {
+	return contracts.Manifest{ID: "builtin.voice", Version: "1", Description: "当前会话语音回复"}
+}
+func (p voiceProvider) Tools(ctx context.Context) ([]contracts.RegisteredTool, error) {
+	no := false
+	return []contracts.RegisteredTool{{Descriptor: contracts.ToolDescriptor{ID: "qq.send_voice_current", ReplyCurrent: true, Media: true, Description: "将文字合成为语音发送到当前会话。用户要求语音时使用；发送后不再重复文字，failed或unknown后停止发送。", Permission: "media.voice.send", AdditionalPermissions: []string{"qq.reply.current", "qq.content.media"}, DefaultAllowed: &no, SideEffect: true, Category: contracts.CategoryReply, Parameters: map[string]contracts.Parameter{"text": {Type: "string", Required: true, Description: "需要朗读的文字"}}}, Invoke: p.send}}, nil
 }

@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 	"io"
 	"log/slog"
 	"math"
@@ -18,12 +20,21 @@ import (
 
 // JevConfig configures the Jev HTTP adapter.
 // JevConfig 配置 Jev HTTP 适配器。
+// ErrDecisionModelUnavailable identifies a server that has no usable native decision model.
+// ErrDecisionModelUnavailable 表示服务端没有可用的原生决策模型。
+var ErrDecisionModelUnavailable = errors.New("SystemOne服务端未找到指定决策模型，请下载并加载支持决策接口的模型")
+
 type JevConfig struct {
-	Endpoint string // 形如 https://api.typesafe.ai/v1/systemone
-	APIKey   string // Bearer 凭据；来自环境变量
-	Model    string
-	BotName  string
-	Timeout  time.Duration
+	HTTPHeaders     map[string]string
+	MaxOutputTokens int
+	Thinking        bool
+	ReasoningEffort string
+	ContextWindow   int
+	Endpoint        string // 形如 https://api.typesafe.ai/v1/systemone
+	APIKey          string // Bearer 凭据；来自环境变量
+	Model           string
+	BotName         string
+	Timeout         time.Duration
 }
 
 // JevClient calls the Jev SystemOne API; any malformed or out-of-range response
@@ -98,16 +109,22 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	if c.cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 	}
-	resp, err := c.client.Do(req)
+	resp, err := modelhttp.Client(c.client, c.cfg.HTTPHeaders).Do(req)
 	if err != nil {
 		return domain.SemanticAnswer{}, fmt.Errorf("jev: call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		// Read a bounded body slice for logging, never the full payload.
-		// 仅读取有上限的内容用于日志，不记录完整载荷。
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		c.logger.Warn("jev request failed", "status", resp.StatusCode, "body_snippet", string(snippet))
+		var failure struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&failure)
+		if failure.Error.Code == "invalidModelIdentifier" {
+			return domain.SemanticAnswer{}, ErrDecisionModelUnavailable
+		}
+		c.logger.Warn("jev request failed", "status", resp.StatusCode)
 		return domain.SemanticAnswer{}, fmt.Errorf("jev: unexpected status %d", resp.StatusCode)
 	}
 	var parsed struct {

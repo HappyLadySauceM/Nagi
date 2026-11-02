@@ -6,7 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
+	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -34,10 +37,15 @@ const agentName = "nagi_replier"
 // Config 配置运行时。BaseURL 指向任意 OpenAI 兼容端点；
 // Timeout 限制单次 HTTP 调用，MaxOutputTokens 限制单条回复。
 type Config struct {
-	BaseURL         string
-	APIKey          string
-	Model           string
-	MaxOutputTokens int
+	HTTPHeaders           map[string]string
+	ProviderDefaultOutput bool
+	Thinking              bool
+	ReasoningEffort       string
+	ContextWindow         int
+	BaseURL               string
+	APIKey                string
+	Model                 string
+	MaxOutputTokens       int
 	// Timeout bounds one whole run; HTTPTimeout bounds a single model call.
 	// Timeout 限制整次运行；HTTPTimeout 限制单次模型调用。
 	Timeout     time.Duration
@@ -52,7 +60,8 @@ type Config struct {
 	// registered per run so it never becomes a second global export pipeline.
 	// Handlers 是可选的观测回调；Langfuse handler 按 Run 注册，
 	// 避免形成第二条全局导出管线。
-	Handlers []callbacks.Handler
+	Handlers          []callbacks.Handler
+	SensitiveHandlers []callbacks.Handler
 }
 
 // maxCachedModels bounds the per-token-budget model cache. A request may set
@@ -102,16 +111,28 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.MaxSteps <= 0 {
 		cfg.MaxSteps = defaultMaxSteps
 	}
-	if cfg.MaxOutputTokens <= 0 {
+	if cfg.MaxOutputTokens <= 0 && !cfg.ProviderDefaultOutput {
 		cfg.MaxOutputTokens = 400
 	}
 	builder := func(ctx context.Context, maxTokens int) (model.BaseModel[*einoschema.Message], error) {
+		effort := cfg.ReasoningEffort
+		if !cfg.Thinking {
+			effort = "none"
+		} else if effort == "" {
+			effort = "medium"
+		}
+		tokenLimit := &maxTokens
+		if cfg.ProviderDefaultOutput && maxTokens <= 0 {
+			tokenLimit = nil
+		}
 		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
-			BaseURL:   cfg.BaseURL,
-			APIKey:    cfg.APIKey,
-			Model:     cfg.Model,
-			Timeout:   cfg.HTTPTimeout,
-			MaxTokens: &maxTokens,
+			ReasoningEffort: openai.ReasoningEffortLevel(effort),
+			HTTPClient:      modelhttp.Client(&http.Client{Timeout: cfg.HTTPTimeout}, cfg.HTTPHeaders),
+			BaseURL:         cfg.BaseURL,
+			APIKey:          cfg.APIKey,
+			Model:           cfg.Model,
+			Timeout:         cfg.HTTPTimeout,
+			MaxTokens:       tokenLimit,
 		})
 	}
 	chatModel, err := builder(ctx, cfg.MaxOutputTokens)
@@ -172,11 +193,25 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	if steps <= 0 {
 		steps = r.cfg.MaxSteps
 	}
+	hasImages := false
+	for i := range req.Messages {
+		parts := append([]mediacontracts.Part(nil), req.Messages[i].Parts...)
+		for j := range parts {
+			if parts[j].Base64 != "" {
+				hasImages = true
+				if !req.ModelImages {
+					parts[j].Base64 = ""
+					parts[j].Text = "[当前模型不支持图片输入]"
+				}
+			}
+		}
+		req.Messages[i].Parts = parts
+	}
 	toolsConfig := adk.ToolsConfig{}
 	toolsConfig.ExecuteSequentially = true
 	exposed := 0
 	credentialTools := false
-	if r.cfg.Tools != nil {
+	if r.cfg.Tools != nil && (req.ModelTools || !req.CapabilitiesKnown) {
 		if snapshot := r.cfg.Tools(runCtx, req); len(snapshot) > 0 {
 			toolsConfig.ToolsNodeConfig.Tools = snapshot
 			exposed = len(snapshot)
@@ -196,6 +231,27 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 		Model:         chatModel,
 		ToolsConfig:   toolsConfig,
 		MaxIterations: steps,
+		Middlewares: []adk.AgentMiddleware{{BeforeChatModel: func(ctx context.Context, state *adk.ChatModelAgentState) error {
+			if err := normalizeToolImages(ctx, state); err != nil {
+				return err
+			}
+			if r.cfg.ContextWindow > 0 {
+				used := 0
+				for _, m := range state.Messages {
+					used += len(m.Content)
+					for _, part := range m.UserInputMultiContent {
+						used += len(part.Text)
+						if part.Image != nil {
+							used += 4096
+						}
+					}
+				}
+				if used > r.cfg.ContextWindow {
+					return fmt.Errorf("模型上下文预算不足，请增加最大上下文或减少历史内容")
+				}
+			}
+			return nil
+		}}},
 	})
 	if err != nil {
 		return contracts.Result{}, fmt.Errorf("agent: build eino agent: %w", err)
@@ -203,13 +259,17 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	runner := adk.NewRunner(runCtx, adk.RunnerConfig{Agent: agent})
 
 	opts := make([]adk.AgentRunOption, 0, 1)
-	// Raw Eino callbacks cannot read the run's content state, so a run that may
-	// touch credentials keeps them detached; this protects the transcript
-	// without muting the reply, which only an actual credential call drops.
-	// Eino 原始回调读不到运行的内容状态；可能接触凭证的运行不挂载它们，
-	// 既保护追踪又不静音回复——只有真正调用凭证工具才丢弃回复。
-	if len(r.cfg.Handlers) > 0 && !credentialTools {
-		opts = append(opts, adk.WithCallbacks(r.cfg.Handlers...))
+	// Sensitive runs keep metrics while their model and tool contents stay redacted.
+	// 敏感运行继续记录指标，但隐藏模型及工具内容。
+	handlers := r.cfg.Handlers
+	if credentialTools || hasImages {
+		handlers = make([]callbacks.Handler, len(r.cfg.SensitiveHandlers))
+		for i, h := range r.cfg.SensitiveHandlers {
+			handlers[i] = privateErrorHandler{h}
+		}
+	}
+	if len(handlers) > 0 {
+		opts = append(opts, adk.WithCallbacks(handlers...))
 	}
 	iterator := runner.Run(runCtx, toSchemaMessages(req.Messages), opts...)
 
@@ -221,14 +281,14 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 			break
 		}
 		if event.Err != nil {
-			return contracts.Result{}, fmt.Errorf("agent: eino run: %w", event.Err)
+			return contracts.Result{}, privateRuntimeError(event.Err)
 		}
 		if event.Output == nil || event.Output.MessageOutput == nil {
 			continue
 		}
 		message, outErr := materialize(event.Output.MessageOutput)
 		if outErr != nil {
-			return contracts.Result{}, outErr
+			return contracts.Result{}, privateRuntimeError(outErr)
 		}
 		if message == nil || message.Role != einoschema.Assistant {
 			continue
@@ -305,7 +365,68 @@ func toSchemaMessages(messages []contracts.Message) []*einoschema.Message {
 		default:
 			role = einoschema.User
 		}
-		out = append(out, &einoschema.Message{Role: role, Content: message.Content})
+		converted := &einoschema.Message{Role: role, Content: message.Content}
+		if len(message.Parts) > 0 {
+			converted.Content = ""
+			for _, p := range message.Parts {
+				if p.Base64 != "" {
+					data := p.Base64
+					converted.UserInputMultiContent = append(converted.UserInputMultiContent, einoschema.MessageInputPart{Type: einoschema.ChatMessagePartTypeImageURL, Image: &einoschema.MessageInputImage{MessagePartCommon: einoschema.MessagePartCommon{MIMEType: p.MIME, Base64Data: &data}}})
+				} else {
+					converted.UserInputMultiContent = append(converted.UserInputMultiContent, einoschema.MessageInputPart{Type: einoschema.ChatMessagePartTypeText, Text: p.Text})
+				}
+			}
+		}
+		out = append(out, converted)
 	}
 	return out
+}
+
+// normalizeToolImages keeps tool receipts textual and appends images after the complete tool batch.
+// normalizeToolImages 保持工具回执为文本，并在完整工具批次之后追加图片。
+func normalizeToolImages(ctx context.Context, state *adk.ChatModelAgentState) error {
+	var out []*einoschema.Message
+	var images []einoschema.MessageInputPart
+	flush := func() {
+		if len(images) > 0 {
+			out = append(out, &einoschema.Message{Role: einoschema.User, UserInputMultiContent: images})
+			images = nil
+		}
+	}
+	for _, m := range state.Messages {
+		if m.Role != einoschema.Tool {
+			flush()
+			out = append(out, m)
+			continue
+		}
+		if len(m.UserInputMultiContent) == 0 {
+			out = append(out, m)
+			continue
+		}
+		copy := *m
+		copy.UserInputMultiContent = nil
+		for _, p := range m.UserInputMultiContent {
+			if p.Type == einoschema.ChatMessagePartTypeImageURL {
+				images = append(images, p)
+			} else if p.Type == einoschema.ChatMessagePartTypeText {
+				copy.Content += p.Text + "\n"
+			}
+		}
+		out = append(out, &copy)
+	}
+	flush()
+	state.Messages = out
+	return ctx.Err()
+}
+
+// privateRuntimeError keeps upstream response bodies out of application spans and logs.
+// privateRuntimeError 防止上游响应正文进入应用追踪和日志。
+func privateRuntimeError(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return errors.New("agent: model execution failed")
 }

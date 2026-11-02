@@ -94,10 +94,12 @@ type ForwardReceipt struct {
 // FileResult is the result of get_record / get_image.
 // FileResult 是 get_record / get_image 的结果。
 type FileResult struct {
-	File     string
-	Filename string
-	URL      string
-	Size     int64
+	File      string
+	Filename  string
+	URL       string
+	Size      int64
+	Base64    string
+	OutFormat string
 }
 
 // BoolCapability is the result of can_send_image / can_send_record.

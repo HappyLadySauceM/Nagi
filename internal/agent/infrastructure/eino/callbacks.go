@@ -5,7 +5,10 @@ package eino
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/callbacks"
 	"time"
 
 	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
@@ -76,4 +79,40 @@ func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, 
 		return nil, fmt.Errorf("agent: build langfuse callback: %w", err)
 	}
 	return handler, nil
+}
+
+// privateCallbackContext preserves cancellation while hiding its potentially private cause.
+// privateCallbackContext 保留取消行为，但隐藏可能含有私密数据的取消原因。
+type privateCallbackContext struct{ context.Context }
+
+func (c privateCallbackContext) Value(key any) any {
+	return context.WithoutCancel(c.Context).Value(key)
+}
+
+type privateErrorHandler struct{ callbacks.Handler }
+
+func (h privateErrorHandler) OnStart(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
+	return h.Handler.OnStart(privateCallbackContext{ctx}, info, input)
+}
+func (h privateErrorHandler) OnError(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+	safe := errors.New("sensitive operation failed")
+	if errors.Is(err, context.DeadlineExceeded) {
+		safe = context.DeadlineExceeded
+	} else if errors.Is(err, context.Canceled) {
+		safe = context.Canceled
+	}
+	return h.Handler.OnError(privateCallbackContext{ctx}, info, safe)
+}
+
+func (h privateErrorHandler) Needed(ctx context.Context, info *callbacks.RunInfo, timing callbacks.CallbackTiming) bool {
+	// Agent iterators can carry errors outside OnError; the application already records agent spans.
+	// Agent 迭代器可在 OnError 之外携带错误；应用自身已有 Agent 追踪。
+	if info != nil && (info.Component == adk.ComponentOfAgent || info.Component == adk.ComponentOfAgenticAgent) {
+		return false
+	}
+
+	if checker, ok := h.Handler.(callbacks.TimingChecker); ok {
+		return checker.Needed(ctx, info, timing)
+	}
+	return true
 }

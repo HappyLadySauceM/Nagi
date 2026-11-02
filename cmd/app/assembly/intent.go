@@ -5,6 +5,8 @@ package assembly
 import (
 	"context"
 	"fmt"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -60,6 +62,7 @@ func (h historyReader) RecentIntentMessages(ctx context.Context, conversationID 
 			continue
 		}
 		out = append(out, intentdomain.Message{
+			Segments:  m.Segments,
 			MessageID: m.PlatformMessageID,
 			SenderID:  m.SenderID,
 			IsBot:     m.Direction == conversationdomain.Outgoing,
@@ -73,12 +76,30 @@ func (h historyReader) RecentIntentMessages(ctx context.Context, conversationID 
 // intentProcessor adapts the intent decider to the conversation JobProcessor port.
 // intentProcessor 将意图决策器适配为会话的 JobProcessor 端口。
 type intentProcessor struct {
-	decider *intentapp.Decider
+	decider  *intentapp.Decider
+	models   models.Snapshotter
+	settings *settingsapp.Provider
 }
 
 // Process converts the job into an intent task and runs the decision pipeline.
 // Process 将任务转换为意图任务并执行决策流水线。
 func (p intentProcessor) Process(ctx context.Context, job conversationdomain.Job) error {
+	timeout := 180 * time.Second
+	if p.settings != nil {
+		if configured := time.Duration(p.settings.Settings().Agent.MaxRunDurationSeconds) * time.Second; configured > 0 && configured < timeout {
+			timeout = configured
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if p.models != nil {
+		ctx = p.models.ModelSnapshot(ctx)
+		if resolver, ok := p.models.(models.Resolver); ok {
+			if _, err := resolver.ResolveModel(ctx, "generation", job.BotID, string(job.Kind), job.TargetID); err != nil {
+				return nil
+			}
+		}
+	}
 	return p.decider.ProcessTask(ctx, intentdomain.Task{
 		JobID:          job.ID,
 		ClaimToken:     job.ClaimToken,
@@ -147,6 +168,7 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 		// 脱敏由守卫在实际执行凭证工具时触发；仅凭授予集合不应静音会话。
 		var replyStopped atomic.Bool
 		scope := pluginsapp.Scope{
+			MessageID: req.MessageID, AllowHistoryRead: req.AllowHistoryRead,
 			BotID:          req.BotID,
 			JobID:          req.JobID,
 			ClaimToken:     req.ClaimToken,
@@ -159,7 +181,7 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 				// Only the current-conversation tool stops further replies; a failed
 				// send to another target says nothing about the source conversation.
 				// 只有当前会话工具会停止后续回复；发往其它目标失败不影响来源会话。
-				if run.ToolID == replytool.ToolID && run.Status != pluginsapp.StatusOK {
+				if (run.ToolID == replytool.ToolID || run.ToolID == "qq.send_voice_current") && run.Status != pluginsapp.StatusOK {
 					replyStopped.Store(true)
 				}
 				if req.OnToolRun == nil {
@@ -177,6 +199,19 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 			MaxResultBytes: live.Tools.MaxResultBytes,
 		}
 		{
+			scope.AuthorizeHistory = func(ctx context.Context) error {
+				if len(fresh) == 0 || fresh[0] == nil {
+					return fmt.Errorf("history authorization unavailable")
+				}
+				current, err := fresh[0].Resolve(ctx, req.BotID, scopedomain.ScopeType(req.Kind), req.TargetID)
+				if err != nil {
+					return err
+				}
+				if !current.Enabled || !current.AllowHistoryRead {
+					return fmt.Errorf("history authorization revoked")
+				}
+				return nil
+			}
 			scope.Reauthorize = func(ctx context.Context, descriptor pluginscontracts.ToolDescriptor) error {
 				if descriptor.ReplyCurrent && replyStopped.Load() {
 					return fmt.Errorf("reply run already stopped")
@@ -213,6 +248,9 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 			// inside the tool stays as the second line of defence.
 			// 不适用于当前会话类型的工具不会到达模型，模型连请求它的机会都没有；
 			// 工具内部的执行期校验仍作为第二道防线。
+			if registered.Descriptor.Multimodal && req.CapabilitiesKnown && !req.ModelImages {
+				continue
+			}
 			if !registered.Descriptor.AppliesTo(req.Kind) {
 				continue
 			}
@@ -279,8 +317,10 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 // 控制台开启生成或切换模型因此无需重启；本阶段刻意不接入长期记忆。
 func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
+	catalog *settingsapp.Service,
+	mediaService media.MessageReader,
 	scope *scopeapp.Service, conv *conversationapp.Service, senders agentapp.SenderResolver,
-	handler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
+	handler *langfusecb.CallbackHandler, sensitiveHandler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
 	limits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits,
 	tools func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool,
 ) (intentcontracts.ReplyExecutor, error) {
@@ -294,8 +334,12 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		handlers = []callbacks.Handler{handler}
 	}
 	live := settings.Settings()
+	runtime := newModelRuntime(settings, catalog, tools, handlers, logger)
+	if sensitiveHandler != nil {
+		runtime.sensitiveHandlers = []callbacks.Handler{sensitiveHandler}
+	}
 	return agentapp.NewReplier(agentapp.Options{
-		Runtime:  newModelRuntime(settings, cfg.AI.APIKey, tools, handlers, logger),
+		Media: mediaService, Runtime: runtime,
 		Scopes:   scope,
 		Senders:  senders,
 		Recorder: conv,
@@ -327,6 +371,8 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 // 控制台因此可以在不重启、不积压的情况下随后启用。
 func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
+	catalog *settingsapp.Service,
+	mediaService media.Transcriber,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities, rules *intentinfra.RulesetsRepo,
 ) (*conversationinfra.Worker, intentcontracts.DecisionReader, intentcontracts.SimulationEvaluator, error) {
@@ -337,18 +383,19 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		logger.Info("intent pipeline starts disabled; stored messages are consumed without a decision",
 			"hint", "enable the pipeline in 系统配置 to start replying")
 	}
-	if cfg.Intent.APIKey == "" && settings.Settings().Intent.Provider == "jev" {
-		logger.Warn("jev api-key missing; semantic decisions degrade to explicit mentions only",
-			"hint", "set intent.api-key in the config file")
-	}
-	semantic := newSemanticRouter(settings, cfg.Intent.APIKey, logger)
+
+	semantic := newSemanticRouter(settings, catalog, logger)
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	live := settings.Settings()
+	transcripts, err := conversationinfra.NewRepo(pool)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	decider, err := intentapp.NewDecider(intentapp.Options{
-		Semantic: semantic,
+		Media: mediaService, Transcripts: transcripts, Semantic: semantic,
 		History:  historyReader{svc: conv},
 		Activity: activityReader{svc: conv},
 		Scopes:   scope,
@@ -390,7 +437,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider}, conversationinfra.WorkerOptions{
+	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider, models: catalog, settings: settings}, conversationinfra.WorkerOptions{
 		Concurrency:  cfg.Worker.Concurrency,
 		MaxPending:   cfg.Worker.MaxPendingJobs,
 		PollInterval: cfg.Worker.PollInterval.D(),

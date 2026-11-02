@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"fmt"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"log/slog"
 	"time"
 
@@ -80,8 +81,14 @@ type RuntimeConfig struct {
 // RuntimeConfigProvider 报告当前运行配置；nil 表示以静态 Options 为准。
 type RuntimeConfigProvider func() RuntimeConfig
 
+type TranscriptRecorder interface {
+	SaveTranscript(context.Context, int64, string, string) error
+}
+
 type Options struct {
-	Semantic SemanticDecider
+	Media       media.Transcriber
+	Transcripts TranscriptRecorder
+	Semantic    SemanticDecider
 	// Rules is optional; without it the built-in ruleset applies.
 	// Rules 可选；未提供时使用内置规则。
 	Rules        RulesProvider
@@ -103,6 +110,8 @@ type Options struct {
 // Decider orchestrates rules, optional semantic judgment, reply policy and recording.
 // Decider 编排规则、可选语义判定、回复策略与记录。
 type Decider struct {
+	media        media.Transcriber
+	transcripts  TranscriptRecorder
 	scopes       scopecontracts.Authorizer
 	history      HistoryReader
 	activity     ActivityReader
@@ -128,7 +137,7 @@ func NewDecider(opts Options) (*Decider, error) {
 		opts.HistoryLimit = 30
 	}
 	return &Decider{
-		scopes: opts.Scopes, history: opts.History, activity: opts.Activity,
+		media: opts.Media, transcripts: opts.Transcripts, scopes: opts.Scopes, history: opts.History, activity: opts.Activity,
 		semantic: opts.Semantic,
 		rules:    opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
 		th: opts.Thresholds, historyLimit: opts.HistoryLimit,
@@ -162,18 +171,40 @@ func (d *Decider) runtime() RuntimeConfig {
 // ProcessTask 即时解析策略，应用规则与可选语义判定，记录最终决策并分发回复。
 func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	runtime := d.runtime()
+
+	policy, err := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
+	if err != nil {
+		// Retryable infrastructure failure: hand the error back to the worker.
+		// 可重试的基础设施故障：把错误交还给工作器。
+		return fmt.Errorf("intent: resolve policy: %w", err)
+	}
+	if d.media != nil && policy.ToolPermissions["media.voice.transcribe"] && policy.Enabled && policy.StoreMessages && policy.ReplyMode != scopedomain.ModeObserveOnly {
+		text, err := d.media.Transcribe(ctx, task.BotID, task.Segments, task.Message.Text)
+		latest, resolveErr := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !latest.ToolPermissions["media.voice.transcribe"] {
+			return nil
+		}
+		policy = latest
+		if err == nil && text != task.Message.Text {
+			if d.transcripts != nil {
+				if err = d.transcripts.SaveTranscript(ctx, task.JobID, task.ClaimToken, text); err != nil {
+					return err
+				}
+			}
+			task.Message.Text = text
+		} else if err != nil {
+			task.Message.Text += " [语音未能转写]"
+		}
+	}
 	if !runtime.Enabled {
 		// The worker keeps consuming jobs while the pipeline is off so nothing
 		// piles up in the queue; the decision itself is skipped.
 		// 关闭流水线期间工作器仍消费任务，避免队列堆积；决策本身被跳过。
 		d.logger.Debug("intent pipeline disabled; job skipped", "job_id", task.JobID)
 		return nil
-	}
-	policy, err := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
-	if err != nil {
-		// Retryable infrastructure failure: hand the error back to the worker.
-		// 可重试的基础设施故障：把错误交还给工作器。
-		return fmt.Errorf("intent: resolve policy: %w", err)
 	}
 	history, activity, err := d.loadContext(ctx, task, policy)
 	if err != nil {
@@ -185,7 +216,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	var semantic domain.SemanticAnswer
 	var latency int64
 	if rule.NeedSemantic && d.semantic != nil {
-		semantic, latency = d.decideSemantic(ctx, in)
+		semantic, latency = d.decideSemantic(ctx, in, runtime)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
 	decision.RulesetVersion = rulesetVersion
@@ -370,19 +401,19 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 // unusable answer; it is never turned into a guessed decision.
 // decideSemantic 在独立 span 内调用 Jev，使网络耗时、返回分数与降级可归因。
 // 失败时返回不可用回答，绝不臆测决策。
-func (d *Decider) decideSemantic(ctx context.Context, in domain.Input) (domain.SemanticAnswer, int64) {
+func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime RuntimeConfig) (domain.SemanticAnswer, int64) {
 	ctx, span := tracer().Start(ctx, "nagi.intent.jev")
 	defer span.End()
 	span.SetAttributes(
-		attribute.String("nagi.provider", d.provider),
-		attribute.String("nagi.model", d.model),
+		attribute.String("nagi.provider", runtime.Provider),
+		attribute.String("nagi.model", runtime.Model),
 	)
 	// The classified message is the semantic decider's input; body export obeys
 	// the content gate.
 	// 被分类的消息是语义判定的输入；正文导出遵循内容开关。
 	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
-		"provider": d.provider,
-		"model":    d.model,
+		"provider": runtime.Provider,
+		"model":    runtime.Model,
 		"text":     in.Task.Message.Text,
 	})
 	start := time.Now()
@@ -457,11 +488,12 @@ func tracer() trace.Tracer {
 // EvaluateSimulation reuses the live semantic provider and thresholds without invoking the executor.
 // EvaluateSimulation 复用运行中的语义服务与阈值，不调用回复执行器。
 func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule domain.RuleResult, full bool) (domain.FinalDecision, []domain.Step) {
+	runtime := d.runtime()
 	var semantic domain.SemanticAnswer
 	var latency int64
 	called := full && rule.NeedSemantic && d.semantic != nil && !rule.Blocked
 	if called {
-		semantic, latency = d.decideSemantic(ctx, in)
+		semantic, latency = d.decideSemantic(ctx, in, runtime)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
 	return decision, decisionSteps(in.Policy, rule, semantic, decision, latency, called, d.runtime().Thresholds)

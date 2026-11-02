@@ -24,6 +24,7 @@ const (
 // Message is one normalized history or current message.
 // Message 是一条归一化的历史或当前消息。
 type Message struct {
+	Segments  []obdomain.Segment
 	MessageID int64
 	SenderID  int64
 	IsBot     bool
