@@ -165,7 +165,7 @@ func TestUpdateRejectsInvalidSettings(t *testing.T) {
 	}
 }
 
-func TestUpdateRejectsAIWithoutCredential(t *testing.T) {
+func TestUpdateDoesNotRequireLegacyGenerationCredential(t *testing.T) {
 	// 配置文件缺少密钥时不允许在界面上启用生成模型。
 	repo := &fakeRepo{}
 	provider := NewProvider(Snapshot{Settings: testSettings()})
@@ -181,8 +181,8 @@ func TestUpdateRejectsAIWithoutCredential(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 	next := testSettings()
-	if _, err := service.Update(context.Background(), next, 1, "admin"); err == nil {
-		t.Fatal("expected a credential error")
+	if _, err := service.Update(context.Background(), next, 1, "admin"); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -6,6 +6,7 @@ package domain
 
 import (
 	"fmt"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"net/url"
 	"strings"
 	"time"
@@ -20,17 +21,17 @@ type Revision struct {
 	UpdatedBy string
 }
 
-// Settings is the process-wide configuration that operators may change from
-// the console without restarting the process. Secrets never live here: API
-// keys, database DSNs and the admin token stay in the config file or env.
-// Settings 是运维可在控制台修改且无需重启的进程级配置。
-// 密钥类配置绝不进入这里：API Key、数据库 DSN 与管理令牌仍由配置文件或环境变量提供。
+// Settings stores runtime-editable configuration and encrypted model credentials.
+// Public management views remove all ciphertext before serialization.
+// Settings 保存运行时可编辑配置和加密模型凭证；
+// 公开管理视图在序列化前移除全部密文。
 type Settings struct {
-	AI       AI       `json:"AI"`
-	Intent   Intent   `json:"Intent"`
-	Agent    Agent    `json:"Agent"`
-	Messages Messages `json:"Messages"`
-	Tools    Tools    `json:"Tools"`
+	Models   models.Catalog `json:"Models"`
+	AI       AI             `json:"AI"`
+	Intent   Intent         `json:"Intent"`
+	Agent    Agent          `json:"Agent"`
+	Messages Messages       `json:"Messages"`
+	Tools    Tools          `json:"Tools"`
 }
 
 // AI is the generation model section; api-key is intentionally absent.
@@ -49,8 +50,8 @@ type AI struct {
 	GenerationTimeoutSeconds int `json:"GenerationTimeoutSeconds"`
 }
 
-// Intent is the decision pipeline section; api-key stays in the config file.
-// Intent 是意图决策分区；api-key 仍由配置文件提供。
+// Intent holds decision behavior and the selected model connection snapshot.
+// Intent 保存决策行为及所选模型的连接快照。
 type Intent struct {
 	Enabled  bool   `json:"Enabled"`
 	Provider string `json:"Provider"`
@@ -192,6 +193,7 @@ func (s *Settings) Normalize() {
 // Clone 返回深拷贝，默认基线因此不会被进行中的编辑改动。
 func (s Settings) Clone() Settings {
 	clone := s
+	clone.Models = s.Models.Clone()
 	if s.Tools.PermissionDefaults != nil {
 		clone.Tools.PermissionDefaults = make(map[string]bool, len(s.Tools.PermissionDefaults))
 		for key, value := range s.Tools.PermissionDefaults {

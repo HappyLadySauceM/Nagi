@@ -118,8 +118,8 @@ type Worker struct {
 	PollInterval Duration `yaml:"poll-interval"`
 }
 
-// AI 是 LLM 生成配置域；api-key 直接写在配置文件中（本地配置已 gitignore）。
-// AI is the LLM generation config domain; api-key is written directly in the config file.
+// AI supplies the initial generation settings; credentials are imported into the model catalogue once.
+// AI 提供初始生成配置；凭证仅导入模型目录一次。
 type AI struct {
 	Enabled           bool     `yaml:"enabled"`
 	BaseURL           string   `yaml:"base-url"`
@@ -462,9 +462,6 @@ func (c *Config) Validate() error {
 		}
 		if strings.TrimSpace(c.AI.Model) == "" {
 			return fmt.Errorf("config: ai.enabled 时 ai.model 不能为空")
-		}
-		if strings.TrimSpace(c.AI.APIKey) == "" {
-			return fmt.Errorf("config: ai.enabled 时 ai.api-key 不能为空")
 		}
 		if c.AI.GenerationTimeout.D() <= 0 || c.AI.MaxOutputTokens <= 0 {
 			return fmt.Errorf("config: ai 超时与输出上限必须为正数")

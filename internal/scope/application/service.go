@@ -5,6 +5,7 @@ package application
 import (
 	"context"
 	"fmt"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -22,7 +23,14 @@ type Repository interface {
 
 // Service resolves current policies from storage so revocations apply to subsequent calls.
 // Service 从存储解析当前策略，使撤销对后续调用立即生效。
-type Service struct{ repo Repository }
+type Service struct {
+	repo   Repository
+	models models.Resolver
+}
+
+// SetModels binds model availability checks at composition time.
+// SetModels 在装配时绑定模型可用性校验。
+func (s *Service) SetModels(resolver models.Resolver) { s.models = resolver }
 
 // NewService validates dependencies and builds the service.
 // NewService 校验依赖并构建服务。
@@ -61,6 +69,17 @@ func (s *Service) Resolve(ctx context.Context, botID int64, scopeType domain.Sco
 		stored.TemplateVersion = stored.Version
 	}
 	effective := stored.WithDefaults()
+	if effective.ToolPermissions == nil {
+		effective.ToolPermissions = map[string]bool{}
+	}
+	permissions := make(map[string]bool, len(effective.ToolPermissions)+1)
+	for key, value := range effective.ToolPermissions {
+		permissions[key] = value
+	}
+	effective.ToolPermissions = permissions
+	if _, set := effective.ToolPermissions["media.voice.transcribe"]; !set {
+		effective.ToolPermissions["media.voice.transcribe"] = found
+	}
 	// Stored rows may come from a scan that omits the identity columns; the
 	// resolved policy is always keyed by the requested scope.
 	// 已存行可能来自不扫描身份列的查询；生效策略始终以请求的作用域为标识。
@@ -84,6 +103,30 @@ func (s *Service) Get(ctx context.Context, botID int64, scopeType domain.ScopeTy
 // Upsert validates and persists one complete policy.
 // Upsert 校验并持久化一份完整策略。
 func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy) error {
+	if s.models != nil {
+		previous, err := s.Resolve(ctx, botID, policy.ScopeType, policy.ScopeID)
+		if err != nil {
+			return err
+		}
+		if policy.ToolPermissions == nil {
+			policy.ToolPermissions = map[string]bool{}
+		}
+		if _, exists := policy.ToolPermissions["media.voice.transcribe"]; !exists {
+			policy.ToolPermissions["media.voice.transcribe"] = previous.ToolPermissions["media.voice.transcribe"]
+		}
+		if policy.Enabled && !previous.Enabled {
+			if _, err = s.models.ResolveModel(ctx, "generation", botID, string(policy.ScopeType), policy.ScopeID); err != nil {
+				return fmt.Errorf("请先配置并测试生成模型")
+			}
+		}
+		for permission, usage := range map[string]string{"media.voice.transcribe": "asr", "media.voice.send": "tts"} {
+			if policy.ToolPermissions[permission] && !previous.ToolPermissions[permission] {
+				if _, err = s.models.ResolveModel(ctx, usage, 0, "", 0); err != nil {
+					return fmt.Errorf("请先配置并测试 %s 模型", usage)
+				}
+			}
+		}
+	}
 	if err := policy.Validate(); err != nil {
 		return err
 	}
