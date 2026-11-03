@@ -174,12 +174,10 @@ jobs:
           pnpm test
           pnpm build
 
-      # 编译本身在 build 作业的镜像内完成，`just verify` 的 go vet/test 已覆盖全部包，
-      # 这里不再重复编译。
-      # 只改文档或只改 workflow 时两个 filter 都不命中：不跑任何校验，但要显式说明，
-      # 避免「全绿」被误读成校验过（该口径也写在 README 的构建小节）。
-      # 用 == 'false' 而不是 != 'true'：filter 输出异常时宁可没有说明，也不要写成「确认无相关改动」。
-      # workflow_dispatch 会强制全量校验，不需要这条说明。
+      # PRs and manual runs always verify both components; only main pushes may skip unchanged components.
+      # PR 和手动运行始终校验前后端；仅 main 推送可跳过未变化的组件。
+      # Emit the skip summary only when both change filters explicitly return false.
+      # 仅在两个变更过滤结果均明确为 false 时输出跳过说明。
       - name: 无相关改动
         if: github.event_name == 'push' && needs.changes.outputs.api == 'false' && needs.changes.outputs.web == 'false'
         run: |

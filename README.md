@@ -346,20 +346,21 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   `infrastructure/golang:1.27`），产物不保证与 CI 逐字节一致。
 - 构建作业依赖 runner 的 docker daemon 信任 Zot（自签证书 + 已登录）：基础镜像由 buildkit 拉取，
   构建后的版本校验由 daemon 拉取该镜像完成，runner 换机时需要同步这份配置。
-- 缓存分两层：`go mod download`、`pnpm install` 的依赖层留在镜像层，由 buildx 的 gha 层缓存跨运行复用；
-  `GOCACHE` 与 pnpm store 用 `--mount=type=cache`：CI 每次新建 builder，它们的作用只是让缓存不进镜像层、
-  不参与 gha 导出；本地或常驻 builder 才顺带加速。
-  runner 上的 `verify` 不缓存 Go 模块与 pnpm store：编译已搬进镜像，依赖现拉已经够快。
-- 门槛语义：`verify` 是 `main` 的必需检查，但只改文档或只改 `.github/workflows/` 的 PR 会因路径过滤
-  跳过 Go 与前端校验（run 页面会出现「无相关改动」说明），这类 PR 的绿只代表没有可校验的改动。
-  PR 阶段不构建镜像，所以「镜像能否构建」「版本是否注入」只在 main / 手动触发时验证：改 Dockerfile
-  或编译参数的 PR 合入后建议手动 `workflow_dispatch` 跑一次。
+- 检查环境由 `ci/check/Dockerfile` 定义，通过 `.github/workflows/check-environment.yml` 构建、推送并签名到 Zot。
+  `verify` 直接使用该镜像内的 Go、Node、pnpm、just 和媒体工具，工具版本调整时重新发布环境镜像。
+- 构建依赖层通过 Zot 的 `buildcache/nagi-api:main`、`buildcache/nagi-web:main` 跨运行复用。
+  `GOCACHE` 与 pnpm store 的 BuildKit cache mount 不随 registry 缓存导出，常驻 builder 才能持续复用挂载内容。
+  检查容器另将本机 `/cache/nagi` 挂到 `/cache`，复用 Go 模块、编译缓存及 pnpm store。
+- `verify` 是 `main` 的必需检查：所有 PR（包括文档和 workflow 改动）都执行完整的 Go 与前端校验，
+  变更检测失败也会使 `verify` 失败。PR 不构建、签名或推送镜像；main 推送按变更路径构建，
+  手动 `workflow_dispatch` 执行全量检查和构建。
 - 签名只打在 Zot 的镜像引用上（`cosign sign .../zot...@digest`），ghcr 上的同 digest 副本没有签名，
   验签要从 Zot 拉。
 - 镜像 tag 是 7 位短 SHA，由 gitops 仓库的 Image Updater 自动开 PR；本仓库不再推送 digest 事件。
-- 旧镜像由 Zot 保留策略（每仓库最近 10 个）与 ghcr 保留策略（每包最近 10 个）清理；
-  ghcr 侧是 `.github/workflows/ghcr-retention.yml`（显示名
-  `chore(cleanup): Update from GHCR cleanup automation`），只调 GitHub API 删除、不产生提交。
+- Zot 的镜像清理由平台仓库管理的 `registry-maintenance` 定时任务执行，每天北京时间 04:20 运行。
+  保留最近 10 个及 7 天内的构建版本，额外保护正在部署、ReplicaSet 回滚引用和 GitOps 最近 10 次配置引用；
+  保护信息读取失败或 GitOps 配置变化时停止删除。构建缓存由 Zot 回收超过 30 天未推送的内容。
+  `.github/workflows/ghcr-retention.yml` 当前只做预览，不删除 GHCR 包版本。
 
 ## 数据库迁移
 
