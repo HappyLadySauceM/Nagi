@@ -1,0 +1,66 @@
+name: "chore(image): Publish Nagi check environment"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ci/check/Dockerfile
+      - .github/workflows/check-environment.yml
+  workflow_dispatch:
+
+concurrency:
+  group: nagi-check-environment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ZOT: zot.infra-registry.svc.cluster.local:5000
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
+jobs:
+  publish:
+    runs-on: hls-builder
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.ZOT }}
+          username: ${{ secrets.ZOT_USERNAME }}
+          password: ${{ secrets.ZOT_PASSWORD }}
+      - uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: image=${{ env.ZOT }}/infrastructure/buildkit:buildx-stable-1
+          buildkitd-config-inline: |
+            [registry."${{ env.ZOT }}"]
+              insecure = true
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ci/check/Dockerfile
+          push: true
+          provenance: false
+          tags: ${{ env.ZOT }}/infrastructure/nagi-check:go1.27.3-v1
+          cache-from: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-check:main
+          cache-to: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-check:main,mode=max,image-manifest=true,oci-mediatypes=true
+      - name: Sign check environment
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          ZOT_USER: ${{ secrets.ZOT_USERNAME }}
+          ZOT_PASS: ${{ secrets.ZOT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keydir=$(mktemp -d)
+          trap 'rm -rf "$keydir"' EXIT
+          umask 077
+          printf '%s' "$COSIGN_KEY" > "$keydir/cosign.key"
+          curl -fsSL https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64 -o "$keydir/cosign"
+          chmod +x "$keydir/cosign"
+          for ref in "infrastructure/nagi-check@${{ steps.build.outputs.digest }}" buildcache/nagi-check:main; do
+            "$keydir/cosign" sign --key "$keydir/cosign.key" --yes --tlog-upload=false \
+              --allow-insecure-registry --registry-username "$ZOT_USER" --registry-password "$ZOT_PASS" "${ZOT}/${ref}"
+          done

@@ -15,9 +15,10 @@ WORKDIR /app
 # pnpm-workspace.yaml 声明了 allowBuilds（esbuild），必须和 lockfile 一起进这一层，
 # 否则 install 会按「未审批的构建脚本」报错。
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# store 挂载只加速本地重复构建：它不随 type=gha 导出，CI 上靠的是这一层命中层缓存。
+# The store mount accelerates repeated local builds; CI restores the dependency layer from Zot.
+# store 挂载只加速本地重复构建：它不随 type=registry 导出，CI 上靠的是这一层命中层缓存。
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --store-dir /root/.local/share/pnpm/store
 
 COPY . .
 RUN pnpm build
