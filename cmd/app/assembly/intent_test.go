@@ -221,7 +221,7 @@ func TestReplyToolFollowsScopeGrant(t *testing.T) {
 	registry := pluginsapp.NewRegistry()
 	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
 		Descriptor: plugincontracts.ToolDescriptor{
-			ID: "qq.send_current", Description: "发送", ReadOnly: false, SideEffect: true,
+			ID: "qq.send_msg", Description: "发送", ReadOnly: false, SideEffect: true,
 			RiskLevel: plugincontracts.RiskWrite, Permission: "qq.reply.current",
 		},
 		Invoke: func(context.Context, string) (string, error) { return "sent", nil },
@@ -236,8 +236,8 @@ func TestReplyToolFollowsScopeGrant(t *testing.T) {
 		Kind:                plugincontracts.ScopeKindGroup,
 		PermissionOverrides: map[string]bool{"qq.reply.current": true},
 	}
-	if got := exposedToolNames(t, buildToolsResolver(settingsForTest(cfg), registry)(context.Background(), granted)); !reflect.DeepEqual(got, []string{"qq_send_current"}) {
-		t.Fatalf("grant exposed %v, want qq_send_current", got)
+	if got := exposedToolNames(t, buildToolsResolver(settingsForTest(cfg), registry)(context.Background(), granted)); !reflect.DeepEqual(got, []string{"qq_send_msg"}) {
+		t.Fatalf("grant exposed %v, want qq_send_msg", got)
 	}
 	// Without the scope grant the tool stays hidden.
 	if got := exposedToolNames(t, buildToolsResolver(settingsForTest(cfg), registry)(context.Background(), agentcontracts.Request{Kind: plugincontracts.ScopeKindGroup})); len(got) != 0 {
@@ -260,7 +260,7 @@ func TestReplyRunStaysStoppedAfterRefusal(t *testing.T) {
 	registry := pluginsapp.NewRegistry()
 	calls := 0
 	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
-		Descriptor: plugincontracts.ToolDescriptor{ID: "qq.send_current", Description: "send", ReplyCurrent: true, SideEffect: true, RiskLevel: plugincontracts.RiskWrite, Permission: "qq.reply.current"},
+		Descriptor: plugincontracts.ToolDescriptor{ID: "qq.send_msg", Description: "send", ReplyCurrent: true, SideEffect: true, RiskLevel: plugincontracts.RiskWrite, Permission: "qq.reply.current"},
 		Invoke: func(context.Context, string) (string, error) {
 			calls++
 			if calls == 2 {

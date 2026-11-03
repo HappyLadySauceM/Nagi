@@ -125,19 +125,39 @@ func TestExplicitDefaultAndAdditionalPermissionPrecedence(t *testing.T) {
 
 func TestCrossConversationGrantDoesNotExposeUnrelatedTools(t *testing.T) {
 	denied := false
-	descriptor := contracts.ToolDescriptor{ID: "qq.send_group_msg", Permission: "qq.api.send_group_msg", DefaultAllowed: &denied, AdditionalPermissions: []string{"qq.cross_conversation"}}
+	descriptor := contracts.ToolDescriptor{ID: "qq.send_msg", Permission: "qq.reply.current", DefaultAllowed: &denied, AdditionalPermissions: []string{"qq.cross_conversation"}}
 	tools := []contracts.RegisteredTool{{Descriptor: descriptor}}
 	for _, overrides := range []map[string]bool{
 		{"qq.cross_conversation": true},
-		{"qq.cross_conversation": true, "qq.api.send_group_msg": false},
+		{"qq.cross_conversation": true, "qq.reply.current": false},
 	} {
 		grants := ResolvePermissions(tools, nil, overrides)
 		if !grants["qq.cross_conversation"] || Allowed(descriptor, grants) {
 			t.Fatalf("cross grant widened tool exposure: %+v", grants)
 		}
 	}
-	grants := ResolvePermissions(tools, nil, map[string]bool{"qq.cross_conversation": true, "qq.api.send_group_msg": true})
+	grants := ResolvePermissions(tools, nil, map[string]bool{"qq.cross_conversation": true, "qq.reply.current": true})
 	if !Allowed(descriptor, grants) {
 		t.Fatal("explicit tool grant must expose the tool")
+	}
+}
+
+func TestSharedSendingPermissionDefaultsAndOverrides(t *testing.T) {
+	yes := true
+	send := contracts.RegisteredTool{Descriptor: contracts.ToolDescriptor{ID: "qq.send_msg", Permission: "qq.reply.current", DefaultAllowed: &yes}}
+	voice := contracts.RegisteredTool{Descriptor: contracts.ToolDescriptor{ID: "qq.send_voice_current", Permission: "media.voice.send", AdditionalPermissions: []string{"qq.reply.current"}}}
+	for _, tools := range [][]contracts.RegisteredTool{{send, voice}, {voice, send}} {
+		if !ResolvePermissions(tools, nil, nil)["qq.reply.current"] {
+			t.Fatal("voice changed sending default")
+		}
+		if ResolvePermissions(tools, nil, map[string]bool{"qq.reply.current": false})["qq.reply.current"] {
+			t.Fatal("explicit denial lost")
+		}
+		if ResolvePermissions(tools, map[string]bool{"qq.reply.current": false}, nil)["qq.reply.current"] {
+			t.Fatal("configured default ignored")
+		}
+		if !ResolvePermissions(tools, nil, map[string]bool{"qq.api.send_msg": false, "qq.api.send_private_msg": false})["qq.reply.current"] {
+			t.Fatal("obsolete overrides affect sending")
+		}
 	}
 }

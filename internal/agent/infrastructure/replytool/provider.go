@@ -22,17 +22,13 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
-// ProviderID is the provider that exposes the reply tool.
-// ProviderID 是暴露回复工具的提供方标识。
-const ProviderID = "builtin.reply"
-
-// ToolID is the model-facing tool name.
-// ToolID 是模型看到的工具名。
-const ToolID = "qq.send_current"
-
-// Permission gates the reply tool independently from other write tools.
-// Permission 独立于其它写工具对回复工具授权。
+// Permission gates all message delivery from the source conversation.
+// Permission 控制来源会话的所有消息发送。
 const Permission = "qq.reply.current"
+
+// ToolID identifies the unified sending tool.
+// ToolID 标识统一发送工具。
+const ToolID = "qq.send_msg"
 
 // Sender is the narrow send surface of one account.
 // Sender 是单个账号的窄发送接口。
@@ -76,45 +72,8 @@ type Options struct {
 	AuthorizeTarget func(context.Context, string, int64) error
 }
 
-// provider exposes qq.send_current.
-// provider 暴露 qq.send_current。
 type provider struct {
 	opts Options
-}
-
-// NewProvider builds the reply provider; every dependency is required.
-// NewProvider 构建回复提供方；所有依赖都必需。
-func NewProvider(opts Options) contracts.ToolProvider {
-	return provider{opts: opts}
-}
-
-// Manifest identifies the provider.
-// Manifest 标识提供方。
-func (provider) Manifest() contracts.Manifest {
-	return contracts.Manifest{ID: ProviderID, Version: "1", Description: "当前会话内的受限发送"}
-}
-
-// Close releases nothing; the provider holds no resources.
-// Close 不释放任何资源；提供方不持有资源。
-func (provider) Close(context.Context) error { return nil }
-
-// Tools returns the reply tool.
-// Tools 返回回复工具。
-func (p provider) Tools(context.Context) ([]contracts.RegisteredTool, error) {
-	return []contracts.RegisteredTool{{
-		Descriptor: contracts.ToolDescriptor{
-			ID:           ToolID,
-			ReplyCurrent: true,
-			Parameters:   map[string]contracts.Parameter{"text": {Type: "string", Description: "当前会话内要发送的一条消息", Required: true}},
-			Description:  "在当前会话发送一条消息（仅本会话、受单轮预算限制）；返回第几条与发送状态",
-			Category:     contracts.CategoryReply,
-			RiskLevel:    contracts.RiskWrite,
-			ReadOnly:     false,
-			SideEffect:   true,
-			Permission:   Permission,
-		},
-		Invoke: p.send,
-	}}, nil
 }
 
 // sendArgs is the model-supplied payload.
@@ -323,6 +282,8 @@ func NewVoiceProvider(opts Options) contracts.ToolProvider {
 }
 
 type voiceProvider struct{ provider }
+
+func (voiceProvider) Close(context.Context) error { return nil }
 
 func (voiceProvider) Manifest() contracts.Manifest {
 	return contracts.Manifest{ID: "builtin.voice", Version: "1", Description: "当前会话语音回复"}

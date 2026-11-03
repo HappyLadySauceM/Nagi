@@ -11,7 +11,7 @@ import (
 // PublicOptions 将公开工具绑定到来源账号与投递台账。
 type PublicOptions struct {
 	Account func(int64) (contracts.PublicAPI, bool)
-	Send    func(context.Context, ob.PublicCommand) (ob.PublicResult, error)
+	Send    func(context.Context, ob.PublicCommand) (pc.SendReceipt, error)
 	// AuthorizeTarget validates a cross-conversation group before a destructive
 	// action runs, so a disabled target cannot be administered.
 	// AuthorizeTarget 在破坏性动作执行前校验跨会话群，停用目标不会被操作。
@@ -80,9 +80,7 @@ func required(params map[string]pc.Parameter, names ...string) map[string]pc.Par
 func publicSpecs() []publicSpec {
 	message := pc.Parameter{Required: true, Types: []string{"string", "array"}, Items: &pc.Parameter{Type: "object", Properties: map[string]pc.Parameter{"type": param("string", true), "data": param("object", true)}}}
 	specs := []publicSpec{
-		{name: ob.ActionSendPrivate, description: "发送私聊消息", params: fields("user_id", "auto_escape"), send: true},
-		{name: ob.ActionSendGroup, description: "发送群消息", params: fields("group_id", "auto_escape"), group: true, send: true},
-		{name: ob.ActionSendMessage, description: "发送消息，省略类型时根据目标 ID 判断；无目标时使用当前会话", params: fields("message_type", "user_id", "group_id", "auto_escape"), send: true},
+		{name: ob.ActionSendMessage, description: "发送消息；省略目标时发送到当前会话，其他目标需跨会话授权。支持多次发送，受单轮预算限制；返回序号和状态，failed 或 unknown 后停止，发送后勿重复正文", params: fields("message_type", "user_id", "group_id", "auto_escape"), send: true},
 		{name: ob.ActionDeleteMsg, description: "撤回消息；消息归属未知，需要跨会话权限", params: fields("message_id")},
 		{name: ob.ActionGetMessage, description: "获取消息；消息归属未知，需要跨会话权限", params: fields("message_id"), read: true},
 		{name: ob.ActionGetForwardMessage, description: "获取合并转发消息；需要跨会话权限", params: fields("id"), read: true},
@@ -112,8 +110,6 @@ func publicSpecs() []publicSpec {
 		{name: ob.ActionGetCredentials, description: "获取 QQ Cookies 和 CSRF Token（敏感凭证）", params: fields("domain"), sensitive: true, read: true},
 		{name: ob.ActionGetRecord, description: "获取语音并转换格式", params: fields("file", "out_format"), read: true},
 		{name: ob.ActionGetImage, description: "获取图片文件信息", params: fields("file"), read: true},
-		{name: ob.ActionCanSendImage, description: "检查图片发送能力", params: fields(), read: true},
-		{name: ob.ActionCanSendRecord, description: "检查语音发送能力", params: fields(), read: true},
 		{name: ob.ActionGetStatus, description: "获取 OneBot 运行状态", params: fields(), read: true},
 		{name: ob.ActionGetVersionInfo, description: "获取 OneBot 版本", params: fields(), read: true},
 		{name: ob.ActionSetRestart, description: "重启 OneBot，delay 单位毫秒，异步接受不表示完成", params: fields("delay")},
@@ -183,6 +179,8 @@ func (p publicProvider) Tools(context.Context) ([]pc.RegisteredTool, error) {
 			category = pc.CategoryGroup
 		}
 		if s.send {
+			permission = "qq.reply.current"
+			allowed = true
 			category = pc.CategoryReply
 			risk = pc.RiskWrite
 		}

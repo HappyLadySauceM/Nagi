@@ -12,10 +12,12 @@ import (
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	"github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/replytool"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/builtin"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
+	"reflect"
 )
 
 // fakeProvider supplies fixed tools for registry construction.
@@ -335,6 +337,9 @@ func TestPublicCatalogSeparatesConversationKinds(t *testing.T) {
 	if err := registry.Register(context.Background(), builtin.NewPublicProvider(builtin.PublicOptions{})); err != nil {
 		t.Fatal(err)
 	}
+	if err := registry.Register(context.Background(), replytool.NewVoiceProvider(replytool.Options{})); err != nil {
+		t.Fatal(err)
+	}
 	handler := NewHandler(&svc.ServiceContext{Config: &config.Config{}, Tools: registry})
 	for _, kind := range []string{"private", "group"} {
 		t.Run(kind, func(t *testing.T) {
@@ -348,9 +353,9 @@ func TestPublicCatalogSeparatesConversationKinds(t *testing.T) {
 				t.Fatal(err)
 			}
 			for id, want := range map[string]bool{
-				"qq.set_group_admin": kind == "group", "qq.send_group_msg": kind == "group",
-				"qq.send_private_msg": kind == "private", "qq.set_friend_add_request": kind == "private",
-				"qq.get_status": true, "qq.send_msg": true,
+				"qq.set_group_admin":        kind == "group",
+				"qq.set_friend_add_request": kind == "private",
+				"qq.get_status":             true, "qq.send_msg": true,
 			} {
 				if toolByID(t, envelope.Data.Tools, id).Applicable != want {
 					t.Errorf("%s in %s: want applicability %v", id, kind, want)
@@ -359,6 +364,12 @@ func TestPublicCatalogSeparatesConversationKinds(t *testing.T) {
 			foundAtAll := false
 			for _, permission := range envelope.Data.Permissions {
 				foundAtAll = foundAtAll || permission.ID == "qq.content.at_all"
+				if permission.ID == "media.voice.send" && !reflect.DeepEqual(permission.Requires, []string{"qq.reply.current", "qq.content.media"}) {
+					t.Fatalf("voice prerequisites missing: %+v", permission)
+				}
+				if permission.ID == "qq.cross_conversation" && len(permission.Requires) != 0 {
+					t.Fatal("conditional cross-conversation authorization became an unconditional send prerequisite")
+				}
 			}
 			if foundAtAll != (kind == "group") {
 				t.Errorf("at-all permission in %s=%v", kind, foundAtAll)

@@ -4,7 +4,6 @@ package application_test
 
 import (
 	"context"
-	replytool "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/replytool"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"testing"
 
@@ -76,7 +75,6 @@ func TestCompletePublicCatalogPreservesExistingTools(t *testing.T) {
 		builtin.WithoutPublicDuplicates(builtin.NewQQAdminProvider(nil)),
 		builtin.WithoutPublicDuplicates(builtin.NewQQProfileProvider(nil)),
 		builtin.NewPublicProvider(builtin.PublicOptions{}),
-		replytool.NewProvider(replytool.Options{}),
 	}
 	for _, provider := range providers {
 		if err := registry.Register(context.Background(), provider); err != nil {
@@ -84,7 +82,7 @@ func TestCompletePublicCatalogPreservesExistingTools(t *testing.T) {
 		}
 	}
 	tools := registry.Snapshot()
-	if len(tools) != 43 {
+	if len(tools) != 38 {
 		t.Fatalf("tools=%d", len(tools))
 	}
 	byID := map[string]contracts.ToolDescriptor{}
@@ -99,7 +97,7 @@ func TestCompletePublicCatalogPreservesExistingTools(t *testing.T) {
 			grants[permission] = true
 		}
 	}
-	for id, permission := range map[string]string{"qq.send_current": "qq.reply.current", "qq.get_group_info": "qq.group.read", "qq.get_group_member_info": "qq.group.member.read", "qq.mute_group_member": "qq.group.admin.mute", "qq.set_group_whole_ban": "qq.group.admin.wholeban", "qq.set_group_card": "qq.group.admin.card", "qq.kick_group_member": "qq.group.admin.kick", "qq.leave_current_group": "qq.group.admin.leave", "system.current_time": "system.time.read"} {
+	for id, permission := range map[string]string{"qq.send_msg": "qq.reply.current", "qq.get_group_info": "qq.group.read", "qq.get_group_member_info": "qq.group.member.read", "qq.mute_group_member": "qq.group.admin.mute", "qq.set_group_whole_ban": "qq.group.admin.wholeban", "qq.set_group_card": "qq.group.admin.card", "qq.kick_group_member": "qq.group.admin.kick", "qq.leave_current_group": "qq.group.admin.leave", "system.current_time": "system.time.read"} {
 		if byID[id].Permission != permission {
 			t.Fatalf("legacy permission changed: %s", id)
 		}

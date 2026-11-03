@@ -38,12 +38,12 @@ function catalogOf(tools: ToolCatalogEntry[], defaultGranted = true): ToolsCatal
   }
 }
 
-function renderCatalog(catalog: ToolsCatalog, disabled = false, enabled = false) {
+function renderCatalog(catalog: ToolsCatalog, disabled = false, enabled = false, modelsReady = false) {
   function Harness() {
     const form = useForm<ScopeFormValues>({
       defaultValues: toScopeFormValues({ ...DEFAULT_SCOPE_FORM, enabled }),
     })
-    return <><ScopeFormFields form={form} catalog={catalog} disabled={disabled} /><output aria-label="权限覆盖">{JSON.stringify(form.watch('toolPermissions'))}</output></>
+    return <><ScopeFormFields form={form} catalog={catalog} disabled={disabled} modelAvailability={{ generation: modelsReady, asr: modelsReady, tts: modelsReady }} /><output aria-label="权限覆盖">{JSON.stringify(form.watch('toolPermissions'))}</output></>
   }
   render(<Harness />)
 }
@@ -87,8 +87,8 @@ describe('ScopeFormFields capability checkboxes', () => {
   })
 
   it('allows dedicated replies without enabling group administration side effects', () => {
-    renderCatalog(catalogOf([tool({ id: 'qq.send_current', sideEffect: true, readOnly: false })], false))
-    const control = screen.getByRole('checkbox', { name: '连续回复当前会话' })
+    renderCatalog(catalogOf([tool({ id: 'qq.send_msg', sideEffect: true, readOnly: false })], false))
+    const control = screen.getByRole('checkbox', { name: '发送消息' })
     expect(control).toBeEnabled()
     fireEvent.click(control)
     expect(control).toBeChecked()
@@ -120,7 +120,7 @@ describe('ScopeFormFields capability checkboxes', () => {
 })
 
 it('shows separate cross-conversation permissions with Chinese description and risk', () => {
-  const entry = tool({ id: 'qq.send_group_msg', description: '发送群消息', permission: 'qq.api.send_group_msg', riskLevel: 'write' })
+  const entry = tool({ id: 'qq.send_msg', description: '发送消息', permission: 'qq.reply.current', riskLevel: 'write' })
   renderCatalog({ providers: ['builtin.qq.public'], tools: [entry], permissions: [
     { id: 'qq.cross_conversation', tools: [entry.id], defaultGranted: false, description: '跨会话操作', riskLevel: 'admin' },
   ] })
@@ -136,7 +136,7 @@ it('names a multi-tool cross-conversation group by permission instead of its fir
   // group must not borrow it, or two checkboxes end up with the same name.
   // qq.get_group_info 有工具级文案；多工具权限组不得借用它，否则两个复选框同名。
   const read = tool({ id: 'qq.get_group_info', permission: 'qq.group.read' })
-  const send = tool({ id: 'qq.send_group_msg', description: '发送群消息', permission: 'qq.api.send_group_msg', riskLevel: 'write', readOnly: false, sideEffect: true })
+  const send = tool({ id: 'qq.send_msg', description: '发送消息', permission: 'qq.reply.current', riskLevel: 'write', readOnly: false, sideEffect: true })
   renderCatalog({
     providers: ['builtin.qq'],
     tools: [read, send],
@@ -151,20 +151,19 @@ it('names a multi-tool cross-conversation group by permission instead of its fir
 
 
 it('cross-conversation grants change only the scope permission and do not list other tools as granted', () => {
-  const send = tool({ id: 'qq.send_group_msg', permission: 'qq.api.send_group_msg', readOnly: false, sideEffect: true })
+  const send = tool({ id: 'qq.send_msg', permission: 'qq.reply.current', readOnly: false, sideEffect: true })
   renderCatalog({ providers: ['builtin.qq'], tools: [send], permissions: [
     { id: send.permission, tools: [send.id], defaultGranted: false },
     { id: 'qq.cross_conversation', tools: [send.id], defaultGranted: false },
   ] })
   fireEvent.click(screen.getByRole('checkbox', { name: '跨会话操作' }))
-  expect(screen.getByRole('checkbox', { name: '发送群消息' })).not.toBeChecked()
+  expect(screen.getByRole('checkbox', { name: '发送消息' })).not.toBeChecked()
   expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{"qq.cross_conversation":true}')
   expect(screen.queryByText('详情')).toBeNull()
   expect(screen.getByRole('checkbox', { name: '跨会话操作' }).closest('article')).not.toHaveTextContent('基础')
 })
 
 it.each([
-  ['qq.can_send_image', '检查图片发送能力', '基础'],
   ['qq.get_record', '转换语音格式', '基础'],
   ['qq.get_group_member_list', '查询群成员列表', '基础'],
   ['qq.set_group_admin', '设置群管理员', '群管'],
@@ -191,4 +190,74 @@ it.each([['read', '低风险'], ['write', '中风险'], ['admin', '高风险']] 
   expect(screen.getByText(riskLabel)).toBeVisible()
   expect(screen.queryByText('基础')).toBeNull()
   expect(screen.queryByText('详情')).toBeNull()
+})
+
+it('shows one default-enabled sending grant shared with voice and preserves explicit denial', () => {
+  const send = tool({ id: 'qq.send_msg', permission: 'qq.reply.current', readOnly: false, sideEffect: true })
+  const voice = tool({ id: 'qq.send_voice_current', permission: 'media.voice.send', readOnly: false, sideEffect: true })
+  renderCatalog({ providers: ['builtin.qq.public', 'builtin.voice'], tools: [send, voice], permissions: [
+    { id: 'qq.reply.current', tools: [send.id, voice.id], defaultGranted: true },
+    { id: 'media.voice.send', tools: [voice.id], defaultGranted: false },
+  ] })
+  const controls = screen.getAllByRole('checkbox', { name: '发送消息' })
+  expect(controls).toHaveLength(1)
+  expect(controls[0]).toBeChecked()
+  fireEvent.click(controls[0])
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{"qq.reply.current":false}')
+  expect(screen.getByRole('checkbox', { name: '合成语音回复' })).not.toBeChecked()
+  fireEvent.click(controls[0])
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{}')
+})
+
+function dependencyCatalog(defaultGranted = false): ToolsCatalog {
+  const send = tool({ id: 'qq.send_msg', permission: 'qq.reply.current', readOnly: false, sideEffect: true })
+  const voice = tool({ id: 'qq.send_voice_current', permission: 'media.voice.send', readOnly: false, sideEffect: true })
+  return { providers: ['builtin.qq.public', 'builtin.voice'], tools: [send, voice], permissions: [
+    { id: 'qq.reply.current', tools: [send.id, voice.id], defaultGranted },
+    { id: 'qq.content.media', tools: [send.id, voice.id], defaultGranted, requires: ['qq.reply.current'] },
+    { id: 'media.voice.send', tools: [voice.id], defaultGranted, requires: ['qq.reply.current', 'qq.content.media'] },
+    { id: 'qq.cross_conversation', tools: [send.id], defaultGranted: true },
+  ] }
+}
+
+it('confirms and atomically enables transitive prerequisites; cancelling leaves grants untouched', () => {
+  renderCatalog(dependencyCatalog(), false, false, true)
+  fireEvent.click(screen.getByRole('checkbox', { name: '合成语音回复' }))
+  expect(screen.getByRole('alertdialog')).toHaveTextContent('发送消息')
+  expect(screen.getByRole('alertdialog')).toHaveTextContent('发送媒体')
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{}')
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  expect(screen.getByRole('checkbox', { name: '合成语音回复' })).not.toBeChecked()
+  fireEvent.click(screen.getByRole('checkbox', { name: '合成语音回复' }))
+  fireEvent.click(screen.getByRole('button', { name: '一起开启' }))
+  for (const name of ['发送消息', '发送媒体', '合成语音回复']) expect(screen.getByRole('checkbox', { name })).toBeChecked()
+  fireEvent.click(screen.getByRole('checkbox', { name: '发送消息' }))
+  fireEvent.click(screen.getByRole('button', { name: '一起关闭' }))
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{}')
+})
+
+it('confirms cascading revocation and keeps unrelated cross-conversation access enabled', () => {
+  renderCatalog(dependencyCatalog(true), false, false, true)
+  const sendingControl = screen.getByRole('checkbox', { name: '发送消息' })
+  fireEvent.click(sendingControl)
+  expect(screen.getByRole('alertdialog')).toHaveTextContent('发送媒体')
+  expect(screen.getByRole('alertdialog')).toHaveTextContent('合成语音回复')
+  expect(sendingControl).toBeChecked()
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('{}')
+  fireEvent.click(screen.getByRole('checkbox', { name: '发送消息' }))
+  fireEvent.click(screen.getByRole('button', { name: '一起关闭' }))
+  for (const name of ['发送消息', '发送媒体', '合成语音回复']) expect(screen.getByRole('checkbox', { name })).not.toBeChecked()
+  expect(screen.getByRole('checkbox', { name: '跨会话操作' })).toBeChecked()
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('"qq.reply.current":false')
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('"media.voice.send":false')
+  expect(screen.getByLabelText('权限覆盖')).toHaveTextContent('"qq.content.media":false')
+})
+
+it('revoking media closes voice without closing text sending', () => {
+  renderCatalog(dependencyCatalog(true), false, false, true)
+  fireEvent.click(screen.getByRole('checkbox', { name: '发送媒体' }))
+  fireEvent.click(screen.getByRole('button', { name: '一起关闭' }))
+  expect(screen.getByRole('checkbox', { name: '发送消息' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: '合成语音回复' })).not.toBeChecked()
 })

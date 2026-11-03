@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"fmt"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
@@ -32,7 +33,7 @@ func TestPublicSendSharesBudgetDeduplicatesAndRecordsTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := pa.Scope{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Kind: "group", TargetID: 1, Permissions: map[string]bool{"qq.api.send_private_msg": true, "qq.cross_conversation": true, "qq.content.media": true}}
+	scope := pa.Scope{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Kind: "group", TargetID: 1, Permissions: map[string]bool{"qq.reply.current": true, "qq.cross_conversation": true, "qq.content.media": true}}
 	f.grantScope(t, "private", int64(f.botID+50))
 	ctx = pa.WithToolCallID(pa.WithScope(ctx, scope), "public-one")
 	c := ob.PublicCommand{Name: ob.ActionSendPrivate, UserID: ob.UserID(f.botID + 50), Segments: []ob.Segment{ob.Text("你好"), {Type: ob.SegImage, Data: map[string]string{"file": "a.jpg"}}}}
@@ -44,7 +45,7 @@ func TestPublicSendSharesBudgetDeduplicatesAndRecordsTarget(t *testing.T) {
 	opts := rt.Options{Ledger: coordinator, Limits: limits}
 	for i := 0; i < 2; i++ {
 		result, err := rt.SendPublic(ctx, opts, c, send)
-		if err != nil || result.MessageID != -22 {
+		if err != nil || result.MessageID != -22 || result.Sequence != 2 || result.Status != "sent" {
 			t.Fatalf("send %d: %+v %v", i, result, err)
 		}
 	}
@@ -81,7 +82,7 @@ func TestPublicAsyncAndTimeoutNeverResend(t *testing.T) {
 		t.Run(map[bool]string{true: "async", false: "timeout"}[async], func(t *testing.T) {
 			f := newLedgerFixture(t)
 			coordinator, _ := application.NewCoordinator(f.repo)
-			scope := pa.Scope{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Kind: "group", TargetID: 1, Permissions: map[string]bool{"qq.api.send_private_msg": true, "qq.cross_conversation": true}}
+			scope := pa.Scope{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Kind: "group", TargetID: 1, Permissions: map[string]bool{"qq.reply.current": true, "qq.cross_conversation": true}}
 			ctx := pa.WithToolCallID(pa.WithScope(context.Background(), scope), "call")
 			text := "hello"
 			c := ob.PublicCommand{Name: ob.ActionSendPrivate, UserID: 22, Text: &text, AutoEscape: true}
@@ -226,7 +227,7 @@ func TestReciprocalCrossConversationSettlement(t *testing.T) {
 func TestPublicSendRechecksAuthorizationBeforePlatform(t *testing.T) {
 	f := newLedgerFixture(t)
 	coordinator, _ := application.NewCoordinator(f.repo)
-	scope := pa.Scope{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Kind: "group", TargetID: 1, Permissions: map[string]bool{"qq.api.send_private_msg": true, "qq.cross_conversation": true}}
+	scope := pa.Scope{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Kind: "group", TargetID: 1, Permissions: map[string]bool{"qq.reply.current": true, "qq.cross_conversation": true}}
 	ctx := pa.WithToolCallID(pa.WithScope(context.Background(), scope), "revoked-call")
 	checks, calls := 0, 0
 	opts := rt.Options{Ledger: coordinator, Authorize: func(context.Context, pa.Scope) (domain.Limits, error) {
@@ -282,5 +283,60 @@ func TestSettlementSkipsHistoryForUngovernedTarget(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("history written for ungoverned target: %d", count)
+	}
+}
+
+func TestSendingPermissionMatrixWithLedger(t *testing.T) {
+	for _, crossTarget := range []bool{false, true} {
+		for _, sending := range []bool{false, true} {
+			for _, crossing := range []bool{false, true} {
+				t.Run(fmt.Sprintf("targetCross=%v/send=%v/cross=%v", crossTarget, sending, crossing), func(t *testing.T) {
+					f := newLedgerFixture(t)
+					ctx := context.Background()
+					var sourceTarget int64
+					if err := f.pool.QueryRow(ctx, "SELECT target_id FROM conversations WHERE id=$1", f.conversationID).Scan(&sourceTarget); err != nil {
+						t.Fatal(err)
+					}
+					coordinator, err := application.NewCoordinator(f.repo)
+					if err != nil {
+						t.Fatal(err)
+					}
+					targetKind, targetID := "group", sourceTarget
+					if crossTarget {
+						targetKind, targetID = "private", f.botID+50
+					}
+					f.grantScope(t, targetKind, targetID)
+					scope := pa.Scope{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, Kind: "group", TargetID: sourceTarget, Permissions: map[string]bool{"qq.reply.current": sending, "qq.cross_conversation": crossing}}
+					ctx = pa.WithToolCallID(pa.WithScope(ctx, scope), "matrix")
+					text := "验证发送权限"
+					command := ob.PublicCommand{Name: ob.ActionSendMessage, MessageType: ob.MessageType(targetKind), Text: &text, AutoEscape: true}
+					if targetKind == "private" {
+						command.UserID = ob.UserID(targetID)
+					} else {
+						command.GroupID = ob.GroupID(targetID)
+					}
+					calls := 0
+					result, err := rt.SendPublic(ctx, rt.Options{Ledger: coordinator, Limits: domain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300, StopAfterFailure: true}}, command, func(context.Context, ob.PublicCommand) (ob.PublicResult, error) {
+						calls++
+						return ob.PublicResult{MessageID: 42}, nil
+					})
+					allowed := sending && (!crossTarget || crossing)
+					if (calls == 1) != allowed || (err == nil) != allowed {
+						t.Fatalf("allowed=%v calls=%d result=%+v err=%v", allowed, calls, result, err)
+					}
+					records, err := f.repo.ListByJob(ctx, f.jobID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if allowed {
+						if len(records) != 1 || records[0].Status != domain.StatusSent || result.Sequence != 1 {
+							t.Fatalf("delivery=%+v receipt=%+v", records, result)
+						}
+					} else if len(records) != 0 {
+						t.Fatal("denied send reserved a delivery")
+					}
+				})
+			}
+		}
 	}
 }

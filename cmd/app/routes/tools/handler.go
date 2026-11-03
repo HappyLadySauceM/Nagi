@@ -83,6 +83,7 @@ type toolInfo struct {
 // permissionInfo groups the tools that require one permission.
 // permissionInfo 归组需要同一权限的工具。
 type permissionInfo struct {
+	Requires       []string
 	Description    string
 	RiskLevel      contracts.RiskLevel
 	ID             string
@@ -218,7 +219,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		group.Tools = append(group.Tools, descriptor.ID)
 	}
 	byPermission["media.voice.transcribe"] = &permissionInfo{ID: "media.voice.transcribe", DefaultGranted: granted["media.voice.transcribe"], Description: "语音识别：将当前会话语音及视频音轨转写为文字", RiskLevel: contracts.RiskRead, Tools: []string{}}
-	extraDescriptions := map[string]string{"qq.cross_conversation": "跨会话操作：仅来源会话授权即可操作当前机器人的其他目标", "qq.content.links": "发送链接：允许消息包含链接或远程媒体地址", "qq.content.at_all": "发送 @全体：允许通知群内所有成员", "qq.content.media": "发送媒体：允许图片、语音及其他非文本消息段"}
+	extraDescriptions := map[string]string{"qq.cross_conversation": "跨会话操作：将来源会话已授权能力用于当前机器人的其他私聊或群聊；发送还需发送消息授权", "qq.content.links": "发送链接：允许消息包含链接或远程媒体地址", "qq.content.at_all": "发送 @全体：允许通知群内所有成员", "qq.content.media": "发送媒体：允许图片、语音及其他非文本消息段"}
 	for _, registered := range visible {
 		for _, permission := range registered.Descriptor.AdditionalPermissions {
 			if scopeKind == contracts.ScopeKindPrivate && permission == "qq.content.at_all" {
@@ -240,6 +241,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, group := range byPermission {
+		group.Requires = contracts.PermissionPrerequisites(group.ID)
 		sort.Strings(group.Tools)
 		out.Permissions = append(out.Permissions, *group)
 	}

@@ -90,19 +90,11 @@ func newTool(t *testing.T, sender *fakeSender, ledger *fakeLedger, recorder *fak
 	if sender.err == nil && sender.message == 0 {
 		sender.message = 1
 	}
-	tools, err := NewProvider(Options{
-		Senders:  sender,
-		Ledger:   ledger,
-		Recorder: recorder,
-		Limits:   outbounddomain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300},
-	}).Tools(context.Background())
-	if err != nil {
-		t.Fatalf("tools: %v", err)
-	}
-	if len(tools) != 1 {
-		t.Fatalf("tools = %d", len(tools))
-	}
-	return tools[0]
+	p := provider{opts: Options{
+		Senders: sender, Ledger: ledger, Recorder: recorder,
+		Limits: outbounddomain.Limits{MaxMessages: 3, MaxCharsPerMessage: 100, MaxTotalChars: 300},
+	}}
+	return contracts.RegisteredTool{Invoke: p.send}
 }
 
 func groupContext() context.Context {
@@ -248,14 +240,14 @@ func TestPublicSendRequiresSpecificAndCrossConversationGrants(t *testing.T) {
 		{name: "specific alone", specific: true},
 		{name: "both grants", specific: true, cross: true, wantCalls: 1, wantReservations: 1},
 		{name: "disabled target", specific: true, cross: true, targetDisabled: true},
-		{name: "specific revoked", specific: true, cross: true, revoke: "qq.api.send_private_msg", wantReservations: 1},
+		{name: "specific revoked", specific: true, cross: true, revoke: "qq.reply.current", wantReservations: 1},
 		{name: "cross revoked", specific: true, cross: true, revoke: "qq.cross_conversation", wantReservations: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ledger := &fakeLedger{}
 			checks := make(map[string]int)
 			scope := pluginsapp.Scope{BotID: 1, JobID: 9, ConversationID: "conv-1", Kind: "group", TargetID: 700,
-				Permissions: map[string]bool{"qq.api.send_private_msg": tc.specific, "qq.cross_conversation": tc.cross},
+				Permissions: map[string]bool{"qq.reply.current": tc.specific, "qq.cross_conversation": tc.cross},
 				Reauthorize: func(_ context.Context, d contracts.ToolDescriptor) error {
 					checks[d.Permission]++
 					if d.Permission == tc.revoke && checks[d.Permission] == 2 {
@@ -342,5 +334,39 @@ func TestVoiceUsesLedgerAndMediaPermission(t *testing.T) {
 				t.Fatal("media permission bypassed")
 			}
 		})
+	}
+}
+
+func TestVoiceSendingGrantAndRevocation(t *testing.T) {
+	for _, kind := range []string{"private", "group"} {
+		for _, mode := range []string{"disabled", "enabled", "revoked"} {
+			t.Run(kind+"/"+mode, func(t *testing.T) {
+				sender := &fakeSender{message: 42}
+				speech := &speechFixture{}
+				ledger := &fakeLedger{}
+				tools, err := NewVoiceProvider(Options{Senders: sender, Speech: speech, Ledger: ledger, Recorder: &fakeRecorder{}}).Tools(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				checks := 0
+				scope := pluginsapp.Scope{BotID: 1, JobID: 9, ConversationID: "conv", Kind: kind, TargetID: 88, Permissions: map[string]bool{"qq.reply.current": mode != "disabled", "media.voice.send": true, "qq.content.media": true}, Reauthorize: func(_ context.Context, d contracts.ToolDescriptor) error {
+					if d.Permission == Permission {
+						checks++
+						if mode == "revoked" && checks > 1 {
+							return errors.New("revoked")
+						}
+					}
+					return nil
+				}}
+				_, err = tools[0].Invoke(pluginsapp.WithScope(context.Background(), scope), `{"text":"验证语音授权"}`)
+				sent := sender.groupCal > 0 || sender.private > 0
+				if sent != (mode == "enabled") || (err == nil) != (mode == "enabled") {
+					t.Fatalf("mode=%s sent=%v err=%v", mode, sent, err)
+				}
+				if mode == "disabled" && (speech.calls != 0 || len(ledger.reserved) != 0) {
+					t.Fatal("disabled sending synthesized or reserved voice")
+				}
+			})
+		}
 	}
 }

@@ -24,8 +24,6 @@ import (
 // TestPublicToolsStandardFrames 使用真实 WebSocket 和标准响应验证工具调用。
 func TestPublicToolsStandardFrames(t *testing.T) {
 	cases := []struct{ name, args, want, response string }{
-		{"send_private_msg", `{"user_id":22,"message":"hello","auto_escape":false}`, `{"user_id":22,"message":"hello","auto_escape":false}`, `{"message_id":-1}`},
-		{"send_group_msg", `{"message":[{"type":"text","data":{"text":"你好"}}]}`, `{"group_id":11,"message":[{"type":"text","data":{"text":"你好"}}]}`, `{"message_id":-2}`},
 		{"send_msg", `{"group_id":11,"message":"[CQ:at,qq=all]hi"}`, `{"message_type":"group","group_id":11,"message":"[CQ:at,qq=all]hi","auto_escape":false}`, `{"message_id":-3}`},
 		{"delete_msg", `{"message_id":-42}`, `{"message_id":-42}`, `null`},
 		{"get_msg", `{"message_id":-42}`, `{"message_id":-42}`, `{"time":1,"message_type":"group","message_id":-42,"real_id":9,"sender":{"user_id":22},"message":[{"type":"text","data":{"text":"hi"}}]}`},
@@ -56,8 +54,6 @@ func TestPublicToolsStandardFrames(t *testing.T) {
 		{"get_credentials", `{}`, `{"domain":""}`, `{"cookies":"test-cookie-secret","csrf_token":123}`},
 		{"get_record", `{"file":"a.silk","out_format":"mp3"}`, `{"file":"a.silk","out_format":"mp3"}`, `{"file":"/record/a.mp3"}`},
 		{"get_image", `{"file":"a.jpg"}`, `{"file":"a.jpg"}`, `{"file":"/image/a.jpg"}`},
-		{"can_send_image", `{}`, `{}`, `{"yes":true}`},
-		{"can_send_record", `{}`, `{}`, `{"yes":false}`},
 		{"get_status", `{}`, `{}`, `{"online":null,"good":false}`},
 		{"get_version_info", `{}`, `{}`, `{"app_name":"test","app_version":"1","protocol_version":"v11"}`},
 		{"set_restart", `{"delay":0}`, `{"delay":0}`, `null`},
@@ -108,9 +104,12 @@ func TestPublicToolsStandardFrames(t *testing.T) {
 	for !tr.Connected() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	provider := NewPublicProvider(PublicOptions{Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }, Send: api.ExecutePublic})
+	provider := NewPublicProvider(PublicOptions{Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }, Send: func(ctx context.Context, c ob.PublicCommand) (pc.SendReceipt, error) {
+		result, err := api.ExecutePublic(ctx, c)
+		return pc.SendReceipt{Data: result.Data, MessageID: result.MessageID, Async: result.Async}, err
+	}})
 	tools, err := provider.Tools(ctx)
-	if err != nil || len(tools) != 38 {
+	if err != nil || len(tools) != 34 {
 		t.Fatalf("catalog: %d %v", len(tools), err)
 	}
 	byID := map[string]pc.RegisteredTool{}
@@ -319,6 +318,60 @@ func TestPublicToolConversationApplicability(t *testing.T) {
 		wantPrivate, wantGroup := !group, !privateOnly[id]
 		if tool.Descriptor.AppliesTo(pc.ScopeKindPrivate) != wantPrivate || tool.Descriptor.AppliesTo(pc.ScopeKindGroup) != wantGroup {
 			t.Errorf("%s applicability private=%v group=%v", id, tool.Descriptor.AppliesTo(pc.ScopeKindPrivate), tool.Descriptor.AppliesTo(pc.ScopeKindGroup))
+		}
+	}
+}
+
+func TestUnifiedSendTargetsAndGrants(t *testing.T) {
+	for _, kind := range []string{"private", "group"} {
+		for _, tc := range []struct {
+			name, args, targetKind string
+			target                 int64
+			send, cross, want      bool
+		}{
+			{"current", `{"message":"hello"}`, kind, 11, true, false, true},
+			{"disabled", `{"message":"hello"}`, kind, 11, false, false, false},
+			{"other private denied", `{"user_id":22,"message":"hello"}`, "private", 22, true, false, false},
+			{"other group denied", `{"group_id":22,"message":"hello"}`, "group", 22, true, false, false},
+			{"cross alone denied", `{"user_id":22,"message":"hello"}`, "private", 22, false, true, false},
+			{"cross private", `{"user_id":22,"message":"hello"}`, "private", 22, true, true, true},
+			{"cross group segments", `{"group_id":22,"message":[{"type":"text","data":{"text":"hello"}}]}`, "group", 22, true, true, true},
+		} {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				calls := 0
+				provider := NewPublicProvider(PublicOptions{Send: func(_ context.Context, c ob.PublicCommand) (pc.SendReceipt, error) {
+					calls++
+					target := int64(c.UserID)
+					if c.MessageType == ob.TypeGroup {
+						target = int64(c.GroupID)
+					}
+					if string(c.MessageType) != tc.targetKind || target != tc.target {
+						t.Fatalf("wrong target: %+v", c)
+					}
+					return pc.SendReceipt{Sequence: 2, Status: "sent"}, nil
+				}})
+				tools, _ := provider.Tools(context.Background())
+				var entry pc.RegisteredTool
+				for _, candidate := range tools {
+					if candidate.Descriptor.ID == "qq.send_msg" {
+						entry = candidate
+					}
+					if candidate.Descriptor.ID == "qq.send_current" || candidate.Descriptor.ID == "qq.send_private_msg" || candidate.Descriptor.ID == "qq.send_group_msg" || candidate.Descriptor.ID == "qq.can_send_image" || candidate.Descriptor.ID == "qq.can_send_record" {
+						t.Fatalf("obsolete tool: %s", candidate.Descriptor.ID)
+					}
+				}
+				scope := pa.Scope{BotID: 100, Kind: kind, TargetID: 11, Permissions: map[string]bool{"qq.reply.current": tc.send, "qq.cross_conversation": tc.cross}}
+				result, err := pa.Guard(scope, entry.Descriptor, entry.Invoke)(context.Background(), tc.args)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if (calls == 1) != tc.want {
+					t.Fatalf("calls=%d result=%s", calls, result)
+				}
+				if tc.want && (!strings.Contains(result, `"sequence":2`) || !strings.Contains(result, `"status":"sent"`)) {
+					t.Fatal(result)
+				}
+			})
 		}
 	}
 }

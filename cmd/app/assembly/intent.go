@@ -178,9 +178,8 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 			SenderID:       req.SenderID,
 			Permissions:    granted,
 			Record: func(run pluginscontracts.ToolRun) {
-				// Only the current-conversation tool stops further replies; a failed
-				// send to another target says nothing about the source conversation.
-				// 只有当前会话工具会停止后续回复；发往其它目标失败不影响来源会话。
+				// Failed sending tools stop further sends in this run.
+				// 发送工具失败后停止本轮后续发送。
 				if (run.ToolID == replytool.ToolID || run.ToolID == "qq.send_voice_current") && run.Status != pluginsapp.StatusOK {
 					replyStopped.Store(true)
 				}
@@ -213,7 +212,7 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 				return nil
 			}
 			scope.Reauthorize = func(ctx context.Context, descriptor pluginscontracts.ToolDescriptor) error {
-				if descriptor.ReplyCurrent && replyStopped.Load() {
+				if (descriptor.ReplyCurrent || descriptor.ID == replytool.ToolID || descriptor.Permission == replytool.Permission) && replyStopped.Load() {
 					return fmt.Errorf("reply run already stopped")
 				}
 				// Settings are re-read here too, so revoking a permission takes
@@ -339,6 +338,15 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		runtime.sensitiveHandlers = []callbacks.Handler{sensitiveHandler}
 	}
 	return agentapp.NewReplier(agentapp.Options{
+		CanSend: func(overrides map[string]bool) bool {
+			if allowed, exists := overrides[replytool.Permission]; exists {
+				return allowed
+			}
+			if allowed, exists := settings.Settings().Tools.PermissionDefaults[replytool.Permission]; exists {
+				return allowed
+			}
+			return true
+		},
 		Media: mediaService, Runtime: runtime,
 		Scopes:   scope,
 		Senders:  senders,
