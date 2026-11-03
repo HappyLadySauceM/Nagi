@@ -360,7 +360,8 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
 - Zot 的镜像清理由平台仓库管理的 `registry-maintenance` 定时任务执行，每天北京时间 04:20 运行。
   保留最近 10 个及 7 天内的构建版本，额外保护正在部署、ReplicaSet 回滚引用和 GitOps 最近 10 次配置引用；
   保护信息读取失败或 GitOps 配置变化时停止删除。构建缓存由 Zot 回收超过 30 天未推送的内容。
-  `.github/workflows/ghcr-retention.yml` 当前只做预览，不删除 GHCR 包版本。
+  GHCR 由 `.github/workflows/ghcr-retention.yml` 使用 Actions 自带的 `GITHUB_TOKEN` 每天清理，
+  复用相同的部署和回滚保护，并根据 manifest 引用关系保留多架构子版本；手动触发默认预览。
 
 ## 数据库迁移
 
