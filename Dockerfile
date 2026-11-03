@@ -17,8 +17,10 @@ ENV GOPROXY=${GOPROXY}
 
 WORKDIR /src
 
-# 依赖单独成层：go.mod/go.sum 不变时这层直接命中 buildx 的 gha 层缓存。
-# 不挂 GOMODCACHE 的 cache mount：缓存挂载不随 type=gha 导出，CI 的 builder
+# Keep module downloads in a separate layer reusable through the Zot registry cache.
+# 依赖单独成层：go.mod/go.sum 不变时这层直接命中 buildx 的 Zot 层缓存。
+# A fresh builder cannot restore cache mounts from registry exports; retain modules in the layer.
+# 不挂 GOMODCACHE 的 cache mount：缓存挂载不随 type=registry 导出，CI 的 builder
 # 每次都是新建的，而且挂载会遮住上一层已下载的模块，反而让 go build 重新下载。
 COPY go.mod go.sum ./
 RUN go mod download
@@ -35,8 +37,9 @@ ARG BUILD_DATE=unknown
 COPY cmd ./cmd
 COPY internal ./internal
 COPY pkg ./pkg
+# Keep compiler intermediates in the builder cache mount, outside exported registry layers.
 # 只挂 GOCACHE：编译中间产物（冷编译约 500MB）留在 builder 本地，不进镜像层、
-# 也就不会被 mode=max 导出到 gha 缓存；模块仍在上面的层里，可被层缓存复用。
+# 也就不会被 mode=max 导出到 Zot 缓存；模块仍在上面的层里，可被层缓存复用。
 # 显式指定 GOCACHE，避免基础镜像以后改 HOME 时挂载目标与 Go 的默认路径悄悄错开。
 ENV GOCACHE=/root/.cache/go-build
 RUN --mount=type=cache,target=/root/.cache/go-build \

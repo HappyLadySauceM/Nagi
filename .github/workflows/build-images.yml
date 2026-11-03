@@ -91,6 +91,7 @@ jobs:
 
   verify:
     needs: changes
+    if: always()
     runs-on: hls-builder
     timeout-minutes: 30
     permissions:
@@ -98,9 +99,24 @@ jobs:
     env:
       # 库名自带 _test：dbtest 会原样使用，而跨连接池用例会用该变量再开一个池，
       # 两个池必须指向同一个库，否则 TestClaimsSerializeConversationAcrossPools 会失败。
-      NAGI_TEST_DSN: postgres://nagi:nagi-local@127.0.0.1:5432/nagi_test?sslmode=disable
+      NAGI_TEST_DSN: postgres://nagi:nagi-local@postgres:5432/nagi_test?sslmode=disable
+    container:
+      image: zot.infra-registry.svc.cluster.local:5000/infrastructure/nagi-check:go1.27.3-v1
+      credentials:
+        username: ${{ secrets.ZOT_USERNAME }}
+        password: ${{ secrets.ZOT_PASSWORD }}
+      volumes:
+        - /cache/nagi:/cache
+      env:
+        GOMODCACHE: /cache/go/mod
+        GOCACHE: /cache/go/build
+        GOTOOLCHAIN: local
+    defaults:
+      run:
+        shell: bash
     # 集成测试要求 PostgreSQL 17（pkg/db.Connect 的版本闸门）；runner 上直接用服务容器，
-    # 端口映射到宿主机，步骤里的 127.0.0.1:5432 即可连上。
+    # Job and database containers communicate through the postgres service name.
+    # 检查容器通过 postgres 服务名连接数据库。
     # job 级 services 无法按路径条件化：只改 web 的 PR 也会拉起它（几秒容器启动），
     # 要彻底省掉只能把 Go 校验拆成独立作业，代价是多一个必需检查。
     services:
@@ -115,44 +131,31 @@ jobs:
           POSTGRES_USER: nagi
           POSTGRES_PASSWORD: nagi-local
           POSTGRES_DB: nagi_test
-        ports:
-          - "5432:5432"
         options: >-
           --health-cmd "pg_isready -U nagi -d nagi_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
     steps:
+      - name: 确认变更检测成功
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+        run: test "$CHANGES_RESULT" = success
       - uses: actions/checkout@v7
 
-      # 生成的 ent 代码依赖 encoding/json/jsontext：该包在 1.26 仍需
-      # GOEXPERIMENT=jsonv2，1.27 起才默认可用，所以显式装 1.27.x，
-      # 不用 runner 预装的 /usr/local/go，也不跟随 go.mod 的 1.26.0。
-      # 不缓存 go.mod 依赖与 pnpm store：编译已搬进镜像（依赖走 buildx 层缓存），
-      # runner 上只剩校验要用的依赖，goproxy.cn / npmmirror 现拉足够快；
-      # 而自托管 runner 上传缓存很慢（main 上 setup-go 约 2.5 min、pnpm store 约 3.5 min），
-      # 缓存反而拖慢流水线。
-      # 只在 Go 校验会执行时装工具链：web-only / 只改 workflow 的 PR 不再拉 Go。
-      - uses: actions/setup-go@v6
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
-        with:
-          go-version: "1.27.x"
-          cache: false
-
-      - name: 安装并检查媒体工具
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
+      - name: 检查工具版本
         run: |
           set -euo pipefail
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg
-          fi
+          go version
+          node --version
+          pnpm --version
+          just --version
           ffmpeg -version
           ffprobe -version
 
       # GOPROXY 用步骤级环境变量：go env -w 会写进自托管 runner 的全局配置，跨作业残留。
       - name: Go 校验
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
         env:
           GOPROXY: https://goproxy.cn,direct
         run: |
@@ -161,11 +164,11 @@ jobs:
           git diff --exit-code
 
       - name: 前端依赖与测试
-        if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
         working-directory: web
         run: |
           set -euo pipefail
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile --store-dir /cache/pnpm/store
           pnpm lint
           pnpm typecheck
           pnpm test
@@ -178,7 +181,7 @@ jobs:
       # 用 == 'false' 而不是 != 'true'：filter 输出异常时宁可没有说明，也不要写成「确认无相关改动」。
       # workflow_dispatch 会强制全量校验，不需要这条说明。
       - name: 无相关改动
-        if: github.event_name != 'workflow_dispatch' && needs.changes.outputs.api == 'false' && needs.changes.outputs.web == 'false'
+        if: github.event_name == 'push' && needs.changes.outputs.api == 'false' && needs.changes.outputs.web == 'false'
         run: |
           set -euo pipefail
           echo "本次运行（${GITHUB_EVENT_NAME}）没有改动 Go 或前端代码，verify 未执行实际校验（仅路径过滤后的空过）。" >> "$GITHUB_STEP_SUMMARY"
@@ -190,7 +193,6 @@ jobs:
     # PR 只校验不构建：镜像构建、签名与推送只在 main 的 push 与手动触发时执行。
     if: github.event_name != 'pull_request' && needs.changes.outputs.images != '[]'
     runs-on: hls-builder
-    # 自托管 runner 只有一个，卡死的构建会把后续发布一起堵住。
     timeout-minutes: 30
     permissions:
       contents: read
@@ -246,9 +248,8 @@ jobs:
           # 不生成 provenance 证明：没有消费方，而且关掉后推送的 digest 就是镜像 manifest 本身，
           # 签名与构建摘要都指向同一个对象，统计层大小也不用再解析多平台索引。
           provenance: false
-          cache-from: type=gha,scope=nagi-${{ matrix.name }}
-          # ignore-error：缓存导出失败（配额、网络）只降级缓存，不让发布失败。
-          cache-to: type=gha,mode=max,scope=nagi-${{ matrix.name }},ignore-error=true
+          cache-from: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-${{ matrix.name }}:main
+          cache-to: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-${{ matrix.name }}:main,mode=max,image-manifest=true,oci-mediatypes=true
           # 版本注入只对 api 的 Dockerfile 生效；web 没声明这些 ARG，构建日志里会有一条
           # 「were not consumed」警告，不影响构建。
           build-args: |
@@ -324,24 +325,23 @@ jobs:
             echo "| 压缩后大小 | ${size_text} |"
             echo "| Zot | \`${REF}\` |"
             echo "| ghcr | \`ghcr.io/happyladysaucem/${PROJECT}-${{ matrix.name }}:${SHORT_SHA}\` |"
-            echo "| 缓存 scope | \`nagi-${{ matrix.name }}\`（命中明细看构建日志里的 CACHED） |"
+            echo "| 缓存仓库 | \`${ZOT}/buildcache/nagi-${{ matrix.name }}:main\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 缓存 cosign
-        id: cosign-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.local/bin/cosign
-          key: ${{ runner.os }}-cosign-2.4.1
-
-      - name: Install cosign
-        if: steps.cosign-cache.outputs.cache-hit != 'true'
+      - name: 准备本机 cosign
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.local/bin"
-          curl -fsSL -o "$HOME/.local/bin/cosign" \
-            https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
-          chmod +x "$HOME/.local/bin/cosign"
+          mkdir -p /cache/nagi-tools
+          (
+            flock 9
+            if [ ! -x /cache/nagi-tools/cosign-2.4.1 ]; then
+              binary=$(mktemp /cache/nagi-tools/cosign.XXXXXX)
+              trap 'rm -f "$binary"' EXIT
+              curl -fsSL -o "$binary" https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
+              chmod 755 "$binary"
+              mv "$binary" /cache/nagi-tools/cosign-2.4.1
+            fi
+          ) 9>/cache/nagi-tools/cosign.lock
 
       - name: Sign image
         env:
@@ -358,8 +358,13 @@ jobs:
           trap 'rc=$?; rm -rf -- "$keydir" || true; exit $rc' EXIT
           trap 'exit 130' INT TERM
           printf '%s' "$COSIGN_KEY" > "$keydir/cosign.key"
-          "$HOME/.local/bin/cosign" sign --key "$keydir/cosign.key" --yes --tlog-upload=false \
+          /cache/nagi-tools/cosign-2.4.1 sign --key "$keydir/cosign.key" --yes --tlog-upload=false \
             --allow-insecure-registry \
             --registry-username "$ZOT_USER" \
             --registry-password "$ZOT_PASS" \
             "${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
+          /cache/nagi-tools/cosign-2.4.1 sign --key "$keydir/cosign.key" --yes --tlog-upload=false \
+            --allow-insecure-registry \
+            --registry-username "$ZOT_USER" \
+            --registry-password "$ZOT_PASS" \
+            "${{ env.ZOT }}/buildcache/nagi-${{ matrix.name }}:main"

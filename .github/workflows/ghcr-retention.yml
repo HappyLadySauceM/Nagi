@@ -17,7 +17,7 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: read
 
 jobs:
   prune:
@@ -29,7 +29,7 @@ jobs:
           OWNER: HappyLadySauceM
           PACKAGES: nagi-api,nagi-web
           KEEP: ${{ inputs.keep }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          DRY_RUN: "true"
         run: |
           python3 - <<'PY'
           import datetime, json, os, urllib.error, urllib.request
