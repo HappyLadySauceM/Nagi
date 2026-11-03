@@ -1,103 +1,36 @@
 name: "chore(cleanup): Update from GHCR cleanup automation"
 
-# ghcr 包版本保留策略：每个包只保留最近 N 个版本（按 created_at 倒序）。
-# 与 Zot 的 registry-retention 配套，避免 Packages 长期堆积。
 on:
   workflow_dispatch:
     inputs:
       keep:
-        description: 每个包保留的版本数
+        description: 每个包至少保留的构建版本数
         default: "10"
       dry_run:
-        description: 只打印将删除的版本，不实际删除
+        description: 只预览，不删除
         type: boolean
         default: true
   schedule:
     - cron: "30 4 * * *"
 
+concurrency:
+  group: ghcr-retention
+  cancel-in-progress: false
+
 permissions:
   contents: read
-  packages: read
+  packages: write
 
 jobs:
   prune:
-    runs-on: hls-standard
+    runs-on: hls-maintenance
+    timeout-minutes: 60
     steps:
-      - name: 清理旧版本
+      - name: 清理 GHCR 过期版本
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: HappyLadySauceM
-          PACKAGES: nagi-api,nagi-web
-          KEEP: ${{ inputs.keep }}
-          DRY_RUN: "true"
-        run: |
-          python3 - <<'PY'
-          import datetime, json, os, urllib.error, urllib.request
-
-          TOKEN = os.environ["GH_TOKEN"]
-          OWNER = os.environ["OWNER"]
-          KEEP = int(os.environ.get("KEEP") or "10")
-          DRY = (os.environ.get("DRY_RUN") or "true").lower() == "true"
-          PACKAGES = [p for p in (os.environ.get("PACKAGES") or "").split(",") if p]
-          # 多架构镜像会额外产生无 tag 的平台 manifest 版本，比 tag 版本早几秒；
-          # 用 1 小时窗口保证被保留的 tag 及其子 manifest 不会被拆散。
-          MARGIN = datetime.timedelta(hours=1)
-
-
-          def api(method, path):
-              req = urllib.request.Request(
-                  f"https://api.github.com{path}", method=method,
-                  headers={
-                      "Authorization": f"Bearer {TOKEN}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                      "User-Agent": "ghcr-retention",
-                  },
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=60) as resp:
-                      body = resp.read()
-                      return resp.status, (json.loads(body) if body else None)
-              except urllib.error.HTTPError as exc:
-                  return exc.code, None
-
-
-          def created(version):
-              raw = version.get("created_at") or ""
-              try:
-                  return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-              except ValueError:
-                  return None
-
-
-          for pkg in PACKAGES:
-              status, versions = api(
-                  "GET", f"/users/{OWNER}/packages/container/{pkg}/versions?per_page=100"
-              )
-              if status != 200 or not isinstance(versions, list):
-                  print(f"::{pkg} 读取版本失败: {status}（需要 packages: write 权限）")
-                  continue
-
-              tagged = [v for v in versions if (v.get("metadata", {}).get("container", {}).get("tags") or [])]
-              tagged.sort(key=lambda v: v.get("created_at") or "", reverse=True)
-              if len(tagged) <= KEEP:
-                  print(f"{pkg}: {len(tagged)} 个带 tag 版本，无需清理")
-                  continue
-
-              oldest_kept = created(tagged[KEEP - 1])
-              cutoff = (oldest_kept - MARGIN) if oldest_kept else None
-              if cutoff is None:
-                  print(f"::{pkg} 无法解析创建时间，跳过")
-                  continue
-
-              drop = [v for v in versions if (created(v) or cutoff) < cutoff]
-              print(f"{pkg}: 带 tag {len(tagged)} 个，保留 {KEEP}，清理 {len(drop)} 个版本（cutoff={cutoff.isoformat()}）")
-
-              for version in drop:
-                  tags = version.get("metadata", {}).get("container", {}).get("tags") or []
-                  if DRY:
-                      print(f"  [dry-run] 删除 id={version['id']} created={version.get('created_at')} tags={tags}")
-                      continue
-                  s, _ = api("DELETE", f"/users/{OWNER}/packages/container/{pkg}/versions/{version['id']}")
-                  print(f"  删除 id={version['id']} tags={tags} -> {s}")
-          PY
+          GH_TOKEN: ${{ github.token }}
+          RETENTION_BACKEND: ghcr
+          KEEP: ${{ inputs.keep || '10' }}
+          MIN_AGE_DAYS: "7"
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || format('{0}', inputs.dry_run) }}
+        run: python3 /opt/retention.py
