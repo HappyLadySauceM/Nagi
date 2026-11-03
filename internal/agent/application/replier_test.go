@@ -793,7 +793,7 @@ func TestReplierUsesPerScopeLimits(t *testing.T) {
 }
 
 func TestSendToolAttemptSuppressesFinalFallback(t *testing.T) {
-	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_current", Status: "error"}}}
+	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_voice_current", Status: "error"}}}
 	sender := &fakeSender{}
 	r := newReplier(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy())
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
@@ -821,7 +821,7 @@ func TestSensitiveRunDropsAutomaticReply(t *testing.T) {
 }
 
 func TestCrossTargetSendKeepsSourceReply(t *testing.T) {
-	runtime := &fakeRuntime{text: "来源会话的回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_group_msg", Status: "ok"}}}
+	runtime := &fakeRuntime{text: "来源会话的回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_msg", Status: "ok"}}}
 	sender := &fakeSender{}
 	ledger := &fakeLedger{deliveredTargets: map[string]bool{}}
 	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
@@ -834,7 +834,7 @@ func TestCrossTargetSendKeepsSourceReply(t *testing.T) {
 }
 
 func TestCrossTargetRefusalKeepsSourceReply(t *testing.T) {
-	runtime := &fakeRuntime{text: "来源回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_group_msg", Status: "denied", ErrorCode: "authorization_revoked"}}}
+	runtime := &fakeRuntime{text: "来源回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_msg", Status: "denied", ErrorCode: "authorization_revoked"}}}
 	sender := &fakeSender{}
 	ledger := &fakeLedger{}
 	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
@@ -850,7 +850,7 @@ func TestCrossTargetRefusalKeepsSourceReply(t *testing.T) {
 }
 
 func TestStandardSendToSourceSuppressesFinalReply(t *testing.T) {
-	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_group_msg", Status: "ok"}}}
+	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_msg", Status: "ok"}}}
 	sender := &fakeSender{}
 	ledger := &fakeLedger{deliveredTargets: map[string]bool{"group:700": true}}
 	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
@@ -873,7 +873,7 @@ func (f *fakeLedger) RecordDenied(_ context.Context, _ int64, reason string, cla
 }
 
 func TestLaterSendRefusalIsNotLostAfterEarlierSend(t *testing.T) {
-	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_current", Status: "ok"}, {ToolID: "qq.send_current", Status: "denied", ErrorCode: "tool_call_budget"}}}
+	runtime := &fakeRuntime{text: "must not duplicate", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_voice_current", Status: "ok"}, {ToolID: "qq.send_voice_current", Status: "denied", ErrorCode: "tool_call_budget"}}}
 	sender := &fakeSender{}
 	ledger := &fakeLedger{}
 	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
@@ -889,8 +889,8 @@ func TestGuardRefusalIsRecordedBeforeGenerationCompletes(t *testing.T) {
 	ledger := &fakeLedger{}
 	runtime := &fakeRuntime{text: "must not send final"}
 	runtime.onRun = func(req agentcontracts.Request) {
-		req.OnToolRun(agentcontracts.ToolRun{ToolID: "qq.send_current", Status: "ok"})
-		req.OnToolRun(agentcontracts.ToolRun{ToolID: "qq.send_current", Status: "denied", ErrorCode: "authorization_revoked"})
+		req.OnToolRun(agentcontracts.ToolRun{ToolID: "qq.send_voice_current", Status: "ok"})
+		req.OnToolRun(agentcontracts.ToolRun{ToolID: "qq.send_voice_current", Status: "denied", ErrorCode: "authorization_revoked"})
 		if len(ledger.denied) != 1 || ledger.denied[0] != "authorization_revoked" {
 			t.Fatalf("refusal was deferred until run end: %+v", ledger.denied)
 		}
@@ -936,5 +936,33 @@ func TestReplierDropsHistoryAfterPermissionRevocation(t *testing.T) {
 	}
 	if len(fake.req.Messages) != 2 {
 		t.Fatal("revoked history reached the model")
+	}
+}
+
+func TestSendingGrantStopsAutomaticReply(t *testing.T) {
+	for _, duringRun := range []bool{false, true} {
+		t.Run(fmt.Sprint(duringRun), func(t *testing.T) {
+			policies := enabledGroupPolicy()
+			revoke := func() {
+				p := policies["100:group:700"]
+				p.ToolPermissions = map[string]bool{"qq.reply.current": false}
+				policies["100:group:700"] = p
+			}
+			runtime := &fakeRuntime{text: "must not send"}
+			if duringRun {
+				runtime.onRun = func(agentcontracts.Request) { revoke() }
+			} else {
+				revoke()
+			}
+			sender := &fakeSender{}
+			ledger := &fakeLedger{}
+			replier := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, policies, ledger)
+			if err := replier.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+				t.Fatal(err)
+			}
+			if len(sender.texts) != 0 || len(ledger.reserved) != 0 {
+				t.Fatal("disabled sending produced delivery")
+			}
+		})
 	}
 }

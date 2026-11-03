@@ -147,3 +147,9 @@ describe('tools adapter', () => {
     expect(catalog.tools[0].riskLevel).toBe('')
   })
 })
+
+it('maps explicit prerequisites separately from conditional grants', () => {
+  const catalog = toToolsCatalog({ ...CATALOG, Permissions: [{ ID: 'media.voice.send', Tools: [], DefaultGranted: false, Requires: ['qq.reply.current', 'qq.content.media'] }] })
+  expect(catalog.permissions[0].requires).toEqual(['qq.reply.current', 'qq.content.media'])
+  expect(() => toToolsCatalog({ ...CATALOG, Permissions: [{ ID: 'media.voice.send', Tools: [], DefaultGranted: false, Requires: [42] }] })).toThrowError(ApiError)
+})

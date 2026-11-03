@@ -111,10 +111,10 @@ it('shows loading, error, retry and empty feedback in the capability section', a
 it.each([['private', 123], ['group', 123], ['private', 0], ['group', 0]] as const)('saves and reloads specific capability grants for %s/%s without widening other grants', async (scopeType, scopeId) => {
   const tools = {
     Providers: ['builtin.qq'],
-    Tools: [{ ID: 'qq.can_send_image', Provider: 'builtin.qq', Description: '检查图片发送能力', Category: 'system', Permission: 'qq.api.can_send_image', Applicable: true, ReadOnly: true, SideEffect: false, DefaultGranted: false }],
+    Tools: [{ ID: 'qq.send_msg', Provider: 'builtin.qq', Description: '发送消息', Category: 'reply', Permission: 'qq.reply.current', Applicable: true, ReadOnly: false, SideEffect: true, DefaultGranted: true }],
     Permissions: [
-      { ID: 'qq.api.can_send_image', Tools: ['qq.can_send_image'], DefaultGranted: false },
-      { ID: 'qq.cross_conversation', Tools: ['qq.can_send_image'], DefaultGranted: false },
+      { ID: 'qq.reply.current', Tools: ['qq.send_msg'], DefaultGranted: true },
+      { ID: 'qq.cross_conversation', Tools: ['qq.send_msg'], DefaultGranted: false },
     ],
   }
   let stored = { ...policy, ScopeType: scopeType, ScopeID: scopeId, ToolPermissions: {} }
@@ -135,21 +135,21 @@ it.each([['private', 123], ['group', 123], ['private', 0], ['group', 0]] as cons
   }
   render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>)
   fireEvent.click(screen.getByRole('button', { name: '能力授权' }))
-  fireEvent.click(await screen.findByRole('checkbox', { name: '检查图片发送能力' }))
+  fireEvent.click(await screen.findByRole('checkbox', { name: '发送消息' }))
   fireEvent.click(screen.getByRole('button', { name: '发送设置' }))
   fireEvent.click(screen.getByRole('button', { name: '能力授权' }))
-  expect(screen.getByRole('checkbox', { name: '检查图片发送能力' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: '发送消息' })).not.toBeChecked()
   expect(screen.getByRole('checkbox', { name: '跨会话操作' })).not.toBeChecked()
   fireEvent.click(screen.getByRole('button', { name: '保存策略' }))
   expect(screen.queryByRole('alertdialog')).toBeNull()
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  expect(body?.tool_permissions).toEqual({ 'qq.api.can_send_image': true })
+  expect(body?.tool_permissions).toEqual({ 'qq.reply.current': false })
   fireEvent.click(screen.getByRole('button', { name: '重新编辑' }))
   fireEvent.click(screen.getByRole('button', { name: '能力授权' }))
-  expect(await screen.findByRole('checkbox', { name: '检查图片发送能力' })).toBeChecked()
+  expect(await screen.findByRole('checkbox', { name: '发送消息' })).not.toBeChecked()
   expect(screen.getByRole('checkbox', { name: '跨会话操作' })).not.toBeChecked()
-  fireEvent.click(screen.getByRole('checkbox', { name: '检查图片发送能力' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: '发送消息' }))
   fireEvent.click(screen.getByRole('button', { name: '放弃修改' }))
-  expect(screen.getByRole('checkbox', { name: '检查图片发送能力' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: '发送消息' })).not.toBeChecked()
   client.clear()
 })

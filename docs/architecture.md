@@ -140,11 +140,12 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   `infrastructure` 提供内置工具与 Eino 工具适配。工具调用产生的 `nagi.tool` span 记录
   `tool_id`/`tool_status`/`tool_bytes`，结果按不可信数据处理，不进入系统提示。
   注册表在启动时加载全部提供方，没有启用列表；可用性完全由会话的权限授予决定。
-  `internal/agent/infrastructure/replytool` 提供 `qq.send_current`：目标固定为当前会话，
-  复用输出净化与投递台账；是否可用只取决于该会话是否授予 `qq.reply.current`，
-  进程级 `allow-send-current`/`allow-side-effects` 已移除。
-  `builtin.qq.public` 将 OneBot v11 的 38 项公开 API 注册为工具；保留原有工具与权限，
-  合计 43 个工具。新增 action 权限 `qq.api.<action>` 默认关闭，既有同名工具沿用原权限。
+  模型统一使用 `qq.send_msg` 发送文本或消息段，省略目标时发送到当前会话，返回发送序号与投递状态。
+  `qq.reply.current` 统一控制工具发送、自动回复和语音回复，默认开启，显式关闭后禁止发送。
+  不再单独暴露当前会话、私聊、群聊发送工具及图片／语音支持探测；底层 OneBot API 保留。
+  `builtin.qq.public` 注册 34 项业务工具；合并后的上述基础工具目录共 38 项（不含媒体等其他提供方）。
+  其他新增 action 权限 `qq.api.<action>` 默认关闭，既有工具沿用原权限。
+  跨会话发送同时需要 `qq.reply.current` 与 `qq.cross_conversation`，允许跨私聊／群聊类型。
   `qq.cross_conversation` 仅由来源会话授予，账号固定为来源机器人；跨会话发送仍按目标会话
   自己的状态把关：目标必须已启用且不是仅观察模式，否则拒绝发送。
   发送内容分别受 `qq.content.links`、`qq.content.at_all`、`qq.content.media` 控制，默认关闭。
@@ -188,7 +189,8 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 - `GET/POST/PATCH/DELETE /api/v1/memories(/{id})`
 - `GET /api/v1/metrics`
 - `GET /api/v1/tools?scope_kind=private|group`（返回 `Category`、`ScopeKinds`、
-  `RiskLevel`、`Applicable`/`UnavailableReason`，缺省时不做过滤、全部按适用返回）
+  `RiskLevel`、`Applicable`/`UnavailableReason`，权限项的 `Requires` 声明必需的前置能力；
+  授权界面确认后联动开启前置能力或关闭依赖能力。缺省时不做过滤、全部按适用返回）
 
 配置 `server.admin-token` 后，以上接口需要
 `Authorization: Bearer <token>`；变更类请求写入 `admin_audit_logs`。数据库未配置时，

@@ -44,6 +44,32 @@ const (
 	CategoryReply  = "reply"
 )
 
+// PermissionPrerequisites lists capabilities needed whenever a permission is used.
+// Conditional grants such as cross-conversation access are not prerequisites.
+// PermissionPrerequisites 列出使用某项权限时必需的能力；跨会话等条件授权不属于前置能力。
+func PermissionPrerequisites(permission string) []string {
+	switch permission {
+	case "media.voice.send":
+		return []string{"qq.reply.current", "qq.content.media"}
+	case "qq.content.media", "qq.content.links", "qq.content.at_all":
+		return []string{"qq.reply.current"}
+	case "media.video.authenticated":
+		return []string{"media.video.read"}
+	default:
+		return []string{}
+	}
+}
+
+// SendReceipt reports the local delivery sequence and confirmed platform result.
+// SendReceipt 返回本地投递序号及平台结果。
+type SendReceipt struct {
+	Sequence  int
+	Status    string
+	Data      any
+	MessageID int64
+	Async     bool
+}
+
 // ToolDescriptor describes one tool without leaking framework types.
 // ToolDescriptor 描述单个工具，不泄露框架类型。
 type ToolDescriptor struct {

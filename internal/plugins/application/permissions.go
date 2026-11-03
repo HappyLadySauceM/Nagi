@@ -25,7 +25,9 @@ func ResolvePermissions(tools []contracts.RegisteredTool, configDefaults, overri
 			readOnly = *registered.Descriptor.DefaultAllowed
 		}
 		for _, extra := range registered.Descriptor.AdditionalPermissions {
-			fallback[extra] = false
+			if _, exists := fallback[extra]; !exists {
+				fallback[extra] = extra == "qq.reply.current"
+			}
 		}
 		if previous, seen := fallback[permission]; seen {
 			fallback[permission] = previous && readOnly

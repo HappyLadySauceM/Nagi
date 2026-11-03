@@ -19,8 +19,9 @@ import {
   Power,
   type LucideIcon,
 } from 'lucide-react'
-import { type ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
+import { ConfirmDialog } from '../../../components/confirm-dialog'
 import { FormField } from '../../../components/form-field'
 import { Input } from '../../../components/ui/input'
 import { Label } from '../../../components/ui/label'
@@ -196,12 +197,6 @@ const CAPABILITY_PRESENTATION: Record<
     icon: Clock,
     category: '系统',
   },
-  'qq.send_current': {
-    label: '连续回复当前会话',
-    description: '在当前会话发送消息，遵循发送预算。',
-    icon: MessageCircle,
-    category: '基础',
-  },
   'qq.get_group_info': {
     label: '查询当前群信息',
     description: '查看群名称、成员数量等基本资料。',
@@ -243,18 +238,6 @@ const CAPABILITY_PRESENTATION: Record<
     description: '让机器人退出当前群。',
     icon: LogOut,
     category: '群管',
-  },
-  'qq.can_send_image': {
-    label: '检查图片发送能力',
-    description: '检查机器人是否支持发送图片。',
-    icon: Image,
-    category: '基础',
-  },
-  'qq.can_send_record': {
-    label: '检查语音发送能力',
-    description: '检查机器人是否支持发送语音。',
-    icon: Mic,
-    category: '基础',
   },
   'qq.clean_cache': {
     label: '清理缓存',
@@ -358,21 +341,9 @@ const CAPABILITY_PRESENTATION: Record<
     icon: Info,
     category: '系统',
   },
-  'qq.send_group_msg': {
-    label: '发送群消息',
-    description: '向指定群发送消息，遵循发送预算与内容授权。',
-    icon: MessageCircle,
-    category: '基础',
-  },
-  'qq.send_private_msg': {
-    label: '发送私聊消息',
-    description: '向指定好友发送消息，遵循发送预算与内容授权。',
-    icon: MessageCircle,
-    category: '基础',
-  },
   'qq.send_msg': {
     label: '发送消息',
-    description: '向当前或指定会话发送消息，跨会话需要额外授权。',
+    description: '默认允许向当前会话发送消息；向其他私聊或群聊发送时，还需开启跨会话操作。',
     icon: MessageCircle,
     category: '基础',
   },
@@ -476,6 +447,12 @@ const PERMISSION_PRESENTATION: Record<
     icon: Mic,
     category: '基础',
   },
+  'qq.reply.current': {
+    label: '发送消息',
+    description: '默认允许向当前会话发送消息；向其他私聊或群聊发送时，还需开启跨会话操作。',
+    icon: MessageCircle,
+    category: '基础',
+  },
   'media.voice.send': {
     label: '合成语音回复',
     description: '将回复合成为语音发送到当前会话，同时需要回复和媒体发送授权。',
@@ -485,7 +462,7 @@ const PERMISSION_PRESENTATION: Record<
   'qq.cross_conversation': {
     label: '跨会话操作',
     description:
-      '将当前会话已授权的具体能力用于其它会话；不会额外授予任何能力。',
+      '将已授权能力用于其他私聊或群聊；跨会话发送还需开启“发送消息”。',
     icon: Globe,
     category: '基础',
   },
@@ -555,6 +532,7 @@ export function ScopeFormFields({
   const enabled = watch('enabled')
   const replyMode = watch('replyMode')
   const overrides = watch('toolPermissions')
+  const [pendingChange, setPendingChange] = useState<{ ids: string[]; next: boolean; label: string } | null>(null)
   const capabilities = (catalog?.permissions ?? [])
     .map((permission) => {
       const tools =
@@ -584,17 +562,44 @@ export function ScopeFormFields({
         CAPABILITY_CATEGORIES.indexOf(b.categories[0]),
     )
 
+  const capabilityLabel = (id: string) => {
+    const item = capabilities.find(({ permission }) => permission.id === id)
+    return item?.presentation?.label || item?.permission.description || id
+  }
+
   // Overrides equal to the backend default are removed, so changing the
   // default baseline later still applies to this scope.
   // 与后端默认一致的覆盖会被移除，因此以后调整默认基线仍会作用于该作用域。
-  const togglePermission = (permission: ToolPermission, next: boolean) => {
-    const updated = { ...overrides }
-    if (next === permission.defaultGranted) {
-      delete updated[permission.id]
-    } else {
-      updated[permission.id] = next
+  const applyPermissions = (ids: string[], next: boolean) => {
+    const updated = { ...form.getValues('toolPermissions') }
+    for (const id of ids) {
+      const permission = catalog?.permissions.find((entry) => entry.id === id)
+      if (!permission) continue
+      if (next === permission.defaultGranted) delete updated[id]
+      else updated[id] = next
     }
     setValue('toolPermissions', updated, { shouldDirty: true })
+    setPendingChange(null)
+  }
+
+  const togglePermission = (permission: ToolPermission, next: boolean) => {
+    const affected = new Set<string>()
+    const include = (id: string) => {
+      if (affected.has(id)) return
+      affected.add(id)
+      if (next) {
+        catalog?.permissions.find((entry) => entry.id === id)?.requires?.forEach(include)
+      } else {
+        catalog?.permissions.filter((entry) => entry.requires?.includes(id)).forEach((entry) => include(entry.id))
+      }
+    }
+    include(permission.id)
+    const ids = [...affected].filter((id) => {
+      const entry = catalog?.permissions.find((item) => item.id === id)
+      return entry && grantedPermission(entry, overrides) !== next
+    })
+    if (ids.length > 1) setPendingChange({ ids, next, label: capabilityLabel(permission.id) })
+    else applyPermissions(ids, next)
   }
 
   return (
@@ -892,6 +897,19 @@ export function ScopeFormFields({
           />
         </div>
       </Section>
+      <ConfirmDialog
+        open={pendingChange !== null}
+        onOpenChange={(open) => { if (!open) setPendingChange(null) }}
+        title={pendingChange?.next ? '同时开启前置能力？' : '同时关闭依赖能力？'}
+        description={pendingChange?.next
+          ? `开启“${pendingChange.label}”需要同时开启以下前置能力，确认后一起修改，保存策略后生效。`
+          : `关闭“${pendingChange?.label ?? ''}”将使以下能力无法使用，确认后一起关闭，保存策略后生效。`}
+        details={pendingChange?.ids.slice(1).map(capabilityLabel)}
+        confirmLabel={pendingChange?.next ? '一起开启' : '一起关闭'}
+        destructive={!pendingChange?.next}
+        pending={disabled}
+        onConfirm={() => { if (pendingChange) applyPermissions(pendingChange.ids, pendingChange.next) }}
+      />
     </div>
   )
 }

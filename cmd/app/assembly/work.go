@@ -280,6 +280,10 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			if !current.Enabled || !current.StoreMessages || current.ReplyMode == scopedomain.ModeObserveOnly {
 				return outbounddomain.Limits{}, fmt.Errorf("source scope disabled")
 			}
+			permissions := pluginsapp.ResolvePermissions(rt.Tools.Snapshot(), rt.SettingsProvider.Settings().Tools.PermissionDefaults, current.ToolPermissions)
+			if !permissions[replytool.Permission] {
+				return outbounddomain.Limits{}, pluginsapp.Denied("发送消息未授权")
+			}
 			limits, err := sendingLimitsFor(ctx, policiesRepo, rt.SettingsProvider.Settings(), run.BotID, run.Kind, run.TargetID)
 			limits.StopAfterFailure = true
 			limits.MaxPerHour = current.MaxRepliesPerHour
@@ -303,49 +307,17 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil
 		}
 		publicOptions.AuthorizeTarget = authorizeTarget
-		providers = append(providers, builtin.NewPublicProvider(builtin.PublicOptions{Account: publicAccount, AuthorizeTarget: authorizeTarget, Send: func(ctx context.Context, c obdomain.PublicCommand) (obdomain.PublicResult, error) {
+		providers = append(providers, builtin.NewPublicProvider(builtin.PublicOptions{Account: publicAccount, AuthorizeTarget: authorizeTarget, Send: func(ctx context.Context, c obdomain.PublicCommand) (pluginscontracts.SendReceipt, error) {
 			scope, ok := pluginsapp.ScopeFrom(ctx)
 			if !ok {
-				return obdomain.PublicResult{}, fmt.Errorf("missing scope")
+				return pluginscontracts.SendReceipt{}, fmt.Errorf("missing scope")
 			}
 			api, ok := publicAccount(scope.BotID)
 			if !ok {
-				return obdomain.PublicResult{}, fmt.Errorf("account unavailable")
+				return pluginscontracts.SendReceipt{}, fmt.Errorf("account unavailable")
 			}
 			return replytool.SendPublic(ctx, publicOptions, c, api.ExecutePublic)
 		}}))
-		providers = append(providers, replytool.NewProvider(replytool.Options{
-			Senders: replySenders{accounts: rt.Registry},
-			Authorize: func(ctx context.Context, run pluginsapp.Scope) (outbounddomain.Limits, error) {
-				live := rt.SettingsProvider.Settings()
-				current, err := rt.Scope.Resolve(ctx, run.BotID, scopedomain.ScopeType(run.Kind), run.TargetID)
-				if err != nil {
-					return outbounddomain.Limits{}, err
-				}
-				if !current.Enabled || !current.StoreMessages || current.ReplyMode == scopedomain.ModeObserveOnly {
-					return outbounddomain.Limits{}, fmt.Errorf("reply authorization revoked")
-				}
-				permissions := pluginsapp.ResolvePermissions(rt.Tools.Snapshot(), live.Tools.PermissionDefaults, current.ToolPermissions)
-				if !permissions[replytool.Permission] {
-					return outbounddomain.Limits{}, fmt.Errorf("reply permission revoked")
-				}
-				limits, err := sendingLimitsFor(ctx, policiesRepo, live, run.BotID, run.Kind, run.TargetID)
-				if err != nil {
-					return outbounddomain.Limits{}, err
-				}
-				limits.StopAfterFailure = true
-				limits.MaxPerHour = current.MaxRepliesPerHour
-				return limits, nil
-			},
-			Ledger:   ledger,
-			Recorder: rt.Conversation,
-			Limits: outbounddomain.Limits{
-				MinIntervalMS:      700,
-				MaxMessages:        cfg.Agent.Sending.MaxMessagesPerRun,
-				MaxCharsPerMessage: cfg.Agent.Sending.MaxCharsPerMessage,
-				MaxTotalChars:      cfg.Agent.Sending.MaxTotalCharsPerRun,
-			},
-		}))
 		voiceOptions := publicOptions
 		voiceOptions.Senders = replySenders{accounts: registry}
 		voiceOptions.Recorder = rt.Conversation

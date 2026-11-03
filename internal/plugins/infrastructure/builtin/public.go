@@ -215,7 +215,13 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 		if p.opts.Send == nil {
 			return "", fmt.Errorf("public tool: sender unavailable")
 		}
-		result, err = p.opts.Send(ctx, c)
+		var receipt pc.SendReceipt
+		receipt, err = p.opts.Send(ctx, c)
+		if receipt.Status != "" {
+			out, marshalErr := json.Marshal(map[string]any{"sequence": receipt.Sequence, "status": receipt.Status, "data": receipt.Data})
+			return string(out), marshalErr
+		}
+		result = ob.PublicResult{Data: receipt.Data, MessageID: receipt.MessageID, Async: receipt.Async}
 	} else {
 		api, ok := p.opts.Account(scope.BotID)
 		if !ok {
@@ -223,6 +229,7 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 		}
 		result, err = api.ExecutePublic(ctx, c)
 	}
+
 	if err != nil {
 		var denial interface{ ToolStatus() string }
 		if errors.As(err, &denial) && denial.ToolStatus() == pa.StatusDenied {

@@ -72,13 +72,16 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 		if !p.Enabled || !p.StoreMessages || p.ReplyMode == scopedomain.ModeObserveOnly {
 			info.BlockedReasons = append(info.BlockedReasons, "会话参与或消息存储未授权")
 		}
-		granted := live.Tools.PermissionDefaults["qq.reply.current"]
+		granted := true
+		if v, ok := live.Tools.PermissionDefaults["qq.reply.current"]; ok {
+			granted = v
+		}
 		if v, ok := p.ToolPermissions["qq.reply.current"]; ok {
 			granted = v
 		}
 		info.AllowSendCurrent = granted
 		if !granted {
-			info.BlockedReasons = append(info.BlockedReasons, "未授予当前会话回复工具权限")
+			info.BlockedReasons = append(info.BlockedReasons, "未授予发送消息权限")
 		}
 	}
 	if !live.AI.Enabled {
@@ -90,13 +93,13 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 	registered := false
 	if h.svcCtx.Tools != nil {
 		for _, tool := range h.svcCtx.Tools.Snapshot() {
-			if tool.Descriptor.ID == "qq.send_current" {
+			if tool.Descriptor.ID == "qq.send_msg" {
 				registered = true
 			}
 		}
 	}
 	if !registered {
-		info.BlockedReasons = append(info.BlockedReasons, "当前进程未注册连续发送工具")
+		info.BlockedReasons = append(info.BlockedReasons, "当前进程未注册发送消息工具")
 	}
 	online := false
 	if h.svcCtx.Accounts != nil {

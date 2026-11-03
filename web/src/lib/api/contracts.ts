@@ -180,6 +180,9 @@ export interface ToolCatalogEntry {
 
 /** One permission shared by one or more tools. */
 export interface ToolPermission {
+  /** Unconditional prerequisites; conditional target/content grants are separate.
+   * 必需的前置能力；按目标或内容检查的条件授权不在此列。 */
+  requires?: string[]
   description?: string
   riskLevel?: string
   id: string

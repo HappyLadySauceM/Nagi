@@ -11,6 +11,7 @@ import (
 	oa "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	od "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	pa "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
+	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 // IsSendAction reports whether a public action delivers a message to a
@@ -31,10 +32,10 @@ func TargetOf(c ob.PublicCommand) (string, int64) {
 
 // SendPublic uses the same source job, budget and lease as current replies.
 // SendPublic 与当前会话回复共用来源任务、预算与租约。
-func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func(context.Context, ob.PublicCommand) (ob.PublicResult, error)) (ob.PublicResult, error) {
+func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func(context.Context, ob.PublicCommand) (ob.PublicResult, error)) (pc.SendReceipt, error) {
 	scope, ok := pa.ScopeFrom(ctx)
 	if !ok {
-		return ob.PublicResult{}, fmt.Errorf("public send: missing scope")
+		return pc.SendReceipt{}, fmt.Errorf("public send: missing scope")
 	}
 	// Policy stops on a public send must not block the job: the source
 	// conversation may still receive its own reply. They are attributed without
@@ -54,15 +55,15 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 	}
 	cost, err := pa.CheckMessageContent(ctx, c)
 	if err != nil {
-		return ob.PublicResult{}, err
+		return pc.SendReceipt{}, err
 	}
 	action, err := c.Action()
 	if err != nil {
-		return ob.PublicResult{}, err
+		return pc.SendReceipt{}, err
 	}
 	kind, target := TargetOf(c)
 	authorize := func() (od.Limits, error) {
-		if err := pa.RequirePermission(ctx, "qq.api."+string(c.Name)); err != nil {
+		if err := pa.RequirePermission(ctx, Permission); err != nil {
 			return od.Limits{}, err
 		}
 		if kind != scope.Kind || target != scope.TargetID {
@@ -89,7 +90,7 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 	limits, err := authorize()
 	if err != nil {
 		deny("authorization_revoked")
-		return ob.PublicResult{}, err
+		return pc.SendReceipt{}, err
 	}
 	segments := c.Segments
 	if c.Text != nil {
@@ -104,7 +105,7 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 	}
 	payload, err := json.Marshal(map[string]any{"params": action.Params, "segments": ob.WireSegments(segments)})
 	if err != nil || len(payload) > 65536 {
-		return ob.PublicResult{}, fmt.Errorf("public send: payload too large")
+		return pc.SendReceipt{}, fmt.Errorf("public send: payload too large")
 	}
 	record, err := opts.Ledger.Reserve(ctx, oa.Request{ClaimToken: scope.ClaimToken, JobID: scope.JobID, BotID: scope.BotID, ConversationID: scope.ConversationID, RunID: fmt.Sprintf("job-%d", scope.JobID), ToolCallID: pa.ToolCallID(ctx), Text: ob.PlainText(segments), TargetKind: kind, TargetID: target, Action: string(c.Name), Payload: string(payload), ChargeChars: cost, Limits: limits})
 	if err != nil {
@@ -115,7 +116,7 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 			// 预算拒绝与收窄发送工具一致地写入投递结论，回合以明确原因结束。
 			deny("budget_" + string(budget.Dimension))
 		}
-		return ob.PublicResult{}, err
+		return pc.SendReceipt{}, err
 	}
 	defer func() {
 		if ledger, ok := opts.Ledger.(interface {
@@ -127,10 +128,10 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 		}
 	}()
 	if record.Status.Delivered() {
-		return ob.PublicResult{Data: map[string]any{"message_id": record.PlatformMessageID}, MessageID: record.PlatformMessageID, Async: record.Status != od.StatusSent}, nil
+		return pc.SendReceipt{Data: map[string]any{"message_id": record.PlatformMessageID}, MessageID: record.PlatformMessageID, Async: record.Status != od.StatusSent, Sequence: record.Sequence, Status: string(record.Status)}, nil
 	}
 	if record.Status != od.StatusPrepared {
-		return ob.PublicResult{}, fmt.Errorf("public send: already attempted")
+		return pc.SendReceipt{}, fmt.Errorf("public send: already attempted")
 	}
 	if !record.NotBefore.IsZero() {
 		timer := time.NewTimer(time.Until(record.NotBefore))
@@ -138,20 +139,20 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
-			return ob.PublicResult{}, ctx.Err()
+			return pc.SendReceipt{}, ctx.Err()
 		}
 	}
 	limits, err = authorize()
 	if err != nil {
 		deny("authorization_revoked")
-		return ob.PublicResult{}, err
+		return pc.SendReceipt{}, err
 	}
 	if validator, ok := opts.Ledger.(interface {
 		ValidateReserved(context.Context, string, od.Limits) error
 	}); ok {
 		if err := validator.ValidateReserved(ctx, record.ID, limits); err != nil {
 			deny("budget_changed")
-			return ob.PublicResult{}, err
+			return pc.SendReceipt{}, err
 		}
 	}
 	var result ob.PublicResult
@@ -171,7 +172,7 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 		if result.Data == nil {
 			result.Data = map[string]any{"message_id": outcome.PlatformMessageID}
 		}
-		return result, nil
+		return pc.SendReceipt{Data: result.Data, MessageID: result.MessageID, Async: result.Async, Sequence: record.Sequence, Status: string(outcome.Status)}, nil
 	}
-	return result, err
+	return pc.SendReceipt{Data: result.Data, MessageID: result.MessageID, Async: result.Async, Sequence: record.Sequence, Status: string(outcome.Status)}, err
 }
