@@ -16,6 +16,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentsendingpolicy"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditartifact"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
@@ -91,6 +94,9 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
+			aiauditartifact.Table:      aiauditartifact.ValidColumn,
+			aiauditevent.Table:         aiauditevent.ValidColumn,
+			aiauditrun.Table:           aiauditrun.ValidColumn,
 			adminauditlog.Table:        adminauditlog.ValidColumn,
 			agentoutboundmessage.Table: agentoutboundmessage.ValidColumn,
 			agentrunbudget.Table:       agentrunbudget.ValidColumn,

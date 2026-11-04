@@ -9,6 +9,95 @@ import (
 )
 
 var (
+	// AiAuditArtifactsColumns holds the columns for the "ai_audit_artifacts" table.
+	AiAuditArtifactsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "run_id", Type: field.TypeUUID},
+		{Name: "event_id", Type: field.TypeUUID, Nullable: true},
+		{Name: "kind", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "status", Type: field.TypeString, Default: "pending", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "sha256", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "content_type", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "size_bytes", Type: field.TypeInt64, Default: 0},
+		{Name: "object_key", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "failure_code", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+	}
+	// AiAuditArtifactsTable holds the schema information for the "ai_audit_artifacts" table.
+	AiAuditArtifactsTable = &schema.Table{
+		Name:       "ai_audit_artifacts",
+		Columns:    AiAuditArtifactsColumns,
+		PrimaryKey: []*schema.Column{AiAuditArtifactsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "aiauditartifact_run_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{AiAuditArtifactsColumns[1], AiAuditArtifactsColumns[11]},
+			},
+		},
+	}
+	// AiAuditEventsColumns holds the columns for the "ai_audit_events" table.
+	AiAuditEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "run_id", Type: field.TypeUUID},
+		{Name: "operation_id", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "sequence", Type: field.TypeInt},
+		{Name: "schema_version", Type: field.TypeInt, Default: 1},
+		{Name: "stage", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "status", Type: field.TypeString, Default: "started", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "error_code", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "input", Type: field.TypeJSON, Nullable: true},
+		{Name: "output", Type: field.TypeJSON, Nullable: true},
+		{Name: "started_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
+	}
+	// AiAuditEventsTable holds the schema information for the "ai_audit_events" table.
+	AiAuditEventsTable = &schema.Table{
+		Name:       "ai_audit_events",
+		Columns:    AiAuditEventsColumns,
+		PrimaryKey: []*schema.Column{AiAuditEventsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "aiauditevent_run_id_sequence",
+				Unique:  true,
+				Columns: []*schema.Column{AiAuditEventsColumns[1], AiAuditEventsColumns[3]},
+			},
+			{
+				Name:    "aiauditevent_run_id_operation_id",
+				Unique:  true,
+				Columns: []*schema.Column{AiAuditEventsColumns[1], AiAuditEventsColumns[2]},
+			},
+		},
+	}
+	// AiAuditRunsColumns holds the columns for the "ai_audit_runs" table.
+	AiAuditRunsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "job_id", Type: field.TypeInt64},
+		{Name: "operation_id", Type: field.TypeString, Unique: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "bot_id", Type: field.TypeInt64},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "trace_id", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "config_version", Type: field.TypeInt64, Default: 0},
+		{Name: "status", Type: field.TypeString, Default: "running", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "error_code", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "started_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
+	}
+	// AiAuditRunsTable holds the schema information for the "ai_audit_runs" table.
+	AiAuditRunsTable = &schema.Table{
+		Name:       "ai_audit_runs",
+		Columns:    AiAuditRunsColumns,
+		PrimaryKey: []*schema.Column{AiAuditRunsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "aiauditrun_bot_id_conversation_id_started_at",
+				Unique:  false,
+				Columns: []*schema.Column{AiAuditRunsColumns[3], AiAuditRunsColumns[4], AiAuditRunsColumns[9]},
+			},
+		},
+	}
 	// AdminAuditLogsColumns holds the columns for the "admin_audit_logs" table.
 	AdminAuditLogsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
@@ -664,6 +753,9 @@ var (
 	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
+		AiAuditArtifactsTable,
+		AiAuditEventsTable,
+		AiAuditRunsTable,
 		AdminAuditLogsTable,
 		AgentOutboundMessagesTable,
 		AgentRunBudgetsTable,
@@ -687,6 +779,15 @@ var (
 )
 
 func init() {
+	AiAuditArtifactsTable.Annotation = &entsql.Annotation{
+		Table: "ai_audit_artifacts",
+	}
+	AiAuditEventsTable.Annotation = &entsql.Annotation{
+		Table: "ai_audit_events",
+	}
+	AiAuditRunsTable.Annotation = &entsql.Annotation{
+		Table: "ai_audit_runs",
+	}
 	AdminAuditLogsTable.Annotation = &entsql.Annotation{
 		Table: "admin_audit_logs",
 	}

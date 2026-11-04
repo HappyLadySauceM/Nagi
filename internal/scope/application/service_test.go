@@ -317,3 +317,48 @@ func TestPolicyModelPrerequisites(t *testing.T) {
 		t.Fatal("cannot revoke while models unavailable", err)
 	}
 }
+
+func TestUpsertUsesEffectivePermissionChange(t *testing.T) {
+	repo := newFakeRepo()
+	s, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{"generation": true}
+	s.SetModels(gateModels{allowed})
+	s.SetPermissionResolver(func(overrides map[string]bool) PermissionState {
+		defaults := map[string]bool{"media.voice.transcribe": true, "media.voice.send": false}
+		effective := clonePermissions(defaults)
+		for key, value := range overrides {
+			effective[key] = value
+		}
+		return PermissionState{Defaults: defaults, Effective: effective}
+	})
+	policy := domain.Default(domain.ScopePrivate, 456)
+	policy.Enabled = true
+	if err := s.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("default-enabled ASR must require an ASR model")
+	}
+	allowed["asr"] = true
+	if err := s.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Resolve(context.Background(), 1, domain.ScopePrivate, 456)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ToolPermissions["media.voice.transcribe"] {
+		t.Fatalf("stored overrides unexpectedly contain ASR: %+v", got.ToolPermissions)
+	}
+	if !got.PermissionDefaults["media.voice.transcribe"] || !got.PermissionGranted("media.voice.transcribe") {
+		t.Fatalf("effective ASR grant missing: %+v", got)
+	}
+	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": false}
+	if err := s.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.Resolve(context.Background(), 1, domain.ScopePrivate, 456)
+	if err != nil || got.PermissionGranted("media.voice.transcribe") {
+		t.Fatalf("explicit deny not effective: %+v, %v", got, err)
+	}
+}

@@ -442,7 +442,7 @@ const PERMISSION_PRESENTATION: Record<
     category: '基础',
   },
   'media.voice.transcribe': {
-    label: '语音识别',
+    label: '识别收到的语音',
     description: '识别当前会话语音及视频音轨。',
     icon: Mic,
     category: '基础',
@@ -456,6 +456,12 @@ const PERMISSION_PRESENTATION: Record<
   'media.voice.send': {
     label: '合成语音回复',
     description: '将回复合成为语音发送到当前会话，同时需要回复和媒体发送授权。',
+    icon: Mic,
+    category: '基础',
+  },
+  'qq.api.get_record': {
+    label: '转换语音文件格式',
+    description: '将收到的语音文件转换为指定格式，不会识别语音内容。',
     icon: Mic,
     category: '基础',
   },
@@ -555,7 +561,11 @@ export function ScopeFormFields({
       )
       return { permission, tools, categories, presentation }
     })
-    .filter((item) => item.tools.length > 0)
+    .filter((item) =>
+      item.permission.kind === 'pipeline'
+        ? item.permission.applicable !== false
+        : item.permission.applicable !== false && item.tools.length > 0,
+    )
     .sort(
       (a, b) =>
         CAPABILITY_CATEGORIES.indexOf(a.categories[0]) -
@@ -739,7 +749,9 @@ export function ScopeFormFields({
                   !dependency || Boolean(modelAvailability?.[dependency])
                 const dependencyHint = ready
                   ? ''
-                  : `请先配置并测试${dependency === 'tts' ? '语音合成' : '语音识别'}模型，当前能力不可用。`
+                  : granted
+                    ? `已授权，但${dependency === 'tts' ? '语音合成' : '语音识别'}模型未就绪。`
+                    : `请先配置并测试${dependency === 'tts' ? '语音合成' : '语音识别'}模型，当前能力不可用。`
                 const id = `tool-${permission.id}`
                 return (
                   <article

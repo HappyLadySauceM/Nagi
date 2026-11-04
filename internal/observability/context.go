@@ -27,6 +27,7 @@ import (
 // 但只有整条 trace 的 span 都携带时才能用于过滤，因此在处理任务期间以
 // baggage 形式向下传递。
 const (
+	TraceNameKey = "langfuse.trace.name"
 	SessionIDKey = "langfuse.session.id"
 	UserIDKey    = "langfuse.user.id"
 	// BotIDKey carries the raw account number and is only used in raw mode;
@@ -53,6 +54,26 @@ var traceParentPattern = regexp.MustCompile(`^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{
 type TraceContext struct {
 	TraceParent string
 	TraceState  string
+}
+
+// SetTraceName assigns Langfuse's queryable trace name to one span.
+// SetTraceName 为单个 span 设置 Langfuse 可查询的 trace 名称。
+func SetTraceName(span trace.Span, name string) {
+	if span == nil || name == "" {
+		return
+	}
+	span.SetAttributes(attribute.String(TraceNameKey, name))
+}
+
+// WithTraceName carries a trace name to spans started below ctx. It preserves
+// existing baggage so it can compose with the message identity attributes.
+// WithTraceName 把 trace 名称带到 ctx 下新建的 span，并保留已有 baggage，
+// 因此可与消息身份属性组合使用。
+func WithTraceName(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return withBaggageValues(ctx, map[string]string{TraceNameKey: name})
 }
 
 // Current extracts the W3C context of the active span; an unrecorded span or an
@@ -274,16 +295,34 @@ func SetIdentity(span trace.Span, id Identity) {
 // identityProcessor 自动获得这些属性。
 func WithIdentity(ctx context.Context, id Identity) context.Context {
 	attrs := id.attributes()
-	members := make([]baggage.Member, 0, len(attrs))
+	values := make(map[string]string, len(attrs))
 	for _, kv := range attrs {
-		member, err := baggage.NewMember(string(kv.Key), kv.Value.AsString())
-		if err != nil {
-			continue
-		}
-		members = append(members, member)
+		values[string(kv.Key)] = kv.Value.AsString()
 	}
-	if len(members) == 0 {
+	return withBaggageValues(ctx, values)
+}
+
+func withBaggageValues(ctx context.Context, values map[string]string) context.Context {
+	if len(values) == 0 {
 		return ctx
+	}
+	merged := make(map[string]string, len(values)+8)
+	for _, member := range baggage.FromContext(ctx).Members() {
+		if value := member.Value(); value != "" {
+			merged[member.Key()] = value
+		}
+	}
+	for key, value := range values {
+		if key != "" && value != "" {
+			merged[key] = value
+		}
+	}
+	members := make([]baggage.Member, 0, len(merged))
+	for key, value := range merged {
+		member, err := baggage.NewMember(key, value)
+		if err == nil {
+			members = append(members, member)
+		}
 	}
 	bag, err := baggage.New(members...)
 	if err != nil {
@@ -300,8 +339,8 @@ type identityProcessor struct{}
 // OnStart 实现 sdktrace.SpanProcessor。
 func (identityProcessor) OnStart(ctx context.Context, span sdktrace.ReadWriteSpan) {
 	bag := baggage.FromContext(ctx)
-	attrs := make([]attribute.KeyValue, 0, 6)
-	for _, key := range []string{SessionIDKey, UserIDKey, BotIDKey, BotIDHashKey, TargetIDKey, SenderIDKey} {
+	attrs := make([]attribute.KeyValue, 0, 7)
+	for _, key := range []string{TraceNameKey, SessionIDKey, UserIDKey, BotIDKey, BotIDHashKey, TargetIDKey, SenderIDKey} {
 		if value := bag.Member(key).Value(); value != "" {
 			attrs = append(attrs, attribute.String(key, value))
 		}

@@ -24,13 +24,31 @@ type Repository interface {
 // Service resolves current policies from storage so revocations apply to subsequent calls.
 // Service 从存储解析当前策略，使撤销对后续调用立即生效。
 type Service struct {
-	repo   Repository
-	models models.Resolver
+	repo        Repository
+	models      models.Resolver
+	permissions PermissionResolver
 }
+
+// PermissionState separates persisted scope overrides from the live baseline
+// and calculated result returned to callers.
+// PermissionState 区分已持久化的作用域覆盖、实时默认基线和最终生效结果。
+type PermissionState struct {
+	Defaults  map[string]bool
+	Effective map[string]bool
+}
+
+// PermissionResolver is bound in the composition root because the scope
+// context must not depend on the plugin registry or settings implementation.
+// PermissionResolver 在组合根绑定，避免 scope 上下文依赖插件注册表或配置实现。
+type PermissionResolver func(overrides map[string]bool) PermissionState
 
 // SetModels binds model availability checks at composition time.
 // SetModels 在装配时绑定模型可用性校验。
 func (s *Service) SetModels(resolver models.Resolver) { s.models = resolver }
+
+// SetPermissionResolver binds the shared runtime permission resolution rule.
+// SetPermissionResolver 绑定运行时共用的权限解析规则。
+func (s *Service) SetPermissionResolver(resolver PermissionResolver) { s.permissions = resolver }
 
 // NewService validates dependencies and builds the service.
 // NewService 校验依赖并构建服务。
@@ -69,16 +87,11 @@ func (s *Service) Resolve(ctx context.Context, botID int64, scopeType domain.Sco
 		stored.TemplateVersion = stored.Version
 	}
 	effective := stored.WithDefaults()
-	if effective.ToolPermissions == nil {
-		effective.ToolPermissions = map[string]bool{}
-	}
-	permissions := make(map[string]bool, len(effective.ToolPermissions)+1)
-	for key, value := range effective.ToolPermissions {
-		permissions[key] = value
-	}
-	effective.ToolPermissions = permissions
-	if _, set := effective.ToolPermissions["media.voice.transcribe"]; !set {
-		effective.ToolPermissions["media.voice.transcribe"] = found
+	effective.ToolPermissions = clonePermissions(effective.ToolPermissions)
+	if s.permissions != nil {
+		state := s.permissions(effective.ToolPermissions)
+		effective.PermissionDefaults = clonePermissions(state.Defaults)
+		effective.EffectiveToolPermissions = clonePermissions(state.Effective)
 	}
 	// Stored rows may come from a scan that omits the identity columns; the
 	// resolved policy is always keyed by the requested scope.
@@ -91,7 +104,19 @@ func (s *Service) Resolve(ctx context.Context, botID int64, scopeType domain.Sco
 // List returns all stored policies, optionally filtered by bot.
 // List 返回全部已存储策略，可按机器人过滤。
 func (s *Service) List(ctx context.Context, botID *int64) ([]domain.Policy, error) {
-	return s.repo.List(ctx, botID)
+	policies, err := s.repo.List(ctx, botID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range policies {
+		policies[index].ToolPermissions = clonePermissions(policies[index].ToolPermissions)
+		if s.permissions != nil {
+			state := s.permissions(policies[index].ToolPermissions)
+			policies[index].PermissionDefaults = clonePermissions(state.Defaults)
+			policies[index].EffectiveToolPermissions = clonePermissions(state.Effective)
+		}
+	}
+	return policies, nil
 }
 
 // Get returns the effective policy of one scope; it is an alias of Resolve.
@@ -108,11 +133,12 @@ func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy)
 		if err != nil {
 			return err
 		}
-		if policy.ToolPermissions == nil {
-			policy.ToolPermissions = map[string]bool{}
-		}
-		if _, exists := policy.ToolPermissions["media.voice.transcribe"]; !exists {
-			policy.ToolPermissions["media.voice.transcribe"] = previous.ToolPermissions["media.voice.transcribe"]
+		policy.ToolPermissions = clonePermissions(policy.ToolPermissions)
+		proposed := policy
+		if s.permissions != nil {
+			state := s.permissions(proposed.ToolPermissions)
+			proposed.PermissionDefaults = clonePermissions(state.Defaults)
+			proposed.EffectiveToolPermissions = clonePermissions(state.Effective)
 		}
 		if policy.Enabled && !previous.Enabled {
 			if _, err = s.models.ResolveModel(ctx, "generation", botID, string(policy.ScopeType), policy.ScopeID); err != nil {
@@ -120,7 +146,12 @@ func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy)
 			}
 		}
 		for permission, usage := range map[string]string{"media.voice.transcribe": "asr", "media.voice.send": "tts"} {
-			if policy.ToolPermissions[permission] && !previous.ToolPermissions[permission] {
+			// Enabling a scope activates already-default-granted capabilities too.
+			// Checking only the permission delta would let a default grant bypass
+			// model readiness on the first activation of a conversation.
+			// 启用作用域会激活默认已授予的能力；仅比较权限差异会让首次
+			// 启用会话时绕过模型就绪校验。
+			if proposed.PermissionGranted(permission) && (!previous.PermissionGranted(permission) || (!previous.Enabled && proposed.Enabled)) {
 				if _, err = s.models.ResolveModel(ctx, usage, 0, "", 0); err != nil {
 					return fmt.Errorf("请先配置并测试 %s 模型", usage)
 				}
@@ -187,7 +218,25 @@ func (s *Service) ResolveMany(ctx context.Context, botID int64, kind domain.Scop
 		}
 		p.ScopeType = kind
 		p.ScopeID = id
-		result[id] = p.WithDefaults()
+		p = p.WithDefaults()
+		p.ToolPermissions = clonePermissions(p.ToolPermissions)
+		if s.permissions != nil {
+			state := s.permissions(p.ToolPermissions)
+			p.PermissionDefaults = clonePermissions(state.Defaults)
+			p.EffectiveToolPermissions = clonePermissions(state.Effective)
+		}
+		result[id] = p
 	}
 	return result, nil
+}
+
+func clonePermissions(source map[string]bool) map[string]bool {
+	if len(source) == 0 {
+		return map[string]bool{}
+	}
+	copy := make(map[string]bool, len(source))
+	for key, value := range source {
+		copy[key] = value
+	}
+	return copy
 }

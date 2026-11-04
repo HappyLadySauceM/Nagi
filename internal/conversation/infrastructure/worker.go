@@ -4,6 +4,8 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,7 +13,11 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/application"
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
@@ -35,6 +41,17 @@ type WorkerOptions struct {
 	// Identity may be nil, in which case traces carry no user dimension.
 	// Identity 可为 nil，此时 trace 不携带用户维度。
 	Identity *observability.Identities
+	// Audit persists local run facts. A write failure is terminal for the job:
+	// downstream models and tools must not run without an auditable record.
+	// Audit 持久化本地运行事实。写入失败会终止任务：没有可审计记录时，
+	// 不得继续调用下游模型或工具。
+	Audit auditcontracts.AIRecorder
+	// ConfigVersion returns the immutable settings revision used for one run.
+	// ConfigVersion 返回本次运行使用的不可变配置修订号。
+	ConfigVersion func() int64
+	// PrepareRun captures execution settings and their revision together.
+	// PrepareRun 一并捕获执行配置及其修订号。
+	PrepareRun func(context.Context) (context.Context, int64)
 }
 
 // Worker polls pending jobs from the database and processes them with per-conversation
@@ -192,8 +209,15 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 	// 追踪上下文必须在脱离取消的上下文上还原，避免关停期间切断父链。
 	jobCtx := observability.TraceContext{TraceParent: job.TraceParent, TraceState: job.TraceState}.
 		Restore(ctx)
-	jobCtx, span := tracer().Start(jobCtx, "nagi.worker.process")
+	jobCtx = observability.WithTraceName(jobCtx, "nagi.message.process")
+	link := trace.SpanContextFromContext(jobCtx)
+	startOpts := []trace.SpanStartOption{trace.WithNewRoot()}
+	if link.IsValid() {
+		startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: link}))
+	}
+	jobCtx, span := tracer().Start(jobCtx, "nagi.message.process", startOpts...)
 	defer span.End()
+	observability.SetTraceName(span, "nagi.message.process")
 	// A job without a stored context predates trace propagation; marking it
 	// keeps legacy traffic distinguishable from broken propagation.
 	// 没有存储上下文的任务早于追踪传播；标注后可将其与传播故障区分开。
@@ -224,20 +248,121 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 	// 子 span（意图、生成、发送）通过 baggage 获得同样的身份属性，
 	// 使 Langfuse 能按会话与用户过滤每个观测。
 	jobCtx = observability.WithIdentity(jobCtx, identity)
+	jobCtx = auditcontracts.WithSideEffectState(jobCtx)
+	configVersion := int64(0)
+	if w.opts.PrepareRun != nil {
+		jobCtx, configVersion = w.opts.PrepareRun(jobCtx)
+	} else if w.opts.ConfigVersion != nil {
+		configVersion = w.opts.ConfigVersion()
+	}
+	var auditRun auditdomain.AIRun
+	var auditEvent auditdomain.AIEvent
+	finishAudit := func(status, code string) error {
+		if w.opts.Audit == nil || auditRun.ID == "" {
+			return nil
+		}
+		output, err := json.Marshal(map[string]any{"status": status, "error_code": code})
+		if err != nil {
+			return fmt.Errorf("encode audit output: %w", err)
+		}
+		if auditEvent.ID != "" {
+			if err := w.opts.Audit.FinishEvent(jobCtx, auditEvent.ID, status, code, output); err != nil {
+				return fmt.Errorf("finish audit event: %w", err)
+			}
+		}
+		if err := w.opts.Audit.FinishRun(jobCtx, auditRun.ID, status, code); err != nil {
+			return fmt.Errorf("finish audit run: %w", err)
+		}
+		return nil
+	}
 	defer func() {
 		if rec := recover(); rec != nil {
 			w.logger.Error("job processor panicked", "job_id", job.ID, "panic", fmt.Sprint(rec))
 			span.RecordError(fmt.Errorf("panic: %v", rec))
-			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "panic")
+			span.SetStatus(codes.Error, "panic")
+			if err := finishAudit("failed", "panic"); err != nil {
+				span.RecordError(err)
+				w.logger.Error("finish audit after panic failed", "job_id", job.ID, "error", err)
+			}
+			code, attempts := "panic", w.opts.MaxAttempts
+			if auditcontracts.SideEffectOccurred(jobCtx) {
+				code, attempts = "side_effect_audit_unknown", 1
+			}
+			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", code, attempts)
 		}
 	}()
+	if w.opts.Audit != nil {
+		var err error
+		auditRun, err = w.opts.Audit.StartRun(jobCtx, auditdomain.AIRun{
+			OperationID:    fmt.Sprintf("job:%d:claim:%s", job.ID, job.ClaimToken),
+			JobID:          job.ID,
+			BotID:          job.BotID,
+			ConversationID: job.ConversationID,
+			TraceID:        span.SpanContext().TraceID().String(),
+			ConfigVersion:  configVersion,
+		})
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "audit_start_failed")
+			w.logger.Error("start local ai audit failed", "job_id", job.ID, "error", err)
+			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "audit_start_failed")
+			return
+		}
+		jobCtx = auditcontracts.WithRun(jobCtx, w.opts.Audit, auditRun.ID)
+		auditInput := map[string]any{
+			"job_id": job.ID, "message_id": job.MessageID, "conversation_id": job.ConversationID,
+			"scope_type": string(job.Kind), "target_id": job.TargetID, "sender_id": job.Message.SenderID,
+		}
+		if observability.ContentEnabled() && !observability.ContentSuppressed(jobCtx) {
+			auditInput["segments"] = job.Message.Segments
+			auditInput["text"] = job.Message.Text
+		} else {
+			auditInput["content_redacted"] = "observability_export_disabled"
+		}
+		input, marshalErr := json.Marshal(observability.Redact(auditInput))
+		if marshalErr != nil {
+			span.RecordError(marshalErr)
+			span.SetStatus(codes.Error, "audit_start_failed")
+			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "audit_start_failed")
+			return
+		}
+		auditEvent, err = w.opts.Audit.RecordEvent(jobCtx, auditdomain.AIEvent{
+			RunID: auditRun.ID, OperationID: "worker.process", Sequence: 0,
+			SchemaVersion: 1, Stage: "worker.process", Input: input,
+		})
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "audit_start_failed")
+			w.logger.Error("start local ai audit event failed", "job_id", job.ID, "error", err)
+			if finishErr := finishAudit("failed", "audit_start_failed"); finishErr != nil {
+				w.logger.Error("finish partial local ai audit failed", "job_id", job.ID, "error", finishErr)
+			}
+			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "audit_start_failed")
+			return
+		}
+	}
 	if err := w.processor.Process(jobCtx, job); err != nil {
+		failureCode := "process_error"
+		maxAttempts := w.opts.MaxAttempts
+		var uncertain *auditcontracts.SideEffectUncertainError
+		if errors.As(err, &uncertain) || auditcontracts.SideEffectOccurred(jobCtx) {
+			failureCode = "side_effect_audit_unknown"
+			maxAttempts = 1
+		}
 		w.logger.Warn("job processed with failure", "job_id", job.ID, "error", err)
 		span.RecordError(err)
+		span.SetStatus(codes.Error, failureCode)
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 			"status": "failed",
 		})
-		w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "process_error")
+		if auditErr := finishAudit("failed", failureCode); auditErr != nil {
+			span.RecordError(auditErr)
+			span.SetStatus(codes.Error, "audit_finish_failed")
+			w.logger.Error("finish local ai audit failed", "job_id", job.ID, "error", auditErr)
+			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", failureCode, maxAttempts)
+			return
+		}
+		w.finish(jobCtx, job.ID, job.ClaimToken, "failed", failureCode, maxAttempts)
 		return
 	}
 	if reader, ok := w.repo.(interface {
@@ -245,9 +370,28 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 	}); ok {
 		if err := reader.DeliveryError(jobCtx, job.ID); err != nil {
 			span.RecordError(err)
+			span.SetStatus(codes.Error, "delivery_incomplete")
+			if auditErr := finishAudit("failed", "delivery_incomplete"); auditErr != nil {
+				span.RecordError(auditErr)
+				span.SetStatus(codes.Error, "audit_finish_failed")
+				w.logger.Error("finish local ai audit failed", "job_id", job.ID, "error", auditErr)
+				w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "audit_finish_failed")
+				return
+			}
 			w.finish(jobCtx, job.ID, job.ClaimToken, "failed", "delivery_incomplete")
 			return
 		}
+	}
+	if err := finishAudit("done", ""); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "audit_finish_failed")
+		w.logger.Error("finish local ai audit failed", "job_id", job.ID, "error", err)
+		code, attempts := "audit_finish_failed", w.opts.MaxAttempts
+		if auditcontracts.SideEffectOccurred(jobCtx) {
+			code, attempts = "side_effect_audit_unknown", 1
+		}
+		w.finish(jobCtx, job.ID, job.ClaimToken, "failed", code, attempts)
+		return
 	}
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"status": "done",
@@ -258,7 +402,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 // finish records the terminal job state inside its own span so a completed job
 // is never mistaken for a delivered message.
 // finish 在独立 span 中记录任务终态，避免把任务完成误认为消息已送达。
-func (w *Worker) finish(ctx context.Context, jobID int64, claim, status, code string) {
+func (w *Worker) finish(ctx context.Context, jobID int64, claim, status, code string, maxAttempts ...int) {
 	ctx, span := tracer().Start(ctx, "nagi.message.finalize")
 	defer span.End()
 	span.SetAttributes(attribute.String("nagi.job.status", status))
@@ -273,10 +417,15 @@ func (w *Worker) finish(ctx context.Context, jobID int64, claim, status, code st
 	if status == "done" {
 		err = w.repo.CompleteJob(ctx, jobID, claim)
 	} else {
-		err = w.repo.FailJob(ctx, jobID, code, w.opts.RetryBackoff, w.opts.MaxAttempts, claim)
+		attempts := w.opts.MaxAttempts
+		if len(maxAttempts) > 0 {
+			attempts = maxAttempts[0]
+		}
+		err = w.repo.FailJob(ctx, jobID, code, w.opts.RetryBackoff, attempts, claim)
 	}
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "persist_terminal_state")
 		w.logger.Warn("record job outcome failed", "job_id", jobID, "status", status, "error", err)
 	}
 }

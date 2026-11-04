@@ -76,11 +76,30 @@ type Policy struct {
 	// the default baseline never rewrites stored rows.
 	// ToolPermissions 保存该作用域的工具权限显式覆盖。缺少键表示"使用配置默认"，
 	// 因此调整默认基线不会重写已存行。
-	ToolPermissions     map[string]bool
-	MaxMessagesPerRun   int
-	MaxCharsPerMessage  int
-	MaxTotalCharsPerRun int
-	MessageIntervalMS   int
+	ToolPermissions map[string]bool
+	// PermissionDefaults and EffectiveToolPermissions are calculated response
+	// fields. They are never persisted: ToolPermissions remains the only stored
+	// override map, so changing a system baseline does not rewrite scopes.
+	// PermissionDefaults 与 EffectiveToolPermissions 是计算后的响应字段，
+	// 不参与持久化；ToolPermissions 始终是唯一的已存覆盖项。
+	PermissionDefaults       map[string]bool
+	EffectiveToolPermissions map[string]bool
+	MaxMessagesPerRun        int
+	MaxCharsPerMessage       int
+	MaxTotalCharsPerRun      int
+	MessageIntervalMS        int
+}
+
+// PermissionGranted reports the effective result when it is available. Tests
+// and database-less wiring can still construct a policy with only explicit
+// overrides, for which a missing key remains denied.
+// PermissionGranted 优先读取已计算的生效权限。测试或未装配运行时解析器时，
+// 仅含显式覆盖的策略仍保持“缺失即拒绝”。
+func (p Policy) PermissionGranted(permission string) bool {
+	if p.EffectiveToolPermissions != nil {
+		return p.EffectiveToolPermissions[permission]
+	}
+	return p.ToolPermissions[permission]
 }
 
 // Default returns the default policy of a scope. Message storage is on by

@@ -33,6 +33,7 @@ func TestMigrateAppliesAndReverses(t *testing.T) {
 		"bot_accounts", "contacts", "qq_groups", "group_members", "scope_policies", "admin_audit_logs",
 		"conversations", "messages", "message_jobs", "intent_decisions", "memories",
 		"agent_outbound_messages", "agent_run_budgets",
+		"ai_audit_runs", "ai_audit_events", "ai_audit_artifacts",
 	} {
 		var exists bool
 		if err := pool.QueryRow(ctx,

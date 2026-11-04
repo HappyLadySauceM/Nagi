@@ -22,6 +22,7 @@ import (
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	einoinfra "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/eino"
 	replytool "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/replytool"
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	conversationapp "github.com/HappyLadySauceM/Nagi/internal/conversation/application"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
@@ -38,6 +39,7 @@ import (
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -81,11 +83,26 @@ type intentProcessor struct {
 	settings *settingsapp.Provider
 }
 
+type runTimeoutKey struct{}
+
+type runSettingsKey struct{}
+
+func executionSettings(ctx context.Context, provider *settingsapp.Provider) settingsdomain.Settings {
+	if snapshot, ok := ctx.Value(runSettingsKey{}).(settingsdomain.Settings); ok {
+		return snapshot
+	}
+	return provider.Settings()
+}
+
 // Process converts the job into an intent task and runs the decision pipeline.
 // Process 将任务转换为意图任务并执行决策流水线。
 func (p intentProcessor) Process(ctx context.Context, job conversationdomain.Job) error {
 	timeout := 180 * time.Second
-	if p.settings != nil {
+	if fixed, ok := ctx.Value(runTimeoutKey{}).(time.Duration); ok {
+		if fixed > 0 && fixed < timeout {
+			timeout = fixed
+		}
+	} else if p.settings != nil {
 		if configured := time.Duration(p.settings.Settings().Agent.MaxRunDurationSeconds) * time.Second; configured > 0 && configured < timeout {
 			timeout = configured
 		}
@@ -360,11 +377,11 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		SendingLimits: limits,
 		BotName:       live.Intent.BotName,
 		MaxTokens:     live.AI.MaxOutputTokens,
-		BotNameProvider: func() string {
-			return settings.Settings().Intent.BotName
+		BotNameProvider: func(ctx context.Context) string {
+			return executionSettings(ctx, settings).Intent.BotName
 		},
-		MaxTokensProvider: func() int {
-			return settings.Settings().AI.MaxOutputTokens
+		MaxTokensProvider: func(ctx context.Context) int {
+			return executionSettings(ctx, settings).AI.MaxOutputTokens
 		},
 		Logger: logger,
 	})
@@ -382,7 +399,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	catalog *settingsapp.Service,
 	mediaService media.Transcriber,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
-	identity *observability.Identities, rules *intentinfra.RulesetsRepo,
+	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder,
 ) (*conversationinfra.Worker, intentcontracts.DecisionReader, intentcontracts.SimulationEvaluator, error) {
 	if pool == nil || scope == nil || conv == nil {
 		return nil, nil, nil, nil
@@ -450,6 +467,23 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		MaxPending:   cfg.Worker.MaxPendingJobs,
 		PollInterval: cfg.Worker.PollInterval.D(),
 		Identity:     identity,
+		Audit:        audit,
+		PrepareRun: func(ctx context.Context) (context.Context, int64) {
+			snapshot := settings.Current()
+			current := snapshot.Settings
+			ctx = context.WithValue(ctx, runSettingsKey{}, current)
+			ctx = settingsapp.WithModelCatalog(ctx, current.Models)
+			ctx = context.WithValue(ctx, runTimeoutKey{}, time.Duration(current.Agent.MaxRunDurationSeconds)*time.Second)
+			return intentapp.WithRuntimeConfig(ctx, intentapp.RuntimeConfig{
+				Enabled: current.Intent.Enabled, AIEnabled: current.AI.Enabled,
+				HistoryLimit: current.Intent.HistoryLimit, Provider: current.Intent.Provider, Model: current.Intent.Model,
+				Thresholds: intentdomain.Thresholds{
+					Continuation:      current.Intent.ContinuationThreshold,
+					Interjection:      current.Intent.InterjectionThreshold,
+					AddressedOtherMax: current.Intent.AddressedOtherMax,
+				},
+			}), snapshot.Version
+		},
 	}, logger)
 	return worker, decisionsRepo, decider, err
 }

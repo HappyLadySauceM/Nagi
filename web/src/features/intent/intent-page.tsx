@@ -11,6 +11,7 @@ import { Select } from '../../components/ui/select'
 import { RulesPage, SimulationPanel } from './rules-page'
 import { Input } from '../../components/ui/input'
 import { OutboundTimeline } from './outbound-timeline'
+import { AuditTimeline } from './audit-timeline'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { FeedbackState } from '../../components/feedback-state'
@@ -181,7 +182,7 @@ function DecisionLog({ recent = false, onViewAll }: { recent?: boolean; onViewAl
       <Sheet open={selected !== null} onOpenChange={open => { if (!open) setSelected(null) }}>
         <SheetContent side="right" className="w-full overflow-y-auto bg-background p-6 sm:max-w-xl">
           <div className="border-b border-border pb-5 pr-6"><SheetTitle className="text-lg font-semibold">决策详情</SheetTitle><SheetDescription className="mt-2 leading-relaxed">还原策略、规则、语义与最终投递的实际过程。</SheetDescription></div>
-          {detail.isLoading ? <Skeleton className="mt-4 h-40 w-full" /> : detail.isError ? <FeedbackState variant="error" title="读取决策详情失败" error={detail.error} onRetry={() => void detail.refetch()} /> : detail.data ? <><StepTimeline detail={detail.data} /><OutboundTimeline botId={detail.data.botId} jobId={detail.data.jobId} /></> : null}
+          {detail.isLoading ? <Skeleton className="mt-4 h-40 w-full" /> : detail.isError ? <FeedbackState variant="error" title="读取决策详情失败" error={detail.error} onRetry={() => void detail.refetch()} /> : detail.data ? <><StepTimeline detail={detail.data} /><AuditTimeline botId={detail.data.botId} jobId={detail.data.jobId} /><OutboundTimeline botId={detail.data.botId} jobId={detail.data.jobId} /></> : null}
         </SheetContent>
       </Sheet>
     </section>
@@ -194,7 +195,7 @@ function StepTimeline({ detail }: { detail: DecisionDetailEntry }) {
   const thresholdFor = (key: string) => thresholds?.[key === 'appropriate_to_join' ? 'interjection' : key === 'addressed_to_other' ? 'addressed_other_max' : 'continuation']
   return (
     <div className="mt-4 space-y-3">
- {detail.steps.some(step=>step.phase==='semantic' && step.detail.available===false) ? <p role="alert" className="rounded-md border border-warning p-3 text-sm">语义服务不可用，已按既有规则降级。以下零值不代表真实语义分数。</p>:null}
+ {detail.steps.some(step=>step.phase==='semantic' && step.detail.called===true && step.detail.available===false) ? <p role="alert" className="rounded-md border border-warning p-3 text-sm">语义服务不可用，已按既有规则降级。以下零值不代表真实语义分数。</p>:null}
       <div className="text-meta text-muted-foreground">
         {detail.createdAt ? formatDateTime(detail.createdAt) : '时间未知'} · job {detail.jobId}
         {detail.rulesetVersion ? ` · 规则版本 ${detail.rulesetVersion}` : ''}

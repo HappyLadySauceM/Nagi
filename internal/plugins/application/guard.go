@@ -13,8 +13,10 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
@@ -97,15 +99,55 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			"tool":      descriptor.ID,
 			"arguments": toolArguments(argumentsInJSON),
 		})
+		auditInput := map[string]any{"tool": descriptor.ID, "permission": descriptor.Permission, "sensitive": descriptor.Sensitive}
+		if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
+			auditInput["arguments"] = toolArguments(argumentsInJSON)
+		} else {
+			auditInput["content_redacted"] = "observability_export_disabled"
+		}
+		auditEvent, auditErr := auditcontracts.StartEvent(ctx, "tool.execute", auditInput)
+		if auditErr != nil {
+			return "", auditErr
+		}
 		started := time.Now()
+		invoked := false
+		complete := func(status string, bytes int, text string, resultCodes ...string) (string, error) {
+			result, err := finish(ctx, span, scope, descriptor, started, status, bytes, text, resultCodes...)
+			if err != nil {
+				return result, err
+			}
+			auditStatus, code := "succeeded", ""
+			switch status {
+			case StatusDenied:
+				auditStatus = "denied"
+			case StatusError, StatusTimeout, StatusTooLarge:
+				auditStatus = "failed"
+			}
+			if len(resultCodes) > 0 {
+				code = resultCodes[0]
+			}
+			auditOutput := map[string]any{"status": status, "bytes": bytes}
+			if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
+				auditOutput["result"] = text
+			} else {
+				auditOutput["content_redacted"] = "observability_export_disabled"
+			}
+			if auditErr := auditcontracts.FinishEvent(ctx, auditEvent, auditStatus, code, auditOutput); auditErr != nil {
+				if invoked && !descriptor.ReadOnly {
+					return result, auditcontracts.UnsafeToRetry("tool.execute", auditErr)
+				}
+				return result, auditErr
+			}
+			return result, nil
+		}
 
 		if descriptor.Permission != "" && !scope.Permissions[descriptor.Permission] {
-			return finish(ctx, span, scope, descriptor, started, StatusDenied, 0,
+			return complete(StatusDenied, 0,
 				"error: permission denied for "+descriptor.ID, "authorization_revoked")
 		}
 		if scope.Reauthorize != nil {
 			if err := scope.Reauthorize(ctx, descriptor); err != nil {
-				return finish(ctx, span, scope, descriptor, started, StatusDenied, 0, "error: current tool authorization denied", "authorization_revoked")
+				return complete(StatusDenied, 0, "error: current tool authorization denied", "authorization_revoked")
 			}
 		}
 		if descriptor.Sensitive {
@@ -127,6 +169,10 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 		// 工具读取同一份作用域来绑定账号与目标；它不会进入提示词。
 		runCtx = WithScope(runCtx, scope)
 
+		invoked = true
+		if !descriptor.ReadOnly {
+			auditcontracts.MarkSideEffect(ctx)
+		}
 		result, err := invoke(runCtx, argumentsInJSON)
 		span.SetAttributes(attribute.Int64("nagi.tool_duration_ms", time.Since(started).Milliseconds()))
 		if err != nil {
@@ -151,16 +197,16 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			// 内容与跨会话门携带可机读原因，运行侧能归因而非只看到通用工具错误。
 			var coded interface{ ErrorCode() string }
 			if errors.As(err, &coded) && coded.ErrorCode() != "" {
-				return finish(ctx, span, scope, descriptor, started, status, 0, message, coded.ErrorCode())
+				return complete(status, 0, message, coded.ErrorCode())
 			}
-			return finish(ctx, span, scope, descriptor, started, status, 0, message)
+			return complete(status, 0, message)
 		}
 		limit := scope.MaxResultBytes
 		if descriptor.Multimodal {
 			limit = 16 << 20
 		}
 		if limit > 0 && len(result) > limit {
-			return finish(ctx, span, scope, descriptor, started, StatusTooLarge, len(result),
+			return complete(StatusTooLarge, len(result),
 				"error: tool result too large")
 		}
 		if descriptor.Multimodal {
@@ -168,9 +214,17 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 				scope.Record(contracts.ToolRun{ToolID: descriptor.ID, Status: StatusOK, Duration: time.Since(started), Bytes: len(result)})
 			}
 			span.SetAttributes(attribute.String("nagi.tool_status", StatusOK), attribute.Int("nagi.tool_bytes", len(result)))
+			if auditErr := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", map[string]any{
+				"status": StatusOK, "bytes": len(result), "media_result": true,
+			}); auditErr != nil {
+				if !descriptor.ReadOnly {
+					return result, auditcontracts.UnsafeToRetry("tool.execute", auditErr)
+				}
+				return result, auditErr
+			}
 			return result, nil
 		}
-		return finish(ctx, span, scope, descriptor, started, StatusOK, len(result), result)
+		return complete(StatusOK, len(result), result)
 	}
 }
 
@@ -195,8 +249,16 @@ func toolArguments(raw string) any {
 // text shown to the model.
 // finish 记录终态、上报运行摘要，并返回给模型看的文本。
 func finish(ctx context.Context, span trace.Span, scope Scope, descriptor contracts.ToolDescriptor, started time.Time,
-	status string, bytes int, text string, codes ...string,
+	status string, bytes int, text string, resultCodes ...string,
 ) (string, error) {
+	if status == StatusError || status == StatusTimeout || status == StatusTooLarge {
+		// RecordError alone does not set the OpenTelemetry status. Mark real
+		// execution failures so Langfuse can filter them as errors; expected
+		// authorization denials remain a normal, explainable outcome.
+		// 仅 RecordError 不会修改 OpenTelemetry 状态。真实执行失败需要显式
+		// 标记，才能在 Langfuse 中按错误筛选；预期的授权拒绝保持可解释结果。
+		span.SetStatus(codes.Error, status)
+	}
 	span.SetAttributes(
 		attribute.String("nagi.tool_status", status),
 		attribute.Int("nagi.tool_bytes", bytes),
@@ -208,8 +270,8 @@ func finish(ctx context.Context, span trace.Span, scope Scope, descriptor contra
 	})
 	if scope.Record != nil {
 		code := ""
-		if len(codes) > 0 {
-			code = codes[0]
+		if len(resultCodes) > 0 {
+			code = resultCodes[0]
 		}
 		scope.Record(contracts.ToolRun{
 			ErrorCode: code,

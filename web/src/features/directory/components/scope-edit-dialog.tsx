@@ -147,7 +147,7 @@ export function ScopeEditDialog({
     for (const [key, label] of [['allowHistoryRead', '读取聊天历史'], ['allowMemoryWrite', '写入长期记忆']] as const) {
       if (scope.data[key] !== template.data[key]) restoreChanges.push(`${label}：${scope.data[key] ? '允许' : '关闭'} → ${template.data[key] ? '允许' : '关闭'}`)
     }
-    for (const permission of tools.data.permissions.filter(permission => tools.data!.tools.some(tool => tool.applicable && permission.tools.includes(tool.id)))) {
+    for (const permission of tools.data.permissions.filter(permission => permission.applicable !== false)) {
       const before = scope.data.toolPermissions[permission.id] ?? permission.defaultGranted
       const after = template.data.toolPermissions[permission.id] ?? permission.defaultGranted
       if (before !== after) restoreChanges.push(`${permission.id}：${before ? '授权' : '关闭'} → ${after ? '授权' : '关闭'}`)

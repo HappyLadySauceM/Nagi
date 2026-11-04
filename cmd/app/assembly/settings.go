@@ -133,7 +133,7 @@ func (r *modelRuntime) Run(ctx context.Context, req agentcontracts.Request) (age
 	if snapshots, ok := r.models.(models.Snapshotter); ok {
 		ctx = snapshots.ModelSnapshot(ctx)
 	}
-	live := r.settings.Settings()
+	live := executionSettings(ctx, r.settings)
 	resolved, err := r.models.ResolveModel(ctx, "generation", req.BotID, req.Kind, req.TargetID)
 	if err != nil {
 		return agentcontracts.Result{}, err
@@ -215,7 +215,7 @@ func (r *semanticRouter) resolve(ctx context.Context) (intentapp.SemanticDecider
 		return nil, err
 	}
 	p := resolved.Profile
-	botName := r.settings.Settings().Intent.BotName
+	botName := executionSettings(ctx, r.settings).Intent.BotName
 	fingerprint := fmt.Sprintf("%s:%d:%s", p.ID, p.Version, botName)
 	r.mu.Lock()
 	defer r.mu.Unlock()

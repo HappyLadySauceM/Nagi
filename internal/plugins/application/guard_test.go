@@ -9,8 +9,27 @@ import (
 	"testing"
 	"time"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
+
+type failingFinishAudit struct{}
+
+func (*failingFinishAudit) StartRun(context.Context, auditdomain.AIRun) (auditdomain.AIRun, error) {
+	return auditdomain.AIRun{}, nil
+}
+func (*failingFinishAudit) FinishRun(context.Context, string, string, string) error { return nil }
+func (*failingFinishAudit) RecordEvent(_ context.Context, event auditdomain.AIEvent) (auditdomain.AIEvent, error) {
+	event.ID = "event-1"
+	return event, nil
+}
+func (*failingFinishAudit) FinishEvent(context.Context, string, string, string, []byte) error {
+	return errors.New("audit unavailable")
+}
+func (*failingFinishAudit) RecordArtifact(context.Context, auditdomain.AIArtifact) (auditdomain.AIArtifact, error) {
+	return auditdomain.AIArtifact{}, nil
+}
 
 func readOnly(id, permission string) contracts.ToolDescriptor {
 	return contracts.ToolDescriptor{ID: id, Description: "test", ReadOnly: true, Permission: permission}
@@ -181,6 +200,23 @@ func TestGuardReportsToolFailure(t *testing.T) {
 	}
 	if strings.Contains(out, "secret") {
 		t.Fatalf("error details leaked: %q", out)
+	}
+}
+
+func TestGuardMarksCompletedWriteUnsafeToRetryWhenAuditFinishFails(t *testing.T) {
+	calls := 0
+	ctx := auditcontracts.WithRun(context.Background(), &failingFinishAudit{}, "run-1")
+	_, err := Guard(testScope(), contracts.ToolDescriptor{ID: "qq.send_message", SideEffect: true},
+		func(context.Context, string) (string, error) {
+			calls++
+			return "sent", nil
+		})(ctx, "{}")
+	var uncertain *auditcontracts.SideEffectUncertainError
+	if !errors.As(err, &uncertain) {
+		t.Fatalf("error = %v, want unsafe-to-retry side effect error", err)
+	}
+	if calls != 1 {
+		t.Fatalf("tool calls = %d, want 1", calls)
 	}
 }
 

@@ -118,5 +118,10 @@ function toPermission(raw: unknown): ToolPermission {
       return tool
     }),
     defaultGranted: readBoolean(record, 'DefaultGranted', TOOLS_ENDPOINT),
+    kind: record.Kind === 'pipeline' ? 'pipeline' : 'tool',
+    applicable: readBoolean(record, 'Applicable', TOOLS_ENDPOINT, true),
+    unavailableReason: readBoolean(record, 'Applicable', TOOLS_ENDPOINT, true)
+      ? ''
+      : readString(record, 'UnavailableReason', TOOLS_ENDPOINT, ''),
   }
 }

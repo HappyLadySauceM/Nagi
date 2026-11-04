@@ -188,6 +188,9 @@ export interface ToolPermission {
   id: string
   tools: string[]
   defaultGranted: boolean
+  kind?: 'tool' | 'pipeline'
+  applicable?: boolean
+  unavailableReason?: string
 }
 
 /** `GET /api/v1/tools`: what is actually registered right now. */
@@ -307,6 +310,8 @@ export interface ScopePolicy extends ScopeForm {
   templateVersion?: number
   scopeType: ScopeType
   scopeId: number
+  permissionDefaults?: Record<string, boolean>
+  effectiveToolPermissions?: Record<string, boolean>
 }
 
 export const SCOPE_TYPE_LABELS: Record<ScopeType, string> = {

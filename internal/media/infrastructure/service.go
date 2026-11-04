@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 	"io"
 	"mime/multipart"
 	"net"
@@ -18,9 +17,12 @@ import (
 	"strings"
 	"time"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 )
 
 const maxImageBytes = 10 << 20
@@ -225,7 +227,7 @@ func (s *Service) Transcribe(ctx context.Context, bot int64, segments []ob.Segme
 	}
 	return text, nil
 }
-func (s *Service) transcribeAudio(ctx context.Context, audio []byte) (string, error) {
+func (s *Service) transcribeAudio(ctx context.Context, audio []byte) (transcript string, err error) {
 	if s.Models == nil {
 		return "", fmt.Errorf("ASR model is not configured")
 	}
@@ -233,6 +235,28 @@ func (s *Service) transcribeAudio(ctx context.Context, audio []byte) (string, er
 	if err != nil {
 		return "", err
 	}
+	auditEvent, auditErr := auditcontracts.StartEvent(ctx, "media.voice.transcribe", map[string]any{
+		"model": resolved.Profile.Model, "protocol": resolved.Profile.Protocol, "audio_bytes": len(audio),
+	})
+	if auditErr != nil {
+		return "", auditErr
+	}
+	defer func() {
+		output := map[string]any{"audio_bytes": len(audio)}
+		if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
+			output["transcript"] = transcript
+		} else {
+			output["content_redacted"] = "observability_export_disabled"
+		}
+		status, code := "succeeded", ""
+		if err != nil {
+			status, code = "failed", "asr_failed"
+			output["error"] = err.Error()
+		}
+		if finishErr := auditcontracts.FinishEvent(ctx, auditEvent, status, code, output); finishErr != nil && err == nil {
+			err = finishErr
+		}
+	}()
 
 	if resolved.Profile.Protocol == "ark-plan" {
 		if s.Audio == nil {
@@ -281,7 +305,7 @@ func (s *Service) transcribeAudio(ctx context.Context, audio []byte) (string, er
 	return result.Text, nil
 }
 
-func (s *Service) Synthesize(ctx context.Context, text string) ([]byte, error) {
+func (s *Service) Synthesize(ctx context.Context, text string) (audio []byte, err error) {
 	if s.Models == nil {
 		return nil, fmt.Errorf("TTS model is not configured")
 	}
@@ -289,6 +313,27 @@ func (s *Service) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	auditInput := map[string]any{"model": resolved.Profile.Model, "protocol": resolved.Profile.Protocol}
+	if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
+		auditInput["text"] = text
+	} else {
+		auditInput["content_redacted"] = "observability_export_disabled"
+	}
+	auditEvent, auditErr := auditcontracts.StartEvent(ctx, "media.voice.synthesize", auditInput)
+	if auditErr != nil {
+		return nil, auditErr
+	}
+	defer func() {
+		status, code := "succeeded", ""
+		output := map[string]any{"audio_bytes": len(audio)}
+		if err != nil {
+			status, code = "failed", "tts_failed"
+			output["error"] = err.Error()
+		}
+		if finishErr := auditcontracts.FinishEvent(ctx, auditEvent, status, code, output); finishErr != nil && err == nil {
+			err = finishErr
+		}
+	}()
 
 	if resolved.Profile.Protocol == "ark-plan" {
 		if s.Audio == nil {
@@ -315,11 +360,11 @@ func (s *Service) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("TTS unavailable (%d)", resp.StatusCode)
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxAudioBytes+1))
-	if err != nil || len(b) == 0 || len(b) > maxAudioBytes {
+	audio, err = io.ReadAll(io.LimitReader(resp.Body, maxAudioBytes+1))
+	if err != nil || len(audio) == 0 || len(audio) > maxAudioBytes {
 		return nil, fmt.Errorf("invalid TTS audio")
 	}
-	return b, nil
+	return audio, nil
 }
 
 // mediaError exposes only a fixed safe message to the model and management traces.

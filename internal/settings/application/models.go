@@ -371,6 +371,12 @@ func (s *Service) SelectModel(ctx context.Context, bot int64, kind string, targe
 
 type modelSnapshotKey struct{}
 
+// WithModelCatalog fixes the model catalogue from an execution snapshot.
+// WithModelCatalog 从执行快照固定模型目录。
+func WithModelCatalog(ctx context.Context, catalog models.Catalog) context.Context {
+	return context.WithValue(ctx, modelSnapshotKey{}, catalog.Clone())
+}
+
 // ModelSnapshot pins the catalogue across intent, generation and media calls.
 // ModelSnapshot 固定意图、生成及媒体调用共享的模型目录。
 func (s *Service) ModelSnapshot(ctx context.Context) context.Context {

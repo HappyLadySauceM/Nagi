@@ -92,7 +92,11 @@ type Runtime struct {
 	Conversation *conversationapp.Service
 	Memory       *memoryapp.Service
 	Audit        auditcontracts.Recorder
-	Worker       *conversationinfra.Worker
+	// AIAudit stores mandatory worker-run facts separately from best-effort
+	// management audit entries.
+	// AIAudit 独立保存必须落库的 worker 运行事实，不与尽力而为的管理审计混用。
+	AIAudit auditcontracts.AIStore
+	Worker  *conversationinfra.Worker
 	// Decisions reads recorded intent decisions; nil until intent is enabled.
 	// Decisions 读取已记录的意图决策；intent 未启用时为 nil。
 	Decisions       intentcontracts.DecisionReader
@@ -199,6 +203,9 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil, err
 		}
 		if rt.Audit, err = auditinfra.NewRecorder(pool); err != nil {
+			return nil, err
+		}
+		if rt.AIAudit, err = auditinfra.NewAIRecorder(pool); err != nil {
 			return nil, err
 		}
 		if rt.Stats, err = observabilityinfra.NewStatsRepo(pool); err != nil {
@@ -339,6 +346,14 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil, settingsErr
 		}
 		rt.Scope.SetModels(settingsService)
+		rt.Scope.SetPermissionResolver(func(overrides map[string]bool) scopeapp.PermissionState {
+			live := settingsProvider.Settings()
+			visible := toolRegistry.Snapshot()
+			return scopeapp.PermissionState{
+				Defaults:  pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, nil),
+				Effective: pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, overrides),
+			}
+		})
 		rt.Settings = settingsService
 		rt.SettingsProvider = settingsProvider
 		logger.Info("tools registered",
@@ -371,7 +386,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 				return handler.Shutdown(ctx)
 			}
 		}
-		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets)
+		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets, rt.AIAudit)
 		if workerErr != nil {
 			return nil, workerErr
 		}

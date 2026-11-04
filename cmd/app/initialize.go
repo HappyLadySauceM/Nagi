@@ -146,6 +146,7 @@ func Run(ctx context.Context, opts options.Options) error {
 		return err
 	}
 	svcCtx.Stats = rt.Stats
+	svcCtx.AIAudit = rt.AIAudit
 	svcCtx.Tools = rt.Tools
 	svcCtx.Decisions = rt.Decisions
 	svcCtx.IntentSimulator = rt.IntentSimulator

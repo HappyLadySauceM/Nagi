@@ -9,6 +9,42 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 )
 
+// The AIAuditArtifactFunc type is an adapter to allow the use of ordinary
+// function as AIAuditArtifact mutator.
+type AIAuditArtifactFunc func(context.Context, *ent.AIAuditArtifactMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AIAuditArtifactFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AIAuditArtifactMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AIAuditArtifactMutation", m)
+}
+
+// The AIAuditEventFunc type is an adapter to allow the use of ordinary
+// function as AIAuditEvent mutator.
+type AIAuditEventFunc func(context.Context, *ent.AIAuditEventMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AIAuditEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AIAuditEventMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AIAuditEventMutation", m)
+}
+
+// The AIAuditRunFunc type is an adapter to allow the use of ordinary
+// function as AIAuditRun mutator.
+type AIAuditRunFunc func(context.Context, *ent.AIAuditRunMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AIAuditRunFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AIAuditRunMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AIAuditRunMutation", m)
+}
+
 // The AdminAuditLogFunc type is an adapter to allow the use of ordinary
 // function as AdminAuditLog mutator.
 type AdminAuditLogFunc func(context.Context, *ent.AdminAuditLogMutation) (ent.Value, error)

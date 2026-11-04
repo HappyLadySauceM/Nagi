@@ -14,6 +14,12 @@ import (
 // Tx is a transactional client that is created by calling Client.Tx().
 type Tx struct {
 	config
+	// AIAuditArtifact is the client for interacting with the AIAuditArtifact builders.
+	AIAuditArtifact *AIAuditArtifactClient
+	// AIAuditEvent is the client for interacting with the AIAuditEvent builders.
+	AIAuditEvent *AIAuditEventClient
+	// AIAuditRun is the client for interacting with the AIAuditRun builders.
+	AIAuditRun *AIAuditRunClient
 	// AdminAuditLog is the client for interacting with the AdminAuditLog builders.
 	AdminAuditLog *AdminAuditLogClient
 	// AgentOutboundMessage is the client for interacting with the AgentOutboundMessage builders.
@@ -183,6 +189,9 @@ func (tx *Tx) Client() *Client {
 }
 
 func (tx *Tx) init() {
+	tx.AIAuditArtifact = NewAIAuditArtifactClient(tx.config)
+	tx.AIAuditEvent = NewAIAuditEventClient(tx.config)
+	tx.AIAuditRun = NewAIAuditRunClient(tx.config)
 	tx.AdminAuditLog = NewAdminAuditLogClient(tx.config)
 	tx.AgentOutboundMessage = NewAgentOutboundMessageClient(tx.config)
 	tx.AgentRunBudget = NewAgentRunBudgetClient(tx.config)
@@ -211,7 +220,7 @@ func (tx *Tx) init() {
 // of them in order to commit or rollback the transaction.
 //
 // If a closed transaction is embedded in one of the generated entities, and the entity
-// applies a query, for example: AdminAuditLog.QueryXXX(), the query will be executed
+// applies a query, for example: AIAuditArtifact.QueryXXX(), the query will be executed
 // through the driver which created this transaction.
 //
 // Note that txDriver is not goroutine safe.
