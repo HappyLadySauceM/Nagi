@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
@@ -80,6 +81,21 @@ type RuntimeConfig struct {
 // the static options are authoritative.
 // RuntimeConfigProvider 报告当前运行配置；nil 表示以静态 Options 为准。
 type RuntimeConfigProvider func() RuntimeConfig
+
+type runtimeConfigKey struct{}
+
+// WithRuntimeConfig fixes the decision settings for one execution.
+// WithRuntimeConfig 固定单次执行的决策配置。
+func WithRuntimeConfig(ctx context.Context, cfg RuntimeConfig) context.Context {
+	return context.WithValue(ctx, runtimeConfigKey{}, cfg)
+}
+
+func (d *Decider) runtimeFor(ctx context.Context) RuntimeConfig {
+	if cfg, ok := ctx.Value(runtimeConfigKey{}).(RuntimeConfig); ok {
+		return cfg
+	}
+	return d.runtime()
+}
 
 type TranscriptRecorder interface {
 	SaveTranscript(context.Context, int64, string, string) error
@@ -170,7 +186,7 @@ func (d *Decider) runtime() RuntimeConfig {
 // decider, records the final decision and dispatches replies.
 // ProcessTask 即时解析策略，应用规则与可选语义判定，记录最终决策并分发回复。
 func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
-	runtime := d.runtime()
+	runtime := d.runtimeFor(ctx)
 
 	policy, err := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if err != nil {
@@ -178,13 +194,13 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		// 可重试的基础设施故障：把错误交还给工作器。
 		return fmt.Errorf("intent: resolve policy: %w", err)
 	}
-	if d.media != nil && policy.ToolPermissions["media.voice.transcribe"] && policy.Enabled && policy.StoreMessages && policy.ReplyMode != scopedomain.ModeObserveOnly {
+	if d.media != nil && policy.PermissionGranted("media.voice.transcribe") && policy.Enabled && policy.StoreMessages && policy.ReplyMode != scopedomain.ModeObserveOnly {
 		text, err := d.media.Transcribe(ctx, task.BotID, task.Segments, task.Message.Text)
 		latest, resolveErr := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 		if resolveErr != nil {
 			return resolveErr
 		}
-		if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !latest.ToolPermissions["media.voice.transcribe"] {
+		if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !latest.PermissionGranted("media.voice.transcribe") {
 			return nil
 		}
 		policy = latest
@@ -218,12 +234,37 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	if rule.NeedSemantic && d.semantic != nil {
 		semantic, latency = d.decideSemantic(ctx, in, runtime)
 	}
-	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
+	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = rulesetVersion
-	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic, d.th)
+	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic && d.semantic != nil, runtime.Thresholds)
 
+	// The durable decision record remains the source used by evaluation. Mirror
+	// its explainable, non-message facts into the run timeline before persisting
+	// it, so a missing local audit write prevents a later reply from being sent.
+	// 决策表仍是评估的事实来源。先把不含消息正文的可解释事实写入运行时间线，
+	// 这样本地审计写入失败时不会继续到后续回复。
+	auditEvent, err := auditcontracts.StartEvent(ctx, "intent.decision", map[string]any{
+		"job_id":          task.JobID,
+		"conversation_id": task.ConversationID,
+		"config": map[string]any{
+			"provider":      runtime.Provider,
+			"model":         runtime.Model,
+			"history_limit": runtime.HistoryLimit,
+			"thresholds":    runtime.Thresholds,
+		},
+		"ruleset_version": rulesetVersion,
+	})
+	if err != nil {
+		return err
+	}
 	if err := d.recorder.Record(ctx, task.JobID, decision, task.ClaimToken); err != nil {
-		d.logger.Warn("record decision failed", "error", err, "job_id", task.JobID)
+		if finishErr := auditcontracts.FinishEvent(ctx, auditEvent, "failed", "decision_record_failed", map[string]any{"error": err.Error()}); finishErr != nil {
+			return finishErr
+		}
+		return fmt.Errorf("intent: record decision: %w", err)
+	}
+	if err := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", map[string]any{"decision": decision}); err != nil {
+		return err
 	}
 	d.logger.Info("intent decided",
 		"job_id", task.JobID, "decision", string(decision.Decision),
@@ -249,7 +290,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	// History bodies stay out of the payload: they can be dozens of messages,
 	// and the count is enough to explain the decision.
 	// 历史正文不进入载荷：它可能包含几十条消息，条数已足以解释决策。
-	historyLimit := d.runtime().HistoryLimit
+	historyLimit := d.runtimeFor(ctx).HistoryLimit
 	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
 		"conversation_id": task.ConversationID,
 		"history_limit":   historyLimit,
@@ -324,22 +365,21 @@ func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
 			"matched":       rule.Matched,
 		},
 	}}
-	if asked {
-		steps = append(steps, domain.Step{
-			Index: 2,
-			Phase: domain.StepSemantic,
-			Detail: map[string]any{
-				"available":            semantic.Available,
-				"failure_code":         semantic.FailureCode,
-				"intent_category":      semantic.IntentCategory,
-				"directed_to_bot":      semantic.DirectedToBot,
-				"continues_bot_thread": semantic.ContinuesBotThread,
-				"addressed_to_other":   semantic.AddressedToOther,
-				"appropriate_to_join":  semantic.AppropriateToJoin,
-				"latency_ms":           latency,
-			},
-		})
+	semanticDetail := map[string]any{
+		"called":               asked,
+		"available":            semantic.Available,
+		"failure_code":         semantic.FailureCode,
+		"intent_category":      semantic.IntentCategory,
+		"directed_to_bot":      semantic.DirectedToBot,
+		"continues_bot_thread": semantic.ContinuesBotThread,
+		"addressed_to_other":   semantic.AddressedToOther,
+		"appropriate_to_join":  semantic.AppropriateToJoin,
+		"latency_ms":           latency,
 	}
+	if !asked {
+		semanticDetail["skip_reason"] = semanticSkipReason(rule)
+	}
+	steps = append(steps, domain.Step{Index: len(steps), Phase: domain.StepSemantic, Detail: semanticDetail})
 	steps = append(steps, domain.Step{
 		Index:      len(steps),
 		Phase:      domain.StepFinal,
@@ -353,6 +393,19 @@ func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
 		},
 	})
 	return steps
+}
+
+func semanticSkipReason(rule domain.RuleResult) string {
+	if rule.Blocked {
+		return "rule_blocked"
+	}
+	if rule.AlwaysReply {
+		return "always_reply"
+	}
+	if !rule.NeedSemantic {
+		return "rules_sufficient"
+	}
+	return "semantic_unavailable"
 }
 
 // applyRules evaluates the deterministic gate and records why it stopped.
@@ -453,11 +506,10 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 // applyPolicy computes the final decision inside its own span.
 // applyPolicy 在独立 span 内计算最终决策。
 func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.RuleResult,
-	semantic domain.SemanticAnswer, latency int64,
+	semantic domain.SemanticAnswer, latency int64, runtime RuntimeConfig,
 ) domain.FinalDecision {
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
-	runtime := d.runtime()
 	decision := EvaluateReplyPolicy(in, rule, semantic, runtime.Thresholds)
 	decision.Provider = runtime.Provider
 	decision.Model = runtime.Model
@@ -488,15 +540,15 @@ func tracer() trace.Tracer {
 // EvaluateSimulation reuses the live semantic provider and thresholds without invoking the executor.
 // EvaluateSimulation 复用运行中的语义服务与阈值，不调用回复执行器。
 func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule domain.RuleResult, full bool) (domain.FinalDecision, []domain.Step) {
-	runtime := d.runtime()
+	runtime := d.runtimeFor(ctx)
 	var semantic domain.SemanticAnswer
 	var latency int64
 	called := full && rule.NeedSemantic && d.semantic != nil && !rule.Blocked
 	if called {
 		semantic, latency = d.decideSemantic(ctx, in, runtime)
 	}
-	decision := d.applyPolicy(ctx, in, rule, semantic, latency)
-	return decision, decisionSteps(in.Policy, rule, semantic, decision, latency, called, d.runtime().Thresholds)
+	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
+	return decision, decisionSteps(in.Policy, rule, semantic, decision, latency, called, runtime.Thresholds)
 }
 
 // PrepareSimulation loads the same authorized context and activity as live decisions.

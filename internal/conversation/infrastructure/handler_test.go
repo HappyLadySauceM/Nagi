@@ -184,7 +184,7 @@ func TestIngressObservationOmitsBodyBeforeConsent(t *testing.T) {
 	}
 
 	for _, span := range recorder.Ended() {
-		if span.Name() != "nagi.message.process" {
+		if span.Name() != "nagi.message.receive" {
 			continue
 		}
 		for _, kv := range span.Attributes() {
@@ -265,12 +265,12 @@ func TestIngressPersistsTraceContext(t *testing.T) {
 
 	var root sdktrace.ReadOnlySpan
 	for _, span := range recorder.Ended() {
-		if span.Name() == "nagi.message.process" {
+		if span.Name() == "nagi.message.receive" {
 			root = span
 		}
 	}
 	if root == nil {
-		t.Fatal("nagi.message.process span not recorded")
+		t.Fatal("nagi.message.receive span not recorded")
 	}
 	restored := trace.SpanContextFromContext(stored.Restore(context.Background()))
 	if restored.TraceID() != root.SpanContext().TraceID() {
@@ -282,6 +282,9 @@ func TestIngressPersistsTraceContext(t *testing.T) {
 	}
 	if attrs[observability.SessionIDKey] != "c1" {
 		t.Fatalf("session attribute = %q", attrs[observability.SessionIDKey])
+	}
+	if attrs[observability.TraceNameKey] != "nagi.message.receive" {
+		t.Fatalf("trace name = %q", attrs[observability.TraceNameKey])
 	}
 	if attrs[observability.UserIDKey] == "" {
 		t.Fatal("user attribute must be set when a secret is configured")
@@ -329,7 +332,7 @@ func TestIngressExportsRawQQIdentifiers(t *testing.T) {
 
 	attrs := map[string]string{}
 	for _, span := range recorder.Ended() {
-		if span.Name() != "nagi.message.process" {
+		if span.Name() != "nagi.message.receive" {
 			continue
 		}
 		for _, kv := range span.Attributes() {

@@ -63,6 +63,22 @@ describe('ScopeFormFields capability checkboxes', () => {
     expect(screen.queryByRole('checkbox', { name: '查询当前群信息' })).toBeNull()
   })
 
+  it('shows the voice transcription pipeline capability without a model tool', () => {
+    renderCatalog({
+      providers: [],
+      tools: [],
+      permissions: [{
+        id: 'media.voice.transcribe',
+        tools: [],
+        defaultGranted: true,
+        kind: 'pipeline',
+        applicable: true,
+        unavailableReason: '',
+      }],
+    }, false, false, true)
+    expect(screen.getByRole('checkbox', { name: '识别收到的语音' })).toBeChecked()
+  })
+
   it.each([true, false])('grants a side-effect tool directly for grant %s', (granted) => {
     // There is no process-level side-effect switch any more: the conversation
     // grant is the only decision, so the switch stays operable.

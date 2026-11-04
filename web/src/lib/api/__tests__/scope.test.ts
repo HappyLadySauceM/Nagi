@@ -51,6 +51,18 @@ describe('scope adapter', () => {
     expect(toScopePolicy({ ...POLICY, ToolPermissions: null }).toolPermissions).toEqual({})
   })
 
+  it('keeps overrides, defaults and effective grants distinct', () => {
+    const policy = toScopePolicy({
+      ...POLICY,
+      ToolPermissions: {},
+      PermissionDefaults: { 'media.voice.transcribe': true },
+      EffectiveToolPermissions: { 'media.voice.transcribe': true },
+    })
+    expect(policy.toolPermissions).toEqual({})
+    expect(policy.permissionDefaults).toEqual({ 'media.voice.transcribe': true })
+    expect(policy.effectiveToolPermissions).toEqual({ 'media.voice.transcribe': true })
+  })
+
   it('rejects non-boolean overrides instead of guessing', () => {
     expect(() =>
       toScopePolicy({ ...POLICY, ToolPermissions: { 'qq.group.read': 'no' } }),

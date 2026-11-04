@@ -90,7 +90,7 @@ func RecordObservation(span trace.Span, key string, value any) {
 		span.SetAttributes(attribute.String(key, `{"redacted":true}`))
 		return
 	}
-	payload, err := json.Marshal(value)
+	payload, err := json.Marshal(Redact(value))
 	if err != nil {
 		// An unrenderable payload must never break the span; the marker keeps
 		// the document valid JSON.

@@ -20,6 +20,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentsendingpolicy"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditartifact"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
@@ -44,6 +47,12 @@ type Client struct {
 	config
 	// Schema is the client for creating, migrating and dropping schema.
 	Schema *migrate.Schema
+	// AIAuditArtifact is the client for interacting with the AIAuditArtifact builders.
+	AIAuditArtifact *AIAuditArtifactClient
+	// AIAuditEvent is the client for interacting with the AIAuditEvent builders.
+	AIAuditEvent *AIAuditEventClient
+	// AIAuditRun is the client for interacting with the AIAuditRun builders.
+	AIAuditRun *AIAuditRunClient
 	// AdminAuditLog is the client for interacting with the AdminAuditLog builders.
 	AdminAuditLog *AdminAuditLogClient
 	// AgentOutboundMessage is the client for interacting with the AgentOutboundMessage builders.
@@ -93,6 +102,9 @@ func NewClient(opts ...Option) *Client {
 
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
+	c.AIAuditArtifact = NewAIAuditArtifactClient(c.config)
+	c.AIAuditEvent = NewAIAuditEventClient(c.config)
+	c.AIAuditRun = NewAIAuditRunClient(c.config)
 	c.AdminAuditLog = NewAdminAuditLogClient(c.config)
 	c.AgentOutboundMessage = NewAgentOutboundMessageClient(c.config)
 	c.AgentRunBudget = NewAgentRunBudgetClient(c.config)
@@ -204,6 +216,9 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	return &Tx{
 		ctx:                  ctx,
 		config:               cfg,
+		AIAuditArtifact:      NewAIAuditArtifactClient(cfg),
+		AIAuditEvent:         NewAIAuditEventClient(cfg),
+		AIAuditRun:           NewAIAuditRunClient(cfg),
 		AdminAuditLog:        NewAdminAuditLogClient(cfg),
 		AgentOutboundMessage: NewAgentOutboundMessageClient(cfg),
 		AgentRunBudget:       NewAgentRunBudgetClient(cfg),
@@ -242,6 +257,9 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	return &Tx{
 		ctx:                  ctx,
 		config:               cfg,
+		AIAuditArtifact:      NewAIAuditArtifactClient(cfg),
+		AIAuditEvent:         NewAIAuditEventClient(cfg),
+		AIAuditRun:           NewAIAuditRunClient(cfg),
 		AdminAuditLog:        NewAdminAuditLogClient(cfg),
 		AgentOutboundMessage: NewAgentOutboundMessageClient(cfg),
 		AgentRunBudget:       NewAgentRunBudgetClient(cfg),
@@ -267,7 +285,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 // Debug returns a new debug-client. It's used to get verbose logging on specific operations.
 //
 //	client.Debug().
-//		AdminAuditLog.
+//		AIAuditArtifact.
 //		Query().
 //		Count(ctx)
 func (c *Client) Debug() *Client {
@@ -290,8 +308,9 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.AdminAuditLog, c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy,
-		c.BotAccount, c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
+		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
+		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
+		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
 		c.IntentDecisionStep, c.IntentRuleActivation, c.IntentRuleEntry,
 		c.IntentRuleset, c.Memory, c.Message, c.MessageJob, c.QQGroup, c.ScopePolicy,
 		c.SystemSetting,
@@ -304,8 +323,9 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.AdminAuditLog, c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy,
-		c.BotAccount, c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
+		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
+		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
+		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
 		c.IntentDecisionStep, c.IntentRuleActivation, c.IntentRuleEntry,
 		c.IntentRuleset, c.Memory, c.Message, c.MessageJob, c.QQGroup, c.ScopePolicy,
 		c.SystemSetting,
@@ -317,6 +337,12 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 // Mutate implements the ent.Mutator interface.
 func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
+	case *AIAuditArtifactMutation:
+		return c.AIAuditArtifact.mutate(ctx, m)
+	case *AIAuditEventMutation:
+		return c.AIAuditEvent.mutate(ctx, m)
+	case *AIAuditRunMutation:
+		return c.AIAuditRun.mutate(ctx, m)
 	case *AdminAuditLogMutation:
 		return c.AdminAuditLog.mutate(ctx, m)
 	case *AgentOutboundMessageMutation:
@@ -357,6 +383,405 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.SystemSetting.mutate(ctx, m)
 	default:
 		return nil, fmt.Errorf("ent: unknown mutation type %T", m)
+	}
+}
+
+// AIAuditArtifactClient is a client for the AIAuditArtifact schema.
+type AIAuditArtifactClient struct {
+	config
+}
+
+// NewAIAuditArtifactClient returns a client for the AIAuditArtifact from the given config.
+func NewAIAuditArtifactClient(c config) *AIAuditArtifactClient {
+	return &AIAuditArtifactClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `aiauditartifact.Hooks(f(g(h())))`.
+func (c *AIAuditArtifactClient) Use(hooks ...Hook) {
+	c.hooks.AIAuditArtifact = append(c.hooks.AIAuditArtifact, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `aiauditartifact.Intercept(f(g(h())))`.
+func (c *AIAuditArtifactClient) Intercept(interceptors ...Interceptor) {
+	c.inters.AIAuditArtifact = append(c.inters.AIAuditArtifact, interceptors...)
+}
+
+// Create returns a builder for creating a AIAuditArtifact entity.
+func (c *AIAuditArtifactClient) Create() *AIAuditArtifactCreate {
+	mutation := newAIAuditArtifactMutation(c.config, OpCreate)
+	return &AIAuditArtifactCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of AIAuditArtifact entities.
+func (c *AIAuditArtifactClient) CreateBulk(builders ...*AIAuditArtifactCreate) *AIAuditArtifactCreateBulk {
+	return &AIAuditArtifactCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *AIAuditArtifactClient) MapCreateBulk(slice any, setFunc func(*AIAuditArtifactCreate, int)) *AIAuditArtifactCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &AIAuditArtifactCreateBulk{err: fmt.Errorf("calling to AIAuditArtifactClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*AIAuditArtifactCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &AIAuditArtifactCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for AIAuditArtifact.
+func (c *AIAuditArtifactClient) Update() *AIAuditArtifactUpdate {
+	mutation := newAIAuditArtifactMutation(c.config, OpUpdate)
+	return &AIAuditArtifactUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *AIAuditArtifactClient) UpdateOne(_m *AIAuditArtifact) *AIAuditArtifactUpdateOne {
+	mutation := newAIAuditArtifactMutation(c.config, OpUpdateOne, withAIAuditArtifact(_m))
+	return &AIAuditArtifactUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *AIAuditArtifactClient) UpdateOneID(id uuid.UUID) *AIAuditArtifactUpdateOne {
+	mutation := newAIAuditArtifactMutation(c.config, OpUpdateOne, withAIAuditArtifactID(id))
+	return &AIAuditArtifactUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for AIAuditArtifact.
+func (c *AIAuditArtifactClient) Delete() *AIAuditArtifactDelete {
+	mutation := newAIAuditArtifactMutation(c.config, OpDelete)
+	return &AIAuditArtifactDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *AIAuditArtifactClient) DeleteOne(_m *AIAuditArtifact) *AIAuditArtifactDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *AIAuditArtifactClient) DeleteOneID(id uuid.UUID) *AIAuditArtifactDeleteOne {
+	builder := c.Delete().Where(aiauditartifact.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &AIAuditArtifactDeleteOne{builder}
+}
+
+// Query returns a query builder for AIAuditArtifact.
+func (c *AIAuditArtifactClient) Query() *AIAuditArtifactQuery {
+	return &AIAuditArtifactQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAIAuditArtifact},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a AIAuditArtifact entity by its id.
+func (c *AIAuditArtifactClient) Get(ctx context.Context, id uuid.UUID) (*AIAuditArtifact, error) {
+	return c.Query().Where(aiauditartifact.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *AIAuditArtifactClient) GetX(ctx context.Context, id uuid.UUID) *AIAuditArtifact {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *AIAuditArtifactClient) Hooks() []Hook {
+	return c.hooks.AIAuditArtifact
+}
+
+// Interceptors returns the client interceptors.
+func (c *AIAuditArtifactClient) Interceptors() []Interceptor {
+	return c.inters.AIAuditArtifact
+}
+
+func (c *AIAuditArtifactClient) mutate(ctx context.Context, m *AIAuditArtifactMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&AIAuditArtifactCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&AIAuditArtifactUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&AIAuditArtifactUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&AIAuditArtifactDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown AIAuditArtifact mutation op: %q", m.Op())
+	}
+}
+
+// AIAuditEventClient is a client for the AIAuditEvent schema.
+type AIAuditEventClient struct {
+	config
+}
+
+// NewAIAuditEventClient returns a client for the AIAuditEvent from the given config.
+func NewAIAuditEventClient(c config) *AIAuditEventClient {
+	return &AIAuditEventClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `aiauditevent.Hooks(f(g(h())))`.
+func (c *AIAuditEventClient) Use(hooks ...Hook) {
+	c.hooks.AIAuditEvent = append(c.hooks.AIAuditEvent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `aiauditevent.Intercept(f(g(h())))`.
+func (c *AIAuditEventClient) Intercept(interceptors ...Interceptor) {
+	c.inters.AIAuditEvent = append(c.inters.AIAuditEvent, interceptors...)
+}
+
+// Create returns a builder for creating a AIAuditEvent entity.
+func (c *AIAuditEventClient) Create() *AIAuditEventCreate {
+	mutation := newAIAuditEventMutation(c.config, OpCreate)
+	return &AIAuditEventCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of AIAuditEvent entities.
+func (c *AIAuditEventClient) CreateBulk(builders ...*AIAuditEventCreate) *AIAuditEventCreateBulk {
+	return &AIAuditEventCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *AIAuditEventClient) MapCreateBulk(slice any, setFunc func(*AIAuditEventCreate, int)) *AIAuditEventCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &AIAuditEventCreateBulk{err: fmt.Errorf("calling to AIAuditEventClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*AIAuditEventCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &AIAuditEventCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for AIAuditEvent.
+func (c *AIAuditEventClient) Update() *AIAuditEventUpdate {
+	mutation := newAIAuditEventMutation(c.config, OpUpdate)
+	return &AIAuditEventUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *AIAuditEventClient) UpdateOne(_m *AIAuditEvent) *AIAuditEventUpdateOne {
+	mutation := newAIAuditEventMutation(c.config, OpUpdateOne, withAIAuditEvent(_m))
+	return &AIAuditEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *AIAuditEventClient) UpdateOneID(id uuid.UUID) *AIAuditEventUpdateOne {
+	mutation := newAIAuditEventMutation(c.config, OpUpdateOne, withAIAuditEventID(id))
+	return &AIAuditEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for AIAuditEvent.
+func (c *AIAuditEventClient) Delete() *AIAuditEventDelete {
+	mutation := newAIAuditEventMutation(c.config, OpDelete)
+	return &AIAuditEventDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *AIAuditEventClient) DeleteOne(_m *AIAuditEvent) *AIAuditEventDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *AIAuditEventClient) DeleteOneID(id uuid.UUID) *AIAuditEventDeleteOne {
+	builder := c.Delete().Where(aiauditevent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &AIAuditEventDeleteOne{builder}
+}
+
+// Query returns a query builder for AIAuditEvent.
+func (c *AIAuditEventClient) Query() *AIAuditEventQuery {
+	return &AIAuditEventQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAIAuditEvent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a AIAuditEvent entity by its id.
+func (c *AIAuditEventClient) Get(ctx context.Context, id uuid.UUID) (*AIAuditEvent, error) {
+	return c.Query().Where(aiauditevent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *AIAuditEventClient) GetX(ctx context.Context, id uuid.UUID) *AIAuditEvent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *AIAuditEventClient) Hooks() []Hook {
+	return c.hooks.AIAuditEvent
+}
+
+// Interceptors returns the client interceptors.
+func (c *AIAuditEventClient) Interceptors() []Interceptor {
+	return c.inters.AIAuditEvent
+}
+
+func (c *AIAuditEventClient) mutate(ctx context.Context, m *AIAuditEventMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&AIAuditEventCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&AIAuditEventUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&AIAuditEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&AIAuditEventDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown AIAuditEvent mutation op: %q", m.Op())
+	}
+}
+
+// AIAuditRunClient is a client for the AIAuditRun schema.
+type AIAuditRunClient struct {
+	config
+}
+
+// NewAIAuditRunClient returns a client for the AIAuditRun from the given config.
+func NewAIAuditRunClient(c config) *AIAuditRunClient {
+	return &AIAuditRunClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `aiauditrun.Hooks(f(g(h())))`.
+func (c *AIAuditRunClient) Use(hooks ...Hook) {
+	c.hooks.AIAuditRun = append(c.hooks.AIAuditRun, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `aiauditrun.Intercept(f(g(h())))`.
+func (c *AIAuditRunClient) Intercept(interceptors ...Interceptor) {
+	c.inters.AIAuditRun = append(c.inters.AIAuditRun, interceptors...)
+}
+
+// Create returns a builder for creating a AIAuditRun entity.
+func (c *AIAuditRunClient) Create() *AIAuditRunCreate {
+	mutation := newAIAuditRunMutation(c.config, OpCreate)
+	return &AIAuditRunCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of AIAuditRun entities.
+func (c *AIAuditRunClient) CreateBulk(builders ...*AIAuditRunCreate) *AIAuditRunCreateBulk {
+	return &AIAuditRunCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *AIAuditRunClient) MapCreateBulk(slice any, setFunc func(*AIAuditRunCreate, int)) *AIAuditRunCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &AIAuditRunCreateBulk{err: fmt.Errorf("calling to AIAuditRunClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*AIAuditRunCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &AIAuditRunCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for AIAuditRun.
+func (c *AIAuditRunClient) Update() *AIAuditRunUpdate {
+	mutation := newAIAuditRunMutation(c.config, OpUpdate)
+	return &AIAuditRunUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *AIAuditRunClient) UpdateOne(_m *AIAuditRun) *AIAuditRunUpdateOne {
+	mutation := newAIAuditRunMutation(c.config, OpUpdateOne, withAIAuditRun(_m))
+	return &AIAuditRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *AIAuditRunClient) UpdateOneID(id uuid.UUID) *AIAuditRunUpdateOne {
+	mutation := newAIAuditRunMutation(c.config, OpUpdateOne, withAIAuditRunID(id))
+	return &AIAuditRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for AIAuditRun.
+func (c *AIAuditRunClient) Delete() *AIAuditRunDelete {
+	mutation := newAIAuditRunMutation(c.config, OpDelete)
+	return &AIAuditRunDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *AIAuditRunClient) DeleteOne(_m *AIAuditRun) *AIAuditRunDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *AIAuditRunClient) DeleteOneID(id uuid.UUID) *AIAuditRunDeleteOne {
+	builder := c.Delete().Where(aiauditrun.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &AIAuditRunDeleteOne{builder}
+}
+
+// Query returns a query builder for AIAuditRun.
+func (c *AIAuditRunClient) Query() *AIAuditRunQuery {
+	return &AIAuditRunQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAIAuditRun},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a AIAuditRun entity by its id.
+func (c *AIAuditRunClient) Get(ctx context.Context, id uuid.UUID) (*AIAuditRun, error) {
+	return c.Query().Where(aiauditrun.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *AIAuditRunClient) GetX(ctx context.Context, id uuid.UUID) *AIAuditRun {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *AIAuditRunClient) Hooks() []Hook {
+	return c.hooks.AIAuditRun
+}
+
+// Interceptors returns the client interceptors.
+func (c *AIAuditRunClient) Interceptors() []Interceptor {
+	return c.inters.AIAuditRun
+}
+
+func (c *AIAuditRunClient) mutate(ctx context.Context, m *AIAuditRunMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&AIAuditRunCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&AIAuditRunUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&AIAuditRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&AIAuditRunDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown AIAuditRun mutation op: %q", m.Op())
 	}
 }
 
@@ -3498,17 +3923,18 @@ func (c *SystemSettingClient) mutate(ctx context.Context, m *SystemSettingMutati
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		AdminAuditLog, AgentOutboundMessage, AgentRunBudget, AgentSendingPolicy,
-		BotAccount, Contact, Conversation, GroupMember, IntentDecision,
-		IntentDecisionStep, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
-		Memory, Message, MessageJob, QQGroup, ScopePolicy, SystemSetting []ent.Hook
+		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
+		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
+		GroupMember, IntentDecision, IntentDecisionStep, IntentRuleActivation,
+		IntentRuleEntry, IntentRuleset, Memory, Message, MessageJob, QQGroup,
+		ScopePolicy, SystemSetting []ent.Hook
 	}
 	inters struct {
-		AdminAuditLog, AgentOutboundMessage, AgentRunBudget, AgentSendingPolicy,
-		BotAccount, Contact, Conversation, GroupMember, IntentDecision,
-		IntentDecisionStep, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
-		Memory, Message, MessageJob, QQGroup, ScopePolicy,
-		SystemSetting []ent.Interceptor
+		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
+		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
+		GroupMember, IntentDecision, IntentDecisionStep, IntentRuleActivation,
+		IntentRuleEntry, IntentRuleset, Memory, Message, MessageJob, QQGroup,
+		ScopePolicy, SystemSetting []ent.Interceptor
 	}
 )
 

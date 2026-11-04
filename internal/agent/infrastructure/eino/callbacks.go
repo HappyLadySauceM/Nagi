@@ -14,6 +14,7 @@ import (
 	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	"github.com/HappyLadySauceM/Nagi/pkg/version"
 )
 
@@ -71,8 +72,11 @@ func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, 
 		// 回调绝不自建导出器：两条管线会让每个模型 span 重复上报。
 		TracerProvider: provider,
 	}
-	if cfg.RedactContent {
-		callbackCfg.MaskFunc = func(string) string { return redactedValue }
+	callbackCfg.MaskFunc = func(value string) string {
+		if cfg.RedactContent {
+			return redactedValue
+		}
+		return observability.RedactString(value)
 	}
 	handler, err := langfusecb.NewHandler(ctx, callbackCfg)
 	if err != nil {

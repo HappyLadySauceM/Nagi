@@ -10,6 +10,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentsendingpolicy"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditartifact"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/aiauditrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
@@ -32,6 +35,92 @@ import (
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	aiauditartifactFields := nagi.AIAuditArtifact{}.Fields()
+	_ = aiauditartifactFields
+	// aiauditartifactDescStatus is the schema descriptor for status field.
+	aiauditartifactDescStatus := aiauditartifactFields[4].Descriptor()
+	// aiauditartifact.DefaultStatus holds the default value on creation for the status field.
+	aiauditartifact.DefaultStatus = aiauditartifactDescStatus.Default.(string)
+	// aiauditartifactDescSha256 is the schema descriptor for sha256 field.
+	aiauditartifactDescSha256 := aiauditartifactFields[5].Descriptor()
+	// aiauditartifact.DefaultSha256 holds the default value on creation for the sha256 field.
+	aiauditartifact.DefaultSha256 = aiauditartifactDescSha256.Default.(string)
+	// aiauditartifactDescContentType is the schema descriptor for content_type field.
+	aiauditartifactDescContentType := aiauditartifactFields[6].Descriptor()
+	// aiauditartifact.DefaultContentType holds the default value on creation for the content_type field.
+	aiauditartifact.DefaultContentType = aiauditartifactDescContentType.Default.(string)
+	// aiauditartifactDescSizeBytes is the schema descriptor for size_bytes field.
+	aiauditartifactDescSizeBytes := aiauditartifactFields[7].Descriptor()
+	// aiauditartifact.DefaultSizeBytes holds the default value on creation for the size_bytes field.
+	aiauditartifact.DefaultSizeBytes = aiauditartifactDescSizeBytes.Default.(int64)
+	// aiauditartifactDescObjectKey is the schema descriptor for object_key field.
+	aiauditartifactDescObjectKey := aiauditartifactFields[8].Descriptor()
+	// aiauditartifact.DefaultObjectKey holds the default value on creation for the object_key field.
+	aiauditartifact.DefaultObjectKey = aiauditartifactDescObjectKey.Default.(string)
+	// aiauditartifactDescFailureCode is the schema descriptor for failure_code field.
+	aiauditartifactDescFailureCode := aiauditartifactFields[9].Descriptor()
+	// aiauditartifact.DefaultFailureCode holds the default value on creation for the failure_code field.
+	aiauditartifact.DefaultFailureCode = aiauditartifactDescFailureCode.Default.(string)
+	// aiauditartifactDescCreatedAt is the schema descriptor for created_at field.
+	aiauditartifactDescCreatedAt := aiauditartifactFields[11].Descriptor()
+	// aiauditartifact.DefaultCreatedAt holds the default value on creation for the created_at field.
+	aiauditartifact.DefaultCreatedAt = aiauditartifactDescCreatedAt.Default.(func() time.Time)
+	// aiauditartifactDescUpdatedAt is the schema descriptor for updated_at field.
+	aiauditartifactDescUpdatedAt := aiauditartifactFields[12].Descriptor()
+	// aiauditartifact.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	aiauditartifact.DefaultUpdatedAt = aiauditartifactDescUpdatedAt.Default.(func() time.Time)
+	// aiauditartifactDescID is the schema descriptor for id field.
+	aiauditartifactDescID := aiauditartifactFields[0].Descriptor()
+	// aiauditartifact.DefaultID holds the default value on creation for the id field.
+	aiauditartifact.DefaultID = aiauditartifactDescID.Default.(func() uuid.UUID)
+	aiauditeventFields := nagi.AIAuditEvent{}.Fields()
+	_ = aiauditeventFields
+	// aiauditeventDescSchemaVersion is the schema descriptor for schema_version field.
+	aiauditeventDescSchemaVersion := aiauditeventFields[4].Descriptor()
+	// aiauditevent.DefaultSchemaVersion holds the default value on creation for the schema_version field.
+	aiauditevent.DefaultSchemaVersion = aiauditeventDescSchemaVersion.Default.(int)
+	// aiauditeventDescStatus is the schema descriptor for status field.
+	aiauditeventDescStatus := aiauditeventFields[6].Descriptor()
+	// aiauditevent.DefaultStatus holds the default value on creation for the status field.
+	aiauditevent.DefaultStatus = aiauditeventDescStatus.Default.(string)
+	// aiauditeventDescErrorCode is the schema descriptor for error_code field.
+	aiauditeventDescErrorCode := aiauditeventFields[7].Descriptor()
+	// aiauditevent.DefaultErrorCode holds the default value on creation for the error_code field.
+	aiauditevent.DefaultErrorCode = aiauditeventDescErrorCode.Default.(string)
+	// aiauditeventDescStartedAt is the schema descriptor for started_at field.
+	aiauditeventDescStartedAt := aiauditeventFields[10].Descriptor()
+	// aiauditevent.DefaultStartedAt holds the default value on creation for the started_at field.
+	aiauditevent.DefaultStartedAt = aiauditeventDescStartedAt.Default.(func() time.Time)
+	// aiauditeventDescID is the schema descriptor for id field.
+	aiauditeventDescID := aiauditeventFields[0].Descriptor()
+	// aiauditevent.DefaultID holds the default value on creation for the id field.
+	aiauditevent.DefaultID = aiauditeventDescID.Default.(func() uuid.UUID)
+	aiauditrunFields := nagi.AIAuditRun{}.Fields()
+	_ = aiauditrunFields
+	// aiauditrunDescTraceID is the schema descriptor for trace_id field.
+	aiauditrunDescTraceID := aiauditrunFields[5].Descriptor()
+	// aiauditrun.DefaultTraceID holds the default value on creation for the trace_id field.
+	aiauditrun.DefaultTraceID = aiauditrunDescTraceID.Default.(string)
+	// aiauditrunDescConfigVersion is the schema descriptor for config_version field.
+	aiauditrunDescConfigVersion := aiauditrunFields[6].Descriptor()
+	// aiauditrun.DefaultConfigVersion holds the default value on creation for the config_version field.
+	aiauditrun.DefaultConfigVersion = aiauditrunDescConfigVersion.Default.(int64)
+	// aiauditrunDescStatus is the schema descriptor for status field.
+	aiauditrunDescStatus := aiauditrunFields[7].Descriptor()
+	// aiauditrun.DefaultStatus holds the default value on creation for the status field.
+	aiauditrun.DefaultStatus = aiauditrunDescStatus.Default.(string)
+	// aiauditrunDescErrorCode is the schema descriptor for error_code field.
+	aiauditrunDescErrorCode := aiauditrunFields[8].Descriptor()
+	// aiauditrun.DefaultErrorCode holds the default value on creation for the error_code field.
+	aiauditrun.DefaultErrorCode = aiauditrunDescErrorCode.Default.(string)
+	// aiauditrunDescStartedAt is the schema descriptor for started_at field.
+	aiauditrunDescStartedAt := aiauditrunFields[9].Descriptor()
+	// aiauditrun.DefaultStartedAt holds the default value on creation for the started_at field.
+	aiauditrun.DefaultStartedAt = aiauditrunDescStartedAt.Default.(func() time.Time)
+	// aiauditrunDescID is the schema descriptor for id field.
+	aiauditrunDescID := aiauditrunFields[0].Descriptor()
+	// aiauditrun.DefaultID holds the default value on creation for the id field.
+	aiauditrun.DefaultID = aiauditrunDescID.Default.(func() uuid.UUID)
 	adminauditlogFields := nagi.AdminAuditLog{}.Fields()
 	_ = adminauditlogFields
 	// adminauditlogDescCreatedAt is the schema descriptor for created_at field.

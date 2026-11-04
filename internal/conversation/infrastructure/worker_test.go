@@ -4,6 +4,7 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 )
@@ -24,6 +27,10 @@ type fakeJobRepo struct {
 	jobs      []domain.Job
 	completed []int64
 	failed    []int64
+	failure   []struct {
+		code     string
+		attempts int
+	}
 	recovered bool
 	claimed   map[int64]domain.Job
 }
@@ -64,11 +71,15 @@ func (f *fakeJobRepo) CompleteJob(_ context.Context, jobID int64, claim ...strin
 	return nil
 }
 
-func (f *fakeJobRepo) FailJob(_ context.Context, jobID int64, _ string, _ time.Duration, _ int, claim ...string) error {
+func (f *fakeJobRepo) FailJob(_ context.Context, jobID int64, code string, _ time.Duration, attempts int, claim ...string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.claimed, jobID)
 	f.failed = append(f.failed, jobID)
+	f.failure = append(f.failure, struct {
+		code     string
+		attempts int
+	}{code: code, attempts: attempts})
 	return nil
 }
 
@@ -107,6 +118,7 @@ type trackingProcessor struct {
 	violation bool
 	processed []int64
 	failIDs   map[int64]bool
+	err       error
 	cur       int64
 	maxConc   int64
 }
@@ -125,6 +137,12 @@ func (p *trackingProcessor) Process(_ context.Context, job domain.Job) error {
 		p.violation = true
 	}
 	p.processed = append(p.processed, job.ID)
+	if p.err != nil {
+		err := p.err
+		p.active[job.ConversationID]--
+		p.mu.Unlock()
+		return err
+	}
 	p.mu.Unlock()
 
 	cur := atomic.AddInt64(&p.cur, 1)
@@ -153,6 +171,63 @@ var errTestProcess = errorTest{}
 type errorTest struct{}
 
 func (errorTest) Error() string { return "test process error" }
+
+type fakeAuditRecorder struct {
+	mu            sync.Mutex
+	startErr      error
+	eventErr      error
+	finishErr     error
+	started       []auditdomain.AIRun
+	events        []auditdomain.AIEvent
+	finishedRuns  []string
+	finishedEvent []string
+}
+
+func (f *fakeAuditRecorder) StartRun(_ context.Context, run auditdomain.AIRun) (auditdomain.AIRun, error) {
+	if f.startErr != nil {
+		return auditdomain.AIRun{}, f.startErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	run.ID = "run-1"
+	f.started = append(f.started, run)
+	return run, nil
+}
+
+func (f *fakeAuditRecorder) FinishRun(_ context.Context, id, status, code string) error {
+	if f.finishErr != nil {
+		return f.finishErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.finishedRuns = append(f.finishedRuns, id+":"+status+":"+code)
+	return nil
+}
+
+func (f *fakeAuditRecorder) RecordEvent(_ context.Context, event auditdomain.AIEvent) (auditdomain.AIEvent, error) {
+	if f.eventErr != nil {
+		return auditdomain.AIEvent{}, f.eventErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	event.ID = "event-1"
+	f.events = append(f.events, event)
+	return event, nil
+}
+
+func (f *fakeAuditRecorder) FinishEvent(_ context.Context, id, status, code string, _ []byte) error {
+	if f.finishErr != nil {
+		return f.finishErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.finishedEvent = append(f.finishedEvent, id+":"+status+":"+code)
+	return nil
+}
+
+func (f *fakeAuditRecorder) RecordArtifact(context.Context, auditdomain.AIArtifact) (auditdomain.AIArtifact, error) {
+	return auditdomain.AIArtifact{}, nil
+}
 
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
@@ -214,12 +289,12 @@ func TestWorkerProcessesJobsWithConversationOrdering(t *testing.T) {
 	}
 }
 
-// TestWorkerRestoresJobTraceContext verifies that the worker continues the
-// trace stored with the job, marks jobs without one as legacy, and attaches
-// session/user attributes.
-// TestWorkerRestoresJobTraceContext 验证工作器延续任务里保存的 trace、
+// TestWorkerLinksReceiveTrace verifies that the worker starts an independent
+// processing trace linked to the persisted receive trace, marks legacy jobs,
+// and attaches session/user attributes.
+// TestWorkerLinksReceiveTrace 验证工作器开启独立处理 trace 并链接到持久化的接收 trace，
 // 标注无上下文的历史任务，并附加会话与用户属性。
-func TestWorkerRestoresJobTraceContext(t *testing.T) {
+func TestWorkerLinksReceiveTrace(t *testing.T) {
 	recorder := recordingProvider(t)
 	withTrace := makeJob(21, "conv-traced")
 	withTrace.Message.SenderID = 200
@@ -255,7 +330,7 @@ func TestWorkerRestoresJobTraceContext(t *testing.T) {
 	).TraceID()
 	seen := map[string]sdktrace.ReadOnlySpan{}
 	for _, span := range recorder.Ended() {
-		if span.Name() == "nagi.worker.process" {
+		if span.Name() == "nagi.message.process" {
 			attrs := map[string]string{}
 			for _, kv := range span.Attributes() {
 				attrs[string(kv.Key)] = kv.Value.Emit()
@@ -267,8 +342,11 @@ func TestWorkerRestoresJobTraceContext(t *testing.T) {
 	if !ok {
 		t.Fatalf("worker span for the traced job missing: %v", seen)
 	}
-	if got := traced.SpanContext().TraceID(); got != wantTraceID {
-		t.Fatalf("worker trace id = %s, want %s", got, wantTraceID)
+	if got := traced.SpanContext().TraceID(); got == wantTraceID {
+		t.Fatalf("worker trace id must be independent from receive trace: %s", got)
+	}
+	if len(traced.Links()) != 1 || traced.Links()[0].SpanContext.TraceID() != wantTraceID {
+		t.Fatalf("worker trace links = %+v, want receive trace %s", traced.Links(), wantTraceID)
 	}
 	tracedAttrs := map[string]string{}
 	for _, kv := range traced.Attributes() {
@@ -276,6 +354,9 @@ func TestWorkerRestoresJobTraceContext(t *testing.T) {
 	}
 	if tracedAttrs[observability.SessionIDKey] != "conv-traced" {
 		t.Fatalf("session attribute = %q", tracedAttrs[observability.SessionIDKey])
+	}
+	if tracedAttrs[observability.TraceNameKey] != "nagi.message.process" {
+		t.Fatalf("trace name = %q", tracedAttrs[observability.TraceNameKey])
 	}
 	if tracedAttrs[observability.UserIDKey] == "" {
 		t.Fatal("user attribute must be set when a secret is configured")
@@ -331,7 +412,7 @@ func TestWorkerExportsRawQQIdentifiers(t *testing.T) {
 
 	attrs := map[string]string{}
 	for _, span := range recorder.Ended() {
-		if span.Name() != "nagi.worker.process" {
+		if span.Name() != "nagi.message.process" {
 			continue
 		}
 		for _, kv := range span.Attributes() {
@@ -379,6 +460,137 @@ func TestWorkerRecordsFailures(t *testing.T) {
 	defer repo.mu.Unlock()
 	if len(repo.failed) != 1 || repo.failed[0] != 9 || len(repo.completed) != 0 {
 		t.Fatalf("completed=%v failed=%v", repo.completed, repo.failed)
+	}
+}
+
+func TestWorkerDoesNotRetryUncertainSideEffect(t *testing.T) {
+	repo := &fakeJobRepo{jobs: []domain.Job{makeJob(81, "audit-unknown")}}
+	proc := newTrackingProcessor(nil)
+	proc.err = auditcontracts.UnsafeToRetry("tool.execute", errors.New("audit unavailable"))
+	worker, err := NewWorker(repo, proc, WorkerOptions{Concurrency: 1, PollInterval: 2 * time.Millisecond, MaxAttempts: 5}, discardLogger())
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		waitFor(t, func() bool {
+			repo.mu.Lock()
+			defer repo.mu.Unlock()
+			return len(repo.failure) == 1
+		})
+		cancel()
+	}()
+	if err := worker.Run(ctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if got := repo.failure[0]; got.code != "side_effect_audit_unknown" || got.attempts != 1 {
+		t.Fatalf("failure = %+v, want side_effect_audit_unknown/1", got)
+	}
+}
+
+type sideEffectProcessor struct{}
+
+func (sideEffectProcessor) Process(ctx context.Context, _ domain.Job) error {
+	auditcontracts.MarkSideEffect(ctx)
+	return nil
+}
+
+func TestWorkerDoesNotRetryWhenAuditFinishFailsAfterSideEffect(t *testing.T) {
+	repo := &fakeJobRepo{jobs: []domain.Job{makeJob(82, "audit-finish-unknown")}}
+	worker, err := NewWorker(repo, sideEffectProcessor{}, WorkerOptions{
+		Concurrency: 1, PollInterval: 2 * time.Millisecond, MaxAttempts: 5,
+		Audit: &fakeAuditRecorder{finishErr: errors.New("audit unavailable")},
+	}, discardLogger())
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		waitFor(t, func() bool {
+			repo.mu.Lock()
+			defer repo.mu.Unlock()
+			return len(repo.failure) == 1
+		})
+		cancel()
+	}()
+	if err := worker.Run(ctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if got := repo.failure[0]; got.code != "side_effect_audit_unknown" || got.attempts != 1 {
+		t.Fatalf("failure = %+v, want side_effect_audit_unknown/1", got)
+	}
+}
+
+func TestWorkerStopsBeforeProcessorWhenAuditStartFails(t *testing.T) {
+	repo := &fakeJobRepo{jobs: []domain.Job{makeJob(71, "audit-failed")}}
+	proc := newTrackingProcessor(nil)
+	worker, err := NewWorker(repo, proc, WorkerOptions{
+		Concurrency: 1, PollInterval: time.Millisecond,
+		Audit: &fakeAuditRecorder{startErr: errors.New("audit unavailable")},
+	}, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		waitFor(t, func() bool {
+			repo.mu.Lock()
+			defer repo.mu.Unlock()
+			return len(repo.failed) == 1
+		})
+		cancel()
+	}()
+	if err := worker.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	proc.mu.Lock()
+	defer proc.mu.Unlock()
+	if len(proc.processed) != 0 {
+		t.Fatalf("processor ran without audit record: %v", proc.processed)
+	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if len(repo.failed) != 1 || repo.failed[0] != 71 || len(repo.completed) != 0 {
+		t.Fatalf("completed=%v failed=%v", repo.completed, repo.failed)
+	}
+}
+
+func TestWorkerRecordsAuditRunAroundSuccessfulProcess(t *testing.T) {
+	repo := &fakeJobRepo{jobs: []domain.Job{makeJob(72, "audit-success")}}
+	proc := newTrackingProcessor(nil)
+	audit := &fakeAuditRecorder{}
+	worker, err := NewWorker(repo, proc, WorkerOptions{
+		Concurrency: 1, PollInterval: time.Millisecond, Audit: audit,
+		ConfigVersion: func() int64 { return 9 },
+	}, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		waitFor(t, func() bool {
+			repo.mu.Lock()
+			defer repo.mu.Unlock()
+			return len(repo.completed) == 1
+		})
+		cancel()
+	}()
+	if err := worker.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	audit.mu.Lock()
+	defer audit.mu.Unlock()
+	if len(audit.started) != 1 || audit.started[0].ConfigVersion != 9 || len(audit.events) != 1 {
+		t.Fatalf("started=%+v events=%+v", audit.started, audit.events)
+	}
+	if len(audit.finishedEvent) != 1 || len(audit.finishedRuns) != 1 || audit.finishedRuns[0] != "run-1:done:" {
+		t.Fatalf("event finish=%v run finish=%v", audit.finishedEvent, audit.finishedRuns)
 	}
 }
 

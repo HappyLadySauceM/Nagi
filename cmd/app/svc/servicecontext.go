@@ -53,6 +53,9 @@ type ServiceContext struct {
 	Scope     *scopeapp.Service
 	Memory    *memoryapp.Service
 	Audit     auditcontracts.Recorder
+	// AIAudit exposes durable worker-run facts to the administrator-only API.
+	// AIAudit 向仅管理员 API 暴露可持久复核的 worker 运行事实。
+	AIAudit auditcontracts.AIReader
 	// Stats may be nil when the database is not configured.
 	// 未配置数据库时 Stats 可为 nil。
 	Stats StatsProvider
@@ -100,6 +103,9 @@ func (s *ServiceContext) KnownToolPermissions() map[string]bool {
 			known[permission] = true
 		}
 	}
+	// Voice transcription is a pipeline capability rather than a model tool,
+	// but scope policies must still be able to persist its explicit override.
+	known["media.voice.transcribe"] = true
 	return known
 }
 

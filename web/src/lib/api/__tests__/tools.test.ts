@@ -37,6 +37,22 @@ describe('tools adapter', () => {
     expect(catalog.permissions[0].tools).toEqual(['qq.get_group_info'])
   })
 
+  it('maps a pipeline capability that has no model tool', () => {
+    const catalog = toToolsCatalog({
+      ...CATALOG,
+      Permissions: [{
+        ID: 'media.voice.transcribe',
+        Tools: [],
+        DefaultGranted: true,
+        Kind: 'pipeline',
+        Applicable: true,
+      }],
+    })
+    expect(catalog.permissions[0]).toMatchObject({
+      id: 'media.voice.transcribe', kind: 'pipeline', applicable: true, tools: [],
+    })
+  })
+
   it('rejects a tool entry without an id instead of inventing one', () => {
     expect(() =>
       toToolsCatalog({ ...CATALOG, Tools: [{ ...CATALOG.Tools[0], ID: undefined }] }),

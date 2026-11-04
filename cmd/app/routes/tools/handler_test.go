@@ -155,6 +155,29 @@ func TestListReportsDefaults(t *testing.T) {
 	}
 }
 
+func TestListExposesVoiceTranscriptionAsPipelineCapability(t *testing.T) {
+	handler := NewHandler(&svc.ServiceContext{Config: &config.Config{}, Tools: catalogRegistry(t)})
+	rec := httptest.NewRecorder()
+	handler.List(rec, httptest.NewRequest(http.MethodGet, "/api/v1/tools?scope_kind=private", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var envelope struct{ Data catalog }
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	for _, permission := range envelope.Data.Permissions {
+		if permission.ID != "media.voice.transcribe" {
+			continue
+		}
+		if permission.Kind != "pipeline" || !permission.Applicable || len(permission.Tools) != 0 {
+			t.Fatalf("voice transcription capability = %+v", permission)
+		}
+		return
+	}
+	t.Fatal("voice transcription capability missing")
+}
+
 // toolByID returns one entry of a decoded catalog.
 // toolByID 返回已解码清单中的单个工具。
 func toolByID(t *testing.T, tools []toolInfo, id string) toolInfo {

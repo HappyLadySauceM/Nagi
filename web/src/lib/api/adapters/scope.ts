@@ -85,6 +85,18 @@ function readToolPermissions(
   return overrides
 }
 
+function readPermissionMap(record: Record<string, unknown>, key: string, endpoint: string): ToolPermissionOverrides {
+  const raw = record[key]
+  if (raw === undefined || raw === null) return {}
+  const source = asRecord(raw, endpoint, key)
+  const permissions: ToolPermissionOverrides = {}
+  for (const [permission, granted] of Object.entries(source)) {
+    if (typeof granted !== 'boolean') throw contractError(endpoint, `${key}.${permission} 不是布尔值`)
+    permissions[permission] = granted
+  }
+  return permissions
+}
+
 /** Compares override maps by content; key order is irrelevant. */
 function isPermissionMapEqual(left: ToolPermissionOverrides, right: ToolPermissionOverrides): boolean {
   const leftKeys = Object.keys(left)
@@ -149,6 +161,8 @@ export function toScopePolicy(raw: unknown): ScopePolicy {
     minReplyIntervalMs: policyNumber('MinReplyIntervalMS',DEFAULT_MIN_REPLY_INTERVAL_MS),
     maxRepliesPerHour: policyNumber('MaxRepliesPerHour',DEFAULT_MAX_REPLIES_PER_HOUR),
     toolPermissions: readToolPermissions(record, SCOPE_ENDPOINT),
+    ...(record.PermissionDefaults === undefined ? {} : { permissionDefaults: readPermissionMap(record, 'PermissionDefaults', SCOPE_ENDPOINT) }),
+    ...(record.EffectiveToolPermissions === undefined ? {} : { effectiveToolPermissions: readPermissionMap(record, 'EffectiveToolPermissions', SCOPE_ENDPOINT) }),
   }
 }
 

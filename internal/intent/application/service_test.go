@@ -4,12 +4,15 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
@@ -103,9 +106,43 @@ func (f *fakeSemantic) Decide(_ context.Context, in domain.Input) (domain.Semant
 
 // fakeRecorder records decisions.
 // fakeRecorder 记录决策。
-type fakeRecorder struct{ decisions []domain.FinalDecision }
+type fakeRecorder struct {
+	decisions []domain.FinalDecision
+	err       error
+}
+
+// fakeAIRunRecorder captures local run events without requiring a database.
+// fakeAIRunRecorder 在无需数据库的情况下捕获本地运行事件。
+type fakeAIRunRecorder struct {
+	events   []auditdomain.AIEvent
+	finished []auditdomain.AIEvent
+}
+
+func (*fakeAIRunRecorder) StartRun(context.Context, auditdomain.AIRun) (auditdomain.AIRun, error) {
+	return auditdomain.AIRun{}, nil
+}
+
+func (*fakeAIRunRecorder) FinishRun(context.Context, string, string, string) error { return nil }
+
+func (f *fakeAIRunRecorder) RecordEvent(_ context.Context, event auditdomain.AIEvent) (auditdomain.AIEvent, error) {
+	event.ID = "event-1"
+	f.events = append(f.events, event)
+	return event, nil
+}
+
+func (f *fakeAIRunRecorder) FinishEvent(_ context.Context, id, status, code string, output []byte) error {
+	f.finished = append(f.finished, auditdomain.AIEvent{ID: id, Status: status, ErrorCode: code, Output: output})
+	return nil
+}
+
+func (*fakeAIRunRecorder) RecordArtifact(context.Context, auditdomain.AIArtifact) (auditdomain.AIArtifact, error) {
+	return auditdomain.AIArtifact{}, nil
+}
 
 func (f *fakeRecorder) Record(_ context.Context, _ int64, d domain.FinalDecision, claim ...string) error {
+	if f.err != nil {
+		return f.err
+	}
 	f.decisions = append(f.decisions, d)
 	return nil
 }
@@ -283,9 +320,10 @@ func TestProcessTaskFailsClosedWhenActivityUnavailable(t *testing.T) {
 }
 
 // TestProcessTaskRecordsExplainableSteps verifies that every decision carries
-// policy, rules and final steps, plus a semantic step only when Jev was asked.
-// TestProcessTaskRecordsExplainableSteps 验证每条决策都带策略、规则与最终步骤，
-// 且仅在调用 Jev 时才出现语义步骤。
+// policy, rules, semantic and final steps. A skipped semantic step remains
+// explicit so an auditor does not have to infer why Jev was not called.
+// TestProcessTaskRecordsExplainableSteps 验证每条决策都带策略、规则、语义与最终步骤；
+// 即使跳过语义也明确记录原因，审计方无需反推为何没有调用 Jev。
 func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 	scopes := &fakeScopes{policies: map[string]scopedomain.Policy{
 		keyOf(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
@@ -299,14 +337,14 @@ func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 		t.Fatalf("recorded %d decisions", len(recorder.decisions))
 	}
 	steps := recorder.decisions[0].Steps
-	if len(steps) != 3 {
-		t.Fatalf("steps = %d, want policy/rules/final", len(steps))
+	if len(steps) != 4 {
+		t.Fatalf("steps = %d, want policy/rules/semantic/final", len(steps))
 	}
-	if steps[0].Phase != domain.StepPolicy || steps[1].Phase != domain.StepRules || steps[2].Phase != domain.StepFinal {
+	if steps[0].Phase != domain.StepPolicy || steps[1].Phase != domain.StepRules || steps[2].Phase != domain.StepSemantic || steps[3].Phase != domain.StepFinal {
 		t.Fatalf("phases = %+v", steps)
 	}
-	if steps[2].ReasonCode != "always_reply" {
-		t.Fatalf("final reason = %s", steps[2].ReasonCode)
+	if steps[2].Detail["skip_reason"] != "always_reply" || steps[3].ReasonCode != "always_reply" {
+		t.Fatalf("steps = %+v", steps)
 	}
 
 	// With intent_based the pipeline asks Jev, so a semantic step appears.
@@ -320,8 +358,62 @@ func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 		t.Fatalf("process with semantics: %v", err)
 	}
 	steps = recorder.decisions[0].Steps
-	if len(steps) != 4 || steps[2].Phase != domain.StepSemantic {
+	if len(steps) != 4 || steps[2].Phase != domain.StepSemantic || steps[2].Detail["called"] != true {
 		t.Fatalf("semantic steps = %+v", steps)
+	}
+}
+
+// TestProcessTaskWritesDecisionRunEvent verifies the timeline retains the
+// exact explainable decision while keeping message bodies out of this event.
+// TestProcessTaskWritesDecisionRunEvent 验证时间线保留完整可解释决策，且不将消息正文写入该事件。
+func TestProcessTaskWritesDecisionRunEvent(t *testing.T) {
+	scopes := &fakeScopes{policies: map[string]scopedomain.Policy{
+		keyOf(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
+	}}
+	decisionRecorder := &fakeRecorder{}
+	runRecorder := &fakeAIRunRecorder{}
+	d := newDecider(t, Options{Scopes: scopes, Recorder: decisionRecorder, Thresholds: thresholds, Provider: "jev", Model: "jev-latest"})
+	ctx := auditcontracts.WithRun(context.Background(), runRecorder, "run-1")
+	if err := d.ProcessTask(ctx, groupTask()); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(runRecorder.events) != 1 || runRecorder.events[0].Stage != "intent.decision" || runRecorder.events[0].Sequence != 1 {
+		t.Fatalf("events = %+v", runRecorder.events)
+	}
+	var input map[string]any
+	if err := json.Unmarshal(runRecorder.events[0].Input, &input); err != nil {
+		t.Fatalf("decode event input: %v", err)
+	}
+	if _, ok := input["text"]; ok {
+		t.Fatalf("decision event must not include message text: %s", runRecorder.events[0].Input)
+	}
+	if len(runRecorder.finished) != 1 || runRecorder.finished[0].Status != "succeeded" {
+		t.Fatalf("finished events = %+v", runRecorder.finished)
+	}
+	var output map[string]any
+	if err := json.Unmarshal(runRecorder.finished[0].Output, &output); err != nil {
+		t.Fatalf("decode event output: %v", err)
+	}
+	decision, ok := output["decision"].(map[string]any)
+	if !ok || decision["ReasonCode"] != "always_reply" {
+		t.Fatalf("decision output = %+v", output)
+	}
+}
+
+func TestProcessTaskStopsWhenDecisionRecordingFails(t *testing.T) {
+	recorder := &fakeRecorder{err: context.DeadlineExceeded}
+	executor := &fakeExecutor{}
+	d := newDecider(t, Options{
+		Scopes: &fakeScopes{policies: map[string]scopedomain.Policy{
+			keyOf(100, "group", 700): {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
+		}},
+		Recorder: recorder, Executor: executor, Thresholds: thresholds,
+	})
+	if err := d.ProcessTask(context.Background(), groupTask()); err == nil {
+		t.Fatal("decision recording failure must stop the run")
+	}
+	if len(executor.tasks) != 0 {
+		t.Fatal("reply executed after the required decision audit failed")
 	}
 }
 

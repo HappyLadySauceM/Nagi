@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
@@ -85,8 +86,8 @@ type Options struct {
 	// values per run so console edits apply without a restart.
 	// BotNameProvider 与 MaxTokensProvider 可选地按次覆盖静态值，
 	// 控制台的改动因此无需重启即可生效。
-	BotNameProvider   func() string
-	MaxTokensProvider func() int
+	BotNameProvider   func(context.Context) string
+	MaxTokensProvider func(context.Context) int
 	Logger            *slog.Logger
 }
 
@@ -104,8 +105,8 @@ type Replier struct {
 	sendingLimits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits
 	botName       string
 	maxTokens     int
-	botNameNow    func() string
-	maxTokensNow  func() int
+	botNameNow    func(context.Context) string
+	maxTokensNow  func(context.Context) int
 	logger        *slog.Logger
 }
 
@@ -128,20 +129,23 @@ func NewReplier(opts Options) (*Replier, error) {
 	}, nil
 }
 
-func (r *Replier) sendingAllowed(overrides map[string]bool) bool {
-	if r.canSend != nil {
-		return r.canSend(overrides)
+func (r *Replier) sendingAllowed(policy scopedomain.Policy) bool {
+	if policy.EffectiveToolPermissions != nil {
+		return policy.PermissionGranted("qq.reply.current")
 	}
-	allowed, explicit := overrides["qq.reply.current"]
+	if r.canSend != nil {
+		return r.canSend(policy.ToolPermissions)
+	}
+	allowed, explicit := policy.ToolPermissions["qq.reply.current"]
 	return !explicit || allowed
 }
 
 // currentMaxTokens resolves the output budget of one run, preferring the live
 // settings over the startup value.
 // currentMaxTokens 解析单次运行的输出预算，优先使用实时配置。
-func (r *Replier) currentMaxTokens() int {
+func (r *Replier) currentMaxTokens(ctx context.Context) int {
 	if r.maxTokensNow != nil {
-		if value := r.maxTokensNow(); value > 0 {
+		if value := r.maxTokensNow(ctx); value > 0 {
 			return value
 		}
 	}
@@ -150,9 +154,9 @@ func (r *Replier) currentMaxTokens() int {
 
 // currentBotName resolves the display name of one run, preferring live settings.
 // currentBotName 解析单次运行的展示名，优先使用实时配置。
-func (r *Replier) currentBotName() string {
+func (r *Replier) currentBotName(ctx context.Context) string {
 	if r.botNameNow != nil {
-		return r.botNameNow()
+		return r.botNameNow(ctx)
 	}
 	return r.botName
 }
@@ -182,7 +186,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if !policy.AllowHistoryRead {
 		history = nil
 	}
-	messages := r.buildMessages(task, history)
+	messages := r.buildMessages(ctx, task, history)
 	runtimeMessages := toRuntimeMessages(messages)
 	if r.media != nil {
 		remaining := 8
@@ -240,6 +244,21 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		// toolDenied 记录回调中已写入的拒绝原因，运行结束后的扫描不会重复计数。
 		toolDenied = map[string]bool{}
 	)
+	auditInput := map[string]any{
+		"bot_id": task.BotID, "conversation_id": task.ConversationID, "kind": task.Kind,
+		"target_id": task.TargetID, "sender_id": task.Message.SenderID, "message_id": task.Message.MessageID,
+		"max_output_tokens": r.currentMaxTokens(ctx), "permission_overrides": policy.ToolPermissions,
+	}
+	if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
+		auditInput["messages"] = messages
+	} else {
+		auditInput["content_redacted"] = "observability_export_disabled"
+	}
+	auditEvent, auditErr := auditcontracts.StartEvent(ctx, "agent.generation", auditInput)
+	if auditErr != nil {
+		genSpan.End()
+		return auditErr
+	}
 	result, err := r.runtime.Run(genCtx, agentcontracts.Request{
 		BotID:               task.BotID,
 		ConversationID:      task.ConversationID,
@@ -252,7 +271,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		Messages:            runtimeMessages,
 		PermissionOverrides: policy.ToolPermissions,
 		AllowHistoryRead:    policy.AllowHistoryRead,
-		MaxOutputTokens:     r.currentMaxTokens(),
+		MaxOutputTokens:     r.currentMaxTokens(ctx),
 		OnToolRun: func(run agentcontracts.ToolRun) {
 			toolMu.Lock()
 			toolRuns = append(toolRuns, run)
@@ -282,6 +301,9 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if err != nil {
 		genSpan.RecordError(err)
 		genSpan.End()
+		if auditErr := auditcontracts.FinishEvent(ctx, auditEvent, "failed", "generation_failed", map[string]any{"error": err.Error()}); auditErr != nil {
+			return auditErr
+		}
 		return fmt.Errorf("agent: generate: %w", err)
 	}
 	// Model and usage stay under nagi.* so this span is not inferred as a
@@ -305,10 +327,28 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	}
 	toolMu.Unlock()
 	if recordedErr != nil {
+		genSpan.RecordError(recordedErr)
+		genSpan.End()
+		if auditErr := auditcontracts.FinishEvent(ctx, auditEvent, "failed", "tool_delivery_record_failed", map[string]any{"error": recordedErr.Error()}); auditErr != nil {
+			return auditErr
+		}
 		return recordedErr
 	}
 	if len(runs) > 0 {
 		result.ToolRuns = runs
+	}
+	auditOutput := map[string]any{
+		"model": result.Model, "input_usage": result.InputUsage, "output_usage": result.OutputUsage,
+		"tools_exposed": result.ToolsExposed, "tool_runs": result.ToolRuns,
+	}
+	if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
+		auditOutput["text"] = result.Text
+	} else {
+		auditOutput["content_redacted"] = "observability_export_disabled"
+	}
+	if auditErr := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", auditOutput); auditErr != nil {
+		genSpan.End()
+		return auditErr
 	}
 	genSpan.SetAttributes(
 		attribute.Int64("nagi.usage.input", result.InputUsage),
@@ -377,7 +417,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if resolveErr != nil {
 		return resolveErr
 	}
-	if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !r.sendingAllowed(latest.ToolPermissions) {
+	if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !r.sendingAllowed(latest) {
 		return r.recordDenied(ctx, task.JobID, "authorization_revoked", task.ClaimToken)
 	}
 	_, validateSpan := tracer.Start(ctx, "nagi.response.validate")
@@ -493,7 +533,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if err != nil {
 		return err
 	}
-	if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !r.sendingAllowed(latest.ToolPermissions) {
+	if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !r.sendingAllowed(latest) {
 		return r.recordDenied(ctx, task.JobID, "authorization_revoked", task.ClaimToken)
 	}
 	if validator, ok := r.outbound.(interface {
@@ -504,9 +544,29 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			return err
 		}
 	}
+	// The delivery ledger is the authoritative record for an external side
+	// effect. Persist an audit start fact after the reservation is valid but
+	// before MarkSending can reach OneBot; an audit-start failure can therefore
+	// still cancel the prepared record without sending anything.
+	// 投递台账是外部副作用的事实来源。预留校验通过后、MarkSending 接触 OneBot
+	// 前先写审计开始事实；若写入失败，仍可取消 prepared 记录而不会发送。
+	deliveryInput := map[string]any{
+		"outbound_id": record.ID, "sequence": record.Sequence, "job_id": task.JobID,
+		"conversation_id": task.ConversationID, "target_kind": task.Kind, "target_id": task.TargetID,
+	}
+	if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
+		deliveryInput["reply"] = reply
+	} else {
+		deliveryInput["content_redacted"] = "observability_export_disabled"
+	}
+	deliveryEvent, auditErr := auditcontracts.StartEvent(ctx, "outbound.deliver", deliveryInput)
+	if auditErr != nil {
+		return auditErr
+	}
 	outcome, deliveryErr := outboundapp.Deliver(ctx, r.outbound, record.ID, func(sendCtx context.Context) (int64, error) {
 		sendCtx, sendSpan := tracer.Start(sendCtx, "nagi.onebot.send")
 		defer sendSpan.End()
+		auditcontracts.MarkSideEffect(sendCtx)
 		id, err := r.send(sendCtx, task, reply)
 		state := "sent"
 		if id == 0 {
@@ -525,7 +585,25 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	}, record.ClaimToken)
 	status, messageID := outcome.Status, outcome.PlatformMessageID
 	if !status.Settleable() {
+		if auditErr := auditcontracts.FinishEvent(ctx, deliveryEvent, "failed", "delivery_unsettled", map[string]any{
+			"status": status, "error": errorText(deliveryErr),
+		}); auditErr != nil {
+			return auditErr
+		}
 		return deliveryErr
+	}
+	auditStatus := "succeeded"
+	if status != outbounddomain.StatusSent {
+		auditStatus = "failed"
+	}
+	if auditErr := auditcontracts.FinishEvent(ctx, deliveryEvent, auditStatus, outcome.ErrorCode, map[string]any{
+		"status": status, "platform_message_id": messageID, "error_code": outcome.ErrorCode,
+	}); auditErr != nil {
+		// The ledger has already settled. Returning the audit failure makes the
+		// worker retain a failure for review, while its delivery guard prevents a
+		// retry from sending the same reply again.
+		// 台账已经落定。返回审计错误供工作器留档；投递保护会阻止重试重复发送。
+		return auditcontracts.UnsafeToRetry("outbound.deliver", auditErr)
 	}
 	if err := r.recorder.RecordOutgoing(ctx, task.ConversationID, task.BotID, reply, messageID, string(status), record.ID, record.ClaimToken); err != nil {
 		r.logger.Warn("record outgoing reply failed", "error", err, "job_id", task.JobID)
@@ -535,12 +613,19 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	return nil
 }
 
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 // buildMessages assembles the system prompt, authorized history and the current
 // message. Long-term memory is intentionally not injected in this stage.
 // buildMessages 组装系统提示、授权历史与当前消息。本阶段刻意不注入长期记忆。
-func (r *Replier) buildMessages(task intentdomain.Task, history []intentdomain.Message) []domain.ChatMessage {
+func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, history []intentdomain.Message) []domain.ChatMessage {
 	var b strings.Builder
-	name := r.currentBotName()
+	name := r.currentBotName(ctx)
 	if name == "" {
 		name = "助手"
 	}

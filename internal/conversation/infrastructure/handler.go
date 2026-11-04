@@ -61,8 +61,10 @@ func (h *Ingress) Match(event obdomain.Event) bool { return event.IsMessage() }
 func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain.Event) error {
 	// No message content is recorded on spans, only ids and kinds.
 	// span 只记录 ID 与类型，不记录消息内容。
-	ctx, span := tracer().Start(ctx, "nagi.message.process")
+	ctx = observability.WithTraceName(ctx, "nagi.message.receive")
+	ctx, span := tracer().Start(ctx, "nagi.message.receive")
 	defer span.End()
+	observability.SetTraceName(span, "nagi.message.receive")
 	span.SetAttributes(attribute.Bool("in_group", event.InGroup()))
 	// Listener-side identity only: the message body is excluded until the scope
 	// grants storage consent, so an unauthorized conversation never reaches the
@@ -148,10 +150,9 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		Text:              event.Text(),
 		Segments:          event.Segments,
 	}
-	// Persist the root span context so the worker continues this trace instead
-	// of starting an unrelated one. An unrecorded span persists nothing.
-	// 持久化根 span 上下文，让工作器延续同一条 trace 而不是另开一条。
-	// span 未记录时不写入任何内容。
+	// Persist the receive span context so the worker can link its independent
+	// processing trace back to this short, synchronous receipt trace.
+	// 持久化接收 span 上下文，让工作器独立的处理 trace 可链接回这条短接收 trace。
 	if traceCtx := observability.Current(ctx); traceCtx.Valid() {
 		input.TraceParent = traceCtx.TraceParent
 		input.TraceState = traceCtx.TraceState
@@ -179,7 +180,7 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	persistSpan.End()
 
 	// Session and message ids are only known after the row exists; attributes
-	// can still be added to the open root span, and Langfuse keeps them for
+	// can still be added to the open receive span, and Langfuse keeps them for
 	// Sessions/Users.
 	// 会话与消息 ID 只有在落库后才知道；属性仍可在根 span 结束前追加，
 	// Langfuse 会保留它们供 Sessions/Users 使用。

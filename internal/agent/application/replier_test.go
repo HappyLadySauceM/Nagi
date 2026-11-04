@@ -19,6 +19,8 @@ import (
 
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	agentdomain "github.com/HappyLadySauceM/Nagi/internal/agent/domain"
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
@@ -108,6 +110,38 @@ type fakeRecorder struct {
 	statuses      []string
 	messageIDs    []int64
 	outboundIDs   []string
+}
+
+// fakeRunAudit captures the mandatory local timeline used by one worker run.
+// fakeRunAudit 捕获单个工作器运行所需的本地时间线。
+type fakeRunAudit struct {
+	events    []auditdomain.AIEvent
+	finished  []auditdomain.AIEvent
+	failStage string
+}
+
+func (*fakeRunAudit) StartRun(context.Context, auditdomain.AIRun) (auditdomain.AIRun, error) {
+	return auditdomain.AIRun{}, nil
+}
+
+func (*fakeRunAudit) FinishRun(context.Context, string, string, string) error { return nil }
+
+func (f *fakeRunAudit) RecordEvent(_ context.Context, event auditdomain.AIEvent) (auditdomain.AIEvent, error) {
+	if event.Stage == f.failStage {
+		return auditdomain.AIEvent{}, errors.New("audit unavailable")
+	}
+	event.ID = fmt.Sprintf("audit-%d", len(f.events)+1)
+	f.events = append(f.events, event)
+	return event, nil
+}
+
+func (f *fakeRunAudit) FinishEvent(_ context.Context, id, status, code string, output []byte) error {
+	f.finished = append(f.finished, auditdomain.AIEvent{ID: id, Status: status, ErrorCode: code, Output: output})
+	return nil
+}
+
+func (*fakeRunAudit) RecordArtifact(context.Context, auditdomain.AIArtifact) (auditdomain.AIArtifact, error) {
+	return auditdomain.AIArtifact{}, nil
 }
 
 func (f *fakeRecorder) RecordOutgoing(_ context.Context, conversationID string, _ int64, _ string, platformMessageID int64, sentStatus string, outboundID string, claim ...string) error {
@@ -294,6 +328,53 @@ func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 	// 逻辑消息必须关联到产生它的投递记录。
 	if len(rec.outboundIDs) != 1 || rec.outboundIDs[0] != "out-1" {
 		t.Fatalf("outbound ids = %v", rec.outboundIDs)
+	}
+}
+
+// TestReplierWritesDeliveryAuditBeforeTransport proves a missing local audit
+// start record cannot reach OneBot and the settled ledger outcome is retained.
+// TestReplierWritesDeliveryAuditBeforeTransport 验证发送前已写入本地审计开始记录，且记录落定后的台账结果。
+func TestReplierWritesDeliveryAuditBeforeTransport(t *testing.T) {
+	fake := &fakeRuntime{text: "可以。"}
+	sender := &fakeSender{}
+	rec := &fakeRecorder{}
+	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
+	audit := &fakeRunAudit{}
+	ctx := auditcontracts.WithRun(context.Background(), audit, "run-1")
+	if err := r.ExecuteReply(ctx, groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(sender.group) != 1 || len(audit.events) != 2 {
+		t.Fatalf("sends=%v events=%+v", sender.group, audit.events)
+	}
+	if audit.events[0].Stage != "agent.generation" || audit.events[1].Stage != "outbound.deliver" || audit.events[1].Sequence != 2 {
+		t.Fatalf("events = %+v", audit.events)
+	}
+	if len(audit.finished) != 2 || audit.finished[1].Status != "succeeded" {
+		t.Fatalf("finished = %+v", audit.finished)
+	}
+	var output map[string]any
+	if err := json.Unmarshal(audit.finished[1].Output, &output); err != nil {
+		t.Fatalf("decode delivery output: %v", err)
+	}
+	if output["status"] != string(outbounddomain.StatusSent) || output["platform_message_id"] != float64(1) {
+		t.Fatalf("delivery output = %+v", output)
+	}
+}
+
+func TestReplierStopsBeforeTransportWhenDeliveryAuditStartFails(t *testing.T) {
+	fake := &fakeRuntime{text: "可以。"}
+	sender := &fakeSender{}
+	rec := &fakeRecorder{}
+	ledger := &fakeLedger{}
+	r := newReplierWithLedger(t, fake, sender, rec, enabledGroupPolicy(), ledger)
+	audit := &fakeRunAudit{failStage: "outbound.deliver"}
+	ctx := auditcontracts.WithRun(context.Background(), audit, "run-1")
+	if err := r.ExecuteReply(ctx, groupTaskForAgent(), nil); err == nil {
+		t.Fatal("delivery audit start failure must stop the transport")
+	}
+	if len(sender.group) != 0 || len(ledger.sending) != 0 {
+		t.Fatalf("transport reached after audit failure: sends=%v sending=%v", sender.group, ledger.sending)
 	}
 }
 

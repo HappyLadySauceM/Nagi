@@ -83,12 +83,15 @@ type toolInfo struct {
 // permissionInfo groups the tools that require one permission.
 // permissionInfo 归组需要同一权限的工具。
 type permissionInfo struct {
-	Requires       []string
-	Description    string
-	RiskLevel      contracts.RiskLevel
-	ID             string
-	Tools          []string
-	DefaultGranted bool
+	Requires          []string
+	Description       string
+	RiskLevel         contracts.RiskLevel
+	ID                string
+	Tools             []string
+	DefaultGranted    bool
+	Kind              string
+	Applicable        bool
+	UnavailableReason string
 }
 
 // catalog is the response of GET /api/v1/tools.
@@ -209,16 +212,20 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		group, ok := byPermission[descriptor.Permission]
 		if !ok {
-			group = &permissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission], Description: descriptor.Description, RiskLevel: descriptor.EffectiveRiskLevel()}
+			group = &permissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission], Description: descriptor.Description, RiskLevel: descriptor.EffectiveRiskLevel(), Kind: "tool", Applicable: applicable, UnavailableReason: unavailableReason}
 			byPermission[descriptor.Permission] = group
 		} else if riskRank(descriptor.EffectiveRiskLevel()) > riskRank(group.RiskLevel) {
 			// Keep the strictest risk so the group never depends on snapshot order.
 			// 取最严格的风险级别，组内展示不随快照顺序变化。
 			group.RiskLevel = descriptor.EffectiveRiskLevel()
 		}
+		if applicable {
+			group.Applicable = true
+			group.UnavailableReason = ""
+		}
 		group.Tools = append(group.Tools, descriptor.ID)
 	}
-	byPermission["media.voice.transcribe"] = &permissionInfo{ID: "media.voice.transcribe", DefaultGranted: granted["media.voice.transcribe"], Description: "语音识别：将当前会话语音及视频音轨转写为文字", RiskLevel: contracts.RiskRead, Tools: []string{}}
+	byPermission["media.voice.transcribe"] = &permissionInfo{ID: "media.voice.transcribe", DefaultGranted: granted["media.voice.transcribe"], Description: "识别收到的语音：将当前会话语音及视频音轨转写为文字", RiskLevel: contracts.RiskRead, Tools: []string{}, Kind: "pipeline", Applicable: true}
 	extraDescriptions := map[string]string{"qq.cross_conversation": "跨会话操作：将来源会话已授权能力用于当前机器人的其他私聊或群聊；发送还需发送消息授权", "qq.content.links": "发送链接：允许消息包含链接或远程媒体地址", "qq.content.at_all": "发送 @全体：允许通知群内所有成员", "qq.content.media": "发送媒体：允许图片、语音及其他非文本消息段"}
 	for _, registered := range visible {
 		for _, permission := range registered.Descriptor.AdditionalPermissions {
@@ -234,7 +241,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 				if strings.HasPrefix(permission, "qq.content.") {
 					risk = contracts.RiskWrite
 				}
-				group = &permissionInfo{ID: permission, DefaultGranted: granted[permission], Description: extraDescriptions[permission], RiskLevel: risk}
+				group = &permissionInfo{ID: permission, DefaultGranted: granted[permission], Description: extraDescriptions[permission], RiskLevel: risk, Kind: "tool", Applicable: true}
 				byPermission[permission] = group
 			}
 			group.Tools = append(group.Tools, registered.Descriptor.ID)

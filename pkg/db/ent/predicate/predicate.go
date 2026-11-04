@@ -6,6 +6,15 @@ import (
 	"entgo.io/ent/dialect/sql"
 )
 
+// AIAuditArtifact is the predicate function for aiauditartifact builders.
+type AIAuditArtifact func(*sql.Selector)
+
+// AIAuditEvent is the predicate function for aiauditevent builders.
+type AIAuditEvent func(*sql.Selector)
+
+// AIAuditRun is the predicate function for aiauditrun builders.
+type AIAuditRun func(*sql.Selector)
+
 // AdminAuditLog is the predicate function for adminauditlog builders.
 type AdminAuditLog func(*sql.Selector)
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	auditroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/audit"
 	settingsroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/settings"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
@@ -53,6 +54,9 @@ func New(svcCtx *svc.ServiceContext, logger *slog.Logger) http.Handler {
 	}
 	if svcCtx.Outbound != nil {
 		agentroutes.NewHandler(svcCtx).Register(mux)
+	}
+	if svcCtx.AIAudit != nil {
+		auditroutes.NewHandler(svcCtx).Register(mux)
 	}
 	return middleware.Chain(mux,
 		middleware.SecurityHeaders,
