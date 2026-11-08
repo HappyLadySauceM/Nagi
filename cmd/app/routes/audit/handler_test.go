@@ -22,6 +22,12 @@ type fakeReader struct {
 	query    auditdomain.AIRunQuery
 }
 
+type fakeSigner struct{ url string }
+
+func (f fakeSigner) Presign(context.Context, auditdomain.AIArtifact) (string, error) {
+	return f.url, nil
+}
+
 func (f *fakeReader) ListRuns(_ context.Context, query auditdomain.AIRunQuery) ([]auditdomain.AIRun, error) {
 	f.query = query
 	return f.runs, f.err
@@ -112,5 +118,34 @@ func TestGetRunSurfacesStorageFailure(t *testing.T) {
 	newServer(reader).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/audit/runs/"+uuid.NewString(), nil))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetArtifactIncludesFreshReplayURL(t *testing.T) {
+	artifact := auditdomain.AIArtifact{ID: uuid.NewString(), Status: "uploaded", Kind: "audio.outbound.synthesized"}
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{
+		AIAudit:      &fakeReader{artifact: artifact},
+		MediaArchive: fakeSigner{url: "https://media.example/nagi/audio.mp3?temporary=1"},
+	}).Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/audit/artifacts/"+artifact.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			ID  string `json:"ID"`
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.ID != artifact.ID {
+		t.Fatalf("id = %q", envelope.Data.ID)
+	}
+	if envelope.Data.URL != "https://media.example/nagi/audio.mp3?temporary=1" {
+		t.Fatalf("url = %q", envelope.Data.URL)
 	}
 }

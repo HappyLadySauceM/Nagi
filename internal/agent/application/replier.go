@@ -190,7 +190,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	runtimeMessages := toRuntimeMessages(messages)
 	if r.media != nil {
 		remaining := 8
-		prepare := func(segments []obdomain.Segment, text string) []media.Part {
+		prepare := func(segments []obdomain.Segment, text string) ([]media.Part, error) {
 			bounded := make([]obdomain.Segment, 0, len(segments))
 			for _, seg := range segments {
 				if seg.Type == obdomain.SegImage {
@@ -202,10 +202,13 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 				}
 				bounded = append(bounded, seg)
 			}
-			parts, _ := r.media.Parts(ctx, task.BotID, task.ConversationID, bounded, text)
-			return parts
+			return r.media.Parts(ctx, task.BotID, task.ConversationID, bounded, text)
 		}
-		runtimeMessages[len(messages)-1].Parts = prepare(task.Segments, messages[len(messages)-1].Content)
+		parts, prepareErr := prepare(task.Segments, messages[len(messages)-1].Content)
+		if prepareErr != nil {
+			return fmt.Errorf("agent: prepare current media: %w", prepareErr)
+		}
+		runtimeMessages[len(messages)-1].Parts = parts
 		index := len(messages) - 2
 		for i := len(history) - 1; i >= 0; i-- {
 			m := history[i]
@@ -213,7 +216,11 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 				continue
 			}
 			if !m.IsBot {
-				runtimeMessages[index].Parts = prepare(m.Segments, messages[index].Content)
+				parts, prepareErr := prepare(m.Segments, messages[index].Content)
+				if prepareErr != nil {
+					return fmt.Errorf("agent: prepare history media: %w", prepareErr)
+				}
+				runtimeMessages[index].Parts = parts
 			}
 			index--
 		}

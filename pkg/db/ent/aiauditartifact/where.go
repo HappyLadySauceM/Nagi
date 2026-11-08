@@ -95,6 +95,11 @@ func ObjectKey(v string) predicate.AIAuditArtifact {
 	return predicate.AIAuditArtifact(sql.FieldEQ(FieldObjectKey, v))
 }
 
+// Bucket applies equality check predicate on the "bucket" field. It's identical to BucketEQ.
+func Bucket(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldBucket, v))
+}
+
 // FailureCode applies equality check predicate on the "failure_code" field. It's identical to FailureCodeEQ.
 func FailureCode(v string) predicate.AIAuditArtifact {
 	return predicate.AIAuditArtifact(sql.FieldEQ(FieldFailureCode, v))
@@ -103,6 +108,26 @@ func FailureCode(v string) predicate.AIAuditArtifact {
 // ExpiresAt applies equality check predicate on the "expires_at" field. It's identical to ExpiresAtEQ.
 func ExpiresAt(v time.Time) predicate.AIAuditArtifact {
 	return predicate.AIAuditArtifact(sql.FieldEQ(FieldExpiresAt, v))
+}
+
+// CleanupAttempts applies equality check predicate on the "cleanup_attempts" field. It's identical to CleanupAttemptsEQ.
+func CleanupAttempts(v int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldCleanupAttempts, v))
+}
+
+// NextAttemptAt applies equality check predicate on the "next_attempt_at" field. It's identical to NextAttemptAtEQ.
+func NextAttemptAt(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldNextAttemptAt, v))
+}
+
+// LeaseToken applies equality check predicate on the "lease_token" field. It's identical to LeaseTokenEQ.
+func LeaseToken(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldLeaseToken, v))
+}
+
+// LeaseExpiresAt applies equality check predicate on the "lease_expires_at" field. It's identical to LeaseExpiresAtEQ.
+func LeaseExpiresAt(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldLeaseExpiresAt, v))
 }
 
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
@@ -570,6 +595,71 @@ func ObjectKeyContainsFold(v string) predicate.AIAuditArtifact {
 	return predicate.AIAuditArtifact(sql.FieldContainsFold(FieldObjectKey, v))
 }
 
+// BucketEQ applies the EQ predicate on the "bucket" field.
+func BucketEQ(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldBucket, v))
+}
+
+// BucketNEQ applies the NEQ predicate on the "bucket" field.
+func BucketNEQ(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNEQ(FieldBucket, v))
+}
+
+// BucketIn applies the In predicate on the "bucket" field.
+func BucketIn(vs ...string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldIn(FieldBucket, vs...))
+}
+
+// BucketNotIn applies the NotIn predicate on the "bucket" field.
+func BucketNotIn(vs ...string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNotIn(FieldBucket, vs...))
+}
+
+// BucketGT applies the GT predicate on the "bucket" field.
+func BucketGT(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGT(FieldBucket, v))
+}
+
+// BucketGTE applies the GTE predicate on the "bucket" field.
+func BucketGTE(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGTE(FieldBucket, v))
+}
+
+// BucketLT applies the LT predicate on the "bucket" field.
+func BucketLT(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLT(FieldBucket, v))
+}
+
+// BucketLTE applies the LTE predicate on the "bucket" field.
+func BucketLTE(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLTE(FieldBucket, v))
+}
+
+// BucketContains applies the Contains predicate on the "bucket" field.
+func BucketContains(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldContains(FieldBucket, v))
+}
+
+// BucketHasPrefix applies the HasPrefix predicate on the "bucket" field.
+func BucketHasPrefix(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldHasPrefix(FieldBucket, v))
+}
+
+// BucketHasSuffix applies the HasSuffix predicate on the "bucket" field.
+func BucketHasSuffix(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldHasSuffix(FieldBucket, v))
+}
+
+// BucketEqualFold applies the EqualFold predicate on the "bucket" field.
+func BucketEqualFold(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEqualFold(FieldBucket, v))
+}
+
+// BucketContainsFold applies the ContainsFold predicate on the "bucket" field.
+func BucketContainsFold(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldContainsFold(FieldBucket, v))
+}
+
 // FailureCodeEQ applies the EQ predicate on the "failure_code" field.
 func FailureCodeEQ(v string) predicate.AIAuditArtifact {
 	return predicate.AIAuditArtifact(sql.FieldEQ(FieldFailureCode, v))
@@ -683,6 +773,211 @@ func ExpiresAtIsNil() predicate.AIAuditArtifact {
 // ExpiresAtNotNil applies the NotNil predicate on the "expires_at" field.
 func ExpiresAtNotNil() predicate.AIAuditArtifact {
 	return predicate.AIAuditArtifact(sql.FieldNotNull(FieldExpiresAt))
+}
+
+// CleanupAttemptsEQ applies the EQ predicate on the "cleanup_attempts" field.
+func CleanupAttemptsEQ(v int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldCleanupAttempts, v))
+}
+
+// CleanupAttemptsNEQ applies the NEQ predicate on the "cleanup_attempts" field.
+func CleanupAttemptsNEQ(v int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNEQ(FieldCleanupAttempts, v))
+}
+
+// CleanupAttemptsIn applies the In predicate on the "cleanup_attempts" field.
+func CleanupAttemptsIn(vs ...int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldIn(FieldCleanupAttempts, vs...))
+}
+
+// CleanupAttemptsNotIn applies the NotIn predicate on the "cleanup_attempts" field.
+func CleanupAttemptsNotIn(vs ...int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNotIn(FieldCleanupAttempts, vs...))
+}
+
+// CleanupAttemptsGT applies the GT predicate on the "cleanup_attempts" field.
+func CleanupAttemptsGT(v int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGT(FieldCleanupAttempts, v))
+}
+
+// CleanupAttemptsGTE applies the GTE predicate on the "cleanup_attempts" field.
+func CleanupAttemptsGTE(v int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGTE(FieldCleanupAttempts, v))
+}
+
+// CleanupAttemptsLT applies the LT predicate on the "cleanup_attempts" field.
+func CleanupAttemptsLT(v int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLT(FieldCleanupAttempts, v))
+}
+
+// CleanupAttemptsLTE applies the LTE predicate on the "cleanup_attempts" field.
+func CleanupAttemptsLTE(v int) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLTE(FieldCleanupAttempts, v))
+}
+
+// NextAttemptAtEQ applies the EQ predicate on the "next_attempt_at" field.
+func NextAttemptAtEQ(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldNextAttemptAt, v))
+}
+
+// NextAttemptAtNEQ applies the NEQ predicate on the "next_attempt_at" field.
+func NextAttemptAtNEQ(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNEQ(FieldNextAttemptAt, v))
+}
+
+// NextAttemptAtIn applies the In predicate on the "next_attempt_at" field.
+func NextAttemptAtIn(vs ...time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldIn(FieldNextAttemptAt, vs...))
+}
+
+// NextAttemptAtNotIn applies the NotIn predicate on the "next_attempt_at" field.
+func NextAttemptAtNotIn(vs ...time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNotIn(FieldNextAttemptAt, vs...))
+}
+
+// NextAttemptAtGT applies the GT predicate on the "next_attempt_at" field.
+func NextAttemptAtGT(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGT(FieldNextAttemptAt, v))
+}
+
+// NextAttemptAtGTE applies the GTE predicate on the "next_attempt_at" field.
+func NextAttemptAtGTE(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGTE(FieldNextAttemptAt, v))
+}
+
+// NextAttemptAtLT applies the LT predicate on the "next_attempt_at" field.
+func NextAttemptAtLT(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLT(FieldNextAttemptAt, v))
+}
+
+// NextAttemptAtLTE applies the LTE predicate on the "next_attempt_at" field.
+func NextAttemptAtLTE(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLTE(FieldNextAttemptAt, v))
+}
+
+// NextAttemptAtIsNil applies the IsNil predicate on the "next_attempt_at" field.
+func NextAttemptAtIsNil() predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldIsNull(FieldNextAttemptAt))
+}
+
+// NextAttemptAtNotNil applies the NotNil predicate on the "next_attempt_at" field.
+func NextAttemptAtNotNil() predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNotNull(FieldNextAttemptAt))
+}
+
+// LeaseTokenEQ applies the EQ predicate on the "lease_token" field.
+func LeaseTokenEQ(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldLeaseToken, v))
+}
+
+// LeaseTokenNEQ applies the NEQ predicate on the "lease_token" field.
+func LeaseTokenNEQ(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNEQ(FieldLeaseToken, v))
+}
+
+// LeaseTokenIn applies the In predicate on the "lease_token" field.
+func LeaseTokenIn(vs ...string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldIn(FieldLeaseToken, vs...))
+}
+
+// LeaseTokenNotIn applies the NotIn predicate on the "lease_token" field.
+func LeaseTokenNotIn(vs ...string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNotIn(FieldLeaseToken, vs...))
+}
+
+// LeaseTokenGT applies the GT predicate on the "lease_token" field.
+func LeaseTokenGT(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGT(FieldLeaseToken, v))
+}
+
+// LeaseTokenGTE applies the GTE predicate on the "lease_token" field.
+func LeaseTokenGTE(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGTE(FieldLeaseToken, v))
+}
+
+// LeaseTokenLT applies the LT predicate on the "lease_token" field.
+func LeaseTokenLT(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLT(FieldLeaseToken, v))
+}
+
+// LeaseTokenLTE applies the LTE predicate on the "lease_token" field.
+func LeaseTokenLTE(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLTE(FieldLeaseToken, v))
+}
+
+// LeaseTokenContains applies the Contains predicate on the "lease_token" field.
+func LeaseTokenContains(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldContains(FieldLeaseToken, v))
+}
+
+// LeaseTokenHasPrefix applies the HasPrefix predicate on the "lease_token" field.
+func LeaseTokenHasPrefix(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldHasPrefix(FieldLeaseToken, v))
+}
+
+// LeaseTokenHasSuffix applies the HasSuffix predicate on the "lease_token" field.
+func LeaseTokenHasSuffix(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldHasSuffix(FieldLeaseToken, v))
+}
+
+// LeaseTokenEqualFold applies the EqualFold predicate on the "lease_token" field.
+func LeaseTokenEqualFold(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEqualFold(FieldLeaseToken, v))
+}
+
+// LeaseTokenContainsFold applies the ContainsFold predicate on the "lease_token" field.
+func LeaseTokenContainsFold(v string) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldContainsFold(FieldLeaseToken, v))
+}
+
+// LeaseExpiresAtEQ applies the EQ predicate on the "lease_expires_at" field.
+func LeaseExpiresAtEQ(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldEQ(FieldLeaseExpiresAt, v))
+}
+
+// LeaseExpiresAtNEQ applies the NEQ predicate on the "lease_expires_at" field.
+func LeaseExpiresAtNEQ(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNEQ(FieldLeaseExpiresAt, v))
+}
+
+// LeaseExpiresAtIn applies the In predicate on the "lease_expires_at" field.
+func LeaseExpiresAtIn(vs ...time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldIn(FieldLeaseExpiresAt, vs...))
+}
+
+// LeaseExpiresAtNotIn applies the NotIn predicate on the "lease_expires_at" field.
+func LeaseExpiresAtNotIn(vs ...time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNotIn(FieldLeaseExpiresAt, vs...))
+}
+
+// LeaseExpiresAtGT applies the GT predicate on the "lease_expires_at" field.
+func LeaseExpiresAtGT(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGT(FieldLeaseExpiresAt, v))
+}
+
+// LeaseExpiresAtGTE applies the GTE predicate on the "lease_expires_at" field.
+func LeaseExpiresAtGTE(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldGTE(FieldLeaseExpiresAt, v))
+}
+
+// LeaseExpiresAtLT applies the LT predicate on the "lease_expires_at" field.
+func LeaseExpiresAtLT(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLT(FieldLeaseExpiresAt, v))
+}
+
+// LeaseExpiresAtLTE applies the LTE predicate on the "lease_expires_at" field.
+func LeaseExpiresAtLTE(v time.Time) predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldLTE(FieldLeaseExpiresAt, v))
+}
+
+// LeaseExpiresAtIsNil applies the IsNil predicate on the "lease_expires_at" field.
+func LeaseExpiresAtIsNil() predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldIsNull(FieldLeaseExpiresAt))
+}
+
+// LeaseExpiresAtNotNil applies the NotNil predicate on the "lease_expires_at" field.
+func LeaseExpiresAtNotNil() predicate.AIAuditArtifact {
+	return predicate.AIAuditArtifact(sql.FieldNotNull(FieldLeaseExpiresAt))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

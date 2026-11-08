@@ -203,8 +203,11 @@ func (r *AIRecorder) RecordArtifact(ctx context.Context, artifact domain.AIArtif
 	if status == "" {
 		status = "pending"
 	}
-	_, err = r.pool.Exec(ctx, `INSERT INTO ai_audit_artifacts (id,run_id,event_id,kind,status,sha256,content_type,size_bytes,object_key,failure_code,expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, runID, eventID, artifact.Kind, status, artifact.SHA256, artifact.ContentType, artifact.SizeBytes, artifact.ObjectKey, artifact.FailureCode, artifact.ExpiresAt)
+	_, err = r.pool.Exec(ctx, `INSERT INTO ai_audit_artifacts (id,run_id,event_id,kind,status,sha256,content_type,size_bytes,object_key,bucket,failure_code,expires_at,cleanup_attempts,next_attempt_at,lease_token,lease_expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		id, runID, eventID, artifact.Kind, status, artifact.SHA256, artifact.ContentType, artifact.SizeBytes,
+		artifact.ObjectKey, artifact.Bucket, artifact.FailureCode, artifact.ExpiresAt, artifact.CleanupAttempts,
+		artifact.NextAttemptAt, artifact.LeaseToken, artifact.LeaseExpiresAt)
 	if err != nil {
 		return domain.AIArtifact{}, fmt.Errorf("ai audit: insert artifact: %w", err)
 	}
@@ -274,7 +277,7 @@ func (r *AIRecorder) GetArtifact(ctx context.Context, id string) (domain.AIArtif
 	if err != nil {
 		return domain.AIArtifact{}, fmt.Errorf("ai audit: parse artifact id: %w", err)
 	}
-	row := r.pool.QueryRow(ctx, `SELECT id,run_id,event_id,kind,status,sha256,content_type,object_key,failure_code,size_bytes,expires_at,created_at,updated_at FROM ai_audit_artifacts WHERE id=$1`, parsed)
+	row := r.pool.QueryRow(ctx, `SELECT id,run_id,event_id,kind,status,sha256,content_type,object_key,bucket,failure_code,size_bytes,expires_at,created_at,updated_at,cleanup_attempts,next_attempt_at,lease_token,lease_expires_at FROM ai_audit_artifacts WHERE id=$1`, parsed)
 	artifact, err := scanArtifact(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.AIArtifact{}, ErrNotFound
@@ -344,7 +347,7 @@ func (r *AIRecorder) artifactsFor(ctx context.Context, runID string) ([]domain.A
 	if err != nil {
 		return nil, fmt.Errorf("ai audit: parse run id: %w", err)
 	}
-	rows, err := r.pool.Query(ctx, `SELECT id,run_id,event_id,kind,status,sha256,content_type,object_key,failure_code,size_bytes,expires_at,created_at,updated_at FROM ai_audit_artifacts WHERE run_id=$1 ORDER BY created_at`, parsed)
+	rows, err := r.pool.Query(ctx, `SELECT id,run_id,event_id,kind,status,sha256,content_type,object_key,bucket,failure_code,size_bytes,expires_at,created_at,updated_at,cleanup_attempts,next_attempt_at,lease_token,lease_expires_at FROM ai_audit_artifacts WHERE run_id=$1 ORDER BY created_at`, parsed)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +389,7 @@ func scanArtifact(row rowScanner) (domain.AIArtifact, error) {
 	var id, runID uuid.UUID
 	var eventID *uuid.UUID
 	var artifact domain.AIArtifact
-	if err := row.Scan(&id, &runID, &eventID, &artifact.Kind, &artifact.Status, &artifact.SHA256, &artifact.ContentType, &artifact.ObjectKey, &artifact.FailureCode, &artifact.SizeBytes, &artifact.ExpiresAt, &artifact.CreatedAt, &artifact.UpdatedAt); err != nil {
+	if err := row.Scan(&id, &runID, &eventID, &artifact.Kind, &artifact.Status, &artifact.SHA256, &artifact.ContentType, &artifact.ObjectKey, &artifact.Bucket, &artifact.FailureCode, &artifact.SizeBytes, &artifact.ExpiresAt, &artifact.CreatedAt, &artifact.UpdatedAt, &artifact.CleanupAttempts, &artifact.NextAttemptAt, &artifact.LeaseToken, &artifact.LeaseExpiresAt); err != nil {
 		return domain.AIArtifact{}, err
 	}
 	artifact.ID, artifact.RunID = id.String(), runID.String()
@@ -394,6 +397,92 @@ func scanArtifact(row rowScanner) (domain.AIArtifact, error) {
 		artifact.EventID = eventID.String()
 	}
 	return artifact, nil
+}
+
+// FindUploadedArtifactBySHA256 returns the newest retained uploaded artifact
+// with the same content hash, letting identical media reuse one stored object.
+// FindUploadedArtifactBySHA256 返回同一内容哈希的最新可保留已上传工件，使相同媒体复用同一存储对象。
+func (r *AIRecorder) FindUploadedArtifactBySHA256(ctx context.Context, contentHash string) (domain.AIArtifact, error) {
+	if contentHash == "" {
+		return domain.AIArtifact{}, fmt.Errorf("ai audit: sha256 required")
+	}
+	row := r.pool.QueryRow(ctx, `SELECT id,run_id,event_id,kind,status,sha256,content_type,object_key,bucket,failure_code,size_bytes,expires_at,created_at,updated_at,cleanup_attempts,next_attempt_at,lease_token,lease_expires_at FROM ai_audit_artifacts
+		WHERE sha256=$1 AND status='uploaded' AND object_key <> '' AND (expires_at IS NULL OR expires_at > now()) ORDER BY created_at DESC LIMIT 1`, contentHash)
+	artifact, err := scanArtifact(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.AIArtifact{}, ErrNotFound
+	}
+	return artifact, err
+}
+
+// ClaimExpiredArtifacts leases uploaded objects whose retention deadline passed.
+// ClaimExpiredArtifacts 租约领取已过保留期的上传对象。
+func (r *AIRecorder) ClaimExpiredArtifacts(ctx context.Context, limit int, lease time.Duration) ([]domain.AIArtifact, error) {
+	if limit <= 0 || lease <= 0 {
+		return nil, fmt.Errorf("ai audit: invalid expiry claim")
+	}
+	token := uuid.NewString()
+	rows, err := r.pool.Query(ctx, `WITH candidates AS (
+		SELECT candidate.id FROM ai_audit_artifacts candidate
+		WHERE candidate.expires_at <= now() AND candidate.object_key <> ''
+			AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= now())
+			AND (candidate.status IN ('uploaded','pending','failed') OR (candidate.status IN ('uploading','expiring') AND candidate.lease_expires_at <= now()))
+			AND NOT EXISTS (
+				SELECT 1 FROM ai_audit_artifacts keep
+				WHERE keep.object_key = candidate.object_key
+					AND (keep.bucket = candidate.bucket OR keep.bucket = '' OR candidate.bucket = '')
+					AND keep.id <> candidate.id
+					AND keep.status IN ('uploaded','uploading','expiring')
+					AND (keep.expires_at IS NULL OR keep.expires_at > now())
+			)
+		ORDER BY candidate.expires_at FOR UPDATE SKIP LOCKED LIMIT $1
+	)
+	UPDATE ai_audit_artifacts AS artifact SET status='expiring',lease_token=$2,lease_expires_at=now()+$3::interval,updated_at=now()
+	FROM candidates WHERE artifact.id=candidates.id
+	RETURNING artifact.id,artifact.run_id,artifact.event_id,artifact.kind,artifact.status,artifact.sha256,artifact.content_type,artifact.object_key,artifact.bucket,artifact.failure_code,artifact.size_bytes,artifact.expires_at,artifact.created_at,artifact.updated_at,artifact.cleanup_attempts,artifact.next_attempt_at,artifact.lease_token,artifact.lease_expires_at`, limit, token, lease.String())
+	if err != nil {
+		return nil, fmt.Errorf("ai audit: claim expired artifacts: %w", err)
+	}
+	defer rows.Close()
+	artifacts := make([]domain.AIArtifact, 0, limit)
+	for rows.Next() {
+		artifact, scanErr := scanArtifact(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	return artifacts, rows.Err()
+}
+
+// MarkArtifactExpired commits successful remote deletion while retaining only
+// the immutable audit metadata and hash.
+// MarkArtifactExpired 提交远端删除结果，仅保留不可变审计元数据与哈希。
+func (r *AIRecorder) MarkArtifactExpired(ctx context.Context, id, token string) error {
+	result, err := r.pool.Exec(ctx, `UPDATE ai_audit_artifacts SET status='expired',lease_token='',lease_expires_at=NULL,updated_at=now()
+		WHERE id=$1 AND status='expiring' AND lease_token=$2`, id, token)
+	if err != nil {
+		return fmt.Errorf("ai audit: mark artifact expired: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// RetryArtifactExpiry returns a failed deletion to uploaded state for a later
+// retry, preserving the object reference and failure reason for operators.
+// RetryArtifactExpiry 将删除失败的工件恢复为 uploaded 状态，供后续重试并保留原因。
+func (r *AIRecorder) RetryArtifactExpiry(ctx context.Context, id, token string, next time.Time, code string) error {
+	result, err := r.pool.Exec(ctx, `UPDATE ai_audit_artifacts SET status='uploaded',cleanup_attempts=cleanup_attempts+1,next_attempt_at=$3,failure_code=$4,lease_token='',lease_expires_at=NULL,updated_at=now()
+		WHERE id=$1 AND status='expiring' AND lease_token=$2`, id, token, next, code)
+	if err != nil {
+		return fmt.Errorf("ai audit: retry artifact expiry: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func nullableJSON(value []byte) any {

@@ -147,6 +147,7 @@ func Run(ctx context.Context, opts options.Options) error {
 	}
 	svcCtx.Stats = rt.Stats
 	svcCtx.AIAudit = rt.AIAudit
+	svcCtx.MediaArchive = rt.MediaArchive
 	svcCtx.Tools = rt.Tools
 	svcCtx.Decisions = rt.Decisions
 	svcCtx.IntentSimulator = rt.IntentSimulator
@@ -221,6 +222,14 @@ func Run(ctx context.Context, opts options.Options) error {
 			}
 		}()
 	}
+	var archiveDone chan struct{}
+	if rt.MediaArchive != nil {
+		archiveDone = make(chan struct{})
+		go func() {
+			defer close(archiveDone)
+			rt.MediaArchive.Run(runCtx)
+		}()
+	}
 
 	var runErr error
 	select {
@@ -240,6 +249,9 @@ func Run(ctx context.Context, opts options.Options) error {
 	loops.Wait()
 	if workerDone != nil {
 		<-workerDone
+	}
+	if archiveDone != nil {
+		<-archiveDone
 	}
 	if cfg.Server.Enabled {
 		<-apiDone

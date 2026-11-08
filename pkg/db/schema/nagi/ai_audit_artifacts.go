@@ -12,8 +12,8 @@ import (
 )
 
 // AIAuditArtifact is metadata for an authorized media artifact. Bytes and
-// remote object lifecycle are intentionally handled by the media worker.
-// AIAuditArtifact 是已授权媒体工件的元数据；字节与远程对象生命周期由媒体 worker 负责。
+// remote object lifecycle are intentionally handled by the media archive.
+// AIAuditArtifact 是已授权媒体工件的元数据；字节与远程对象生命周期由媒体归档负责。
 type AIAuditArtifact struct{ ent.Schema }
 
 func (AIAuditArtifact) Fields() []ent.Field {
@@ -27,8 +27,13 @@ func (AIAuditArtifact) Fields() []ent.Field {
 		field.String("content_type").SchemaType(map[string]string{"postgres": "text"}).Default(""),
 		field.Int64("size_bytes").Default(0),
 		field.String("object_key").SchemaType(map[string]string{"postgres": "text"}).Default(""),
+		field.String("bucket").SchemaType(map[string]string{"postgres": "text"}).Default(""),
 		field.String("failure_code").SchemaType(map[string]string{"postgres": "text"}).Default(""),
 		field.Time("expires_at").Optional().Nillable(),
+		field.Int("cleanup_attempts").Default(0),
+		field.Time("next_attempt_at").Optional().Nillable(),
+		field.String("lease_token").SchemaType(map[string]string{"postgres": "text"}).Default(""),
+		field.Time("lease_expires_at").Optional().Nillable(),
 		field.Time("created_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 		field.Time("updated_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 	}
@@ -39,5 +44,9 @@ func (AIAuditArtifact) Annotations() []schema.Annotation {
 }
 
 func (AIAuditArtifact) Indexes() []ent.Index {
-	return []ent.Index{index.Fields("run_id", "created_at")}
+	return []ent.Index{
+		index.Fields("run_id", "created_at"),
+		index.Fields("status", "next_attempt_at"),
+		index.Fields("sha256", "status", "expires_at", "created_at"),
+	}
 }

@@ -30,10 +30,20 @@ const (
 	FieldSizeBytes = "size_bytes"
 	// FieldObjectKey holds the string denoting the object_key field in the database.
 	FieldObjectKey = "object_key"
+	// FieldBucket holds the string denoting the bucket field in the database.
+	FieldBucket = "bucket"
 	// FieldFailureCode holds the string denoting the failure_code field in the database.
 	FieldFailureCode = "failure_code"
 	// FieldExpiresAt holds the string denoting the expires_at field in the database.
 	FieldExpiresAt = "expires_at"
+	// FieldCleanupAttempts holds the string denoting the cleanup_attempts field in the database.
+	FieldCleanupAttempts = "cleanup_attempts"
+	// FieldNextAttemptAt holds the string denoting the next_attempt_at field in the database.
+	FieldNextAttemptAt = "next_attempt_at"
+	// FieldLeaseToken holds the string denoting the lease_token field in the database.
+	FieldLeaseToken = "lease_token"
+	// FieldLeaseExpiresAt holds the string denoting the lease_expires_at field in the database.
+	FieldLeaseExpiresAt = "lease_expires_at"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -53,8 +63,13 @@ var Columns = []string{
 	FieldContentType,
 	FieldSizeBytes,
 	FieldObjectKey,
+	FieldBucket,
 	FieldFailureCode,
 	FieldExpiresAt,
+	FieldCleanupAttempts,
+	FieldNextAttemptAt,
+	FieldLeaseToken,
+	FieldLeaseExpiresAt,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
@@ -80,8 +95,14 @@ var (
 	DefaultSizeBytes int64
 	// DefaultObjectKey holds the default value on creation for the "object_key" field.
 	DefaultObjectKey string
+	// DefaultBucket holds the default value on creation for the "bucket" field.
+	DefaultBucket string
 	// DefaultFailureCode holds the default value on creation for the "failure_code" field.
 	DefaultFailureCode string
+	// DefaultCleanupAttempts holds the default value on creation for the "cleanup_attempts" field.
+	DefaultCleanupAttempts int
+	// DefaultLeaseToken holds the default value on creation for the "lease_token" field.
+	DefaultLeaseToken string
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -138,6 +159,11 @@ func ByObjectKey(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldObjectKey, opts...).ToFunc()
 }
 
+// ByBucket orders the results by the bucket field.
+func ByBucket(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBucket, opts...).ToFunc()
+}
+
 // ByFailureCode orders the results by the failure_code field.
 func ByFailureCode(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFailureCode, opts...).ToFunc()
@@ -146,6 +172,26 @@ func ByFailureCode(opts ...sql.OrderTermOption) OrderOption {
 // ByExpiresAt orders the results by the expires_at field.
 func ByExpiresAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldExpiresAt, opts...).ToFunc()
+}
+
+// ByCleanupAttempts orders the results by the cleanup_attempts field.
+func ByCleanupAttempts(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCleanupAttempts, opts...).ToFunc()
+}
+
+// ByNextAttemptAt orders the results by the next_attempt_at field.
+func ByNextAttemptAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldNextAttemptAt, opts...).ToFunc()
+}
+
+// ByLeaseToken orders the results by the lease_token field.
+func ByLeaseToken(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLeaseToken, opts...).ToFunc()
+}
+
+// ByLeaseExpiresAt orders the results by the lease_expires_at field.
+func ByLeaseExpiresAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLeaseExpiresAt, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

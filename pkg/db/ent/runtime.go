@@ -57,16 +57,28 @@ func init() {
 	aiauditartifactDescObjectKey := aiauditartifactFields[8].Descriptor()
 	// aiauditartifact.DefaultObjectKey holds the default value on creation for the object_key field.
 	aiauditartifact.DefaultObjectKey = aiauditartifactDescObjectKey.Default.(string)
+	// aiauditartifactDescBucket is the schema descriptor for bucket field.
+	aiauditartifactDescBucket := aiauditartifactFields[9].Descriptor()
+	// aiauditartifact.DefaultBucket holds the default value on creation for the bucket field.
+	aiauditartifact.DefaultBucket = aiauditartifactDescBucket.Default.(string)
 	// aiauditartifactDescFailureCode is the schema descriptor for failure_code field.
-	aiauditartifactDescFailureCode := aiauditartifactFields[9].Descriptor()
+	aiauditartifactDescFailureCode := aiauditartifactFields[10].Descriptor()
 	// aiauditartifact.DefaultFailureCode holds the default value on creation for the failure_code field.
 	aiauditartifact.DefaultFailureCode = aiauditartifactDescFailureCode.Default.(string)
+	// aiauditartifactDescCleanupAttempts is the schema descriptor for cleanup_attempts field.
+	aiauditartifactDescCleanupAttempts := aiauditartifactFields[12].Descriptor()
+	// aiauditartifact.DefaultCleanupAttempts holds the default value on creation for the cleanup_attempts field.
+	aiauditartifact.DefaultCleanupAttempts = aiauditartifactDescCleanupAttempts.Default.(int)
+	// aiauditartifactDescLeaseToken is the schema descriptor for lease_token field.
+	aiauditartifactDescLeaseToken := aiauditartifactFields[14].Descriptor()
+	// aiauditartifact.DefaultLeaseToken holds the default value on creation for the lease_token field.
+	aiauditartifact.DefaultLeaseToken = aiauditartifactDescLeaseToken.Default.(string)
 	// aiauditartifactDescCreatedAt is the schema descriptor for created_at field.
-	aiauditartifactDescCreatedAt := aiauditartifactFields[11].Descriptor()
+	aiauditartifactDescCreatedAt := aiauditartifactFields[16].Descriptor()
 	// aiauditartifact.DefaultCreatedAt holds the default value on creation for the created_at field.
 	aiauditartifact.DefaultCreatedAt = aiauditartifactDescCreatedAt.Default.(func() time.Time)
 	// aiauditartifactDescUpdatedAt is the schema descriptor for updated_at field.
-	aiauditartifactDescUpdatedAt := aiauditartifactFields[12].Descriptor()
+	aiauditartifactDescUpdatedAt := aiauditartifactFields[17].Descriptor()
 	// aiauditartifact.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	aiauditartifact.DefaultUpdatedAt = aiauditartifactDescUpdatedAt.Default.(func() time.Time)
 	// aiauditartifactDescID is the schema descriptor for id field.

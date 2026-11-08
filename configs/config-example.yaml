@@ -157,3 +157,18 @@ observability:
   # 注意：Langfuse 的 Users 视图会按真实 QQ 号聚合，同一用户在不同机器人账号下会被合并。
   # 可用 NAGI_OBSERVABILITY_RAW_IDENTIFIERS 覆盖。
   raw-identifiers: false
+  # 审计媒体使用独立 S3/MinIO bucket；该开关独立于 Langfuse 追踪，
+  # Nagi 同步上传后数据库只保存对象引用，不保存媒体字节。
+  # public-endpoint 必须是浏览器可访问的 S3 API 地址，控制台按需签发
+  # 5 分钟回放 URL；Trace 只记录稳定的 s3:// 对象引用。
+  # Audit media uses a dedicated S3/MinIO bucket and is independent of Langfuse.
+  # Only object references are stored in PostgreSQL; the console signs replay URLs on demand.
+  media-archive:
+    enabled: false
+    endpoint: "http://127.0.0.1:9000"
+    public-endpoint: "http://100.100.100.4:9000"
+    access-key: ""
+    secret-key: ""
+    bucket: "nagi-audit"
+    prefix: "nagi/"
+    retention-days: 30
