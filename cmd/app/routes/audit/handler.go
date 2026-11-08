@@ -20,6 +20,14 @@ const maxRunPageSize = 100
 // Handler 提供持久化的 worker 运行审计记录。
 type Handler struct{ svcCtx *svc.ServiceContext }
 
+// artifactResponse keeps the original top-level artifact fields and adds an
+// optional short-lived replay URL.
+// artifactResponse 保留原有顶层工件字段并附加可选的短时回放 URL。
+type artifactResponse struct {
+	auditdomain.AIArtifact
+	URL string `json:"url,omitempty"`
+}
+
 // NewHandler builds the local audit handler.
 // NewHandler 构建本地审计处理器。
 func NewHandler(svcCtx *svc.ServiceContext) *Handler { return &Handler{svcCtx: svcCtx} }
@@ -99,9 +107,9 @@ func (h *Handler) GetRun(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, run)
 }
 
-// GetArtifact returns durable media metadata. A temporary read URL is added in
-// the media-storage batch once the object is uploaded and still retained.
-// GetArtifact 返回持久化媒体元数据。媒体存储批次会在对象已上传且未到期时补充临时读取地址。
+// GetArtifact returns durable media metadata and adds a short-lived read URL
+// when the object is uploaded and still retained.
+// GetArtifact 返回持久化媒体元数据，并在对象已上传且未到期时附加短时读取地址。
 func (h *Handler) GetArtifact(w http.ResponseWriter, r *http.Request) {
 	if h.svcCtx.AIAudit == nil {
 		common.WriteFailure(w, http.StatusServiceUnavailable, "AI 审计存储不可用")
@@ -121,5 +129,14 @@ func (h *Handler) GetArtifact(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取媒体工件失败")
 		return
 	}
-	common.WriteSuccess(w, artifact)
+	response := artifactResponse{AIArtifact: artifact}
+	if h.svcCtx.MediaArchive != nil {
+		url, signErr := h.svcCtx.MediaArchive.Presign(r.Context(), artifact)
+		if signErr != nil {
+			common.WriteFailure(w, http.StatusServiceUnavailable, "媒体临时访问地址不可用")
+			return
+		}
+		response.URL = url
+	}
+	common.WriteSuccess(w, response)
 }

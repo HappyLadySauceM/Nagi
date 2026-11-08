@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,7 +22,35 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/application"
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
+
+// auditSafeSegments removes inline media bytes before segments enter local audit
+// JSON. Only stable references may be persisted; raw bytes must stay in object storage.
+// auditSafeSegments 在消息段进入本地审计 JSON 前移除内联媒体字节。
+// 仅允许持久化稳定引用，原始字节必须留在对象存储。
+func auditSafeSegments(segments []obdomain.Segment) []obdomain.Segment {
+	if len(segments) == 0 {
+		return nil
+	}
+	safe := make([]obdomain.Segment, 0, len(segments))
+	for _, segment := range segments {
+		copySegment := segment
+		if len(segment.Data) > 0 {
+			data := make(map[string]string, len(segment.Data))
+			for key, value := range segment.Data {
+				if key == "file" && strings.HasPrefix(value, "base64://") {
+					data[key] = "[inline]"
+					continue
+				}
+				data[key] = value
+			}
+			copySegment.Data = data
+		}
+		safe = append(safe, copySegment)
+	}
+	return safe
+}
 
 // JobProcessor executes the decision pipeline for one job.
 // JobProcessor 为单个任务执行决策流水线。
@@ -314,7 +343,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 			"scope_type": string(job.Kind), "target_id": job.TargetID, "sender_id": job.Message.SenderID,
 		}
 		if observability.ContentEnabled() && !observability.ContentSuppressed(jobCtx) {
-			auditInput["segments"] = job.Message.Segments
+			auditInput["segments"] = auditSafeSegments(job.Message.Segments)
 			auditInput["text"] = job.Message.Text
 		} else {
 			auditInput["content_redacted"] = "observability_export_disabled"

@@ -51,23 +51,28 @@ type AIEvent struct {
 	FinishedAt    *time.Time
 }
 
-// AIArtifact describes media retained for an audited run; byte storage is
-// deliberately outside this model.
-// AIArtifact 描述为审计运行保留的媒体；字节存储刻意不放入这个模型。
+// AIArtifact describes media retained for an audited run. Bytes live in the
+// S3-compatible archive; this model keeps only the stable object reference.
+// AIArtifact 描述为审计运行保留的媒体。字节存放在兼容 S3 的归档中，此模型只保留稳定对象引用。
 type AIArtifact struct {
-	ID          string
-	RunID       string
-	EventID     string
-	Kind        string
-	Status      string
-	SHA256      string
-	ContentType string
-	ObjectKey   string
-	FailureCode string
-	SizeBytes   int64
-	ExpiresAt   *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID              string
+	RunID           string
+	EventID         string
+	Kind            string
+	Status          string
+	SHA256          string
+	ContentType     string
+	ObjectKey       string
+	Bucket          string
+	FailureCode     string
+	SizeBytes       int64
+	ExpiresAt       *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CleanupAttempts int        `json:"-"`
+	NextAttemptAt   *time.Time `json:"-"`
+	LeaseToken      string     `json:"-"`
+	LeaseExpiresAt  *time.Time `json:"-"`
 }
 
 // AIRunQuery restricts the administrator's read-only audit view.

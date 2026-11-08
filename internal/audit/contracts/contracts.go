@@ -5,6 +5,7 @@ package contracts
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 )
@@ -71,4 +72,14 @@ type AIReader interface {
 type AIStore interface {
 	AIRecorder
 	AIReader
+}
+
+// ArtifactQueue persists media object references and retention cleanup state.
+// ArtifactQueue 持久化媒体对象引用与保留期清理状态。
+type ArtifactQueue interface {
+	AIStore
+	FindUploadedArtifactBySHA256(context.Context, string) (domain.AIArtifact, error)
+	ClaimExpiredArtifacts(context.Context, int, time.Duration) ([]domain.AIArtifact, error)
+	MarkArtifactExpired(context.Context, string, string) error
+	RetryArtifactExpiry(context.Context, string, string, time.Time, string) error
 }

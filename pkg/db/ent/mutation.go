@@ -74,26 +74,32 @@ const (
 // AIAuditArtifactMutation represents an operation that mutates the AIAuditArtifact nodes in the graph.
 type AIAuditArtifactMutation struct {
 	config
-	op            Op
-	typ           string
-	id            *uuid.UUID
-	run_id        *uuid.UUID
-	event_id      *uuid.UUID
-	kind          *string
-	status        *string
-	sha256        *string
-	content_type  *string
-	size_bytes    *int64
-	addsize_bytes *int64
-	object_key    *string
-	failure_code  *string
-	expires_at    *time.Time
-	created_at    *time.Time
-	updated_at    *time.Time
-	clearedFields map[string]struct{}
-	done          bool
-	oldValue      func(context.Context) (*AIAuditArtifact, error)
-	predicates    []predicate.AIAuditArtifact
+	op                  Op
+	typ                 string
+	id                  *uuid.UUID
+	run_id              *uuid.UUID
+	event_id            *uuid.UUID
+	kind                *string
+	status              *string
+	sha256              *string
+	content_type        *string
+	size_bytes          *int64
+	addsize_bytes       *int64
+	object_key          *string
+	bucket              *string
+	failure_code        *string
+	expires_at          *time.Time
+	cleanup_attempts    *int
+	addcleanup_attempts *int
+	next_attempt_at     *time.Time
+	lease_token         *string
+	lease_expires_at    *time.Time
+	created_at          *time.Time
+	updated_at          *time.Time
+	clearedFields       map[string]struct{}
+	done                bool
+	oldValue            func(context.Context) (*AIAuditArtifact, error)
+	predicates          []predicate.AIAuditArtifact
 }
 
 var _ ent.Mutation = (*AIAuditArtifactMutation)(nil)
@@ -521,6 +527,42 @@ func (m *AIAuditArtifactMutation) ResetObjectKey() {
 	m.object_key = nil
 }
 
+// SetBucket sets the "bucket" field.
+func (m *AIAuditArtifactMutation) SetBucket(s string) {
+	m.bucket = &s
+}
+
+// Bucket returns the value of the "bucket" field in the mutation.
+func (m *AIAuditArtifactMutation) Bucket() (r string, exists bool) {
+	v := m.bucket
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBucket returns the old "bucket" field's value of the AIAuditArtifact entity.
+// If the AIAuditArtifact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AIAuditArtifactMutation) OldBucket(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBucket is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBucket requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBucket: %w", err)
+	}
+	return oldValue.Bucket, nil
+}
+
+// ResetBucket resets all changes to the "bucket" field.
+func (m *AIAuditArtifactMutation) ResetBucket() {
+	m.bucket = nil
+}
+
 // SetFailureCode sets the "failure_code" field.
 func (m *AIAuditArtifactMutation) SetFailureCode(s string) {
 	m.failure_code = &s
@@ -604,6 +646,196 @@ func (m *AIAuditArtifactMutation) ExpiresAtCleared() bool {
 func (m *AIAuditArtifactMutation) ResetExpiresAt() {
 	m.expires_at = nil
 	delete(m.clearedFields, aiauditartifact.FieldExpiresAt)
+}
+
+// SetCleanupAttempts sets the "cleanup_attempts" field.
+func (m *AIAuditArtifactMutation) SetCleanupAttempts(i int) {
+	m.cleanup_attempts = &i
+	m.addcleanup_attempts = nil
+}
+
+// CleanupAttempts returns the value of the "cleanup_attempts" field in the mutation.
+func (m *AIAuditArtifactMutation) CleanupAttempts() (r int, exists bool) {
+	v := m.cleanup_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCleanupAttempts returns the old "cleanup_attempts" field's value of the AIAuditArtifact entity.
+// If the AIAuditArtifact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AIAuditArtifactMutation) OldCleanupAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCleanupAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCleanupAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCleanupAttempts: %w", err)
+	}
+	return oldValue.CleanupAttempts, nil
+}
+
+// AddCleanupAttempts adds i to the "cleanup_attempts" field.
+func (m *AIAuditArtifactMutation) AddCleanupAttempts(i int) {
+	if m.addcleanup_attempts != nil {
+		*m.addcleanup_attempts += i
+	} else {
+		m.addcleanup_attempts = &i
+	}
+}
+
+// AddedCleanupAttempts returns the value that was added to the "cleanup_attempts" field in this mutation.
+func (m *AIAuditArtifactMutation) AddedCleanupAttempts() (r int, exists bool) {
+	v := m.addcleanup_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCleanupAttempts resets all changes to the "cleanup_attempts" field.
+func (m *AIAuditArtifactMutation) ResetCleanupAttempts() {
+	m.cleanup_attempts = nil
+	m.addcleanup_attempts = nil
+}
+
+// SetNextAttemptAt sets the "next_attempt_at" field.
+func (m *AIAuditArtifactMutation) SetNextAttemptAt(t time.Time) {
+	m.next_attempt_at = &t
+}
+
+// NextAttemptAt returns the value of the "next_attempt_at" field in the mutation.
+func (m *AIAuditArtifactMutation) NextAttemptAt() (r time.Time, exists bool) {
+	v := m.next_attempt_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNextAttemptAt returns the old "next_attempt_at" field's value of the AIAuditArtifact entity.
+// If the AIAuditArtifact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AIAuditArtifactMutation) OldNextAttemptAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNextAttemptAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNextAttemptAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNextAttemptAt: %w", err)
+	}
+	return oldValue.NextAttemptAt, nil
+}
+
+// ClearNextAttemptAt clears the value of the "next_attempt_at" field.
+func (m *AIAuditArtifactMutation) ClearNextAttemptAt() {
+	m.next_attempt_at = nil
+	m.clearedFields[aiauditartifact.FieldNextAttemptAt] = struct{}{}
+}
+
+// NextAttemptAtCleared returns if the "next_attempt_at" field was cleared in this mutation.
+func (m *AIAuditArtifactMutation) NextAttemptAtCleared() bool {
+	_, ok := m.clearedFields[aiauditartifact.FieldNextAttemptAt]
+	return ok
+}
+
+// ResetNextAttemptAt resets all changes to the "next_attempt_at" field.
+func (m *AIAuditArtifactMutation) ResetNextAttemptAt() {
+	m.next_attempt_at = nil
+	delete(m.clearedFields, aiauditartifact.FieldNextAttemptAt)
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (m *AIAuditArtifactMutation) SetLeaseToken(s string) {
+	m.lease_token = &s
+}
+
+// LeaseToken returns the value of the "lease_token" field in the mutation.
+func (m *AIAuditArtifactMutation) LeaseToken() (r string, exists bool) {
+	v := m.lease_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseToken returns the old "lease_token" field's value of the AIAuditArtifact entity.
+// If the AIAuditArtifact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AIAuditArtifactMutation) OldLeaseToken(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseToken is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseToken requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseToken: %w", err)
+	}
+	return oldValue.LeaseToken, nil
+}
+
+// ResetLeaseToken resets all changes to the "lease_token" field.
+func (m *AIAuditArtifactMutation) ResetLeaseToken() {
+	m.lease_token = nil
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (m *AIAuditArtifactMutation) SetLeaseExpiresAt(t time.Time) {
+	m.lease_expires_at = &t
+}
+
+// LeaseExpiresAt returns the value of the "lease_expires_at" field in the mutation.
+func (m *AIAuditArtifactMutation) LeaseExpiresAt() (r time.Time, exists bool) {
+	v := m.lease_expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseExpiresAt returns the old "lease_expires_at" field's value of the AIAuditArtifact entity.
+// If the AIAuditArtifact object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AIAuditArtifactMutation) OldLeaseExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseExpiresAt: %w", err)
+	}
+	return oldValue.LeaseExpiresAt, nil
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (m *AIAuditArtifactMutation) ClearLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	m.clearedFields[aiauditartifact.FieldLeaseExpiresAt] = struct{}{}
+}
+
+// LeaseExpiresAtCleared returns if the "lease_expires_at" field was cleared in this mutation.
+func (m *AIAuditArtifactMutation) LeaseExpiresAtCleared() bool {
+	_, ok := m.clearedFields[aiauditartifact.FieldLeaseExpiresAt]
+	return ok
+}
+
+// ResetLeaseExpiresAt resets all changes to the "lease_expires_at" field.
+func (m *AIAuditArtifactMutation) ResetLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	delete(m.clearedFields, aiauditartifact.FieldLeaseExpiresAt)
 }
 
 // SetCreatedAt sets the "created_at" field.
@@ -712,7 +944,7 @@ func (m *AIAuditArtifactMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AIAuditArtifactMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 17)
 	if m.run_id != nil {
 		fields = append(fields, aiauditartifact.FieldRunID)
 	}
@@ -737,11 +969,26 @@ func (m *AIAuditArtifactMutation) Fields() []string {
 	if m.object_key != nil {
 		fields = append(fields, aiauditartifact.FieldObjectKey)
 	}
+	if m.bucket != nil {
+		fields = append(fields, aiauditartifact.FieldBucket)
+	}
 	if m.failure_code != nil {
 		fields = append(fields, aiauditartifact.FieldFailureCode)
 	}
 	if m.expires_at != nil {
 		fields = append(fields, aiauditartifact.FieldExpiresAt)
+	}
+	if m.cleanup_attempts != nil {
+		fields = append(fields, aiauditartifact.FieldCleanupAttempts)
+	}
+	if m.next_attempt_at != nil {
+		fields = append(fields, aiauditartifact.FieldNextAttemptAt)
+	}
+	if m.lease_token != nil {
+		fields = append(fields, aiauditartifact.FieldLeaseToken)
+	}
+	if m.lease_expires_at != nil {
+		fields = append(fields, aiauditartifact.FieldLeaseExpiresAt)
 	}
 	if m.created_at != nil {
 		fields = append(fields, aiauditartifact.FieldCreatedAt)
@@ -773,10 +1020,20 @@ func (m *AIAuditArtifactMutation) Field(name string) (ent.Value, bool) {
 		return m.SizeBytes()
 	case aiauditartifact.FieldObjectKey:
 		return m.ObjectKey()
+	case aiauditartifact.FieldBucket:
+		return m.Bucket()
 	case aiauditartifact.FieldFailureCode:
 		return m.FailureCode()
 	case aiauditartifact.FieldExpiresAt:
 		return m.ExpiresAt()
+	case aiauditartifact.FieldCleanupAttempts:
+		return m.CleanupAttempts()
+	case aiauditartifact.FieldNextAttemptAt:
+		return m.NextAttemptAt()
+	case aiauditartifact.FieldLeaseToken:
+		return m.LeaseToken()
+	case aiauditartifact.FieldLeaseExpiresAt:
+		return m.LeaseExpiresAt()
 	case aiauditartifact.FieldCreatedAt:
 		return m.CreatedAt()
 	case aiauditartifact.FieldUpdatedAt:
@@ -806,10 +1063,20 @@ func (m *AIAuditArtifactMutation) OldField(ctx context.Context, name string) (en
 		return m.OldSizeBytes(ctx)
 	case aiauditartifact.FieldObjectKey:
 		return m.OldObjectKey(ctx)
+	case aiauditartifact.FieldBucket:
+		return m.OldBucket(ctx)
 	case aiauditartifact.FieldFailureCode:
 		return m.OldFailureCode(ctx)
 	case aiauditartifact.FieldExpiresAt:
 		return m.OldExpiresAt(ctx)
+	case aiauditartifact.FieldCleanupAttempts:
+		return m.OldCleanupAttempts(ctx)
+	case aiauditartifact.FieldNextAttemptAt:
+		return m.OldNextAttemptAt(ctx)
+	case aiauditartifact.FieldLeaseToken:
+		return m.OldLeaseToken(ctx)
+	case aiauditartifact.FieldLeaseExpiresAt:
+		return m.OldLeaseExpiresAt(ctx)
 	case aiauditartifact.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case aiauditartifact.FieldUpdatedAt:
@@ -879,6 +1146,13 @@ func (m *AIAuditArtifactMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetObjectKey(v)
 		return nil
+	case aiauditartifact.FieldBucket:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBucket(v)
+		return nil
 	case aiauditartifact.FieldFailureCode:
 		v, ok := value.(string)
 		if !ok {
@@ -892,6 +1166,34 @@ func (m *AIAuditArtifactMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetExpiresAt(v)
+		return nil
+	case aiauditartifact.FieldCleanupAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCleanupAttempts(v)
+		return nil
+	case aiauditartifact.FieldNextAttemptAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNextAttemptAt(v)
+		return nil
+	case aiauditartifact.FieldLeaseToken:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseToken(v)
+		return nil
+	case aiauditartifact.FieldLeaseExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseExpiresAt(v)
 		return nil
 	case aiauditartifact.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -918,6 +1220,9 @@ func (m *AIAuditArtifactMutation) AddedFields() []string {
 	if m.addsize_bytes != nil {
 		fields = append(fields, aiauditartifact.FieldSizeBytes)
 	}
+	if m.addcleanup_attempts != nil {
+		fields = append(fields, aiauditartifact.FieldCleanupAttempts)
+	}
 	return fields
 }
 
@@ -928,6 +1233,8 @@ func (m *AIAuditArtifactMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case aiauditartifact.FieldSizeBytes:
 		return m.AddedSizeBytes()
+	case aiauditartifact.FieldCleanupAttempts:
+		return m.AddedCleanupAttempts()
 	}
 	return nil, false
 }
@@ -944,6 +1251,13 @@ func (m *AIAuditArtifactMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddSizeBytes(v)
 		return nil
+	case aiauditartifact.FieldCleanupAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCleanupAttempts(v)
+		return nil
 	}
 	return fmt.Errorf("unknown AIAuditArtifact numeric field %s", name)
 }
@@ -957,6 +1271,12 @@ func (m *AIAuditArtifactMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(aiauditartifact.FieldExpiresAt) {
 		fields = append(fields, aiauditartifact.FieldExpiresAt)
+	}
+	if m.FieldCleared(aiauditartifact.FieldNextAttemptAt) {
+		fields = append(fields, aiauditartifact.FieldNextAttemptAt)
+	}
+	if m.FieldCleared(aiauditartifact.FieldLeaseExpiresAt) {
+		fields = append(fields, aiauditartifact.FieldLeaseExpiresAt)
 	}
 	return fields
 }
@@ -977,6 +1297,12 @@ func (m *AIAuditArtifactMutation) ClearField(name string) error {
 		return nil
 	case aiauditartifact.FieldExpiresAt:
 		m.ClearExpiresAt()
+		return nil
+	case aiauditartifact.FieldNextAttemptAt:
+		m.ClearNextAttemptAt()
+		return nil
+	case aiauditartifact.FieldLeaseExpiresAt:
+		m.ClearLeaseExpiresAt()
 		return nil
 	}
 	return fmt.Errorf("unknown AIAuditArtifact nullable field %s", name)
@@ -1010,11 +1336,26 @@ func (m *AIAuditArtifactMutation) ResetField(name string) error {
 	case aiauditartifact.FieldObjectKey:
 		m.ResetObjectKey()
 		return nil
+	case aiauditartifact.FieldBucket:
+		m.ResetBucket()
+		return nil
 	case aiauditartifact.FieldFailureCode:
 		m.ResetFailureCode()
 		return nil
 	case aiauditartifact.FieldExpiresAt:
 		m.ResetExpiresAt()
+		return nil
+	case aiauditartifact.FieldCleanupAttempts:
+		m.ResetCleanupAttempts()
+		return nil
+	case aiauditartifact.FieldNextAttemptAt:
+		m.ResetNextAttemptAt()
+		return nil
+	case aiauditartifact.FieldLeaseToken:
+		m.ResetLeaseToken()
+		return nil
+	case aiauditartifact.FieldLeaseExpiresAt:
+		m.ResetLeaseExpiresAt()
 		return nil
 	case aiauditartifact.FieldCreatedAt:
 		m.ResetCreatedAt()

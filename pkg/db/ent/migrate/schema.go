@@ -20,8 +20,13 @@ var (
 		{Name: "content_type", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "size_bytes", Type: field.TypeInt64, Default: 0},
 		{Name: "object_key", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "bucket", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "failure_code", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "cleanup_attempts", Type: field.TypeInt, Default: 0},
+		{Name: "next_attempt_at", Type: field.TypeTime, Nullable: true},
+		{Name: "lease_token", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "lease_expires_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 	}
@@ -34,7 +39,17 @@ var (
 			{
 				Name:    "aiauditartifact_run_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{AiAuditArtifactsColumns[1], AiAuditArtifactsColumns[11]},
+				Columns: []*schema.Column{AiAuditArtifactsColumns[1], AiAuditArtifactsColumns[16]},
+			},
+			{
+				Name:    "aiauditartifact_status_next_attempt_at",
+				Unique:  false,
+				Columns: []*schema.Column{AiAuditArtifactsColumns[4], AiAuditArtifactsColumns[13]},
+			},
+			{
+				Name:    "aiauditartifact_sha256_status_expires_at_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{AiAuditArtifactsColumns[5], AiAuditArtifactsColumns[4], AiAuditArtifactsColumns[11], AiAuditArtifactsColumns[16]},
 			},
 		},
 	}

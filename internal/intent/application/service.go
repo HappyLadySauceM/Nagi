@@ -4,10 +4,12 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"log/slog"
 	"time"
+
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -212,6 +214,9 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 			}
 			task.Message.Text = text
 		} else if err != nil {
+			if errors.Is(err, media.ErrArchiveFailed) {
+				return err
+			}
 			task.Message.Text += " [语音未能转写]"
 		}
 	}

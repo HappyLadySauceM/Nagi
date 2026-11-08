@@ -1,9 +1,9 @@
 # 本地开发基础设施：PostgreSQL(pgvector) + Langfuse 自托管全栈。
-# postgres 只绑定本机回环，langfuse-web 监听所有网卡；clickhouse / redis / minio 仅在 compose 内网互通。
-# 所有默认口令都是本地开发值，可通过同名环境变量覆盖。
+# postgres 只绑定本机回环，langfuse-web 监听所有网卡；minio 的 S3 API 发布到主机供媒体回放，
+# clickhouse / redis 仅在 compose 内网互通。所有默认口令都是本地开发值，可通过同名环境变量覆盖。
 # Local development infrastructure: PostgreSQL(pgvector) plus the full self-hosted
-# Langfuse stack. Postgres binds loopback only and langfuse-web listens on all
-# interfaces; the rest stay internal.
+# Langfuse stack. Postgres binds loopback only, langfuse-web listens on all
+# interfaces, minio publishes its S3 API for media replay, and the rest stay internal.
 
 x-langfuse-env: &langfuse-env
   DATABASE_URL: postgresql://nagi:nagi-local@postgres:5432/langfuse
@@ -33,7 +33,9 @@ x-langfuse-env: &langfuse-env
   LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
   LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
   LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
-  # MinIO 不映射到主机，媒体直传不可用；追踪与事件上报不受影响
+  # MinIO 的 S3 API 发布到主机 9000 供预签名媒体回放；Langfuse 容器内部仍走服务名。
+  # The MinIO S3 API is published on host port 9000 for presigned media replay;
+  # containers keep using the service name internally.
   LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
   LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
@@ -146,14 +148,51 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+      # 新版 MinIO 以服务级配置处理 CORS；仅允许当前 Langfuse 入口读取预签名媒体。
+      MINIO_API_CORS_ALLOW_ORIGIN: ${LANGFUSE_EXTERNAL_MEDIA_ORIGIN:-http://100.100.100.4:3010}
     volumes:
       - langfuse-minio-data:/data
+    ports:
+      # 仅暴露 S3 API，供 Langfuse 浏览器端读取预签名媒体；9001 管理台保持内网。
+      - "0.0.0.0:9000:9000"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 1s
       timeout: 5s
       retries: 5
       start_period: 1s
+
+  # 初始化独立审计 bucket、最小权限用户及供 Langfuse 前端播放的精确 CORS 规则。
+  minio-init:
+    image: cgr.dev/chainguard/minio
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+      NAGI_MEDIA_ACCESS_KEY: ${NAGI_MEDIA_ACCESS_KEY:-nagi-audit-writer}
+      NAGI_MEDIA_SECRET_KEY: ${NAGI_MEDIA_SECRET_KEY:-nagi-audit-local-secret}
+      LANGFUSE_MEDIA_ACCESS_KEY: ${LANGFUSE_MEDIA_ACCESS_KEY:-langfuse-audit-reader}
+      LANGFUSE_MEDIA_SECRET_KEY: ${LANGFUSE_MEDIA_SECRET_KEY:-langfuse-audit-local-secret}
+      LANGFUSE_EXTERNAL_MEDIA_ORIGIN: ${LANGFUSE_EXTERNAL_MEDIA_ORIGIN:-http://100.100.100.4:3010}
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        export NO_PROXY="minio,localhost,127.0.0.1" no_proxy="minio,localhost,127.0.0.1"
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing local/nagi-audit
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::nagi-audit/nagi/*"]},{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::nagi-audit"],"Condition":{"StringLike":{"s3:prefix":["nagi/*"]}}}]}' >/tmp/nagi-audit-write.json
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::nagi-audit/nagi/*"]},{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::nagi-audit"],"Condition":{"StringLike":{"s3:prefix":["nagi/*"]}}}]}' >/tmp/nagi-audit-read.json
+        mc admin policy create local nagi-audit-write /tmp/nagi-audit-write.json || true
+        mc admin policy create local nagi-audit-read /tmp/nagi-audit-read.json || true
+        mc admin user add local "$${NAGI_MEDIA_ACCESS_KEY}" "$${NAGI_MEDIA_SECRET_KEY}" || true
+        mc admin user add local "$${LANGFUSE_MEDIA_ACCESS_KEY}" "$${LANGFUSE_MEDIA_SECRET_KEY}" || true
+        mc admin policy attach local nagi-audit-write --user "$${NAGI_MEDIA_ACCESS_KEY}"
+        mc admin policy attach local nagi-audit-read --user "$${LANGFUSE_MEDIA_ACCESS_KEY}"
+    command: []
+    restart: "no"
 
   langfuse-worker:
     image: docker.langfuse.com/langfuse/langfuse-worker:4
@@ -167,6 +206,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment: *langfuse-env
 
   langfuse-web:
@@ -181,6 +222,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     ports:
       # 3000 已被 SnowLuma 的 HTTP OneBot 占用；监听所有网卡便于局域网访问
       - "0.0.0.0:3010:3000"

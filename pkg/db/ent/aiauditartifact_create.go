@@ -120,6 +120,20 @@ func (_c *AIAuditArtifactCreate) SetNillableObjectKey(v *string) *AIAuditArtifac
 	return _c
 }
 
+// SetBucket sets the "bucket" field.
+func (_c *AIAuditArtifactCreate) SetBucket(v string) *AIAuditArtifactCreate {
+	_c.mutation.SetBucket(v)
+	return _c
+}
+
+// SetNillableBucket sets the "bucket" field if the given value is not nil.
+func (_c *AIAuditArtifactCreate) SetNillableBucket(v *string) *AIAuditArtifactCreate {
+	if v != nil {
+		_c.SetBucket(*v)
+	}
+	return _c
+}
+
 // SetFailureCode sets the "failure_code" field.
 func (_c *AIAuditArtifactCreate) SetFailureCode(v string) *AIAuditArtifactCreate {
 	_c.mutation.SetFailureCode(v)
@@ -144,6 +158,62 @@ func (_c *AIAuditArtifactCreate) SetExpiresAt(v time.Time) *AIAuditArtifactCreat
 func (_c *AIAuditArtifactCreate) SetNillableExpiresAt(v *time.Time) *AIAuditArtifactCreate {
 	if v != nil {
 		_c.SetExpiresAt(*v)
+	}
+	return _c
+}
+
+// SetCleanupAttempts sets the "cleanup_attempts" field.
+func (_c *AIAuditArtifactCreate) SetCleanupAttempts(v int) *AIAuditArtifactCreate {
+	_c.mutation.SetCleanupAttempts(v)
+	return _c
+}
+
+// SetNillableCleanupAttempts sets the "cleanup_attempts" field if the given value is not nil.
+func (_c *AIAuditArtifactCreate) SetNillableCleanupAttempts(v *int) *AIAuditArtifactCreate {
+	if v != nil {
+		_c.SetCleanupAttempts(*v)
+	}
+	return _c
+}
+
+// SetNextAttemptAt sets the "next_attempt_at" field.
+func (_c *AIAuditArtifactCreate) SetNextAttemptAt(v time.Time) *AIAuditArtifactCreate {
+	_c.mutation.SetNextAttemptAt(v)
+	return _c
+}
+
+// SetNillableNextAttemptAt sets the "next_attempt_at" field if the given value is not nil.
+func (_c *AIAuditArtifactCreate) SetNillableNextAttemptAt(v *time.Time) *AIAuditArtifactCreate {
+	if v != nil {
+		_c.SetNextAttemptAt(*v)
+	}
+	return _c
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (_c *AIAuditArtifactCreate) SetLeaseToken(v string) *AIAuditArtifactCreate {
+	_c.mutation.SetLeaseToken(v)
+	return _c
+}
+
+// SetNillableLeaseToken sets the "lease_token" field if the given value is not nil.
+func (_c *AIAuditArtifactCreate) SetNillableLeaseToken(v *string) *AIAuditArtifactCreate {
+	if v != nil {
+		_c.SetLeaseToken(*v)
+	}
+	return _c
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (_c *AIAuditArtifactCreate) SetLeaseExpiresAt(v time.Time) *AIAuditArtifactCreate {
+	_c.mutation.SetLeaseExpiresAt(v)
+	return _c
+}
+
+// SetNillableLeaseExpiresAt sets the "lease_expires_at" field if the given value is not nil.
+func (_c *AIAuditArtifactCreate) SetNillableLeaseExpiresAt(v *time.Time) *AIAuditArtifactCreate {
+	if v != nil {
+		_c.SetLeaseExpiresAt(*v)
 	}
 	return _c
 }
@@ -245,9 +315,21 @@ func (_c *AIAuditArtifactCreate) defaults() {
 		v := aiauditartifact.DefaultObjectKey
 		_c.mutation.SetObjectKey(v)
 	}
+	if _, ok := _c.mutation.Bucket(); !ok {
+		v := aiauditartifact.DefaultBucket
+		_c.mutation.SetBucket(v)
+	}
 	if _, ok := _c.mutation.FailureCode(); !ok {
 		v := aiauditartifact.DefaultFailureCode
 		_c.mutation.SetFailureCode(v)
+	}
+	if _, ok := _c.mutation.CleanupAttempts(); !ok {
+		v := aiauditartifact.DefaultCleanupAttempts
+		_c.mutation.SetCleanupAttempts(v)
+	}
+	if _, ok := _c.mutation.LeaseToken(); !ok {
+		v := aiauditartifact.DefaultLeaseToken
+		_c.mutation.SetLeaseToken(v)
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := aiauditartifact.DefaultCreatedAt()
@@ -286,8 +368,17 @@ func (_c *AIAuditArtifactCreate) check() error {
 	if _, ok := _c.mutation.ObjectKey(); !ok {
 		return &ValidationError{Name: "object_key", err: errors.New(`ent: missing required field "AIAuditArtifact.object_key"`)}
 	}
+	if _, ok := _c.mutation.Bucket(); !ok {
+		return &ValidationError{Name: "bucket", err: errors.New(`ent: missing required field "AIAuditArtifact.bucket"`)}
+	}
 	if _, ok := _c.mutation.FailureCode(); !ok {
 		return &ValidationError{Name: "failure_code", err: errors.New(`ent: missing required field "AIAuditArtifact.failure_code"`)}
+	}
+	if _, ok := _c.mutation.CleanupAttempts(); !ok {
+		return &ValidationError{Name: "cleanup_attempts", err: errors.New(`ent: missing required field "AIAuditArtifact.cleanup_attempts"`)}
+	}
+	if _, ok := _c.mutation.LeaseToken(); !ok {
+		return &ValidationError{Name: "lease_token", err: errors.New(`ent: missing required field "AIAuditArtifact.lease_token"`)}
 	}
 	return nil
 }
@@ -357,6 +448,10 @@ func (_c *AIAuditArtifactCreate) createSpec() (*AIAuditArtifact, *sqlgraph.Creat
 		_spec.SetField(aiauditartifact.FieldObjectKey, field.TypeString, value)
 		_node.ObjectKey = value
 	}
+	if value, ok := _c.mutation.Bucket(); ok {
+		_spec.SetField(aiauditartifact.FieldBucket, field.TypeString, value)
+		_node.Bucket = value
+	}
 	if value, ok := _c.mutation.FailureCode(); ok {
 		_spec.SetField(aiauditartifact.FieldFailureCode, field.TypeString, value)
 		_node.FailureCode = value
@@ -364,6 +459,22 @@ func (_c *AIAuditArtifactCreate) createSpec() (*AIAuditArtifact, *sqlgraph.Creat
 	if value, ok := _c.mutation.ExpiresAt(); ok {
 		_spec.SetField(aiauditartifact.FieldExpiresAt, field.TypeTime, value)
 		_node.ExpiresAt = &value
+	}
+	if value, ok := _c.mutation.CleanupAttempts(); ok {
+		_spec.SetField(aiauditartifact.FieldCleanupAttempts, field.TypeInt, value)
+		_node.CleanupAttempts = value
+	}
+	if value, ok := _c.mutation.NextAttemptAt(); ok {
+		_spec.SetField(aiauditartifact.FieldNextAttemptAt, field.TypeTime, value)
+		_node.NextAttemptAt = &value
+	}
+	if value, ok := _c.mutation.LeaseToken(); ok {
+		_spec.SetField(aiauditartifact.FieldLeaseToken, field.TypeString, value)
+		_node.LeaseToken = value
+	}
+	if value, ok := _c.mutation.LeaseExpiresAt(); ok {
+		_spec.SetField(aiauditartifact.FieldLeaseExpiresAt, field.TypeTime, value)
+		_node.LeaseExpiresAt = &value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(aiauditartifact.FieldCreatedAt, field.TypeTime, value)
@@ -533,6 +644,18 @@ func (u *AIAuditArtifactUpsert) UpdateObjectKey() *AIAuditArtifactUpsert {
 	return u
 }
 
+// SetBucket sets the "bucket" field.
+func (u *AIAuditArtifactUpsert) SetBucket(v string) *AIAuditArtifactUpsert {
+	u.Set(aiauditartifact.FieldBucket, v)
+	return u
+}
+
+// UpdateBucket sets the "bucket" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsert) UpdateBucket() *AIAuditArtifactUpsert {
+	u.SetExcluded(aiauditartifact.FieldBucket)
+	return u
+}
+
 // SetFailureCode sets the "failure_code" field.
 func (u *AIAuditArtifactUpsert) SetFailureCode(v string) *AIAuditArtifactUpsert {
 	u.Set(aiauditartifact.FieldFailureCode, v)
@@ -560,6 +683,72 @@ func (u *AIAuditArtifactUpsert) UpdateExpiresAt() *AIAuditArtifactUpsert {
 // ClearExpiresAt clears the value of the "expires_at" field.
 func (u *AIAuditArtifactUpsert) ClearExpiresAt() *AIAuditArtifactUpsert {
 	u.SetNull(aiauditartifact.FieldExpiresAt)
+	return u
+}
+
+// SetCleanupAttempts sets the "cleanup_attempts" field.
+func (u *AIAuditArtifactUpsert) SetCleanupAttempts(v int) *AIAuditArtifactUpsert {
+	u.Set(aiauditartifact.FieldCleanupAttempts, v)
+	return u
+}
+
+// UpdateCleanupAttempts sets the "cleanup_attempts" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsert) UpdateCleanupAttempts() *AIAuditArtifactUpsert {
+	u.SetExcluded(aiauditartifact.FieldCleanupAttempts)
+	return u
+}
+
+// AddCleanupAttempts adds v to the "cleanup_attempts" field.
+func (u *AIAuditArtifactUpsert) AddCleanupAttempts(v int) *AIAuditArtifactUpsert {
+	u.Add(aiauditartifact.FieldCleanupAttempts, v)
+	return u
+}
+
+// SetNextAttemptAt sets the "next_attempt_at" field.
+func (u *AIAuditArtifactUpsert) SetNextAttemptAt(v time.Time) *AIAuditArtifactUpsert {
+	u.Set(aiauditartifact.FieldNextAttemptAt, v)
+	return u
+}
+
+// UpdateNextAttemptAt sets the "next_attempt_at" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsert) UpdateNextAttemptAt() *AIAuditArtifactUpsert {
+	u.SetExcluded(aiauditartifact.FieldNextAttemptAt)
+	return u
+}
+
+// ClearNextAttemptAt clears the value of the "next_attempt_at" field.
+func (u *AIAuditArtifactUpsert) ClearNextAttemptAt() *AIAuditArtifactUpsert {
+	u.SetNull(aiauditartifact.FieldNextAttemptAt)
+	return u
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (u *AIAuditArtifactUpsert) SetLeaseToken(v string) *AIAuditArtifactUpsert {
+	u.Set(aiauditartifact.FieldLeaseToken, v)
+	return u
+}
+
+// UpdateLeaseToken sets the "lease_token" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsert) UpdateLeaseToken() *AIAuditArtifactUpsert {
+	u.SetExcluded(aiauditartifact.FieldLeaseToken)
+	return u
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (u *AIAuditArtifactUpsert) SetLeaseExpiresAt(v time.Time) *AIAuditArtifactUpsert {
+	u.Set(aiauditartifact.FieldLeaseExpiresAt, v)
+	return u
+}
+
+// UpdateLeaseExpiresAt sets the "lease_expires_at" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsert) UpdateLeaseExpiresAt() *AIAuditArtifactUpsert {
+	u.SetExcluded(aiauditartifact.FieldLeaseExpiresAt)
+	return u
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (u *AIAuditArtifactUpsert) ClearLeaseExpiresAt() *AIAuditArtifactUpsert {
+	u.SetNull(aiauditartifact.FieldLeaseExpiresAt)
 	return u
 }
 
@@ -761,6 +950,20 @@ func (u *AIAuditArtifactUpsertOne) UpdateObjectKey() *AIAuditArtifactUpsertOne {
 	})
 }
 
+// SetBucket sets the "bucket" field.
+func (u *AIAuditArtifactUpsertOne) SetBucket(v string) *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetBucket(v)
+	})
+}
+
+// UpdateBucket sets the "bucket" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertOne) UpdateBucket() *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateBucket()
+	})
+}
+
 // SetFailureCode sets the "failure_code" field.
 func (u *AIAuditArtifactUpsertOne) SetFailureCode(v string) *AIAuditArtifactUpsertOne {
 	return u.Update(func(s *AIAuditArtifactUpsert) {
@@ -793,6 +996,83 @@ func (u *AIAuditArtifactUpsertOne) UpdateExpiresAt() *AIAuditArtifactUpsertOne {
 func (u *AIAuditArtifactUpsertOne) ClearExpiresAt() *AIAuditArtifactUpsertOne {
 	return u.Update(func(s *AIAuditArtifactUpsert) {
 		s.ClearExpiresAt()
+	})
+}
+
+// SetCleanupAttempts sets the "cleanup_attempts" field.
+func (u *AIAuditArtifactUpsertOne) SetCleanupAttempts(v int) *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetCleanupAttempts(v)
+	})
+}
+
+// AddCleanupAttempts adds v to the "cleanup_attempts" field.
+func (u *AIAuditArtifactUpsertOne) AddCleanupAttempts(v int) *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.AddCleanupAttempts(v)
+	})
+}
+
+// UpdateCleanupAttempts sets the "cleanup_attempts" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertOne) UpdateCleanupAttempts() *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateCleanupAttempts()
+	})
+}
+
+// SetNextAttemptAt sets the "next_attempt_at" field.
+func (u *AIAuditArtifactUpsertOne) SetNextAttemptAt(v time.Time) *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetNextAttemptAt(v)
+	})
+}
+
+// UpdateNextAttemptAt sets the "next_attempt_at" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertOne) UpdateNextAttemptAt() *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateNextAttemptAt()
+	})
+}
+
+// ClearNextAttemptAt clears the value of the "next_attempt_at" field.
+func (u *AIAuditArtifactUpsertOne) ClearNextAttemptAt() *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.ClearNextAttemptAt()
+	})
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (u *AIAuditArtifactUpsertOne) SetLeaseToken(v string) *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetLeaseToken(v)
+	})
+}
+
+// UpdateLeaseToken sets the "lease_token" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertOne) UpdateLeaseToken() *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateLeaseToken()
+	})
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (u *AIAuditArtifactUpsertOne) SetLeaseExpiresAt(v time.Time) *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetLeaseExpiresAt(v)
+	})
+}
+
+// UpdateLeaseExpiresAt sets the "lease_expires_at" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertOne) UpdateLeaseExpiresAt() *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateLeaseExpiresAt()
+	})
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (u *AIAuditArtifactUpsertOne) ClearLeaseExpiresAt() *AIAuditArtifactUpsertOne {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.ClearLeaseExpiresAt()
 	})
 }
 
@@ -1165,6 +1445,20 @@ func (u *AIAuditArtifactUpsertBulk) UpdateObjectKey() *AIAuditArtifactUpsertBulk
 	})
 }
 
+// SetBucket sets the "bucket" field.
+func (u *AIAuditArtifactUpsertBulk) SetBucket(v string) *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetBucket(v)
+	})
+}
+
+// UpdateBucket sets the "bucket" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertBulk) UpdateBucket() *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateBucket()
+	})
+}
+
 // SetFailureCode sets the "failure_code" field.
 func (u *AIAuditArtifactUpsertBulk) SetFailureCode(v string) *AIAuditArtifactUpsertBulk {
 	return u.Update(func(s *AIAuditArtifactUpsert) {
@@ -1197,6 +1491,83 @@ func (u *AIAuditArtifactUpsertBulk) UpdateExpiresAt() *AIAuditArtifactUpsertBulk
 func (u *AIAuditArtifactUpsertBulk) ClearExpiresAt() *AIAuditArtifactUpsertBulk {
 	return u.Update(func(s *AIAuditArtifactUpsert) {
 		s.ClearExpiresAt()
+	})
+}
+
+// SetCleanupAttempts sets the "cleanup_attempts" field.
+func (u *AIAuditArtifactUpsertBulk) SetCleanupAttempts(v int) *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetCleanupAttempts(v)
+	})
+}
+
+// AddCleanupAttempts adds v to the "cleanup_attempts" field.
+func (u *AIAuditArtifactUpsertBulk) AddCleanupAttempts(v int) *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.AddCleanupAttempts(v)
+	})
+}
+
+// UpdateCleanupAttempts sets the "cleanup_attempts" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertBulk) UpdateCleanupAttempts() *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateCleanupAttempts()
+	})
+}
+
+// SetNextAttemptAt sets the "next_attempt_at" field.
+func (u *AIAuditArtifactUpsertBulk) SetNextAttemptAt(v time.Time) *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetNextAttemptAt(v)
+	})
+}
+
+// UpdateNextAttemptAt sets the "next_attempt_at" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertBulk) UpdateNextAttemptAt() *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateNextAttemptAt()
+	})
+}
+
+// ClearNextAttemptAt clears the value of the "next_attempt_at" field.
+func (u *AIAuditArtifactUpsertBulk) ClearNextAttemptAt() *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.ClearNextAttemptAt()
+	})
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (u *AIAuditArtifactUpsertBulk) SetLeaseToken(v string) *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetLeaseToken(v)
+	})
+}
+
+// UpdateLeaseToken sets the "lease_token" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertBulk) UpdateLeaseToken() *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateLeaseToken()
+	})
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (u *AIAuditArtifactUpsertBulk) SetLeaseExpiresAt(v time.Time) *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.SetLeaseExpiresAt(v)
+	})
+}
+
+// UpdateLeaseExpiresAt sets the "lease_expires_at" field to the value that was provided on create.
+func (u *AIAuditArtifactUpsertBulk) UpdateLeaseExpiresAt() *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.UpdateLeaseExpiresAt()
+	})
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (u *AIAuditArtifactUpsertBulk) ClearLeaseExpiresAt() *AIAuditArtifactUpsertBulk {
+	return u.Update(func(s *AIAuditArtifactUpsert) {
+		s.ClearLeaseExpiresAt()
 	})
 }
 

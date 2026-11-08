@@ -154,6 +154,20 @@ func (_u *AIAuditArtifactUpdate) SetNillableObjectKey(v *string) *AIAuditArtifac
 	return _u
 }
 
+// SetBucket sets the "bucket" field.
+func (_u *AIAuditArtifactUpdate) SetBucket(v string) *AIAuditArtifactUpdate {
+	_u.mutation.SetBucket(v)
+	return _u
+}
+
+// SetNillableBucket sets the "bucket" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdate) SetNillableBucket(v *string) *AIAuditArtifactUpdate {
+	if v != nil {
+		_u.SetBucket(*v)
+	}
+	return _u
+}
+
 // SetFailureCode sets the "failure_code" field.
 func (_u *AIAuditArtifactUpdate) SetFailureCode(v string) *AIAuditArtifactUpdate {
 	_u.mutation.SetFailureCode(v)
@@ -185,6 +199,81 @@ func (_u *AIAuditArtifactUpdate) SetNillableExpiresAt(v *time.Time) *AIAuditArti
 // ClearExpiresAt clears the value of the "expires_at" field.
 func (_u *AIAuditArtifactUpdate) ClearExpiresAt() *AIAuditArtifactUpdate {
 	_u.mutation.ClearExpiresAt()
+	return _u
+}
+
+// SetCleanupAttempts sets the "cleanup_attempts" field.
+func (_u *AIAuditArtifactUpdate) SetCleanupAttempts(v int) *AIAuditArtifactUpdate {
+	_u.mutation.ResetCleanupAttempts()
+	_u.mutation.SetCleanupAttempts(v)
+	return _u
+}
+
+// SetNillableCleanupAttempts sets the "cleanup_attempts" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdate) SetNillableCleanupAttempts(v *int) *AIAuditArtifactUpdate {
+	if v != nil {
+		_u.SetCleanupAttempts(*v)
+	}
+	return _u
+}
+
+// AddCleanupAttempts adds value to the "cleanup_attempts" field.
+func (_u *AIAuditArtifactUpdate) AddCleanupAttempts(v int) *AIAuditArtifactUpdate {
+	_u.mutation.AddCleanupAttempts(v)
+	return _u
+}
+
+// SetNextAttemptAt sets the "next_attempt_at" field.
+func (_u *AIAuditArtifactUpdate) SetNextAttemptAt(v time.Time) *AIAuditArtifactUpdate {
+	_u.mutation.SetNextAttemptAt(v)
+	return _u
+}
+
+// SetNillableNextAttemptAt sets the "next_attempt_at" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdate) SetNillableNextAttemptAt(v *time.Time) *AIAuditArtifactUpdate {
+	if v != nil {
+		_u.SetNextAttemptAt(*v)
+	}
+	return _u
+}
+
+// ClearNextAttemptAt clears the value of the "next_attempt_at" field.
+func (_u *AIAuditArtifactUpdate) ClearNextAttemptAt() *AIAuditArtifactUpdate {
+	_u.mutation.ClearNextAttemptAt()
+	return _u
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (_u *AIAuditArtifactUpdate) SetLeaseToken(v string) *AIAuditArtifactUpdate {
+	_u.mutation.SetLeaseToken(v)
+	return _u
+}
+
+// SetNillableLeaseToken sets the "lease_token" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdate) SetNillableLeaseToken(v *string) *AIAuditArtifactUpdate {
+	if v != nil {
+		_u.SetLeaseToken(*v)
+	}
+	return _u
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (_u *AIAuditArtifactUpdate) SetLeaseExpiresAt(v time.Time) *AIAuditArtifactUpdate {
+	_u.mutation.SetLeaseExpiresAt(v)
+	return _u
+}
+
+// SetNillableLeaseExpiresAt sets the "lease_expires_at" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdate) SetNillableLeaseExpiresAt(v *time.Time) *AIAuditArtifactUpdate {
+	if v != nil {
+		_u.SetLeaseExpiresAt(*v)
+	}
+	return _u
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (_u *AIAuditArtifactUpdate) ClearLeaseExpiresAt() *AIAuditArtifactUpdate {
+	_u.mutation.ClearLeaseExpiresAt()
 	return _u
 }
 
@@ -287,6 +376,9 @@ func (_u *AIAuditArtifactUpdate) sqlSave(ctx context.Context) (_node int, err er
 	if value, ok := _u.mutation.ObjectKey(); ok {
 		_spec.SetField(aiauditartifact.FieldObjectKey, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.Bucket(); ok {
+		_spec.SetField(aiauditartifact.FieldBucket, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.FailureCode(); ok {
 		_spec.SetField(aiauditartifact.FieldFailureCode, field.TypeString, value)
 	}
@@ -295,6 +387,27 @@ func (_u *AIAuditArtifactUpdate) sqlSave(ctx context.Context) (_node int, err er
 	}
 	if _u.mutation.ExpiresAtCleared() {
 		_spec.ClearField(aiauditartifact.FieldExpiresAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CleanupAttempts(); ok {
+		_spec.SetField(aiauditartifact.FieldCleanupAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCleanupAttempts(); ok {
+		_spec.AddField(aiauditartifact.FieldCleanupAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.NextAttemptAt(); ok {
+		_spec.SetField(aiauditartifact.FieldNextAttemptAt, field.TypeTime, value)
+	}
+	if _u.mutation.NextAttemptAtCleared() {
+		_spec.ClearField(aiauditartifact.FieldNextAttemptAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.LeaseToken(); ok {
+		_spec.SetField(aiauditartifact.FieldLeaseToken, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.LeaseExpiresAt(); ok {
+		_spec.SetField(aiauditartifact.FieldLeaseExpiresAt, field.TypeTime, value)
+	}
+	if _u.mutation.LeaseExpiresAtCleared() {
+		_spec.ClearField(aiauditartifact.FieldLeaseExpiresAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(aiauditartifact.FieldCreatedAt, field.TypeTime, value)
@@ -447,6 +560,20 @@ func (_u *AIAuditArtifactUpdateOne) SetNillableObjectKey(v *string) *AIAuditArti
 	return _u
 }
 
+// SetBucket sets the "bucket" field.
+func (_u *AIAuditArtifactUpdateOne) SetBucket(v string) *AIAuditArtifactUpdateOne {
+	_u.mutation.SetBucket(v)
+	return _u
+}
+
+// SetNillableBucket sets the "bucket" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdateOne) SetNillableBucket(v *string) *AIAuditArtifactUpdateOne {
+	if v != nil {
+		_u.SetBucket(*v)
+	}
+	return _u
+}
+
 // SetFailureCode sets the "failure_code" field.
 func (_u *AIAuditArtifactUpdateOne) SetFailureCode(v string) *AIAuditArtifactUpdateOne {
 	_u.mutation.SetFailureCode(v)
@@ -478,6 +605,81 @@ func (_u *AIAuditArtifactUpdateOne) SetNillableExpiresAt(v *time.Time) *AIAuditA
 // ClearExpiresAt clears the value of the "expires_at" field.
 func (_u *AIAuditArtifactUpdateOne) ClearExpiresAt() *AIAuditArtifactUpdateOne {
 	_u.mutation.ClearExpiresAt()
+	return _u
+}
+
+// SetCleanupAttempts sets the "cleanup_attempts" field.
+func (_u *AIAuditArtifactUpdateOne) SetCleanupAttempts(v int) *AIAuditArtifactUpdateOne {
+	_u.mutation.ResetCleanupAttempts()
+	_u.mutation.SetCleanupAttempts(v)
+	return _u
+}
+
+// SetNillableCleanupAttempts sets the "cleanup_attempts" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdateOne) SetNillableCleanupAttempts(v *int) *AIAuditArtifactUpdateOne {
+	if v != nil {
+		_u.SetCleanupAttempts(*v)
+	}
+	return _u
+}
+
+// AddCleanupAttempts adds value to the "cleanup_attempts" field.
+func (_u *AIAuditArtifactUpdateOne) AddCleanupAttempts(v int) *AIAuditArtifactUpdateOne {
+	_u.mutation.AddCleanupAttempts(v)
+	return _u
+}
+
+// SetNextAttemptAt sets the "next_attempt_at" field.
+func (_u *AIAuditArtifactUpdateOne) SetNextAttemptAt(v time.Time) *AIAuditArtifactUpdateOne {
+	_u.mutation.SetNextAttemptAt(v)
+	return _u
+}
+
+// SetNillableNextAttemptAt sets the "next_attempt_at" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdateOne) SetNillableNextAttemptAt(v *time.Time) *AIAuditArtifactUpdateOne {
+	if v != nil {
+		_u.SetNextAttemptAt(*v)
+	}
+	return _u
+}
+
+// ClearNextAttemptAt clears the value of the "next_attempt_at" field.
+func (_u *AIAuditArtifactUpdateOne) ClearNextAttemptAt() *AIAuditArtifactUpdateOne {
+	_u.mutation.ClearNextAttemptAt()
+	return _u
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (_u *AIAuditArtifactUpdateOne) SetLeaseToken(v string) *AIAuditArtifactUpdateOne {
+	_u.mutation.SetLeaseToken(v)
+	return _u
+}
+
+// SetNillableLeaseToken sets the "lease_token" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdateOne) SetNillableLeaseToken(v *string) *AIAuditArtifactUpdateOne {
+	if v != nil {
+		_u.SetLeaseToken(*v)
+	}
+	return _u
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (_u *AIAuditArtifactUpdateOne) SetLeaseExpiresAt(v time.Time) *AIAuditArtifactUpdateOne {
+	_u.mutation.SetLeaseExpiresAt(v)
+	return _u
+}
+
+// SetNillableLeaseExpiresAt sets the "lease_expires_at" field if the given value is not nil.
+func (_u *AIAuditArtifactUpdateOne) SetNillableLeaseExpiresAt(v *time.Time) *AIAuditArtifactUpdateOne {
+	if v != nil {
+		_u.SetLeaseExpiresAt(*v)
+	}
+	return _u
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (_u *AIAuditArtifactUpdateOne) ClearLeaseExpiresAt() *AIAuditArtifactUpdateOne {
+	_u.mutation.ClearLeaseExpiresAt()
 	return _u
 }
 
@@ -610,6 +812,9 @@ func (_u *AIAuditArtifactUpdateOne) sqlSave(ctx context.Context) (_node *AIAudit
 	if value, ok := _u.mutation.ObjectKey(); ok {
 		_spec.SetField(aiauditartifact.FieldObjectKey, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.Bucket(); ok {
+		_spec.SetField(aiauditartifact.FieldBucket, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.FailureCode(); ok {
 		_spec.SetField(aiauditartifact.FieldFailureCode, field.TypeString, value)
 	}
@@ -618,6 +823,27 @@ func (_u *AIAuditArtifactUpdateOne) sqlSave(ctx context.Context) (_node *AIAudit
 	}
 	if _u.mutation.ExpiresAtCleared() {
 		_spec.ClearField(aiauditartifact.FieldExpiresAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CleanupAttempts(); ok {
+		_spec.SetField(aiauditartifact.FieldCleanupAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCleanupAttempts(); ok {
+		_spec.AddField(aiauditartifact.FieldCleanupAttempts, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.NextAttemptAt(); ok {
+		_spec.SetField(aiauditartifact.FieldNextAttemptAt, field.TypeTime, value)
+	}
+	if _u.mutation.NextAttemptAtCleared() {
+		_spec.ClearField(aiauditartifact.FieldNextAttemptAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.LeaseToken(); ok {
+		_spec.SetField(aiauditartifact.FieldLeaseToken, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.LeaseExpiresAt(); ok {
+		_spec.SetField(aiauditartifact.FieldLeaseExpiresAt, field.TypeTime, value)
+	}
+	if _u.mutation.LeaseExpiresAtCleared() {
+		_spec.ClearField(aiauditartifact.FieldLeaseExpiresAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(aiauditartifact.FieldCreatedAt, field.TypeTime, value)

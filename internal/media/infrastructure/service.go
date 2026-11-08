@@ -17,7 +17,10 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
@@ -41,6 +44,11 @@ type Service struct {
 	Accounts Accounts
 	HTTP     *http.Client
 	CacheDir string
+	// Archiver persists authorized image and audio bytes for audit replay. It is
+	// optional so non-database deployments keep their current media behavior.
+	// Archiver 持久化已授权的图片和音频字节以供审计回放。它是可选的，
+	// 因此未配置数据库的部署保持现有媒体行为。
+	Archiver media.Archiver
 }
 
 // NewService confines media downloads to public network addresses, including redirects.
@@ -166,6 +174,9 @@ func (s *Service) Parts(ctx context.Context, bot int64, conversation string, seg
 				out = append(out, media.Part{Text: "[不支持的图片格式]"})
 				continue
 			}
+			if _, err := s.archive(ctx, media.ArchiveRequest{Kind: "image.inbound", ContentType: mime, Data: b}); err != nil {
+				return nil, err
+			}
 			out = append(out, media.Part{MIME: mime, Base64: base64.StdEncoding.EncodeToString(b)})
 		case ob.SegVideo:
 			out = append(out, media.Part{Text: "[视频附件，请调用 media_video_inspect，source 使用 attachment:current]"})
@@ -242,7 +253,7 @@ func (s *Service) transcribeAudio(ctx context.Context, audio []byte) (transcript
 		return "", auditErr
 	}
 	defer func() {
-		output := map[string]any{"audio_bytes": len(audio)}
+		output := map[string]any{"audio_bytes": len(audio), "input_media_kind": "audio.inbound.derived", "original_media": "unavailable_from_bridge"}
 		if observability.ContentEnabled() && !observability.ContentSuppressed(ctx) {
 			output["transcript"] = transcript
 		} else {
@@ -257,6 +268,13 @@ func (s *Service) transcribeAudio(ctx context.Context, audio []byte) (transcript
 			err = finishErr
 		}
 	}()
+	eventID := ""
+	if auditEvent != nil {
+		eventID = auditEvent.ID
+	}
+	if _, archiveErr := s.archive(ctx, media.ArchiveRequest{Kind: "audio.inbound.derived", ContentType: "audio/mpeg", Data: audio, EventID: eventID}); archiveErr != nil {
+		return "", archiveErr
+	}
 
 	if resolved.Profile.Protocol == "ark-plan" {
 		if s.Audio == nil {
@@ -339,7 +357,11 @@ func (s *Service) Synthesize(ctx context.Context, text string) (audio []byte, er
 		if s.Audio == nil {
 			return nil, fmt.Errorf("原生语音服务不可用")
 		}
-		return s.Audio.Synthesize(ctx, resolved, text)
+		audio, err = s.Audio.Synthesize(ctx, resolved, text)
+		if err != nil {
+			return nil, err
+		}
+		return s.archiveSynthesis(ctx, auditEvent, audio)
 	}
 	payload, _ := json.Marshal(map[string]string{"model": resolved.Profile.Model, "voice": resolved.Profile.Voice, "input": text, "response_format": "mp3"})
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(resolved.Profile.TimeoutSeconds)*time.Second)
@@ -364,7 +386,40 @@ func (s *Service) Synthesize(ctx context.Context, text string) (audio []byte, er
 	if err != nil || len(audio) == 0 || len(audio) > maxAudioBytes {
 		return nil, fmt.Errorf("invalid TTS audio")
 	}
+	return s.archiveSynthesis(ctx, auditEvent, audio)
+}
+
+func (s *Service) archiveSynthesis(ctx context.Context, auditEvent *auditdomain.AIEvent, audio []byte) ([]byte, error) {
+	eventID := ""
+	if auditEvent != nil {
+		eventID = auditEvent.ID
+	}
+	if _, archiveErr := s.archive(ctx, media.ArchiveRequest{Kind: "audio.outbound.synthesized", ContentType: "audio/mpeg", Data: audio, EventID: eventID}); archiveErr != nil {
+		return nil, archiveErr
+	}
 	return audio, nil
+}
+
+func (s *Service) archive(ctx context.Context, request media.ArchiveRequest) (media.ArchiveReference, error) {
+	if s.Archiver == nil {
+		return media.ArchiveReference{}, nil
+	}
+	ctx, span := otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/media").Start(ctx, "nagi.media.archive")
+	defer span.End()
+	reference, err := s.Archiver.Archive(ctx, request)
+	if err != nil {
+		span.RecordError(err)
+		return media.ArchiveReference{}, fmt.Errorf("%w: %v", media.ErrArchiveFailed, err)
+	}
+	output := map[string]any{"artifact_id": reference.ID, "status": reference.Status, "kind": request.Kind}
+	if reference.URI != "" {
+		// The stable s3:// reference is safe to export; the short-lived signed URL
+		// stays in the administrator API and is never written into traces.
+		// 稳定的 s3:// 引用可安全导出；短时签名 URL 只返回管理员 API，不写入追踪。
+		output["object_uri"] = reference.URI
+	}
+	observability.RecordObservationSecure(ctx, span, "langfuse.observation.output", output)
+	return reference, nil
 }
 
 // mediaError exposes only a fixed safe message to the model and management traces.

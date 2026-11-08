@@ -103,6 +103,32 @@ func FinishEvent(ctx context.Context, event *domain.AIEvent, status, errorCode s
 	return nil
 }
 
+// RunID returns the durable run identity when the current execution is audited.
+// RunID 在当前执行已启用审计时返回持久化运行 ID。
+func RunID(ctx context.Context) string {
+	run, _ := ctx.Value(runContextKey{}).(*RunContext)
+	if run == nil {
+		return ""
+	}
+	return run.runID
+}
+
+// RecordArtifact records a stored artifact reference under the current run. The
+// media bytes live in object storage and are never serialized as an event.
+// RecordArtifact 在当前运行下记录已存储工件引用。媒体字节位于对象存储，绝不作为事件序列化。
+func RecordArtifact(ctx context.Context, artifact domain.AIArtifact) (domain.AIArtifact, error) {
+	run, _ := ctx.Value(runContextKey{}).(*RunContext)
+	if run == nil || run.recorder == nil || run.runID == "" {
+		return domain.AIArtifact{}, nil
+	}
+	artifact.RunID = run.runID
+	result, err := run.recorder.RecordArtifact(ctx, artifact)
+	if err != nil {
+		return domain.AIArtifact{}, fmt.Errorf("record %s audit artifact: %w", artifact.Kind, err)
+	}
+	return result, nil
+}
+
 func auditRecorder(ctx context.Context) AIRecorder {
 	run, _ := ctx.Value(runContextKey{}).(*RunContext)
 	if run == nil {

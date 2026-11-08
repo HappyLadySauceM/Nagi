@@ -96,7 +96,10 @@ type Runtime struct {
 	// management audit entries.
 	// AIAudit 独立保存必须落库的 worker 运行事实，不与尽力而为的管理审计混用。
 	AIAudit auditcontracts.AIStore
-	Worker  *conversationinfra.Worker
+	// MediaArchive stores audit media and runs retention cleanup.
+	// MediaArchive 负责审计媒体存储与保留期清理。
+	MediaArchive *auditinfra.MediaArchive
+	Worker       *conversationinfra.Worker
 	// Decisions reads recorded intent decisions; nil until intent is enabled.
 	// Decisions 读取已记录的意图决策；intent 未启用时为 nil。
 	Decisions       intentcontracts.DecisionReader
@@ -257,6 +260,25 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		}
 		mediaService := mediainfra.NewService(nil, mediaAccounts{accounts: registry}, filepath.Join(cacheRoot, "nagi", "media"))
 		mediaService.Audio = modelinfra.ArkAudio{}
+		if cfg.Observability.MediaArchive.Enabled {
+			queue, ok := rt.AIAudit.(auditcontracts.ArtifactQueue)
+			if !ok {
+				return nil, fmt.Errorf("ai audit media queue is unavailable")
+			}
+			archive, archiveErr := auditinfra.NewMediaArchive(queue, auditinfra.MediaArchiveOptions{
+				Endpoint: cfg.Observability.MediaArchive.Endpoint, AccessKey: cfg.Observability.MediaArchive.AccessKey,
+				PublicEndpoint: cfg.Observability.MediaArchive.PublicEndpoint,
+				SecretKey:      cfg.Observability.MediaArchive.SecretKey, Bucket: cfg.Observability.MediaArchive.Bucket,
+				Prefix:    cfg.Observability.MediaArchive.Prefix,
+				Retention: time.Duration(cfg.Observability.MediaArchive.RetentionDays) * 24 * time.Hour,
+				Logger:    logger,
+			})
+			if archiveErr != nil {
+				return nil, archiveErr
+			}
+			rt.MediaArchive = archive
+			mediaService.Archiver = archive
+		}
 		attachmentRepo, attachmentErr := conversationinfra.NewRepo(pool)
 		if attachmentErr != nil {
 			return nil, attachmentErr

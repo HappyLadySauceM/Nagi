@@ -34,10 +34,20 @@ type AIAuditArtifact struct {
 	SizeBytes int64 `json:"size_bytes,omitempty"`
 	// ObjectKey holds the value of the "object_key" field.
 	ObjectKey string `json:"object_key,omitempty"`
+	// Bucket holds the value of the "bucket" field.
+	Bucket string `json:"bucket,omitempty"`
 	// FailureCode holds the value of the "failure_code" field.
 	FailureCode string `json:"failure_code,omitempty"`
 	// ExpiresAt holds the value of the "expires_at" field.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// CleanupAttempts holds the value of the "cleanup_attempts" field.
+	CleanupAttempts int `json:"cleanup_attempts,omitempty"`
+	// NextAttemptAt holds the value of the "next_attempt_at" field.
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"`
+	// LeaseToken holds the value of the "lease_token" field.
+	LeaseToken string `json:"lease_token,omitempty"`
+	// LeaseExpiresAt holds the value of the "lease_expires_at" field.
+	LeaseExpiresAt *time.Time `json:"lease_expires_at,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
@@ -52,11 +62,11 @@ func (*AIAuditArtifact) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case aiauditartifact.FieldEventID:
 			values[i] = &sql.NullScanner{S: new(uuid.UUID)}
-		case aiauditartifact.FieldSizeBytes:
+		case aiauditartifact.FieldSizeBytes, aiauditartifact.FieldCleanupAttempts:
 			values[i] = new(sql.NullInt64)
-		case aiauditartifact.FieldKind, aiauditartifact.FieldStatus, aiauditartifact.FieldSha256, aiauditartifact.FieldContentType, aiauditartifact.FieldObjectKey, aiauditartifact.FieldFailureCode:
+		case aiauditartifact.FieldKind, aiauditartifact.FieldStatus, aiauditartifact.FieldSha256, aiauditartifact.FieldContentType, aiauditartifact.FieldObjectKey, aiauditartifact.FieldBucket, aiauditartifact.FieldFailureCode, aiauditartifact.FieldLeaseToken:
 			values[i] = new(sql.NullString)
-		case aiauditartifact.FieldExpiresAt, aiauditartifact.FieldCreatedAt, aiauditartifact.FieldUpdatedAt:
+		case aiauditartifact.FieldExpiresAt, aiauditartifact.FieldNextAttemptAt, aiauditartifact.FieldLeaseExpiresAt, aiauditartifact.FieldCreatedAt, aiauditartifact.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
 		case aiauditartifact.FieldID, aiauditartifact.FieldRunID:
 			values[i] = new(uuid.UUID)
@@ -130,6 +140,12 @@ func (_m *AIAuditArtifact) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ObjectKey = value.String
 			}
+		case aiauditartifact.FieldBucket:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field bucket", values[i])
+			} else if value.Valid {
+				_m.Bucket = value.String
+			}
 		case aiauditartifact.FieldFailureCode:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field failure_code", values[i])
@@ -142,6 +158,32 @@ func (_m *AIAuditArtifact) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ExpiresAt = new(time.Time)
 				*_m.ExpiresAt = value.Time
+			}
+		case aiauditartifact.FieldCleanupAttempts:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field cleanup_attempts", values[i])
+			} else if value.Valid {
+				_m.CleanupAttempts = int(value.Int64)
+			}
+		case aiauditartifact.FieldNextAttemptAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field next_attempt_at", values[i])
+			} else if value.Valid {
+				_m.NextAttemptAt = new(time.Time)
+				*_m.NextAttemptAt = value.Time
+			}
+		case aiauditartifact.FieldLeaseToken:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field lease_token", values[i])
+			} else if value.Valid {
+				_m.LeaseToken = value.String
+			}
+		case aiauditartifact.FieldLeaseExpiresAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field lease_expires_at", values[i])
+			} else if value.Valid {
+				_m.LeaseExpiresAt = new(time.Time)
+				*_m.LeaseExpiresAt = value.Time
 			}
 		case aiauditartifact.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -217,11 +259,30 @@ func (_m *AIAuditArtifact) String() string {
 	builder.WriteString("object_key=")
 	builder.WriteString(_m.ObjectKey)
 	builder.WriteString(", ")
+	builder.WriteString("bucket=")
+	builder.WriteString(_m.Bucket)
+	builder.WriteString(", ")
 	builder.WriteString("failure_code=")
 	builder.WriteString(_m.FailureCode)
 	builder.WriteString(", ")
 	if v := _m.ExpiresAt; v != nil {
 		builder.WriteString("expires_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("cleanup_attempts=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CleanupAttempts))
+	builder.WriteString(", ")
+	if v := _m.NextAttemptAt; v != nil {
+		builder.WriteString("next_attempt_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("lease_token=")
+	builder.WriteString(_m.LeaseToken)
+	builder.WriteString(", ")
+	if v := _m.LeaseExpiresAt; v != nil {
+		builder.WriteString("lease_expires_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
 	builder.WriteString(", ")

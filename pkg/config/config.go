@@ -240,6 +240,23 @@ type Observability struct {
 	// Environment 标记部署环境（如 local/prod），为空时不写资源属性。
 	// Environment labels the deployment; empty omits the resource attribute.
 	Environment string `yaml:"environment"`
+	// MediaArchive retains authorized media in S3-compatible storage and signs
+	// short-lived administrator replay URLs.
+	// MediaArchive 在兼容 S3 的存储中保留已授权媒体，并签发短时管理员回放 URL。
+	MediaArchive MediaArchive `yaml:"media-archive"`
+}
+
+// MediaArchive configures the S3-compatible store used for audit media.
+// MediaArchive 配置审计媒体使用的兼容 S3 存储。
+type MediaArchive struct {
+	Enabled        bool   `yaml:"enabled"`
+	Endpoint       string `yaml:"endpoint"`
+	PublicEndpoint string `yaml:"public-endpoint"`
+	AccessKey      string `yaml:"access-key"`
+	SecretKey      string `yaml:"secret-key"`
+	Bucket         string `yaml:"bucket"`
+	Prefix         string `yaml:"prefix"`
+	RetentionDays  int    `yaml:"retention-days"`
 }
 
 // Config 是解析完成的运行时配置模型。
@@ -308,6 +325,10 @@ func defaults() Config {
 		},
 		Observability: Observability{
 			ExportRawContent: true,
+			MediaArchive: MediaArchive{
+				Prefix:        "nagi/",
+				RetentionDays: 30,
+			},
 		},
 		Intent: Intent{
 			Provider:              "jev",
@@ -387,6 +408,18 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
 		if enabled, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
 			cfg.Observability.RawIdentifiers = enabled
 		}
+	}
+	if v, ok := lookup("NAGI_MEDIA_ARCHIVE_ENDPOINT"); ok && strings.TrimSpace(v) != "" {
+		cfg.Observability.MediaArchive.Endpoint = strings.TrimSpace(v)
+	}
+	if v, ok := lookup("NAGI_MEDIA_ARCHIVE_PUBLIC_ENDPOINT"); ok && strings.TrimSpace(v) != "" {
+		cfg.Observability.MediaArchive.PublicEndpoint = strings.TrimSpace(v)
+	}
+	if v, ok := lookup("NAGI_MEDIA_ARCHIVE_ACCESS_KEY"); ok && strings.TrimSpace(v) != "" {
+		cfg.Observability.MediaArchive.AccessKey = strings.TrimSpace(v)
+	}
+	if v, ok := lookup("NAGI_MEDIA_ARCHIVE_SECRET_KEY"); ok && strings.TrimSpace(v) != "" {
+		cfg.Observability.MediaArchive.SecretKey = strings.TrimSpace(v)
 	}
 }
 
@@ -511,6 +544,28 @@ func (c *Config) Validate() error {
 			c.Intent.InterjectionThreshold <= 0 || c.Intent.InterjectionThreshold > 1 ||
 			c.Intent.AddressedOtherMax <= 0 || c.Intent.AddressedOtherMax > 1 {
 			return fmt.Errorf("config: intent 阈值必须在 (0,1] 区间")
+		}
+	}
+	archive := c.Observability.MediaArchive
+	if archive.Enabled {
+		if archive.RetentionDays < 1 || archive.RetentionDays > 3650 {
+			return fmt.Errorf("config: observability.media-archive.retention-days 必须在 1-3650 之间")
+		}
+		if strings.TrimSpace(c.Database.DSN) == "" {
+			return fmt.Errorf("config: 启用 observability.media-archive 时必须配置 database.dsn")
+		}
+		if strings.TrimSpace(archive.Endpoint) == "" || strings.TrimSpace(archive.AccessKey) == "" ||
+			strings.TrimSpace(archive.SecretKey) == "" || strings.TrimSpace(archive.Bucket) == "" ||
+			strings.TrimSpace(archive.PublicEndpoint) == "" {
+			return fmt.Errorf("config: 启用 observability.media-archive 时必须配置 endpoint、public-endpoint、access-key、secret-key 与 bucket")
+		}
+		u, err := url.Parse(archive.Endpoint)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("config: observability.media-archive.endpoint 必须是 http(s) URL")
+		}
+		public, err := url.Parse(archive.PublicEndpoint)
+		if err != nil || public.Host == "" || (public.Scheme != "http" && public.Scheme != "https") {
+			return fmt.Errorf("config: observability.media-archive.public-endpoint 必须是 http(s) URL")
 		}
 	}
 	return nil

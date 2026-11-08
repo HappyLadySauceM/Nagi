@@ -12,6 +12,7 @@ import (
 	"time"
 
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
 	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
@@ -36,6 +37,12 @@ type OutboundReader interface {
 	ListByJob(ctx context.Context, jobID int64) ([]outbounddomain.Record, error)
 }
 
+// MediaURLSigner issues short-lived administrator read URLs for retained media.
+// MediaURLSigner 为仍在保留期内的媒体签发短期管理员读取 URL。
+type MediaURLSigner interface {
+	Presign(context.Context, auditdomain.AIArtifact) (string, error)
+}
+
 type ServiceContext struct {
 	Config    *config.Config
 	Logger    *slog.Logger
@@ -56,6 +63,9 @@ type ServiceContext struct {
 	// AIAudit exposes durable worker-run facts to the administrator-only API.
 	// AIAudit 向仅管理员 API 暴露可持久复核的 worker 运行事实。
 	AIAudit auditcontracts.AIReader
+	// MediaArchive signs administrator-only artifact reads when configured.
+	// MediaArchive 在已配置时为管理员专用的工件读取签名。
+	MediaArchive MediaURLSigner
 	// Stats may be nil when the database is not configured.
 	// 未配置数据库时 Stats 可为 nil。
 	Stats StatsProvider

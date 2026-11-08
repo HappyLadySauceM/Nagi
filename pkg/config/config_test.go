@@ -332,3 +332,20 @@ func TestLoadAcceptsDeprecatedSideEffectSwitches(t *testing.T) {
 		t.Fatalf("deprecated switches must not fail the load: %v", err)
 	}
 }
+
+func TestLoadRejectsMediaArchiveWithoutDatabase(t *testing.T) {
+	file := writeTempConfig(t, `observability:
+  media-archive:
+    enabled: true
+    endpoint: "http://127.0.0.1:9000"
+    public-endpoint: "http://127.0.0.1:9000"
+    access-key: "test"
+    secret-key: "test"
+    bucket: "nagi-audit"
+    prefix: "nagi/"
+    retention-days: 30
+`)
+	if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+		t.Fatal("expected error when media-archive is enabled without database.dsn")
+	}
+}
