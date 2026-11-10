@@ -66,7 +66,7 @@ func TestReplierInjectedIDReachesActualProvider(t *testing.T) {
 	if got := extractMemoryID(t, system); got != memoryID {
 		t.Fatalf("injected memory id = %q, want %q", got, memoryID)
 	}
-	if !strings.Contains(system, "memory.detail") || !strings.Contains(system, "memory.source") {
+	if !strings.Contains(system, "memory_detail") || !strings.Contains(system, "memory_source") {
 		t.Fatalf("on-demand tool guidance missing: %q", system)
 	}
 
