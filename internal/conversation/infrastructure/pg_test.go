@@ -862,12 +862,16 @@ func TestMessageByIDScopedToBot(t *testing.T) {
 	}
 	ctx := context.Background()
 	const botID = 993001
+	platformID := time.Now().UnixNano()
 	result, err := repo.Ingest(ctx, domain.IngestInput{
 		BotID: botID, Kind: domain.KindGroup, TargetID: 993002,
-		PlatformMessageID: 993003, SenderID: 993004, Text: "来源原文",
+		PlatformMessageID: platformID, SenderID: 993004, Text: "来源原文",
 	})
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
+	}
+	if result.Duplicate || result.MessageID == 0 {
+		t.Fatalf("ingest did not create a fresh message: %+v", result)
 	}
 	msg, found, err := repo.MessageByID(ctx, botID, result.MessageID)
 	if err != nil || !found || msg.Text != "来源原文" || msg.BotID != botID || msg.ConversationID != result.ConversationID {
