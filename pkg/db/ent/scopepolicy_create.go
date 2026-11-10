@@ -126,6 +126,20 @@ func (_c *ScopePolicyCreate) SetNillableAllowHistoryRead(v *bool) *ScopePolicyCr
 	return _c
 }
 
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (_c *ScopePolicyCreate) SetMemoryAuthorizationEventID(v int64) *ScopePolicyCreate {
+	_c.mutation.SetMemoryAuthorizationEventID(v)
+	return _c
+}
+
+// SetNillableMemoryAuthorizationEventID sets the "memory_authorization_event_id" field if the given value is not nil.
+func (_c *ScopePolicyCreate) SetNillableMemoryAuthorizationEventID(v *int64) *ScopePolicyCreate {
+	if v != nil {
+		_c.SetMemoryAuthorizationEventID(*v)
+	}
+	return _c
+}
+
 // SetMinReplyIntervalMs sets the "min_reply_interval_ms" field.
 func (_c *ScopePolicyCreate) SetMinReplyIntervalMs(v int) *ScopePolicyCreate {
 	_c.mutation.SetMinReplyIntervalMs(v)
@@ -443,6 +457,10 @@ func (_c *ScopePolicyCreate) createSpec() (*ScopePolicy, *sqlgraph.CreateSpec) {
 		_spec.SetField(scopepolicy.FieldAllowHistoryRead, field.TypeBool, value)
 		_node.AllowHistoryRead = value
 	}
+	if value, ok := _c.mutation.MemoryAuthorizationEventID(); ok {
+		_spec.SetField(scopepolicy.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+		_node.MemoryAuthorizationEventID = &value
+	}
 	if value, ok := _c.mutation.MinReplyIntervalMs(); ok {
 		_spec.SetField(scopepolicy.FieldMinReplyIntervalMs, field.TypeInt, value)
 		_node.MinReplyIntervalMs = value
@@ -663,6 +681,30 @@ func (u *ScopePolicyUpsert) SetAllowHistoryRead(v bool) *ScopePolicyUpsert {
 // UpdateAllowHistoryRead sets the "allow_history_read" field to the value that was provided on create.
 func (u *ScopePolicyUpsert) UpdateAllowHistoryRead() *ScopePolicyUpsert {
 	u.SetExcluded(scopepolicy.FieldAllowHistoryRead)
+	return u
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsert) SetMemoryAuthorizationEventID(v int64) *ScopePolicyUpsert {
+	u.Set(scopepolicy.FieldMemoryAuthorizationEventID, v)
+	return u
+}
+
+// UpdateMemoryAuthorizationEventID sets the "memory_authorization_event_id" field to the value that was provided on create.
+func (u *ScopePolicyUpsert) UpdateMemoryAuthorizationEventID() *ScopePolicyUpsert {
+	u.SetExcluded(scopepolicy.FieldMemoryAuthorizationEventID)
+	return u
+}
+
+// AddMemoryAuthorizationEventID adds v to the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsert) AddMemoryAuthorizationEventID(v int64) *ScopePolicyUpsert {
+	u.Add(scopepolicy.FieldMemoryAuthorizationEventID, v)
+	return u
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsert) ClearMemoryAuthorizationEventID() *ScopePolicyUpsert {
+	u.SetNull(scopepolicy.FieldMemoryAuthorizationEventID)
 	return u
 }
 
@@ -1012,6 +1054,34 @@ func (u *ScopePolicyUpsertOne) SetAllowHistoryRead(v bool) *ScopePolicyUpsertOne
 func (u *ScopePolicyUpsertOne) UpdateAllowHistoryRead() *ScopePolicyUpsertOne {
 	return u.Update(func(s *ScopePolicyUpsert) {
 		s.UpdateAllowHistoryRead()
+	})
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsertOne) SetMemoryAuthorizationEventID(v int64) *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetMemoryAuthorizationEventID(v)
+	})
+}
+
+// AddMemoryAuthorizationEventID adds v to the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsertOne) AddMemoryAuthorizationEventID(v int64) *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.AddMemoryAuthorizationEventID(v)
+	})
+}
+
+// UpdateMemoryAuthorizationEventID sets the "memory_authorization_event_id" field to the value that was provided on create.
+func (u *ScopePolicyUpsertOne) UpdateMemoryAuthorizationEventID() *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateMemoryAuthorizationEventID()
+	})
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsertOne) ClearMemoryAuthorizationEventID() *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.ClearMemoryAuthorizationEventID()
 	})
 }
 
@@ -1555,6 +1625,34 @@ func (u *ScopePolicyUpsertBulk) SetAllowHistoryRead(v bool) *ScopePolicyUpsertBu
 func (u *ScopePolicyUpsertBulk) UpdateAllowHistoryRead() *ScopePolicyUpsertBulk {
 	return u.Update(func(s *ScopePolicyUpsert) {
 		s.UpdateAllowHistoryRead()
+	})
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsertBulk) SetMemoryAuthorizationEventID(v int64) *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetMemoryAuthorizationEventID(v)
+	})
+}
+
+// AddMemoryAuthorizationEventID adds v to the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsertBulk) AddMemoryAuthorizationEventID(v int64) *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.AddMemoryAuthorizationEventID(v)
+	})
+}
+
+// UpdateMemoryAuthorizationEventID sets the "memory_authorization_event_id" field to the value that was provided on create.
+func (u *ScopePolicyUpsertBulk) UpdateMemoryAuthorizationEventID() *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateMemoryAuthorizationEventID()
+	})
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (u *ScopePolicyUpsertBulk) ClearMemoryAuthorizationEventID() *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.ClearMemoryAuthorizationEventID()
 	})
 }
 

@@ -57,6 +57,12 @@ type IntentRuleset func(*sql.Selector)
 // Memory is the predicate function for memory builders.
 type Memory func(*sql.Selector)
 
+// MemoryExtractionCursor is the predicate function for memoryextractioncursor builders.
+type MemoryExtractionCursor func(*sql.Selector)
+
+// MemoryExtractionJob is the predicate function for memoryextractionjob builders.
+type MemoryExtractionJob func(*sql.Selector)
+
 // Message is the predicate function for message builders.
 type Message func(*sql.Selector)
 
@@ -65,6 +71,9 @@ type MessageJob func(*sql.Selector)
 
 // QQGroup is the predicate function for qqgroup builders.
 type QQGroup func(*sql.Selector)
+
+// ScopeMemoryAuthorizationEvent is the predicate function for scopememoryauthorizationevent builders.
+type ScopeMemoryAuthorizationEvent func(*sql.Selector)
 
 // ScopePolicy is the predicate function for scopepolicy builders.
 type ScopePolicy func(*sql.Selector)

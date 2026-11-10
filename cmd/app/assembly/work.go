@@ -202,7 +202,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if rt.Conversation, err = buildConversation(pool, logger); err != nil {
 			return nil, err
 		}
-		if rt.Memory, err = buildMemory(pool); err != nil {
+		if rt.Memory, err = buildMemory(pool, rt.Scope); err != nil {
 			return nil, err
 		}
 		if rt.Audit, err = auditinfra.NewRecorder(pool); err != nil {
@@ -447,7 +447,11 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 // buildConversation binds the pgx repository to the conversation service.
 // buildConversation 将 pgx 仓库绑定到会话服务。
 func buildConversation(pool *db.Pool, logger *slog.Logger) (*conversationapp.Service, error) {
-	repo, err := conversationinfra.NewRepo(pool)
+	scopeRepo, err := scopeinfra.NewRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := conversationinfra.NewRepo(pool, conversationinfra.WithMemoryAuthorizationStamper(scopeRepo))
 	if err != nil {
 		return nil, err
 	}
@@ -456,12 +460,19 @@ func buildConversation(pool *db.Pool, logger *slog.Logger) (*conversationapp.Ser
 
 // buildMemory binds the pgx repository to the memory service.
 // buildMemory 将 pgx 仓库绑定到记忆服务。
-func buildMemory(pool *db.Pool) (*memoryapp.Service, error) {
+func buildMemory(pool *db.Pool, scopeService *scopeapp.Service) (*memoryapp.Service, error) {
 	repo, err := memoryinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
 	}
-	return memoryapp.NewService(repo)
+	service, err := memoryapp.NewService(repo)
+	if err != nil {
+		return nil, err
+	}
+	if scopeService != nil {
+		service.SetMemoryAuthorizer(scopeService)
+	}
+	return service, nil
 }
 
 // buildDirectory binds the pgx repository and the account registry to the

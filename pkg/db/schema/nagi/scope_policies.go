@@ -25,6 +25,7 @@ func (ScopePolicy) Fields() []ent.Field {
 		field.Bool("allow_memory_write").Annotations(entsql.DefaultExpr("false")).Default(false),
 		field.Bool("allow_memory_read").Annotations(entsql.DefaultExpr("false")).Default(false),
 		field.Bool("allow_history_read").Annotations(entsql.DefaultExpr("false")).Default(false),
+		field.Int64("memory_authorization_event_id").SchemaType(map[string]string{"postgres": "bigint"}).Optional().Nillable(),
 		field.Int("min_reply_interval_ms").SchemaType(map[string]string{"postgres": "integer"}).Annotations(entsql.DefaultExpr("10000")).Default(10000),
 		field.Int("max_replies_per_hour").SchemaType(map[string]string{"postgres": "integer"}).Annotations(entsql.DefaultExpr("0")).Default(0),
 		field.Time("updated_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),

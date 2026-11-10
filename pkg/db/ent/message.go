@@ -43,6 +43,8 @@ type Message struct {
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// OutboundID holds the value of the "outbound_id" field.
 	OutboundID *uuid.UUID `json:"outbound_id,omitempty"`
+	// MemoryAuthorizationEventID holds the value of the "memory_authorization_event_id" field.
+	MemoryAuthorizationEventID *int64 `json:"memory_authorization_event_id,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the MessageQuery when eager-loading is set.
 	Edges        MessageEdges `json:"edges"`
@@ -61,9 +63,11 @@ type MessageEdges struct {
 	OutboundIDRef *AgentOutboundMessage `json:"outbound_id_ref,omitempty"`
 	// MemoriesSourceMessageID holds the value of the memories_source_message_id edge.
 	MemoriesSourceMessageID []*Memory `json:"memories_source_message_id,omitempty"`
+	// MemoryExtractionJobsMessageID holds the value of the memory_extraction_jobs_message_id edge.
+	MemoryExtractionJobsMessageID []*MemoryExtractionJob `json:"memory_extraction_jobs_message_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
+	loadedTypes [6]bool
 }
 
 // ConversationIDRefOrErr returns the ConversationIDRef value or an error if the edge
@@ -117,6 +121,15 @@ func (e MessageEdges) MemoriesSourceMessageIDOrErr() ([]*Memory, error) {
 	return nil, &NotLoadedError{edge: "memories_source_message_id"}
 }
 
+// MemoryExtractionJobsMessageIDOrErr returns the MemoryExtractionJobsMessageID value or an error if the edge
+// was not loaded in eager-loading.
+func (e MessageEdges) MemoryExtractionJobsMessageIDOrErr() ([]*MemoryExtractionJob, error) {
+	if e.loadedTypes[5] {
+		return e.MemoryExtractionJobsMessageID, nil
+	}
+	return nil, &NotLoadedError{edge: "memory_extraction_jobs_message_id"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Message) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -126,7 +139,7 @@ func (*Message) scanValues(columns []string) ([]any, error) {
 			values[i] = &sql.NullScanner{S: new(uuid.UUID)}
 		case message.FieldSegments:
 			values[i] = new([]byte)
-		case message.FieldID, message.FieldBotID, message.FieldPlatformMessageID, message.FieldSenderID:
+		case message.FieldID, message.FieldBotID, message.FieldPlatformMessageID, message.FieldSenderID, message.FieldMemoryAuthorizationEventID:
 			values[i] = new(sql.NullInt64)
 		case message.FieldDirection, message.FieldTextContent, message.FieldSentStatus:
 			values[i] = new(sql.NullString)
@@ -220,6 +233,13 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 				_m.OutboundID = new(uuid.UUID)
 				*_m.OutboundID = *value.S.(*uuid.UUID)
 			}
+		case message.FieldMemoryAuthorizationEventID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field memory_authorization_event_id", values[i])
+			} else if value.Valid {
+				_m.MemoryAuthorizationEventID = new(int64)
+				*_m.MemoryAuthorizationEventID = value.Int64
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -256,6 +276,11 @@ func (_m *Message) QueryOutboundIDRef() *AgentOutboundMessageQuery {
 // QueryMemoriesSourceMessageID queries the "memories_source_message_id" edge of the Message entity.
 func (_m *Message) QueryMemoriesSourceMessageID() *MemoryQuery {
 	return NewMessageClient(_m.config).QueryMemoriesSourceMessageID(_m)
+}
+
+// QueryMemoryExtractionJobsMessageID queries the "memory_extraction_jobs_message_id" edge of the Message entity.
+func (_m *Message) QueryMemoryExtractionJobsMessageID() *MemoryExtractionJobQuery {
+	return NewMessageClient(_m.config).QueryMemoryExtractionJobsMessageID(_m)
 }
 
 // Update returns a builder for updating this Message.
@@ -314,6 +339,11 @@ func (_m *Message) String() string {
 	builder.WriteString(", ")
 	if v := _m.OutboundID; v != nil {
 		builder.WriteString("outbound_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.MemoryAuthorizationEventID; v != nil {
+		builder.WriteString("memory_authorization_event_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteByte(')')

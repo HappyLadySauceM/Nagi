@@ -13,11 +13,27 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // ErrInvalidID reports a malformed memory identifier before it reaches storage.
 // ErrInvalidID 表示记忆 ID 格式非法，避免把解析错误当成内部错误返回。
 var ErrInvalidID = errors.New("memory: invalid memory id")
+
+// Extraction management errors are stable, safe messages for the HTTP layer.
+// 提取管理错误是提供给 HTTP 层的稳定安全消息。
+var (
+	ErrExtractionJobNotFound          = errors.New("memory: extraction job not found")
+	ErrExtractionJobState             = errors.New("memory: extraction job is not retryable")
+	ErrExtractionSourceMissing        = errors.New("memory: extraction source is unavailable")
+	ErrExtractionAuthorizationChanged = errors.New("memory: extraction authorization changed")
+	ErrExtractionRetryLimit           = errors.New("memory: extraction retry limit reached")
+)
+
+// DefaultManualRetryLimit is the maximum number of manual retries per job.
+// DefaultManualRetryLimit 是每个任务的最大手动重试次数。
+const DefaultManualRetryLimit = 1
 
 // Service implements the read-only recall port used by reply generation.
 // Service 实现回复生成使用的只读召回端口。
@@ -36,10 +52,26 @@ type Repository interface {
 	SearchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error)
 }
 
+// ExtractionJobRepository is an optional management read/retry port.
+// ExtractionJobRepository 是可选的管理读取/重试端口。
+type ExtractionJobRepository interface {
+	ListExtractionJobs(ctx context.Context, f domain.ExtractionJobFilter) ([]domain.ExtractionJob, int64, error)
+	GetExtractionJob(ctx context.Context, id string) (domain.ExtractionJob, bool, error)
+	RetryExtractionJob(ctx context.Context, id string, maxManualRetries int) (bool, error)
+}
+
+// DedupeRepository is the optional complete-key lookup used for subject-aware
+// candidate deduplication.
+// DedupeRepository 是用于带主体候选去重的可选完整键查询端口。
+type DedupeRepository interface {
+	FindByDedupeKey(ctx context.Context, key string) (domain.Memory, bool, error)
+}
+
 // Service implements the candidate → dedupe → approve/merge → active workflow.
 // Service 实现 候选 → 去重 → 审核/合并 → 激活 流程。
 type Service struct {
-	repo Repository
+	repo       Repository
+	authorizer scopecontracts.MemoryAuthorizer
 }
 
 // NewService validates dependencies and builds the service.
@@ -51,6 +83,12 @@ func NewService(repo Repository) (*Service, error) {
 	return &Service{repo: repo}, nil
 }
 
+// SetMemoryAuthorizer binds the current scope authorization resolver.
+// SetMemoryAuthorizer 绑定当前作用域授权解析器。
+func (s *Service) SetMemoryAuthorizer(authorizer scopecontracts.MemoryAuthorizer) {
+	s.authorizer = authorizer
+}
+
 // CandidateInput is one proposed memory with its provenance.
 // CandidateInput 是一条带来源的记忆提议。
 type CandidateInput struct {
@@ -60,15 +98,30 @@ type CandidateInput struct {
 	Content         string
 	SourceMessageID int64
 	Source          string
+	SourceSenderID  int64
+	Origin          domain.Origin
+	SubjectType     domain.SubjectType
+	SubjectID       string
+	DedupeKey       string
+	ReviewReason    string
 	Confidence      float64
 }
 
-// Propose dedupes and stores one memory candidate. Exact duplicates return the
-// existing memory; conflicting content must go through explicit merge via the
-// management API, never automatic overwrite.
-// Propose 对记忆候选去重并存储。完全重复时返回既有记忆；内容冲突必须
-// 经管理端显式合并，绝不自动覆盖。
+// Propose dedupes and stores one memory candidate. Known-subject candidates use
+// the complete structured key; legacy entries without a subject keep exact
+// content dedupe. Conflicts require explicit management merge, never automatic
+// overwrite.
+// Propose 对记忆候选去重并存储。已知主体使用完整结构化键；无主体的旧条目保留
+// 精确内容去重。冲突必须经管理端显式合并，绝不自动覆盖。
 func (s *Service) Propose(ctx context.Context, in CandidateInput) (string, bool, error) {
+	origin := in.Origin
+	if origin == "" {
+		origin = domain.OriginManual
+	}
+	dedupeKey := in.DedupeKey
+	if dedupeKey == "" && in.SubjectType != "" && in.SubjectID != "" {
+		dedupeKey = domain.ComputeDedupeKey(in.BotID, in.Visibility, in.OwnerKey, in.SubjectType, in.SubjectID, strings.TrimSpace(in.Content))
+	}
 	m := domain.Memory{
 		BotID:           in.BotID,
 		Visibility:      in.Visibility,
@@ -76,13 +129,30 @@ func (s *Service) Propose(ctx context.Context, in CandidateInput) (string, bool,
 		Content:         strings.TrimSpace(in.Content),
 		SourceMessageID: in.SourceMessageID,
 		Source:          in.Source,
+		SourceSenderID:  in.SourceSenderID,
+		Origin:          origin,
+		SubjectType:     in.SubjectType,
+		SubjectID:       in.SubjectID,
+		DedupeKey:       dedupeKey,
+		ReviewReason:    in.ReviewReason,
 		Confidence:      in.Confidence,
 		Status:          domain.StatusCandidate,
 	}
 	if err := m.Validate(); err != nil {
 		return "", false, err
 	}
-	existing, found, err := s.repo.FindSame(ctx, in.BotID, in.Visibility, in.OwnerKey, m.Content)
+	var existing domain.Memory
+	var found bool
+	var err error
+	if dedupeKey != "" {
+		if dedupeRepo, ok := s.repo.(DedupeRepository); ok {
+			existing, found, err = dedupeRepo.FindByDedupeKey(ctx, dedupeKey)
+		} else {
+			existing, found, err = s.repo.FindSame(ctx, in.BotID, in.Visibility, in.OwnerKey, m.Content)
+		}
+	} else {
+		existing, found, err = s.repo.FindSame(ctx, in.BotID, in.Visibility, in.OwnerKey, m.Content)
+	}
 	if err != nil {
 		return "", false, err
 	}
@@ -132,6 +202,9 @@ func (s *Service) Revise(ctx context.Context, memoryID string, content string, v
 	}
 	if ownerKey != nil {
 		m.OwnerKey = *ownerKey
+	}
+	if m.SubjectType != "" && m.SubjectID != "" {
+		m.DedupeKey = domain.ComputeDedupeKey(m.BotID, m.Visibility, m.OwnerKey, m.SubjectType, m.SubjectID, m.Content)
 	}
 	if err := m.Validate(); err != nil {
 		return err
@@ -206,6 +279,11 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) ([]con
 			Visibility:      string(item.Visibility),
 			Source:          item.Source,
 			SourceMessageID: item.SourceMessageID,
+			SourceSenderID:  item.SourceSenderID,
+			Origin:          string(item.Origin),
+			SubjectType:     string(item.SubjectType),
+			SubjectID:       item.SubjectID,
+			ReviewReason:    item.ReviewReason,
 			UpdatedAt:       item.UpdatedAt,
 		})
 	}
@@ -246,8 +324,70 @@ func (s *Service) RecallDetail(ctx context.Context, in contracts.DetailRequest) 
 		Visibility:      string(item.Visibility),
 		Source:          item.Source,
 		SourceMessageID: item.SourceMessageID,
+		SourceSenderID:  item.SourceSenderID,
+		Origin:          string(item.Origin),
+		SubjectType:     string(item.SubjectType),
+		SubjectID:       item.SubjectID,
+		ReviewReason:    item.ReviewReason,
 		UpdatedAt:       item.UpdatedAt,
 	}, true, nil
+}
+
+// ListExtractionJobs returns a management page of extraction jobs.
+// ListExtractionJobs 返回一页管理用提取任务。
+func (s *Service) ListExtractionJobs(ctx context.Context, f domain.ExtractionJobFilter) ([]domain.ExtractionJob, int64, error) {
+	repo, ok := s.repo.(ExtractionJobRepository)
+	if !ok {
+		return nil, 0, fmt.Errorf("memory: extraction job repository unavailable")
+	}
+	return repo.ListExtractionJobs(ctx, f.Normalized())
+}
+
+// RetryExtractionJob restarts one failed job only while its source and
+// authorization generation are still valid.
+// RetryExtractionJob 仅在来源与授权代际仍然有效时重启一个失败任务。
+func (s *Service) RetryExtractionJob(ctx context.Context, jobID string) error {
+	if _, err := uuid.Parse(jobID); err != nil {
+		return fmt.Errorf("%w: %q", ErrInvalidID, jobID)
+	}
+	repo, ok := s.repo.(ExtractionJobRepository)
+	if !ok {
+		return fmt.Errorf("memory: extraction job repository unavailable")
+	}
+	job, found, err := repo.GetExtractionJob(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrExtractionJobNotFound
+	}
+	if job.Status != "failed" || job.ManualRetries >= DefaultManualRetryLimit {
+		return ErrExtractionJobState
+	}
+	if job.MessageID == 0 || !job.SourceAvailable {
+		return ErrExtractionSourceMissing
+	}
+	if job.MessageAuthorizationEventID == 0 || job.MessageAuthorizationEventID != job.AuthorizationEventID {
+		return ErrExtractionAuthorizationChanged
+	}
+	if s.authorizer == nil {
+		return fmt.Errorf("memory: authorization resolver unavailable")
+	}
+	current, err := s.authorizer.ResolveMemoryAuthorization(ctx, job.BotID, scopedomain.ScopeType(job.ScopeType), job.ScopeID)
+	if err != nil {
+		return err
+	}
+	if !current.Authorized || current.EventID != job.AuthorizationEventID {
+		return ErrExtractionAuthorizationChanged
+	}
+	retried, err := repo.RetryExtractionJob(ctx, jobID, DefaultManualRetryLimit)
+	if err != nil {
+		return err
+	}
+	if !retried {
+		return ErrExtractionJobState
+	}
+	return nil
 }
 
 // NewID generates a memory identifier.

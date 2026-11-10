@@ -26,6 +26,10 @@ const (
 	EdgeMessagesConversationID = "messages_conversation_id"
 	// EdgeAgentOutboundMessagesConversationID holds the string denoting the agent_outbound_messages_conversation_id edge name in mutations.
 	EdgeAgentOutboundMessagesConversationID = "agent_outbound_messages_conversation_id"
+	// EdgeMemoryExtractionCursorsConversationID holds the string denoting the memory_extraction_cursors_conversation_id edge name in mutations.
+	EdgeMemoryExtractionCursorsConversationID = "memory_extraction_cursors_conversation_id"
+	// EdgeMemoryExtractionJobsConversationID holds the string denoting the memory_extraction_jobs_conversation_id edge name in mutations.
+	EdgeMemoryExtractionJobsConversationID = "memory_extraction_jobs_conversation_id"
 	// BotAccountFieldID holds the string denoting the ID field of the BotAccount.
 	BotAccountFieldID = "bot_id"
 	// Table holds the table name of the conversation in the database.
@@ -51,6 +55,20 @@ const (
 	AgentOutboundMessagesConversationIDInverseTable = "agent_outbound_messages"
 	// AgentOutboundMessagesConversationIDColumn is the table column denoting the agent_outbound_messages_conversation_id relation/edge.
 	AgentOutboundMessagesConversationIDColumn = "conversation_id"
+	// MemoryExtractionCursorsConversationIDTable is the table that holds the memory_extraction_cursors_conversation_id relation/edge.
+	MemoryExtractionCursorsConversationIDTable = "memory_extraction_cursors"
+	// MemoryExtractionCursorsConversationIDInverseTable is the table name for the MemoryExtractionCursor entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryextractioncursor" package.
+	MemoryExtractionCursorsConversationIDInverseTable = "memory_extraction_cursors"
+	// MemoryExtractionCursorsConversationIDColumn is the table column denoting the memory_extraction_cursors_conversation_id relation/edge.
+	MemoryExtractionCursorsConversationIDColumn = "conversation_id"
+	// MemoryExtractionJobsConversationIDTable is the table that holds the memory_extraction_jobs_conversation_id relation/edge.
+	MemoryExtractionJobsConversationIDTable = "memory_extraction_jobs"
+	// MemoryExtractionJobsConversationIDInverseTable is the table name for the MemoryExtractionJob entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryextractionjob" package.
+	MemoryExtractionJobsConversationIDInverseTable = "memory_extraction_jobs"
+	// MemoryExtractionJobsConversationIDColumn is the table column denoting the memory_extraction_jobs_conversation_id relation/edge.
+	MemoryExtractionJobsConversationIDColumn = "conversation_id"
 )
 
 // Columns holds all SQL columns for conversation fields.
@@ -134,6 +152,34 @@ func ByAgentOutboundMessagesConversationID(term sql.OrderTerm, terms ...sql.Orde
 		sqlgraph.OrderByNeighborTerms(s, newAgentOutboundMessagesConversationIDStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByMemoryExtractionCursorsConversationIDCount orders the results by memory_extraction_cursors_conversation_id count.
+func ByMemoryExtractionCursorsConversationIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newMemoryExtractionCursorsConversationIDStep(), opts...)
+	}
+}
+
+// ByMemoryExtractionCursorsConversationID orders the results by memory_extraction_cursors_conversation_id terms.
+func ByMemoryExtractionCursorsConversationID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newMemoryExtractionCursorsConversationIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByMemoryExtractionJobsConversationIDCount orders the results by memory_extraction_jobs_conversation_id count.
+func ByMemoryExtractionJobsConversationIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newMemoryExtractionJobsConversationIDStep(), opts...)
+	}
+}
+
+// ByMemoryExtractionJobsConversationID orders the results by memory_extraction_jobs_conversation_id terms.
+func ByMemoryExtractionJobsConversationID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newMemoryExtractionJobsConversationIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newBotIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -153,5 +199,19 @@ func newAgentOutboundMessagesConversationIDStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AgentOutboundMessagesConversationIDInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, AgentOutboundMessagesConversationIDTable, AgentOutboundMessagesConversationIDColumn),
+	)
+}
+func newMemoryExtractionCursorsConversationIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(MemoryExtractionCursorsConversationIDInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionCursorsConversationIDTable, MemoryExtractionCursorsConversationIDColumn),
+	)
+}
+func newMemoryExtractionJobsConversationIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(MemoryExtractionJobsConversationIDInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionJobsConversationIDTable, MemoryExtractionJobsConversationIDColumn),
 	)
 }

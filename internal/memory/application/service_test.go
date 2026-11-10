@@ -65,6 +65,15 @@ func (f *fakeMemoryRepo) FindSame(_ context.Context, botID int64, v domain.Visib
 	return domain.Memory{}, false, nil
 }
 
+func (f *fakeMemoryRepo) FindByDedupeKey(_ context.Context, key string) (domain.Memory, bool, error) {
+	for _, m := range f.items {
+		if m.DedupeKey == key && (m.Status == domain.StatusCandidate || m.Status == domain.StatusActive) {
+			return m, true, nil
+		}
+	}
+	return domain.Memory{}, false, nil
+}
+
 func (f *fakeMemoryRepo) SearchVisible(_ context.Context, in domain.SearchRequest) ([]domain.Memory, error) {
 	f.lastSearch = in
 	out := []domain.Memory{}
@@ -417,5 +426,39 @@ func TestMemoryVisibleToKeepsGroupsAndPrivateUsersSeparate(t *testing.T) {
 	shared := domain.Memory{Visibility: domain.VisibilityBotShared}
 	if !shared.VisibleTo("group", 700, "") || !shared.VisibleTo("private", 200, "") {
 		t.Fatal("bot-shared memory must be visible to every conversation")
+	}
+}
+
+// TestProposeCompleteKeyKeepsDifferentSubjectsSeparate verifies two users saying
+// the same text do not collapse into one candidate.
+// TestProposeCompleteKeyKeepsDifferentSubjectsSeparate 验证不同用户说同一句话
+// 不会被合并成同一个候选。
+func TestProposeCompleteKeyKeepsDifferentSubjectsSeparate(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	ctx := context.Background()
+	first, duplicate, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "我喜欢茶", SubjectType: domain.SubjectUser, SubjectID: "1001", Origin: domain.OriginManual})
+	if err != nil || duplicate {
+		t.Fatalf("first propose: id=%s dup=%v err=%v", first, duplicate, err)
+	}
+	second, duplicate, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "我喜欢茶", SubjectType: domain.SubjectUser, SubjectID: "1002", Origin: domain.OriginManual})
+	if err != nil || duplicate || second == first {
+		t.Fatalf("second subject: id=%s dup=%v err=%v first=%s", second, duplicate, err, first)
+	}
+}
+
+// TestProposeUnknownSubjectWithoutKeyStillDedupes verifies an unknown-subject
+// candidate without a stable key does not create duplicates on retry.
+// TestProposeUnknownSubjectWithoutKeyStillDedupes 验证无稳定键的未知主体候选
+// 在重试时不会重复插入。
+func TestProposeUnknownSubjectWithoutKeyStillDedupes(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	in := CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "来源不明的同一句话", SubjectType: domain.SubjectUnknown, Origin: domain.OriginExtraction}
+	first, duplicate, err := svc.Propose(context.Background(), in)
+	if err != nil || duplicate {
+		t.Fatalf("first propose: id=%s dup=%v err=%v", first, duplicate, err)
+	}
+	second, duplicate, err := svc.Propose(context.Background(), in)
+	if err != nil || !duplicate || second != first {
+		t.Fatalf("second propose: id=%s dup=%v err=%v first=%s", second, duplicate, err, first)
 	}
 }

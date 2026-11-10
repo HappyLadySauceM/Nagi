@@ -17,6 +17,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -206,6 +207,33 @@ func (_u *MessageUpdate) ClearOutboundID() *MessageUpdate {
 	return _u
 }
 
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (_u *MessageUpdate) SetMemoryAuthorizationEventID(v int64) *MessageUpdate {
+	_u.mutation.ResetMemoryAuthorizationEventID()
+	_u.mutation.SetMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// SetNillableMemoryAuthorizationEventID sets the "memory_authorization_event_id" field if the given value is not nil.
+func (_u *MessageUpdate) SetNillableMemoryAuthorizationEventID(v *int64) *MessageUpdate {
+	if v != nil {
+		_u.SetMemoryAuthorizationEventID(*v)
+	}
+	return _u
+}
+
+// AddMemoryAuthorizationEventID adds value to the "memory_authorization_event_id" field.
+func (_u *MessageUpdate) AddMemoryAuthorizationEventID(v int64) *MessageUpdate {
+	_u.mutation.AddMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (_u *MessageUpdate) ClearMemoryAuthorizationEventID() *MessageUpdate {
+	_u.mutation.ClearMemoryAuthorizationEventID()
+	return _u
+}
+
 // SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by ID.
 func (_u *MessageUpdate) SetConversationIDRefID(id uuid.UUID) *MessageUpdate {
 	_u.mutation.SetConversationIDRefID(id)
@@ -277,6 +305,21 @@ func (_u *MessageUpdate) AddMemoriesSourceMessageID(v ...*Memory) *MessageUpdate
 	return _u.AddMemoriesSourceMessageIDIDs(ids...)
 }
 
+// AddMemoryExtractionJobsMessageIDIDs adds the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity by IDs.
+func (_u *MessageUpdate) AddMemoryExtractionJobsMessageIDIDs(ids ...uuid.UUID) *MessageUpdate {
+	_u.mutation.AddMemoryExtractionJobsMessageIDIDs(ids...)
+	return _u
+}
+
+// AddMemoryExtractionJobsMessageID adds the "memory_extraction_jobs_message_id" edges to the MemoryExtractionJob entity.
+func (_u *MessageUpdate) AddMemoryExtractionJobsMessageID(v ...*MemoryExtractionJob) *MessageUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddMemoryExtractionJobsMessageIDIDs(ids...)
+}
+
 // Mutation returns the MessageMutation object of the builder.
 func (_u *MessageUpdate) Mutation() *MessageMutation {
 	return _u.mutation
@@ -340,6 +383,27 @@ func (_u *MessageUpdate) RemoveMemoriesSourceMessageID(v ...*Memory) *MessageUpd
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveMemoriesSourceMessageIDIDs(ids...)
+}
+
+// ClearMemoryExtractionJobsMessageID clears all "memory_extraction_jobs_message_id" edges to the MemoryExtractionJob entity.
+func (_u *MessageUpdate) ClearMemoryExtractionJobsMessageID() *MessageUpdate {
+	_u.mutation.ClearMemoryExtractionJobsMessageID()
+	return _u
+}
+
+// RemoveMemoryExtractionJobsMessageIDIDs removes the "memory_extraction_jobs_message_id" edge to MemoryExtractionJob entities by IDs.
+func (_u *MessageUpdate) RemoveMemoryExtractionJobsMessageIDIDs(ids ...uuid.UUID) *MessageUpdate {
+	_u.mutation.RemoveMemoryExtractionJobsMessageIDIDs(ids...)
+	return _u
+}
+
+// RemoveMemoryExtractionJobsMessageID removes "memory_extraction_jobs_message_id" edges to MemoryExtractionJob entities.
+func (_u *MessageUpdate) RemoveMemoryExtractionJobsMessageID(v ...*MemoryExtractionJob) *MessageUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveMemoryExtractionJobsMessageIDIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -429,6 +493,15 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(message.FieldCreatedAt, field.TypeTime, value)
+	}
+	if value, ok := _u.mutation.MemoryAuthorizationEventID(); ok {
+		_spec.SetField(message.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedMemoryAuthorizationEventID(); ok {
+		_spec.AddField(message.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if _u.mutation.MemoryAuthorizationEventIDCleared() {
+		_spec.ClearField(message.FieldMemoryAuthorizationEventID, field.TypeInt64)
 	}
 	if _u.mutation.ConversationIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -600,6 +673,51 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(memory.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.MemoryExtractionJobsMessageIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryExtractionJobsMessageIDTable,
+			Columns: []string{message.MemoryExtractionJobsMessageIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedMemoryExtractionJobsMessageIDIDs(); len(nodes) > 0 && !_u.mutation.MemoryExtractionJobsMessageIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryExtractionJobsMessageIDTable,
+			Columns: []string{message.MemoryExtractionJobsMessageIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemoryExtractionJobsMessageIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryExtractionJobsMessageIDTable,
+			Columns: []string{message.MemoryExtractionJobsMessageIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {
@@ -797,6 +915,33 @@ func (_u *MessageUpdateOne) ClearOutboundID() *MessageUpdateOne {
 	return _u
 }
 
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (_u *MessageUpdateOne) SetMemoryAuthorizationEventID(v int64) *MessageUpdateOne {
+	_u.mutation.ResetMemoryAuthorizationEventID()
+	_u.mutation.SetMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// SetNillableMemoryAuthorizationEventID sets the "memory_authorization_event_id" field if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillableMemoryAuthorizationEventID(v *int64) *MessageUpdateOne {
+	if v != nil {
+		_u.SetMemoryAuthorizationEventID(*v)
+	}
+	return _u
+}
+
+// AddMemoryAuthorizationEventID adds value to the "memory_authorization_event_id" field.
+func (_u *MessageUpdateOne) AddMemoryAuthorizationEventID(v int64) *MessageUpdateOne {
+	_u.mutation.AddMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (_u *MessageUpdateOne) ClearMemoryAuthorizationEventID() *MessageUpdateOne {
+	_u.mutation.ClearMemoryAuthorizationEventID()
+	return _u
+}
+
 // SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by ID.
 func (_u *MessageUpdateOne) SetConversationIDRefID(id uuid.UUID) *MessageUpdateOne {
 	_u.mutation.SetConversationIDRefID(id)
@@ -868,6 +1013,21 @@ func (_u *MessageUpdateOne) AddMemoriesSourceMessageID(v ...*Memory) *MessageUpd
 	return _u.AddMemoriesSourceMessageIDIDs(ids...)
 }
 
+// AddMemoryExtractionJobsMessageIDIDs adds the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity by IDs.
+func (_u *MessageUpdateOne) AddMemoryExtractionJobsMessageIDIDs(ids ...uuid.UUID) *MessageUpdateOne {
+	_u.mutation.AddMemoryExtractionJobsMessageIDIDs(ids...)
+	return _u
+}
+
+// AddMemoryExtractionJobsMessageID adds the "memory_extraction_jobs_message_id" edges to the MemoryExtractionJob entity.
+func (_u *MessageUpdateOne) AddMemoryExtractionJobsMessageID(v ...*MemoryExtractionJob) *MessageUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddMemoryExtractionJobsMessageIDIDs(ids...)
+}
+
 // Mutation returns the MessageMutation object of the builder.
 func (_u *MessageUpdateOne) Mutation() *MessageMutation {
 	return _u.mutation
@@ -931,6 +1091,27 @@ func (_u *MessageUpdateOne) RemoveMemoriesSourceMessageID(v ...*Memory) *Message
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveMemoriesSourceMessageIDIDs(ids...)
+}
+
+// ClearMemoryExtractionJobsMessageID clears all "memory_extraction_jobs_message_id" edges to the MemoryExtractionJob entity.
+func (_u *MessageUpdateOne) ClearMemoryExtractionJobsMessageID() *MessageUpdateOne {
+	_u.mutation.ClearMemoryExtractionJobsMessageID()
+	return _u
+}
+
+// RemoveMemoryExtractionJobsMessageIDIDs removes the "memory_extraction_jobs_message_id" edge to MemoryExtractionJob entities by IDs.
+func (_u *MessageUpdateOne) RemoveMemoryExtractionJobsMessageIDIDs(ids ...uuid.UUID) *MessageUpdateOne {
+	_u.mutation.RemoveMemoryExtractionJobsMessageIDIDs(ids...)
+	return _u
+}
+
+// RemoveMemoryExtractionJobsMessageID removes "memory_extraction_jobs_message_id" edges to MemoryExtractionJob entities.
+func (_u *MessageUpdateOne) RemoveMemoryExtractionJobsMessageID(v ...*MemoryExtractionJob) *MessageUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveMemoryExtractionJobsMessageIDIDs(ids...)
 }
 
 // Where appends a list predicates to the MessageUpdate builder.
@@ -1050,6 +1231,15 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(message.FieldCreatedAt, field.TypeTime, value)
+	}
+	if value, ok := _u.mutation.MemoryAuthorizationEventID(); ok {
+		_spec.SetField(message.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedMemoryAuthorizationEventID(); ok {
+		_spec.AddField(message.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if _u.mutation.MemoryAuthorizationEventIDCleared() {
+		_spec.ClearField(message.FieldMemoryAuthorizationEventID, field.TypeInt64)
 	}
 	if _u.mutation.ConversationIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1221,6 +1411,51 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(memory.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.MemoryExtractionJobsMessageIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryExtractionJobsMessageIDTable,
+			Columns: []string{message.MemoryExtractionJobsMessageIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedMemoryExtractionJobsMessageIDIDs(); len(nodes) > 0 && !_u.mutation.MemoryExtractionJobsMessageIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryExtractionJobsMessageIDTable,
+			Columns: []string{message.MemoryExtractionJobsMessageIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemoryExtractionJobsMessageIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryExtractionJobsMessageIDTable,
+			Columns: []string{message.MemoryExtractionJobsMessageIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {

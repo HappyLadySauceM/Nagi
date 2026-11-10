@@ -120,6 +120,121 @@ func (_u *MemoryUpdate) SetNillableSource(v *string) *MemoryUpdate {
 	return _u
 }
 
+// SetSourceSenderID sets the "source_sender_id" field.
+func (_u *MemoryUpdate) SetSourceSenderID(v int64) *MemoryUpdate {
+	_u.mutation.ResetSourceSenderID()
+	_u.mutation.SetSourceSenderID(v)
+	return _u
+}
+
+// SetNillableSourceSenderID sets the "source_sender_id" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableSourceSenderID(v *int64) *MemoryUpdate {
+	if v != nil {
+		_u.SetSourceSenderID(*v)
+	}
+	return _u
+}
+
+// AddSourceSenderID adds value to the "source_sender_id" field.
+func (_u *MemoryUpdate) AddSourceSenderID(v int64) *MemoryUpdate {
+	_u.mutation.AddSourceSenderID(v)
+	return _u
+}
+
+// ClearSourceSenderID clears the value of the "source_sender_id" field.
+func (_u *MemoryUpdate) ClearSourceSenderID() *MemoryUpdate {
+	_u.mutation.ClearSourceSenderID()
+	return _u
+}
+
+// SetOrigin sets the "origin" field.
+func (_u *MemoryUpdate) SetOrigin(v string) *MemoryUpdate {
+	_u.mutation.SetOrigin(v)
+	return _u
+}
+
+// SetNillableOrigin sets the "origin" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableOrigin(v *string) *MemoryUpdate {
+	if v != nil {
+		_u.SetOrigin(*v)
+	}
+	return _u
+}
+
+// SetSubjectType sets the "subject_type" field.
+func (_u *MemoryUpdate) SetSubjectType(v string) *MemoryUpdate {
+	_u.mutation.SetSubjectType(v)
+	return _u
+}
+
+// SetNillableSubjectType sets the "subject_type" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableSubjectType(v *string) *MemoryUpdate {
+	if v != nil {
+		_u.SetSubjectType(*v)
+	}
+	return _u
+}
+
+// ClearSubjectType clears the value of the "subject_type" field.
+func (_u *MemoryUpdate) ClearSubjectType() *MemoryUpdate {
+	_u.mutation.ClearSubjectType()
+	return _u
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (_u *MemoryUpdate) SetSubjectID(v string) *MemoryUpdate {
+	_u.mutation.SetSubjectID(v)
+	return _u
+}
+
+// SetNillableSubjectID sets the "subject_id" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableSubjectID(v *string) *MemoryUpdate {
+	if v != nil {
+		_u.SetSubjectID(*v)
+	}
+	return _u
+}
+
+// ClearSubjectID clears the value of the "subject_id" field.
+func (_u *MemoryUpdate) ClearSubjectID() *MemoryUpdate {
+	_u.mutation.ClearSubjectID()
+	return _u
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (_u *MemoryUpdate) SetDedupeKey(v string) *MemoryUpdate {
+	_u.mutation.SetDedupeKey(v)
+	return _u
+}
+
+// SetNillableDedupeKey sets the "dedupe_key" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableDedupeKey(v *string) *MemoryUpdate {
+	if v != nil {
+		_u.SetDedupeKey(*v)
+	}
+	return _u
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (_u *MemoryUpdate) ClearDedupeKey() *MemoryUpdate {
+	_u.mutation.ClearDedupeKey()
+	return _u
+}
+
+// SetReviewReason sets the "review_reason" field.
+func (_u *MemoryUpdate) SetReviewReason(v string) *MemoryUpdate {
+	_u.mutation.SetReviewReason(v)
+	return _u
+}
+
+// SetNillableReviewReason sets the "review_reason" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableReviewReason(v *string) *MemoryUpdate {
+	if v != nil {
+		_u.SetReviewReason(*v)
+	}
+	return _u
+}
+
 // SetConfidence sets the "confidence" field.
 func (_u *MemoryUpdate) SetConfidence(v float32) *MemoryUpdate {
 	_u.mutation.ResetConfidence()
@@ -323,6 +438,39 @@ func (_u *MemoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Source(); ok {
 		_spec.SetField(memory.FieldSource, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.SourceSenderID(); ok {
+		_spec.SetField(memory.FieldSourceSenderID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedSourceSenderID(); ok {
+		_spec.AddField(memory.FieldSourceSenderID, field.TypeInt64, value)
+	}
+	if _u.mutation.SourceSenderIDCleared() {
+		_spec.ClearField(memory.FieldSourceSenderID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.Origin(); ok {
+		_spec.SetField(memory.FieldOrigin, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SubjectType(); ok {
+		_spec.SetField(memory.FieldSubjectType, field.TypeString, value)
+	}
+	if _u.mutation.SubjectTypeCleared() {
+		_spec.ClearField(memory.FieldSubjectType, field.TypeString)
+	}
+	if value, ok := _u.mutation.SubjectID(); ok {
+		_spec.SetField(memory.FieldSubjectID, field.TypeString, value)
+	}
+	if _u.mutation.SubjectIDCleared() {
+		_spec.ClearField(memory.FieldSubjectID, field.TypeString)
+	}
+	if value, ok := _u.mutation.DedupeKey(); ok {
+		_spec.SetField(memory.FieldDedupeKey, field.TypeString, value)
+	}
+	if _u.mutation.DedupeKeyCleared() {
+		_spec.ClearField(memory.FieldDedupeKey, field.TypeString)
+	}
+	if value, ok := _u.mutation.ReviewReason(); ok {
+		_spec.SetField(memory.FieldReviewReason, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.Confidence(); ok {
 		_spec.SetField(memory.FieldConfidence, field.TypeFloat32, value)
 	}
@@ -511,6 +659,121 @@ func (_u *MemoryUpdateOne) SetSource(v string) *MemoryUpdateOne {
 func (_u *MemoryUpdateOne) SetNillableSource(v *string) *MemoryUpdateOne {
 	if v != nil {
 		_u.SetSource(*v)
+	}
+	return _u
+}
+
+// SetSourceSenderID sets the "source_sender_id" field.
+func (_u *MemoryUpdateOne) SetSourceSenderID(v int64) *MemoryUpdateOne {
+	_u.mutation.ResetSourceSenderID()
+	_u.mutation.SetSourceSenderID(v)
+	return _u
+}
+
+// SetNillableSourceSenderID sets the "source_sender_id" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableSourceSenderID(v *int64) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetSourceSenderID(*v)
+	}
+	return _u
+}
+
+// AddSourceSenderID adds value to the "source_sender_id" field.
+func (_u *MemoryUpdateOne) AddSourceSenderID(v int64) *MemoryUpdateOne {
+	_u.mutation.AddSourceSenderID(v)
+	return _u
+}
+
+// ClearSourceSenderID clears the value of the "source_sender_id" field.
+func (_u *MemoryUpdateOne) ClearSourceSenderID() *MemoryUpdateOne {
+	_u.mutation.ClearSourceSenderID()
+	return _u
+}
+
+// SetOrigin sets the "origin" field.
+func (_u *MemoryUpdateOne) SetOrigin(v string) *MemoryUpdateOne {
+	_u.mutation.SetOrigin(v)
+	return _u
+}
+
+// SetNillableOrigin sets the "origin" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableOrigin(v *string) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetOrigin(*v)
+	}
+	return _u
+}
+
+// SetSubjectType sets the "subject_type" field.
+func (_u *MemoryUpdateOne) SetSubjectType(v string) *MemoryUpdateOne {
+	_u.mutation.SetSubjectType(v)
+	return _u
+}
+
+// SetNillableSubjectType sets the "subject_type" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableSubjectType(v *string) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetSubjectType(*v)
+	}
+	return _u
+}
+
+// ClearSubjectType clears the value of the "subject_type" field.
+func (_u *MemoryUpdateOne) ClearSubjectType() *MemoryUpdateOne {
+	_u.mutation.ClearSubjectType()
+	return _u
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (_u *MemoryUpdateOne) SetSubjectID(v string) *MemoryUpdateOne {
+	_u.mutation.SetSubjectID(v)
+	return _u
+}
+
+// SetNillableSubjectID sets the "subject_id" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableSubjectID(v *string) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetSubjectID(*v)
+	}
+	return _u
+}
+
+// ClearSubjectID clears the value of the "subject_id" field.
+func (_u *MemoryUpdateOne) ClearSubjectID() *MemoryUpdateOne {
+	_u.mutation.ClearSubjectID()
+	return _u
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (_u *MemoryUpdateOne) SetDedupeKey(v string) *MemoryUpdateOne {
+	_u.mutation.SetDedupeKey(v)
+	return _u
+}
+
+// SetNillableDedupeKey sets the "dedupe_key" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableDedupeKey(v *string) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetDedupeKey(*v)
+	}
+	return _u
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (_u *MemoryUpdateOne) ClearDedupeKey() *MemoryUpdateOne {
+	_u.mutation.ClearDedupeKey()
+	return _u
+}
+
+// SetReviewReason sets the "review_reason" field.
+func (_u *MemoryUpdateOne) SetReviewReason(v string) *MemoryUpdateOne {
+	_u.mutation.SetReviewReason(v)
+	return _u
+}
+
+// SetNillableReviewReason sets the "review_reason" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableReviewReason(v *string) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetReviewReason(*v)
 	}
 	return _u
 }
@@ -747,6 +1010,39 @@ func (_u *MemoryUpdateOne) sqlSave(ctx context.Context) (_node *Memory, err erro
 	}
 	if value, ok := _u.mutation.Source(); ok {
 		_spec.SetField(memory.FieldSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SourceSenderID(); ok {
+		_spec.SetField(memory.FieldSourceSenderID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedSourceSenderID(); ok {
+		_spec.AddField(memory.FieldSourceSenderID, field.TypeInt64, value)
+	}
+	if _u.mutation.SourceSenderIDCleared() {
+		_spec.ClearField(memory.FieldSourceSenderID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.Origin(); ok {
+		_spec.SetField(memory.FieldOrigin, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SubjectType(); ok {
+		_spec.SetField(memory.FieldSubjectType, field.TypeString, value)
+	}
+	if _u.mutation.SubjectTypeCleared() {
+		_spec.ClearField(memory.FieldSubjectType, field.TypeString)
+	}
+	if value, ok := _u.mutation.SubjectID(); ok {
+		_spec.SetField(memory.FieldSubjectID, field.TypeString, value)
+	}
+	if _u.mutation.SubjectIDCleared() {
+		_spec.ClearField(memory.FieldSubjectID, field.TypeString)
+	}
+	if value, ok := _u.mutation.DedupeKey(); ok {
+		_spec.SetField(memory.FieldDedupeKey, field.TypeString, value)
+	}
+	if _u.mutation.DedupeKeyCleared() {
+		_spec.ClearField(memory.FieldDedupeKey, field.TypeString)
+	}
+	if value, ok := _u.mutation.ReviewReason(); ok {
+		_spec.SetField(memory.FieldReviewReason, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Confidence(); ok {
 		_spec.SetField(memory.FieldConfidence, field.TypeFloat32, value)
