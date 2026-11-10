@@ -55,6 +55,8 @@ func memoryTools(t *testing.T) map[string]contracts.RegisteredTool {
 	return out
 }
 
+const memoryID = "00000000-0000-4000-8000-000000000001"
+
 func memoryScope() pluginsapp.Scope {
 	return pluginsapp.Scope{
 		BotID: 1, Kind: "group", TargetID: 700, ConversationID: "conv-1",
@@ -70,7 +72,7 @@ func TestMemoryDetailReturnsStoredSourceMetadata(t *testing.T) {
 	reader := &fakeMemoryDetailReader{
 		found: true,
 		item: memorycontracts.Memory{
-			ID: "m1", Content: "群友喜欢晚上聊天", Visibility: "bot_shared",
+			ID: memoryID, Content: "群友喜欢晚上聊天", Visibility: "bot_shared",
 			Source: "群聊 700", SourceMessageID: 9001,
 			UpdatedAt: time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC),
 		},
@@ -84,7 +86,7 @@ func TestMemoryDetailReturnsStoredSourceMetadata(t *testing.T) {
 		}
 	}
 	ctx := pluginsapp.WithScope(context.Background(), memoryScope())
-	out, err := detail.Invoke(ctx, `{"memory_id":"m1"}`)
+	out, err := detail.Invoke(ctx, `{"memory_id":"00000000-0000-4000-8000-000000000001"}`)
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
@@ -92,7 +94,7 @@ func TestMemoryDetailReturnsStoredSourceMetadata(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("decode output: %v", err)
 	}
-	if got["id"] != "m1" || got["content"] != "群友喜欢晚上聊天" || got["source"] != "群聊 700" || got["source_message_id"] != float64(9001) {
+	if got["id"] != memoryID || got["content"] != "群友喜欢晚上聊天" || got["source"] != "群聊 700" || got["source_message_id"] != float64(9001) {
 		t.Fatalf("detail output = %#v", got)
 	}
 	if reader.req.BotID != 1 || reader.req.Kind != "group" || reader.req.TargetID != 700 || reader.req.ConversationID != "conv-1" {
@@ -109,7 +111,7 @@ func TestMemoryDetailDeniedWithoutMemoryRead(t *testing.T) {
 	for _, tool := range tools {
 		if tool.Descriptor.ID == "memory.detail" {
 			ctx := pluginsapp.WithScope(context.Background(), pluginsapp.Scope{BotID: 1, Kind: "group", TargetID: 700})
-			if out, err := tool.Invoke(ctx, `{"memory_id":"m1"}`); err != nil || !strings.Contains(out, "未授权") {
+			if out, err := tool.Invoke(ctx, `{"memory_id":"00000000-0000-4000-8000-000000000001"}`); err != nil || !strings.Contains(out, "未授权") {
 				t.Fatalf("denied detail = %q, %v", out, err)
 			}
 		}
@@ -121,12 +123,12 @@ func TestMemoryDetailDeniedWithoutMemoryRead(t *testing.T) {
 // TestMemorySourceRequiresHistoryRead 验证即使允许记忆读取，原文仍受独立的
 // allow_history_read 授权约束。
 func TestMemorySourceRequiresHistoryRead(t *testing.T) {
-	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: "m1", SourceMessageID: 9001}}, &fakeSourceMessageReader{})
+	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID, SourceMessageID: 9001}}, &fakeSourceMessageReader{})
 	tools, _ := provider.Tools(context.Background())
 	for _, tool := range tools {
 		if tool.Descriptor.ID == "memory.source" {
 			ctx := pluginsapp.WithScope(context.Background(), pluginsapp.Scope{BotID: 1, Kind: "group", TargetID: 700, AllowMemoryRead: true, AllowHistoryRead: false})
-			out, err := tool.Invoke(ctx, `{"memory_id":"m1"}`)
+			out, err := tool.Invoke(ctx, `{"memory_id":"00000000-0000-4000-8000-000000000001"}`)
 			if err != nil || !strings.Contains(out, "未授权读取历史原文") {
 				t.Fatalf("source without history = %q, %v", out, err)
 			}
@@ -139,12 +141,12 @@ func TestMemorySourceRequiresHistoryRead(t *testing.T) {
 // TestMemorySourceReturnsExactStoredMessage 验证仅当确切消息存在于同一会话时返回原文。
 func TestMemorySourceReturnsExactStoredMessage(t *testing.T) {
 	source := &fakeSourceMessageReader{conversationID: "conv-1", text: "原始消息", found: true}
-	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: "m1", SourceMessageID: 9001}}, source)
+	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID, SourceMessageID: 9001}}, source)
 	tools, _ := provider.Tools(context.Background())
 	for _, tool := range tools {
 		if tool.Descriptor.ID == "memory.source" {
 			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
-			out, err := tool.Invoke(ctx, `{"memory_id":"m1"}`)
+			out, err := tool.Invoke(ctx, `{"memory_id":"00000000-0000-4000-8000-000000000001"}`)
 			if err != nil || out != "原始消息" {
 				t.Fatalf("source = %q, %v", out, err)
 			}
@@ -159,12 +161,12 @@ func TestMemorySourceReturnsExactStoredMessage(t *testing.T) {
 // reported as unavailable instead of fabricating an old message.
 // TestMemorySourceUnavailableWhenMessagePurged 验证留存删除后报告不可用，而不是编造旧消息。
 func TestMemorySourceUnavailableWhenMessagePurged(t *testing.T) {
-	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: "m1", SourceMessageID: 9001}}, &fakeSourceMessageReader{found: false})
+	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID, SourceMessageID: 9001}}, &fakeSourceMessageReader{found: false})
 	tools, _ := provider.Tools(context.Background())
 	for _, tool := range tools {
 		if tool.Descriptor.ID == "memory.source" {
 			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
-			out, err := tool.Invoke(ctx, `{"memory_id":"m1"}`)
+			out, err := tool.Invoke(ctx, `{"memory_id":"00000000-0000-4000-8000-000000000001"}`)
 			if err != nil || !strings.Contains(out, "不可用") {
 				t.Fatalf("purged source = %q, %v", out, err)
 			}
@@ -177,12 +179,12 @@ func TestMemorySourceUnavailableWhenMessagePurged(t *testing.T) {
 // TestMemorySourceRejectsCrossConversation 验证其他会话来源的共享记忆不在当前会话暴露原文。
 func TestMemorySourceRejectsCrossConversation(t *testing.T) {
 	source := &fakeSourceMessageReader{conversationID: "other-conv", text: "其他会话原文", found: true}
-	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: "m1", SourceMessageID: 9001}}, source)
+	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID, SourceMessageID: 9001}}, source)
 	tools, _ := provider.Tools(context.Background())
 	for _, tool := range tools {
 		if tool.Descriptor.ID == "memory.source" {
 			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
-			out, err := tool.Invoke(ctx, `{"memory_id":"m1"}`)
+			out, err := tool.Invoke(ctx, `{"memory_id":"00000000-0000-4000-8000-000000000001"}`)
 			if err != nil || !strings.Contains(out, "不在当前会话") {
 				t.Fatalf("cross-conversation source = %q, %v", out, err)
 			}
@@ -194,14 +196,140 @@ func TestMemorySourceRejectsCrossConversation(t *testing.T) {
 // when the memory has no exact source id.
 // TestMemorySourceWithoutStoredIDIsUnavailable 验证记忆没有确切来源 ID 时不编造来源。
 func TestMemorySourceWithoutStoredIDIsUnavailable(t *testing.T) {
-	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: "m1"}}, &fakeSourceMessageReader{found: true, text: "不应返回"})
+	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID}}, &fakeSourceMessageReader{found: true, text: "不应返回"})
 	tools, _ := provider.Tools(context.Background())
 	for _, tool := range tools {
 		if tool.Descriptor.ID == "memory.source" {
 			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
-			out, err := tool.Invoke(ctx, `{"memory_id":"m1"}`)
+			out, err := tool.Invoke(ctx, `{"memory_id":"00000000-0000-4000-8000-000000000001"}`)
 			if err != nil || !strings.Contains(out, "没有确切来源") {
 				t.Fatalf("missing source = %q, %v", out, err)
+			}
+		}
+	}
+}
+
+// TestMemoryDetailWorksWithoutHistoryRead verifies metadata remains readable
+// while original source text is left to the separate history grant.
+// TestMemoryDetailWorksWithoutHistoryRead 验证历史读取关闭时元数据仍可读，
+// 原文读取仍由独立的 allow_history_read 控制。
+func TestMemoryDetailWorksWithoutHistoryRead(t *testing.T) {
+	reader := &fakeMemoryDetailReader{
+		found: true,
+		item:  memorycontracts.Memory{ID: memoryID, Content: "群友喜欢晚上聊天", Source: "群聊 700", SourceMessageID: 9001},
+	}
+	provider := NewMemoryProvider(reader, &fakeSourceMessageReader{})
+	tools, _ := provider.Tools(context.Background())
+	for _, tool := range tools {
+		if tool.Descriptor.ID == "memory.detail" {
+			ctx := pluginsapp.WithScope(context.Background(), pluginsapp.Scope{
+				BotID: 1, Kind: "group", TargetID: 700, ConversationID: "conv-1",
+				AllowMemoryRead: true, AllowHistoryRead: false,
+			})
+			out, err := tool.Invoke(ctx, `{"memory_id":"`+memoryID+`"}`)
+			if err != nil || !strings.Contains(out, "群友喜欢晚上聊天") || !strings.Contains(out, "群聊 700") {
+				t.Fatalf("detail without history = %q, %v", out, err)
+			}
+		}
+	}
+}
+
+// TestMemoryDetailRejectsMalformedID verifies malformed tool input is reported
+// as an argument error rather than reaching storage.
+// TestMemoryDetailRejectsMalformedID 验证非法工具入参返回参数错误，不进入存储层。
+func TestMemoryDetailRejectsMalformedID(t *testing.T) {
+	reader := &fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID}}
+	provider := NewMemoryProvider(reader, &fakeSourceMessageReader{})
+	tools, _ := provider.Tools(context.Background())
+	for _, tool := range tools {
+		if tool.Descriptor.ID == "memory.detail" {
+			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
+			out, err := tool.Invoke(ctx, `{"memory_id":"not-a-uuid"}`)
+			if err == nil || !strings.Contains(err.Error(), "invalid") {
+				t.Fatalf("malformed id = %q, %v", out, err)
+			}
+			if reader.req.MemoryID != "" {
+				t.Fatalf("malformed id reached reader: %+v", reader.req)
+			}
+		}
+	}
+}
+
+// TestMemoryDetailBoundsSerializedFields verifies detail output fields are
+// bounded before they are returned to the model.
+// TestMemoryDetailBoundsSerializedFields 验证详情工具返回模型前对序列化字段限长。
+func TestMemoryDetailBoundsSerializedFields(t *testing.T) {
+	reader := &fakeMemoryDetailReader{
+		found: true,
+		item: memorycontracts.Memory{
+			ID: memoryID, Content: strings.Repeat("正文", 3000),
+			Source: strings.Repeat("来源", 2000), Visibility: "group",
+		},
+	}
+	provider := NewMemoryProvider(reader, &fakeSourceMessageReader{})
+	tools, _ := provider.Tools(context.Background())
+	for _, candidate := range tools {
+		if candidate.Descriptor.ID == "memory.detail" {
+			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
+			out, err := candidate.Invoke(ctx, `{"memory_id":"`+memoryID+`"}`)
+			if err != nil {
+				t.Fatalf("invoke: %v", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			content, _ := got["content"].(string)
+			source, _ := got["source"].(string)
+			if runes := len([]rune(content)); runes > maxMemoryToolContentRunes {
+				t.Fatalf("content runes = %d, want <= %d", runes, maxMemoryToolContentRunes)
+			}
+			if runes := len([]rune(source)); runes > maxMemoryToolSourceRunes {
+				t.Fatalf("source runes = %d, want <= %d", runes, maxMemoryToolSourceRunes)
+			}
+			if !strings.HasSuffix(content, "…") || !strings.HasSuffix(source, "…") {
+				t.Fatalf("bounded fields must end with ellipsis: content=%q source=%q", content, source)
+			}
+		}
+	}
+}
+
+// TestMemorySourceBoundsOriginalText verifies the exact-source tool also caps
+// the text it returns to the model.
+// TestMemorySourceBoundsOriginalText 验证原文工具同样限制返回模型的文本长度。
+func TestMemorySourceBoundsOriginalText(t *testing.T) {
+	source := &fakeSourceMessageReader{conversationID: "conv-1", text: strings.Repeat("原文", 2000), found: true}
+	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID, SourceMessageID: 9001}}, source)
+	tools, _ := provider.Tools(context.Background())
+	for _, candidate := range tools {
+		if candidate.Descriptor.ID == "memory.source" {
+			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
+			out, err := candidate.Invoke(ctx, `{"memory_id":"`+memoryID+`"}`)
+			if err != nil {
+				t.Fatalf("invoke: %v", err)
+			}
+			if runes := len([]rune(out)); runes > maxMemoryToolSourceRunes {
+				t.Fatalf("source runes = %d, want <= %d", runes, maxMemoryToolSourceRunes)
+			}
+			if !strings.HasSuffix(out, "…") {
+				t.Fatalf("bounded source must end with ellipsis: %q", out)
+			}
+		}
+	}
+}
+
+// TestMemorySourceRequiresMemoryID verifies the source tool cannot be asked to
+// read an arbitrary message id directly.
+// TestMemorySourceRequiresMemoryID 验证来源工具不能直接按任意消息 ID 读取。
+func TestMemorySourceRequiresMemoryID(t *testing.T) {
+	provider := NewMemoryProvider(&fakeMemoryDetailReader{found: true, item: memorycontracts.Memory{ID: memoryID, SourceMessageID: 9001}}, &fakeSourceMessageReader{found: true, text: "不应返回"})
+	tools, _ := provider.Tools(context.Background())
+	for _, candidate := range tools {
+		if candidate.Descriptor.ID == "memory.source" {
+			ctx := pluginsapp.WithScope(context.Background(), memoryScope())
+			out, err := candidate.Invoke(ctx, `{"message_id":"9001"}`)
+			if err == nil || !strings.Contains(err.Error(), "memory_id") {
+				t.Fatalf("arbitrary message id = %q, %v", out, err)
 			}
 		}
 	}

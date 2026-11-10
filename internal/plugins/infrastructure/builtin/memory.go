@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
@@ -26,6 +28,26 @@ type MemoryReader interface {
 // SourceMessageReader 仅返回属于自身机器人的一条确切来源消息。
 type SourceMessageReader interface {
 	MessageSource(ctx context.Context, botID, messageID int64) (conversationID string, text string, found bool, err error)
+}
+
+// Tool result budgets keep a single memory call from flooding the model even
+// when the stored entry or source message is unusually large. The guard also
+// applies its configured byte limit.
+// 工具结果预算避免单次记忆调用用超长条目或来源消息淹没模型；
+// 守卫本身还会应用配置的字节上限。
+const (
+	maxMemoryToolContentRunes = 1200
+	maxMemoryToolSourceRunes  = 600
+)
+
+// boundToolText truncates a tool field with an ellipsis at the rune budget.
+// boundToolText 按字数预算截断工具字段并追加省略号。
+func boundToolText(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 type memoryProvider struct {
@@ -99,14 +121,14 @@ func (p memoryProvider) detail(ctx context.Context, argumentsInJSON string) (str
 	}
 	out := map[string]any{
 		"id":         item.ID,
-		"content":    item.Content,
+		"content":    boundToolText(item.Content, maxMemoryToolContentRunes),
 		"visibility": item.Visibility,
 	}
 	if !item.UpdatedAt.IsZero() {
 		out["updated_at"] = item.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
 	}
 	if strings.TrimSpace(item.Source) != "" {
-		out["source"] = item.Source
+		out["source"] = boundToolText(item.Source, maxMemoryToolSourceRunes)
 	}
 	if item.SourceMessageID != 0 {
 		out["source_message_id"] = item.SourceMessageID
@@ -152,7 +174,7 @@ func (p memoryProvider) source(ctx context.Context, argumentsInJSON string) (str
 	if conversationID != scope.ConversationID {
 		return "error: 来源原文不在当前会话的历史读取范围", nil
 	}
-	return text, nil
+	return boundToolText(text, maxMemoryToolSourceRunes), nil
 }
 
 func (p memoryProvider) lookup(ctx context.Context, scope pluginsapp.Scope, argumentsInJSON string) (memorycontracts.Memory, bool, error) {
@@ -168,6 +190,9 @@ func (p memoryProvider) lookup(ctx context.Context, scope pluginsapp.Scope, argu
 	args.MemoryID = strings.TrimSpace(args.MemoryID)
 	if args.MemoryID == "" {
 		return memorycontracts.Memory{}, false, fmt.Errorf("memory tool: memory_id is required")
+	}
+	if _, err := uuid.Parse(args.MemoryID); err != nil {
+		return memorycontracts.Memory{}, false, fmt.Errorf("memory tool: memory_id is invalid")
 	}
 	return p.memories.RecallDetail(ctx, memorycontracts.DetailRequest{
 		BotID: scope.BotID, Kind: scope.Kind, TargetID: scope.TargetID,

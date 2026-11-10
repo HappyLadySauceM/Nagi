@@ -4,6 +4,7 @@ package memory
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -82,9 +83,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get returns one memory only when it is active and visible to the requested
-// bot and conversation scope. Source metadata is returned only when stored on
-// the entry; the handler never invents or resolves message bodies.
+// bot and conversation scope. This is an administrator management endpoint: it
+// deliberately does not apply the conversation-level allow_memory_read grant.
+// Source metadata is returned only when stored on the entry; the handler never
+// invents or resolves message bodies.
 // Get 仅在记忆激活且对请求账号、会话可见时返回该条记忆。
+// 这是管理员管理接口，刻意不套用会话级 allow_memory_read 授权。
 // 只有条目自身已存来源信息时才返回来源；处理器不编造、也不展开原始消息正文。
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
@@ -107,6 +111,10 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		ConversationID: q.Get("conversation_id"), MemoryID: r.PathValue("id"),
 	})
 	if err != nil {
+		if errors.Is(err, memoryapp.ErrInvalidID) {
+			common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+			return
+		}
 		common.WriteFailure(w, http.StatusInternalServerError, "read memory failed")
 		return
 	}

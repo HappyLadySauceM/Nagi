@@ -1164,11 +1164,35 @@ func TestBoundMemoriesEnforcesRuneBudget(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("bounded memories = %+v", got)
 	}
-	if runes := len([]rune(got[0].Content)); runes > maxMemoryRunes {
-		t.Fatalf("content runes = %d, want <= %d", runes, maxMemoryRunes)
+	if runes := len([]rune(memoryLine(got[0]))); runes > maxMemoryRunes {
+		t.Fatalf("rendered memory runes = %d, want <= %d", runes, maxMemoryRunes)
 	}
 	if !strings.HasSuffix(got[0].Content, "…") {
 		t.Fatalf("truncated memory must end with ellipsis: %q", got[0].Content)
+	}
+}
+
+// TestBoundMemoriesCountsSourceAndLabels verifies source metadata and the
+// rendered labels are included in the same bounded prompt budget as the body.
+// TestBoundMemoriesCountsSourceAndLabels 验证来源元数据与渲染标签和正文共用
+// 同一提示预算。
+func TestBoundMemoriesCountsSourceAndLabels(t *testing.T) {
+	items := []memorycontracts.Memory{{
+		ID: "source-heavy", Content: "正文", Visibility: "group",
+		Source: strings.Repeat("来源", 500), SourceMessageID: 42,
+	}}
+	got := boundMemories(items)
+	if len(got) != 1 {
+		t.Fatalf("bounded memories = %+v", got)
+	}
+	if runes := len([]rune(memoryLine(got[0]))); runes > maxMemoryRunes {
+		t.Fatalf("rendered memory runes = %d, want <= %d", runes, maxMemoryRunes)
+	}
+	if runes := len([]rune(got[0].Source)); runes > maxMemorySourceRunes {
+		t.Fatalf("source runes = %d, want <= %d", runes, maxMemorySourceRunes)
+	}
+	if !strings.HasSuffix(got[0].Source, "…") {
+		t.Fatalf("truncated source must end with ellipsis: %q", got[0].Source)
 	}
 }
 
@@ -1210,6 +1234,22 @@ func TestReplierRecordsMemoryHitsOnRunSpan(t *testing.T) {
 	}
 	if strings.Contains(hits, "不应出现在元数据") {
 		t.Fatalf("memory body leaked into span metadata: %q", hits)
+	}
+}
+
+// TestMemoryHitMetadataBoundsSource verifies audit metadata cannot grow with a
+// long stored source label.
+// TestMemoryHitMetadataBoundsSource 验证审计元数据不会随超长来源标签无界增长。
+func TestMemoryHitMetadataBoundsSource(t *testing.T) {
+	hits := memoryHitMetadata([]memorycontracts.Memory{{ID: "m1", Source: strings.Repeat("来源", 500)}})
+	if len(hits) != 1 {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if runes := len([]rune(hits[0].Source)); runes > maxMemorySourceRunes {
+		t.Fatalf("audit source runes = %d, want <= %d", runes, maxMemorySourceRunes)
+	}
+	if !strings.HasSuffix(hits[0].Source, "…") {
+		t.Fatalf("audit source must be truncated with ellipsis: %q", hits[0].Source)
 	}
 }
 

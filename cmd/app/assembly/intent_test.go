@@ -402,3 +402,60 @@ func TestMemoryToolReauthorizationBlocksAfterRevocation(t *testing.T) {
 		t.Fatalf("revoked call = %q, %v", out, err)
 	}
 }
+
+// TestMemorySourceReauthorizationBlocksAfterHistoryRevocation verifies history
+// revocation blocks the source tool while leaving metadata detail available.
+// TestMemorySourceReauthorizationBlocksAfterHistoryRevocation 验证撤销历史读取后
+// 来源工具被拒绝，而元数据详情仍可用。
+func TestMemorySourceReauthorizationBlocksAfterHistoryRevocation(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemoryDetailToolID, Description: "记忆详情", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "detail", nil },
+		},
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemorySourceToolID, Description: "记忆来源", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "source", nil },
+		},
+	}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+	repo := &mutableScopeRepo{policy: scopedomain.Policy{
+		ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, AllowMemoryRead: true, AllowHistoryRead: true,
+	}}
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatalf("new scope service: %v", err)
+	}
+	resolver := buildToolsResolver(settingsForTest(&config.Config{}), registry, scopeService)
+	ctx := context.Background()
+	tools := resolver(ctx, agentcontracts.Request{
+		BotID: 1, Kind: plugincontracts.ScopeKindGroup, TargetID: 700,
+		ConversationID: "conv-1", AllowMemoryRead: true, AllowHistoryRead: true,
+	})
+	if len(tools) != 2 {
+		t.Fatalf("exposed tools = %d, want 2", len(tools))
+	}
+	detail, ok := tools[0].(tool.InvokableTool)
+	if !ok {
+		t.Fatalf("detail tool type = %T", tools[0])
+	}
+	source, ok := tools[1].(tool.InvokableTool)
+	if !ok {
+		t.Fatalf("source tool type = %T", tools[1])
+	}
+	if out, err := source.InvokableRun(ctx, "{}"); err != nil || out != "source" {
+		t.Fatalf("first source call = %q, %v", out, err)
+	}
+	repo.policy.AllowHistoryRead = false
+	if out, err := source.InvokableRun(ctx, "{}"); err != nil || !strings.Contains(out, "authorization denied") {
+		t.Fatalf("revoked source call = %q, %v", out, err)
+	}
+	if out, err := detail.InvokableRun(ctx, "{}"); err != nil || out != "detail" {
+		t.Fatalf("detail after history revocation = %q, %v", out, err)
+	}
+}
