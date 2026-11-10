@@ -14,6 +14,7 @@ import (
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
@@ -125,5 +126,33 @@ func TestMemoryToolsReadStoredSourceWithRealDatabase(t *testing.T) {
 	})
 	if out, err := source.Invoke(otherGroupCtx, `{"memory_id":"`+memoryID+`"}`); err != nil || !strings.Contains(out, "不在当前会话") {
 		t.Fatalf("cross-conversation source = %q, %v", out, err)
+	}
+
+	// Real PurgeBefore removes the source message; the memory must not rebuild
+	// or return the deleted source text.
+	// 真实 PurgeBefore 删除来源消息；记忆不得重建或返回已删除的原文。
+	if _, err := pool.Exec(ctx, `UPDATE messages SET created_at = NOW() - interval '40 days' WHERE id = $1`, ingested.MessageID); err != nil {
+		t.Fatalf("age source before purge: %v", err)
+	}
+	if _, err := conversationRepo.PurgeBefore(ctx, time.Now().AddDate(0, 0, -30), 100000); err != nil {
+		t.Fatalf("purge source: %v", err)
+	}
+	if _, found, err := conversationRepo.MessageByID(ctx, botID, ingested.MessageID); err != nil || found {
+		t.Fatalf("source survived purge: found=%v err=%v", found, err)
+	}
+	afterPurge, found, err := memoryService.RecallDetail(ctx, memorycontractsDetailRequest(botID, groupID, ingested.ConversationID, memoryID))
+	if err != nil || !found || afterPurge.SourceMessageID != 0 {
+		t.Fatalf("memory after purge = %+v found=%v err=%v", afterPurge, found, err)
+	}
+	purgedOut, err := source.Invoke(sourceCtx, `{"memory_id":"`+memoryID+`"}`)
+	if err != nil || !strings.Contains(purgedOut, "没有确切来源") || strings.Contains(purgedOut, "这是记忆的原始来源消息") {
+		t.Fatalf("source after purge = %q, %v", purgedOut, err)
+	}
+}
+
+func memorycontractsDetailRequest(botID, groupID int64, conversationID, memoryID string) memorycontracts.DetailRequest {
+	return memorycontracts.DetailRequest{
+		BotID: botID, Kind: "group", TargetID: groupID,
+		ConversationID: conversationID, MemoryID: memoryID,
 	}
 }
