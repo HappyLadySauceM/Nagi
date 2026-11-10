@@ -19,6 +19,7 @@ import (
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
@@ -334,5 +335,70 @@ func TestBuildToolsResolverGatesMemoryTools(t *testing.T) {
 				t.Fatalf("tools = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// mutableScopeRepo is a one-row scope repository used to simulate an
+// administrator revoking a permission while a run is in progress.
+// mutableScopeRepo 是单行作用域仓库，用于模拟运行中管理员撤销权限。
+type mutableScopeRepo struct{ policy scopedomain.Policy }
+
+func (r *mutableScopeRepo) Get(context.Context, int64, scopedomain.ScopeType, int64) (scopedomain.Policy, bool, error) {
+	return r.policy, true, nil
+}
+func (r *mutableScopeRepo) List(context.Context, *int64) ([]scopedomain.Policy, error) {
+	return []scopedomain.Policy{r.policy}, nil
+}
+func (r *mutableScopeRepo) Upsert(_ context.Context, _ int64, p scopedomain.Policy) error {
+	r.policy = p
+	return nil
+}
+func (r *mutableScopeRepo) Delete(context.Context, int64, scopedomain.ScopeType, int64) (bool, error) {
+	return false, nil
+}
+
+// TestMemoryToolReauthorizationBlocksAfterRevocation verifies the tool guard
+// re-reads the scope and denies a memory tool after allow_memory_read is
+// revoked mid-run.
+// TestMemoryToolReauthorizationBlocksAfterRevocation 验证工具守卫重新读取作用域，
+// 运行中撤销 allow_memory_read 后拒绝记忆工具。
+func TestMemoryToolReauthorizationBlocksAfterRevocation(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
+		Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemoryDetailToolID, Description: "记忆详情", ReadOnly: true},
+		Invoke:     func(context.Context, string) (string, error) { return "detail", nil },
+	}}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+	repo := &mutableScopeRepo{policy: scopedomain.Policy{
+		ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, AllowMemoryRead: true,
+	}}
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatalf("new scope service: %v", err)
+	}
+	resolver := buildToolsResolver(settingsForTest(&config.Config{}), registry, scopeService)
+	ctx := context.Background()
+	tools := resolver(ctx, agentcontracts.Request{
+		BotID: 1, Kind: plugincontracts.ScopeKindGroup, TargetID: 700,
+		ConversationID: "conv-1", AllowMemoryRead: true,
+	})
+	if len(tools) != 1 {
+		t.Fatalf("exposed tools = %d, want 1", len(tools))
+	}
+	invokable, ok := tools[0].(tool.InvokableTool)
+	if !ok {
+		t.Fatalf("tool type = %T", tools[0])
+	}
+	if out, err := invokable.InvokableRun(ctx, "{}"); err != nil || out != "detail" {
+		t.Fatalf("first call = %q, %v", out, err)
+	}
+	repo.policy.AllowMemoryRead = false
+	out, err := invokable.InvokableRun(ctx, "{}")
+	if err != nil || !strings.Contains(out, "authorization denied") {
+		t.Fatalf("revoked call = %q, %v", out, err)
 	}
 }
