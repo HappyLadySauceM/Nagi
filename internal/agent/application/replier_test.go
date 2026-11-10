@@ -1381,3 +1381,47 @@ func TestReplierRendersExactMemorySource(t *testing.T) {
 		t.Fatalf("hit source = %#v", hit)
 	}
 }
+
+// TestReplierInjectsMemoryIDForOnDemandTools verifies every recalled memory
+// carries its real ID into the prompt so the model can call memory.detail or
+// memory.source without asking the user for an internal identifier.
+// TestReplierInjectsMemoryIDForOnDemandTools 验证每条召回记忆都把真实 ID 写入提示，
+// 模型无需向用户询问内部标识即可调用 memory.detail / memory.source。
+func TestReplierInjectsMemoryIDForOnDemandTools(t *testing.T) {
+	fake := &fakeRuntime{text: "好的"}
+	memory := &fakeMemoryReader{items: []memorycontracts.Memory{{
+		ID: "mem-tool-123", Content: "项目部署使用 Docker", Visibility: "group",
+		UpdatedAt: time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC),
+	}}}
+	r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, memoryReadGroupPolicy())
+	r.memory = memory
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	system := fake.req.Messages[0].Content
+	if !strings.Contains(system, "记忆ID=mem-tool-123") {
+		t.Fatalf("memory id missing from prompt: %q", system)
+	}
+	if !strings.Contains(system, "memory.detail") || !strings.Contains(system, "memory.source") {
+		t.Fatalf("tool guidance missing from prompt: %q", system)
+	}
+}
+
+// TestMemoryLineKeepsIDWhenBudgetTrimsContent verifies the formatter includes
+// the memory ID in the budgeted line and only trims the body, never the ID.
+// TestMemoryLineKeepsIDWhenBudgetTrimsContent 验证格式化后的记忆行包含记忆 ID，
+// 预算裁剪只作用于正文，不会截断 ID。
+func TestMemoryLineKeepsIDWhenBudgetTrimsContent(t *testing.T) {
+	item := memorycontracts.Memory{ID: "mem-long-456", Content: strings.Repeat("长", maxMemoryRunes+100), Visibility: "group"}
+	bounded := boundMemories([]memorycontracts.Memory{item})
+	if len(bounded) != 1 || bounded[0].ID != "mem-long-456" {
+		t.Fatalf("bounded = %+v", bounded)
+	}
+	line := memoryLine(bounded[0])
+	if !strings.Contains(line, "记忆ID=mem-long-456") {
+		t.Fatalf("id missing after budget trim: %q", line)
+	}
+	if len([]rune(line)) > maxMemoryRunes {
+		t.Fatalf("line runes = %d, want <= %d", len([]rune(line)), maxMemoryRunes)
+	}
+}
