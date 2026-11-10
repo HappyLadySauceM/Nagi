@@ -13,6 +13,7 @@ import (
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	builtin "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/builtin"
+	einoinfra "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
 )
 
 type replierMemoryDetailReader struct{ item memorycontracts.Memory }
@@ -77,6 +78,20 @@ func TestReplierInjectedIDReachesActualProvider(t *testing.T) {
 	tools, err := provider.Tools(context.Background())
 	if err != nil {
 		t.Fatalf("tools: %v", err)
+	}
+	// The model-facing Eino names are the underscore form; dotted descriptor
+	// IDs are only the registry identity.
+	// 模型侧 Eino 名称是下划线形式；点号 descriptor ID 只是注册表标识。
+	modelToolNames := map[string]bool{}
+	for _, base := range einoinfra.ToBaseTools(tools) {
+		info, infoErr := base.Info(context.Background())
+		if infoErr != nil {
+			t.Fatalf("tool info: %v", infoErr)
+		}
+		modelToolNames[info.Name] = true
+	}
+	if !modelToolNames["memory_detail"] || !modelToolNames["memory_source"] {
+		t.Fatalf("model tool names = %v, want memory_detail/memory_source", modelToolNames)
 	}
 	var detail, source plugincontracts.RegisteredTool
 	for _, candidate := range tools {
