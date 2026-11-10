@@ -29,6 +29,8 @@ const (
 	FieldStoreMessages = "store_messages"
 	// FieldAllowMemoryWrite holds the string denoting the allow_memory_write field in the database.
 	FieldAllowMemoryWrite = "allow_memory_write"
+	// FieldAllowMemoryRead holds the string denoting the allow_memory_read field in the database.
+	FieldAllowMemoryRead = "allow_memory_read"
 	// FieldAllowHistoryRead holds the string denoting the allow_history_read field in the database.
 	FieldAllowHistoryRead = "allow_history_read"
 	// FieldMinReplyIntervalMs holds the string denoting the min_reply_interval_ms field in the database.
@@ -76,6 +78,7 @@ var Columns = []string{
 	FieldReplyMode,
 	FieldStoreMessages,
 	FieldAllowMemoryWrite,
+	FieldAllowMemoryRead,
 	FieldAllowHistoryRead,
 	FieldMinReplyIntervalMs,
 	FieldMaxRepliesPerHour,
@@ -108,6 +111,8 @@ var (
 	DefaultStoreMessages bool
 	// DefaultAllowMemoryWrite holds the default value on creation for the "allow_memory_write" field.
 	DefaultAllowMemoryWrite bool
+	// DefaultAllowMemoryRead holds the default value on creation for the "allow_memory_read" field.
+	DefaultAllowMemoryRead bool
 	// DefaultAllowHistoryRead holds the default value on creation for the "allow_history_read" field.
 	DefaultAllowHistoryRead bool
 	// DefaultMinReplyIntervalMs holds the default value on creation for the "min_reply_interval_ms" field.
@@ -171,6 +176,11 @@ func ByStoreMessages(opts ...sql.OrderTermOption) OrderOption {
 // ByAllowMemoryWrite orders the results by the allow_memory_write field.
 func ByAllowMemoryWrite(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAllowMemoryWrite, opts...).ToFunc()
+}
+
+// ByAllowMemoryRead orders the results by the allow_memory_read field.
+func ByAllowMemoryRead(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAllowMemoryRead, opts...).ToFunc()
 }
 
 // ByAllowHistoryRead orders the results by the allow_history_read field.

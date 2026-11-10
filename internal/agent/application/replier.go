@@ -191,7 +191,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if !policy.AllowHistoryRead {
 		history = nil
 	}
-	memories := r.recallMemories(ctx, task)
+	memories := r.recallMemories(ctx, task, policy)
 	messages := r.buildMessages(ctx, task, history, memories)
 	runtimeMessages := toRuntimeMessages(messages)
 	if r.media != nil {
@@ -661,7 +661,21 @@ func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, his
 			if !memory.UpdatedAt.IsZero() {
 				version = memory.UpdatedAt.UTC().Format(time.RFC3339)
 			}
-			b.WriteString(fmt.Sprintf("\n- [%s|更新于%s] %s", memory.Visibility, version, memory.Content))
+			source := ""
+			if memory.SourceMessageID > 0 {
+				source = fmt.Sprintf("消息#%d", memory.SourceMessageID)
+			}
+			if strings.TrimSpace(memory.Source) != "" {
+				if source != "" {
+					source += "，"
+				}
+				source += memory.Source
+			}
+			if source == "" {
+				b.WriteString(fmt.Sprintf("\n- [%s|更新于%s] %s", memory.Visibility, version, memory.Content))
+			} else {
+				b.WriteString(fmt.Sprintf("\n- [%s|更新于%s|来源：%s] %s", memory.Visibility, version, source, memory.Content))
+			}
 		}
 		b.WriteString("\n")
 	}
@@ -693,14 +707,13 @@ func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, his
 
 // recallMemories loads a bounded memory context for one reply run. Memory is
 // optional context: a recall failure degrades to no memories and never blocks
-// the chat. The caller decides whether recall is authorized; this method only
-// retrieves through the injected reader and never reads chat history or changes
-// permissions itself.
+// the chat. Recall requires the scope's separate allow_memory_read grant; it
+// never reads chat history and never changes permissions itself.
 // recallMemories 为单次回复加载有界记忆上下文。记忆属于可选上下文：
-// 召回失败即降级为无记忆，绝不阻断聊天；由调用方决定是否授权召回，
-// 本方法只通过注入的 reader 检索，绝不自行读取聊天历史或改变权限。
-func (r *Replier) recallMemories(ctx context.Context, task intentdomain.Task) []memorycontracts.Memory {
-	if r.memory == nil {
+// 召回失败即降级为无记忆，绝不阻断聊天；召回必须获得作用域独立的
+// allow_memory_read 授权，且绝不读取聊天历史或自行改变权限。
+func (r *Replier) recallMemories(ctx context.Context, task intentdomain.Task, policy scopedomain.Policy) []memorycontracts.Memory {
+	if r.memory == nil || !policy.AllowMemoryRead {
 		return nil
 	}
 	items, err := r.memory.Recall(ctx, memorycontracts.RecallRequest{
@@ -758,9 +771,11 @@ func boundMemories(items []memorycontracts.Memory) []memorycontracts.Memory {
 // memoryHit is the compact metadata recorded for one recalled memory.
 // memoryHit 是一条召回记忆的紧凑元数据。
 type memoryHit struct {
-	ID         string `json:"id"`
-	Visibility string `json:"visibility"`
-	UpdatedAt  string `json:"updated_at"`
+	ID              string `json:"id"`
+	Visibility      string `json:"visibility"`
+	Source          string `json:"source,omitempty"`
+	SourceMessageID int64  `json:"source_message_id,omitempty"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 // memoryHitMetadata renders hit identity and version without message content.
@@ -772,7 +787,7 @@ func memoryHitMetadata(items []memorycontracts.Memory) []memoryHit {
 		if !item.UpdatedAt.IsZero() {
 			version = item.UpdatedAt.UTC().Format(time.RFC3339)
 		}
-		out = append(out, memoryHit{ID: item.ID, Visibility: item.Visibility, UpdatedAt: version})
+		out = append(out, memoryHit{ID: item.ID, Visibility: item.Visibility, Source: item.Source, SourceMessageID: item.SourceMessageID, UpdatedAt: version})
 	}
 	return out
 }

@@ -66,6 +66,7 @@ type Policy struct {
 	ReplyMode        ReplyMode
 	StoreMessages    bool
 	AllowMemoryWrite bool
+	AllowMemoryRead  bool
 	AllowHistoryRead bool
 
 	MinReplyIntervalMS int

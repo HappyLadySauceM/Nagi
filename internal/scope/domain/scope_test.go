@@ -22,7 +22,7 @@ func TestDefaultPolicyKeepsStorageOn(t *testing.T) {
 	if !p.StoreMessages {
 		t.Fatal("default policy must store messages")
 	}
-	if p.AllowMemoryWrite || p.AllowHistoryRead {
+	if p.AllowMemoryWrite || p.AllowMemoryRead || p.AllowHistoryRead {
 		t.Fatal("default policy must not allow memory or history")
 	}
 	if p.MaxRepliesPerHour != 0 || p.MaxMessagesPerRun != 0 || p.MaxTotalCharsPerRun != 0 {

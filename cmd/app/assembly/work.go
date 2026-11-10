@@ -383,7 +383,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			"providers", len(toolRegistry.Manifests()))
 		mediaService.Models = settingsService
 		toolsResolver = buildToolsResolver(settingsProvider, toolRegistry, rt.Scope)
-		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, registry, callbacks, sensitiveCallbacks, ledger,
+		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, rt.Memory, registry, callbacks, sensitiveCallbacks, ledger,
 			func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits {
 				limits, err := sendingLimitsFor(ctx, policiesRepo, settingsProvider.Settings(), botID, kind, targetID)
 				if err != nil {

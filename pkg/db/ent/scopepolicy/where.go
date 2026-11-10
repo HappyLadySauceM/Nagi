@@ -90,6 +90,11 @@ func AllowMemoryWrite(v bool) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldEQ(FieldAllowMemoryWrite, v))
 }
 
+// AllowMemoryRead applies equality check predicate on the "allow_memory_read" field. It's identical to AllowMemoryReadEQ.
+func AllowMemoryRead(v bool) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldEQ(FieldAllowMemoryRead, v))
+}
+
 // AllowHistoryRead applies equality check predicate on the "allow_history_read" field. It's identical to AllowHistoryReadEQ.
 func AllowHistoryRead(v bool) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldEQ(FieldAllowHistoryRead, v))
@@ -353,6 +358,16 @@ func AllowMemoryWriteEQ(v bool) predicate.ScopePolicy {
 // AllowMemoryWriteNEQ applies the NEQ predicate on the "allow_memory_write" field.
 func AllowMemoryWriteNEQ(v bool) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldNEQ(FieldAllowMemoryWrite, v))
+}
+
+// AllowMemoryReadEQ applies the EQ predicate on the "allow_memory_read" field.
+func AllowMemoryReadEQ(v bool) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldEQ(FieldAllowMemoryRead, v))
+}
+
+// AllowMemoryReadNEQ applies the NEQ predicate on the "allow_memory_read" field.
+func AllowMemoryReadNEQ(v bool) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldNEQ(FieldAllowMemoryRead, v))
 }
 
 // AllowHistoryReadEQ applies the EQ predicate on the "allow_history_read" field.

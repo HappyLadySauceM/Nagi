@@ -11,6 +11,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
@@ -36,6 +37,7 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/memories", h.List)
+	mux.HandleFunc("GET /api/v1/memories/{id}", h.Get)
 	mux.HandleFunc("POST /api/v1/memories", h.Create)
 	mux.HandleFunc("PATCH /api/v1/memories/{id}", h.Patch)
 	mux.HandleFunc("DELETE /api/v1/memories/{id}", h.Delete)
@@ -77,6 +79,42 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	common.WriteSuccess(w, map[string]any{"items": items, "total": total, "page": f.Page, "limit": f.Limit})
+}
+
+// Get returns one memory only when it is active and visible to the requested
+// bot and conversation scope. Source metadata is returned only when stored on
+// the entry; the handler never invents or resolves message bodies.
+// Get 仅在记忆激活且对请求账号、会话可见时返回该条记忆。
+// 只有条目自身已存来源信息时才返回来源；处理器不编造、也不展开原始消息正文。
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDB(w) {
+		return
+	}
+	q := r.URL.Query()
+	botID, err := strconv.ParseInt(q.Get("bot_id"), 10, 64)
+	if err != nil || botID <= 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "bot_id is required")
+		return
+	}
+	kind := q.Get("kind")
+	scopeID, err := strconv.ParseInt(q.Get("scope_id"), 10, 64)
+	if err != nil || scopeID <= 0 || (kind != "group" && kind != "private") {
+		common.WriteFailure(w, http.StatusBadRequest, "kind and scope_id are required")
+		return
+	}
+	item, found, err := h.svcCtx.Memory.RecallDetail(r.Context(), memorycontracts.DetailRequest{
+		BotID: botID, Kind: kind, TargetID: scopeID,
+		ConversationID: q.Get("conversation_id"), MemoryID: r.PathValue("id"),
+	})
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "read memory failed")
+		return
+	}
+	if !found {
+		common.WriteFailure(w, http.StatusNotFound, "memory not found")
+		return
+	}
+	common.WriteSuccess(w, item)
 }
 
 // createRequest is the POST body; approve=true activates the memory immediately.

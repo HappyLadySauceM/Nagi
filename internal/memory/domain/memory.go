@@ -99,6 +99,24 @@ func (m Memory) Validate() error {
 	return nil
 }
 
+// VisibleTo reports whether the memory may be read by the given conversation.
+// The caller must also verify the memory is active and unexpired.
+// VisibleTo 报告该记忆是否可被指定会话读取；调用方还必须校验激活与未过期状态。
+func (m Memory) VisibleTo(kind string, targetID int64, conversationID string) bool {
+	switch m.Visibility {
+	case VisibilityBotShared:
+		return true
+	case VisibilityGroup:
+		return kind == "group" && m.OwnerKey == fmt.Sprint(targetID)
+	case VisibilityPrivateUser:
+		return kind == "private" && m.OwnerKey == fmt.Sprint(targetID)
+	case VisibilityConversation:
+		return conversationID != "" && m.OwnerKey == conversationID
+	default:
+		return false
+	}
+}
+
 // SearchRequest is the visibility-filtered retrieval input; Kind is "group" or
 // "private" and ConversationID optionally widens to one conversation's memories.
 // SearchRequest 是经可见性过滤的检索输入；Kind 为 "group" 或 "private"，

@@ -423,44 +423,48 @@ func init() {
 	scopepolicyDescAllowMemoryWrite := scopepolicyFields[7].Descriptor()
 	// scopepolicy.DefaultAllowMemoryWrite holds the default value on creation for the allow_memory_write field.
 	scopepolicy.DefaultAllowMemoryWrite = scopepolicyDescAllowMemoryWrite.Default.(bool)
+	// scopepolicyDescAllowMemoryRead is the schema descriptor for allow_memory_read field.
+	scopepolicyDescAllowMemoryRead := scopepolicyFields[8].Descriptor()
+	// scopepolicy.DefaultAllowMemoryRead holds the default value on creation for the allow_memory_read field.
+	scopepolicy.DefaultAllowMemoryRead = scopepolicyDescAllowMemoryRead.Default.(bool)
 	// scopepolicyDescAllowHistoryRead is the schema descriptor for allow_history_read field.
-	scopepolicyDescAllowHistoryRead := scopepolicyFields[8].Descriptor()
+	scopepolicyDescAllowHistoryRead := scopepolicyFields[9].Descriptor()
 	// scopepolicy.DefaultAllowHistoryRead holds the default value on creation for the allow_history_read field.
 	scopepolicy.DefaultAllowHistoryRead = scopepolicyDescAllowHistoryRead.Default.(bool)
 	// scopepolicyDescMinReplyIntervalMs is the schema descriptor for min_reply_interval_ms field.
-	scopepolicyDescMinReplyIntervalMs := scopepolicyFields[9].Descriptor()
+	scopepolicyDescMinReplyIntervalMs := scopepolicyFields[10].Descriptor()
 	// scopepolicy.DefaultMinReplyIntervalMs holds the default value on creation for the min_reply_interval_ms field.
 	scopepolicy.DefaultMinReplyIntervalMs = scopepolicyDescMinReplyIntervalMs.Default.(int)
 	// scopepolicyDescMaxRepliesPerHour is the schema descriptor for max_replies_per_hour field.
-	scopepolicyDescMaxRepliesPerHour := scopepolicyFields[10].Descriptor()
+	scopepolicyDescMaxRepliesPerHour := scopepolicyFields[11].Descriptor()
 	// scopepolicy.DefaultMaxRepliesPerHour holds the default value on creation for the max_replies_per_hour field.
 	scopepolicy.DefaultMaxRepliesPerHour = scopepolicyDescMaxRepliesPerHour.Default.(int)
 	// scopepolicyDescUpdatedAt is the schema descriptor for updated_at field.
-	scopepolicyDescUpdatedAt := scopepolicyFields[11].Descriptor()
+	scopepolicyDescUpdatedAt := scopepolicyFields[12].Descriptor()
 	// scopepolicy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	scopepolicy.DefaultUpdatedAt = scopepolicyDescUpdatedAt.Default.(func() time.Time)
 	// scopepolicyDescToolPermissions is the schema descriptor for tool_permissions field.
-	scopepolicyDescToolPermissions := scopepolicyFields[12].Descriptor()
+	scopepolicyDescToolPermissions := scopepolicyFields[13].Descriptor()
 	// scopepolicy.DefaultToolPermissions holds the default value on creation for the tool_permissions field.
 	scopepolicy.DefaultToolPermissions = scopepolicyDescToolPermissions.Default.(jsontext.Value)
 	// scopepolicyDescVersion is the schema descriptor for version field.
-	scopepolicyDescVersion := scopepolicyFields[13].Descriptor()
+	scopepolicyDescVersion := scopepolicyFields[14].Descriptor()
 	// scopepolicy.DefaultVersion holds the default value on creation for the version field.
 	scopepolicy.DefaultVersion = scopepolicyDescVersion.Default.(int64)
 	// scopepolicyDescMaxMessagesPerRun is the schema descriptor for max_messages_per_run field.
-	scopepolicyDescMaxMessagesPerRun := scopepolicyFields[15].Descriptor()
+	scopepolicyDescMaxMessagesPerRun := scopepolicyFields[16].Descriptor()
 	// scopepolicy.DefaultMaxMessagesPerRun holds the default value on creation for the max_messages_per_run field.
 	scopepolicy.DefaultMaxMessagesPerRun = scopepolicyDescMaxMessagesPerRun.Default.(int)
 	// scopepolicyDescMaxCharsPerMessage is the schema descriptor for max_chars_per_message field.
-	scopepolicyDescMaxCharsPerMessage := scopepolicyFields[16].Descriptor()
+	scopepolicyDescMaxCharsPerMessage := scopepolicyFields[17].Descriptor()
 	// scopepolicy.DefaultMaxCharsPerMessage holds the default value on creation for the max_chars_per_message field.
 	scopepolicy.DefaultMaxCharsPerMessage = scopepolicyDescMaxCharsPerMessage.Default.(int)
 	// scopepolicyDescMaxTotalCharsPerRun is the schema descriptor for max_total_chars_per_run field.
-	scopepolicyDescMaxTotalCharsPerRun := scopepolicyFields[17].Descriptor()
+	scopepolicyDescMaxTotalCharsPerRun := scopepolicyFields[18].Descriptor()
 	// scopepolicy.DefaultMaxTotalCharsPerRun holds the default value on creation for the max_total_chars_per_run field.
 	scopepolicy.DefaultMaxTotalCharsPerRun = scopepolicyDescMaxTotalCharsPerRun.Default.(int)
 	// scopepolicyDescMessageIntervalMs is the schema descriptor for message_interval_ms field.
-	scopepolicyDescMessageIntervalMs := scopepolicyFields[18].Descriptor()
+	scopepolicyDescMessageIntervalMs := scopepolicyFields[19].Descriptor()
 	// scopepolicy.DefaultMessageIntervalMs holds the default value on creation for the message_interval_ms field.
 	scopepolicy.DefaultMessageIntervalMs = scopepolicyDescMessageIntervalMs.Default.(int)
 	systemsettingFields := nagi.SystemSetting{}.Fields()

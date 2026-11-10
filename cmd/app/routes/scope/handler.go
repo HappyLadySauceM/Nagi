@@ -137,6 +137,7 @@ type policyUpdate struct {
 	// 显式 false 仍可用于脚本。
 	StoreMessages      *bool           `json:"store_messages"`
 	AllowMemoryWrite   bool            `json:"allow_memory_write"`
+	AllowMemoryRead    bool            `json:"allow_memory_read"`
 	AllowHistoryRead   bool            `json:"allow_history_read"`
 	MinReplyIntervalMS int             `json:"min_reply_interval_ms"`
 	MaxRepliesPerHour  int             `json:"max_replies_per_hour"`
@@ -202,6 +203,7 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		ReplyMode:               scopedomain.ReplyMode(body.ReplyMode),
 		StoreMessages:           storeMessages,
 		AllowMemoryWrite:        body.AllowMemoryWrite,
+		AllowMemoryRead:         body.AllowMemoryRead,
 		AllowHistoryRead:        body.AllowHistoryRead,
 		MinReplyIntervalMS:      body.MinReplyIntervalMS,
 		MaxRepliesPerHour:       body.MaxRepliesPerHour,

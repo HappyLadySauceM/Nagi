@@ -8,6 +8,7 @@ const validValues = {
   replyMode: 'mention_only',
   storeMessages: true,
   allowHistoryRead: false,
+  allowMemoryRead: false,
   allowMemoryWrite: false,
   minReplyIntervalMs: '10000',
   maxRepliesPerHour: '0',

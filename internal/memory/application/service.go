@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -16,6 +17,7 @@ import (
 // Service implements the read-only recall port used by reply generation.
 // Service 实现回复生成使用的只读召回端口。
 var _ contracts.Reader = (*Service)(nil)
+var _ contracts.DetailReader = (*Service)(nil)
 
 // Repository persists memories; implemented by infrastructure.
 // Repository 持久化记忆；由 infrastructure 实现。
@@ -194,13 +196,50 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) ([]con
 	out := make([]contracts.Memory, 0, len(items))
 	for _, item := range items {
 		out = append(out, contracts.Memory{
-			ID:         item.ID,
-			Content:    item.Content,
-			Visibility: string(item.Visibility),
-			UpdatedAt:  item.UpdatedAt,
+			ID:              item.ID,
+			Content:         item.Content,
+			Visibility:      string(item.Visibility),
+			Source:          item.Source,
+			SourceMessageID: item.SourceMessageID,
+			UpdatedAt:       item.UpdatedAt,
 		})
 	}
 	return out, nil
+}
+
+// RecallDetail returns one active, unexpired memory only when it is visible to
+// the requested conversation. It never returns a candidate, deleted, expired or
+// cross-scope entry.
+// RecallDetail 仅在记忆对指定会话可见时返回该激活且未过期的条目；
+// 候选、已删除、已过期及跨作用域条目一律不返回。
+func (s *Service) RecallDetail(ctx context.Context, in contracts.DetailRequest) (contracts.Memory, bool, error) {
+	if in.BotID <= 0 {
+		return contracts.Memory{}, false, fmt.Errorf("memory: bot id must be positive")
+	}
+	if in.Kind != "group" && in.Kind != "private" {
+		return contracts.Memory{}, false, fmt.Errorf("memory: invalid conversation kind %q", in.Kind)
+	}
+	if in.TargetID <= 0 || strings.TrimSpace(in.MemoryID) == "" {
+		return contracts.Memory{}, false, fmt.Errorf("memory: target id and memory id are required")
+	}
+	item, found, err := s.repo.Get(ctx, in.MemoryID)
+	if err != nil || !found {
+		return contracts.Memory{}, false, err
+	}
+	if item.BotID != in.BotID || item.Status != domain.StatusActive || !item.ExpiresAt.IsZero() && !item.ExpiresAt.After(time.Now()) {
+		return contracts.Memory{}, false, nil
+	}
+	if !item.VisibleTo(in.Kind, in.TargetID, in.ConversationID) {
+		return contracts.Memory{}, false, nil
+	}
+	return contracts.Memory{
+		ID:              item.ID,
+		Content:         item.Content,
+		Visibility:      string(item.Visibility),
+		Source:          item.Source,
+		SourceMessageID: item.SourceMessageID,
+		UpdatedAt:       item.UpdatedAt,
+	}, true, nil
 }
 
 // NewID generates a memory identifier.

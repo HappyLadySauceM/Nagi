@@ -226,12 +226,13 @@ func TestDefaultTemplatesAreIsolatedAndIndependentPoliciesWin(t *testing.T) {
 	ctx := context.Background()
 	template := domain.Default(domain.ScopePrivate, 0)
 	template.Enabled = true
+	template.AllowMemoryRead = true
 	template.Version = 3
 	if err := svc.Upsert(ctx, 1, template); err != nil {
 		t.Fatal(err)
 	}
 	inherited, err := svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
-	if err != nil || !inherited.Enabled || inherited.Source != "default" || inherited.TemplateVersion != 3 || inherited.ScopeID != 100 {
+	if err != nil || !inherited.Enabled || !inherited.AllowMemoryRead || inherited.Source != "default" || inherited.TemplateVersion != 3 || inherited.ScopeID != 100 {
 		t.Fatalf("inheritance: %+v, %v", inherited, err)
 	}
 	for _, target := range []struct {
@@ -244,18 +245,19 @@ func TestDefaultTemplatesAreIsolatedAndIndependentPoliciesWin(t *testing.T) {
 		}
 	}
 	closed := domain.Default(domain.ScopePrivate, 100)
+	closed.AllowMemoryRead = false
 	if err := svc.Upsert(ctx, 1, closed); err != nil {
 		t.Fatal(err)
 	}
 	p, err := svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
-	if err != nil || p.Enabled || p.Source != "independent" {
+	if err != nil || p.Enabled || p.AllowMemoryRead || p.Source != "independent" {
 		t.Fatalf("explicit close: %+v, %v", p, err)
 	}
 	if _, err := svc.Delete(ctx, 1, domain.ScopePrivate, 100); err != nil {
 		t.Fatal(err)
 	}
 	p, err = svc.Resolve(ctx, 1, domain.ScopePrivate, 100)
-	if err != nil || !p.Enabled || p.Source != "default" {
+	if err != nil || !p.Enabled || !p.AllowMemoryRead || p.Source != "default" {
 		t.Fatalf("restore: %+v, %v", p, err)
 	}
 	template.Enabled = false

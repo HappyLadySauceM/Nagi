@@ -289,3 +289,49 @@ func TestPrivateMemoriesStayPerUser(t *testing.T) {
 		t.Fatalf("private recall = %+v", got)
 	}
 }
+
+// TestRecallDetailEnforcesVisibility verifies the on-demand detail path only
+// returns active, unexpired memories visible to the requested conversation.
+// TestRecallDetailEnforcesVisibility 验证按需详情只返回对指定会话可见的
+// 激活且未过期记忆。
+func TestRecallDetailEnforcesVisibility(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	ctx := context.Background()
+	now := time.Now()
+	items := map[string]domain.Memory{
+		"shared":    {ID: "shared", BotID: 1, Visibility: domain.VisibilityBotShared, Content: "共享", Status: domain.StatusActive, UpdatedAt: now},
+		"group":     {ID: "group", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "本群", Status: domain.StatusActive, UpdatedAt: now},
+		"other":     {ID: "other", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "701", Content: "别的群", Status: domain.StatusActive, UpdatedAt: now},
+		"private":   {ID: "private", BotID: 1, Visibility: domain.VisibilityPrivateUser, OwnerKey: "200", Content: "私聊", Status: domain.StatusActive, UpdatedAt: now},
+		"candidate": {ID: "candidate", BotID: 1, Visibility: domain.VisibilityBotShared, Content: "候选", Status: domain.StatusCandidate, UpdatedAt: now},
+		"expired":   {ID: "expired", BotID: 1, Visibility: domain.VisibilityBotShared, Content: "过期", Status: domain.StatusActive, ExpiresAt: now.Add(-time.Minute), UpdatedAt: now},
+	}
+	for id, item := range items {
+		repo.items[id] = item
+	}
+	for _, tc := range []struct {
+		name string
+		req  contracts.DetailRequest
+		want bool
+	}{
+		{name: "shared visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "shared"}, want: true},
+		{name: "own group visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "group"}, want: true},
+		{name: "other group invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "other"}, want: false},
+		{name: "private only matches same user", req: contracts.DetailRequest{BotID: 1, Kind: "private", TargetID: 200, MemoryID: "private"}, want: true},
+		{name: "private does not leak to group", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 200, MemoryID: "private"}, want: false},
+		{name: "candidate invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "candidate"}, want: false},
+		{name: "expired invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "expired"}, want: false},
+		{name: "other bot invisible", req: contracts.DetailRequest{BotID: 2, Kind: "group", TargetID: 700, MemoryID: "shared"}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, found, err := svc.RecallDetail(ctx, tc.req)
+			if err != nil {
+				t.Fatalf("recall detail: %v", err)
+			}
+			if found != tc.want {
+				t.Fatalf("found=%v, want %v, item=%+v", found, tc.want, got)
+			}
+		})
+	}
+}

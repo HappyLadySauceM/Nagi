@@ -136,6 +136,20 @@ func (_u *ScopePolicyUpdate) SetNillableAllowMemoryWrite(v *bool) *ScopePolicyUp
 	return _u
 }
 
+// SetAllowMemoryRead sets the "allow_memory_read" field.
+func (_u *ScopePolicyUpdate) SetAllowMemoryRead(v bool) *ScopePolicyUpdate {
+	_u.mutation.SetAllowMemoryRead(v)
+	return _u
+}
+
+// SetNillableAllowMemoryRead sets the "allow_memory_read" field if the given value is not nil.
+func (_u *ScopePolicyUpdate) SetNillableAllowMemoryRead(v *bool) *ScopePolicyUpdate {
+	if v != nil {
+		_u.SetAllowMemoryRead(*v)
+	}
+	return _u
+}
+
 // SetAllowHistoryRead sets the "allow_history_read" field.
 func (_u *ScopePolicyUpdate) SetAllowHistoryRead(v bool) *ScopePolicyUpdate {
 	_u.mutation.SetAllowHistoryRead(v)
@@ -431,6 +445,9 @@ func (_u *ScopePolicyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	if value, ok := _u.mutation.AllowMemoryWrite(); ok {
 		_spec.SetField(scopepolicy.FieldAllowMemoryWrite, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.AllowMemoryRead(); ok {
+		_spec.SetField(scopepolicy.FieldAllowMemoryRead, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.AllowHistoryRead(); ok {
 		_spec.SetField(scopepolicy.FieldAllowHistoryRead, field.TypeBool, value)
 	}
@@ -648,6 +665,20 @@ func (_u *ScopePolicyUpdateOne) SetAllowMemoryWrite(v bool) *ScopePolicyUpdateOn
 func (_u *ScopePolicyUpdateOne) SetNillableAllowMemoryWrite(v *bool) *ScopePolicyUpdateOne {
 	if v != nil {
 		_u.SetAllowMemoryWrite(*v)
+	}
+	return _u
+}
+
+// SetAllowMemoryRead sets the "allow_memory_read" field.
+func (_u *ScopePolicyUpdateOne) SetAllowMemoryRead(v bool) *ScopePolicyUpdateOne {
+	_u.mutation.SetAllowMemoryRead(v)
+	return _u
+}
+
+// SetNillableAllowMemoryRead sets the "allow_memory_read" field if the given value is not nil.
+func (_u *ScopePolicyUpdateOne) SetNillableAllowMemoryRead(v *bool) *ScopePolicyUpdateOne {
+	if v != nil {
+		_u.SetAllowMemoryRead(*v)
 	}
 	return _u
 }
@@ -976,6 +1007,9 @@ func (_u *ScopePolicyUpdateOne) sqlSave(ctx context.Context) (_node *ScopePolicy
 	}
 	if value, ok := _u.mutation.AllowMemoryWrite(); ok {
 		_spec.SetField(scopepolicy.FieldAllowMemoryWrite, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AllowMemoryRead(); ok {
+		_spec.SetField(scopepolicy.FieldAllowMemoryRead, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.AllowHistoryRead(); ok {
 		_spec.SetField(scopepolicy.FieldAllowHistoryRead, field.TypeBool, value)

@@ -23,6 +23,7 @@ func (ScopePolicy) Fields() []ent.Field {
 		field.String("reply_mode").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("'mention_only'::text")).Default("mention_only"),
 		field.Bool("store_messages").Annotations(entsql.DefaultExpr("true")).Default(true),
 		field.Bool("allow_memory_write").Annotations(entsql.DefaultExpr("false")).Default(false),
+		field.Bool("allow_memory_read").Annotations(entsql.DefaultExpr("false")).Default(false),
 		field.Bool("allow_history_read").Annotations(entsql.DefaultExpr("false")).Default(false),
 		field.Int("min_reply_interval_ms").SchemaType(map[string]string{"postgres": "integer"}).Annotations(entsql.DefaultExpr("10000")).Default(10000),
 		field.Int("max_replies_per_hour").SchemaType(map[string]string{"postgres": "integer"}).Annotations(entsql.DefaultExpr("0")).Default(0),
