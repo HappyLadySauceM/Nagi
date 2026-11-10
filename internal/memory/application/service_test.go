@@ -335,3 +335,60 @@ func TestRecallDetailEnforcesVisibility(t *testing.T) {
 		})
 	}
 }
+
+// TestRecallDetailEnforcesVisibilityAndLifecycle verifies one memory detail is
+// available only to its own active, unexpired scope, and that stored source
+// metadata is returned without inventing a source.
+// TestRecallDetailEnforcesVisibilityAndLifecycle 验证记忆详情只对自身激活且未过期的
+// 作用域可用，并原样返回已存来源元数据而不编造来源。
+func TestRecallDetailEnforcesVisibilityAndLifecycle(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	ctx := context.Background()
+	repo.items["m1"] = domain.Memory{
+		ID: "m1", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700",
+		Content: "群友喜欢晚上聊天", Source: "群聊 700", SourceMessageID: 9001,
+		Status: domain.StatusActive,
+	}
+	got, found, err := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "m1"})
+	if err != nil || !found || got.Source != "群聊 700" || got.SourceMessageID != 9001 || got.Content != "群友喜欢晚上聊天" {
+		t.Fatalf("detail = %+v found=%v err=%v", got, found, err)
+	}
+	for _, in := range []contracts.DetailRequest{
+		{BotID: 1, Kind: "group", TargetID: 701, MemoryID: "m1"},
+		{BotID: 1, Kind: "private", TargetID: 700, MemoryID: "m1"},
+		{BotID: 2, Kind: "group", TargetID: 700, MemoryID: "m1"},
+	} {
+		if _, found, err := svc.RecallDetail(ctx, in); err != nil || found {
+			t.Fatalf("cross-scope detail leaked: %+v found=%v err=%v", in, found, err)
+		}
+	}
+	repo.items["candidate"] = domain.Memory{ID: "candidate", BotID: 1, Visibility: domain.VisibilityBotShared, Status: domain.StatusCandidate}
+	if _, found, _ := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "candidate"}); found {
+		t.Fatal("candidate memory detail leaked")
+	}
+	expired := time.Now().Add(-time.Minute)
+	repo.items["expired"] = domain.Memory{ID: "expired", BotID: 1, Visibility: domain.VisibilityBotShared, Status: domain.StatusActive, ExpiresAt: expired}
+	if _, found, _ := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "expired"}); found {
+		t.Fatal("expired memory detail leaked")
+	}
+}
+
+// TestMemoryVisibleToKeepsGroupsAndPrivateUsersSeparate verifies the domain
+// visibility predicate cannot merge two real users or two groups.
+// TestMemoryVisibleToKeepsGroupsAndPrivateUsersSeparate 验证领域可见性谓词不会把
+// 两个真实用户或两个群合并。
+func TestMemoryVisibleToKeepsGroupsAndPrivateUsersSeparate(t *testing.T) {
+	group := domain.Memory{Visibility: domain.VisibilityGroup, OwnerKey: "700"}
+	if !group.VisibleTo("group", 700, "") || group.VisibleTo("group", 701, "") || group.VisibleTo("private", 700, "") {
+		t.Fatal("group visibility crossed a boundary")
+	}
+	user := domain.Memory{Visibility: domain.VisibilityPrivateUser, OwnerKey: "200"}
+	if !user.VisibleTo("private", 200, "") || user.VisibleTo("private", 201, "") || user.VisibleTo("group", 200, "") {
+		t.Fatal("private visibility crossed a boundary")
+	}
+	shared := domain.Memory{Visibility: domain.VisibilityBotShared}
+	if !shared.VisibleTo("group", 700, "") || !shared.VisibleTo("private", 200, "") {
+		t.Fatal("bot-shared memory must be visible to every conversation")
+	}
+}
