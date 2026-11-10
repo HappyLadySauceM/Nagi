@@ -21,9 +21,13 @@ const (
 
 var (
 	baselineNow = time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
-	// baselineThresholds are the current default thresholds; changing them is a
-	// product decision, not part of the baseline fixture.
-	// baselineThresholds 是当前默认阈值；调整阈值属于产品决策，不属于基线夹具。
+	// baselineThresholds is the fixed comparison baseline for this round. It is
+	// intentionally not derived from runtime defaults so the samples do not
+	// drift when defaults change. Values: continuation=0.80,
+	// interjection=0.95, addressed_other_max=0.60.
+	// baselineThresholds 是本轮固定对比基线，刻意不跟随运行时默认值，
+	// 避免默认值变化让基线漂移。本轮取值：continuation=0.80、
+	// interjection=0.95、addressed_other_max=0.60。
 	baselineThresholds = domain.Thresholds{Continuation: 0.80, Interjection: 0.95, AddressedOtherMax: 0.60}
 )
 
@@ -107,6 +111,8 @@ type participationBaselineCase struct {
 // TestParticipationDecisionBaseline 固定当前参与判断行为：明确 @、引用、自然追问、
 // 对别人说话、结束语、连续短消息、语义不可用与分数冲突。
 func TestParticipationDecisionBaseline(t *testing.T) {
+	t.Logf("fixed baseline thresholds: continuation=%.2f interjection=%.2f addressed_other_max=%.2f",
+		baselineThresholds.Continuation, baselineThresholds.Interjection, baselineThresholds.AddressedOtherMax)
 	cases := []participationBaselineCase{
 		{
 			name: "explicit_at", input: baselineGroupInput("小雪，这个怎么配？", baselineAtBot()),
@@ -171,6 +177,21 @@ func TestParticipationDecisionBaseline(t *testing.T) {
 			name: "interjection_clean", input: baselineGroupInput("你们在说部署吗？", nil),
 			semantic:     domain.SemanticAnswer{Available: true, AppropriateToJoin: 0.96, AddressedToOther: 0.30, IntentCategory: "chat"},
 			wantDecision: domain.DecisionReply, wantReason: "interjection", wantNeedSemantic: true,
+		},
+		{
+			name: "multi_intent_mixed", input: baselineGroupInput("帮我查下明天天气，再提醒我九点开会", nil),
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.90, ContinuesBotThread: 0.20, AddressedToOther: 0.10, AppropriateToJoin: 0.10, IntentCategory: "chat"},
+			wantDecision: domain.DecisionReply, wantReason: "directed_to_bot", wantNeedSemantic: true,
+		},
+		{
+			name: "negation_question", input: baselineGroupInput("你不是说过不用改配置吗？", nil),
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.90, ContinuesBotThread: 0.20, AddressedToOther: 0.10, AppropriateToJoin: 0.10, IntentCategory: "question"},
+			wantDecision: domain.DecisionReply, wantReason: "directed_to_bot", wantNeedSemantic: true,
+		},
+		{
+			name: "rhetorical_question", input: baselineGroupInput("这还用问吗？", nil),
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.20, ContinuesBotThread: 0.20, AddressedToOther: 0.20, AppropriateToJoin: 0.40, IntentCategory: "question"},
+			wantDecision: domain.DecisionSilent, wantReason: "ambiguous", wantNeedSemantic: true,
 		},
 	}
 
