@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
@@ -54,6 +56,13 @@ func (h *Handler) requireDB(w http.ResponseWriter) bool {
 	return true
 }
 
+// validMemoryID rejects malformed path identifiers before any storage call.
+// validMemoryID 在进入存储层前拒绝格式非法的路径 ID。
+func validMemoryID(id string) bool {
+	_, err := uuid.Parse(id)
+	return err == nil
+}
+
 // List returns one page of memories filtered by visibility, owner, status or search.
 // List 返回按可见性、归属、状态或搜索过滤的一页记忆。
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +101,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // 只有条目自身已存来源信息时才返回来源；处理器不编造、也不展开原始消息正文。
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
+		return
+	}
+	if !validMemoryID(r.PathValue("id")) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
 		return
 	}
 	q := r.URL.Query()
@@ -217,6 +230,10 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if !validMemoryID(id) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+		return
+	}
 	var body patchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
@@ -261,7 +278,12 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
-	if err := h.svcCtx.Memory.Delete(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if !validMemoryID(id) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+		return
+	}
+	if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "delete memory failed")
 		return
 	}

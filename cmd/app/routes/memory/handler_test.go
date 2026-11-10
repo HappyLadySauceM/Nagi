@@ -79,3 +79,18 @@ func TestGetRejectsMalformedMemoryID(t *testing.T) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
 }
+
+func TestDeleteRejectsMalformedMemoryID(t *testing.T) {
+	service, err := memoryapp.NewService(handlerMemoryRepo{})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/memories/not-a-uuid", nil)
+	req.SetPathValue("id", "not-a-uuid")
+	rec := httptest.NewRecorder()
+	h.Delete(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
