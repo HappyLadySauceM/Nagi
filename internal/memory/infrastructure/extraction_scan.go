@@ -4,19 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
 // ListUnregisteredMessages returns a bounded batch of incoming messages that
-// have a durable authorization stamp and no extraction job. The id watermark is
-// only an accelerator; the created-at overlap lets a late commit with a lower
-// id be found by a bounded backfill scan instead of being excluded forever.
+// have a durable authorization stamp and no extraction job. The NOT EXISTS
+// predicate is the durable dedupe: it deliberately has no id or time lower
+// bound, so a message committed after an earlier scan remains eligible. LIMIT
+// bounds each page and prevents unbounded scans.
 // ListUnregisteredMessages 返回一批有持久授权戳且尚未建立提取任务的入站消息。
-// message id 水位只用于加速；created_at 重叠窗口让晚提交的低 id 消息能被有界补扫，
-// 而不是被永久排除。
-func (r *Repo) ListUnregisteredMessages(ctx context.Context, botID int64, conversationID string, afterID int64, scannedAfter time.Time, limit int) ([]domain.ExtractionSourceMessage, error) {
+// NOT EXISTS 是持久去重条件，刻意不设 id 或时间下界，因此晚于上次扫描才提交的
+// 消息仍然可被发现；LIMIT 控制每页大小，避免无界扫描。
+func (r *Repo) ListUnregisteredMessages(ctx context.Context, botID int64, conversationID string, limit int) ([]domain.ExtractionSourceMessage, error) {
 	if botID <= 0 || conversationID == "" || limit <= 0 {
 		return nil, fmt.Errorf("memory: invalid extraction scan input")
 	}
@@ -33,9 +33,8 @@ func (r *Repo) ListUnregisteredMessages(ctx context.Context, botID int64, conver
 		WHERE m.bot_id=$1 AND m.conversation_id=$2 AND m.direction='incoming'
 			AND e.authorized = true
 			AND NOT EXISTS (SELECT 1 FROM memory_extraction_jobs j WHERE j.message_id=m.id)
-			AND (m.id > $3 OR m.created_at >= $4)
 		ORDER BY m.id
-		LIMIT $5`, botID, conversationID, afterID, scannedAfter, limit)
+		LIMIT $3`, botID, conversationID, limit)
 	if err != nil {
 		return nil, err
 	}

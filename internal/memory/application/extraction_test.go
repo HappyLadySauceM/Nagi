@@ -8,14 +8,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
-	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
-	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 type fakeExtractionJobRepo struct {
 	*fakeMemoryRepo
 	jobs        map[string]domain.ExtractionJob
 	retryCalled bool
+	retryErr    error
 }
 
 func newFakeExtractionJobRepo() *fakeExtractionJobRepo {
@@ -37,6 +36,9 @@ func (f *fakeExtractionJobRepo) GetExtractionJob(_ context.Context, id string) (
 
 func (f *fakeExtractionJobRepo) RetryExtractionJob(_ context.Context, id string, _ int) (bool, error) {
 	f.retryCalled = true
+	if f.retryErr != nil {
+		return false, f.retryErr
+	}
 	job, ok := f.jobs[id]
 	if !ok || job.Status != "failed" || job.ManualRetries >= DefaultManualRetryLimit {
 		return false, nil
@@ -45,15 +47,6 @@ func (f *fakeExtractionJobRepo) RetryExtractionJob(_ context.Context, id string,
 	job.ManualRetries++
 	f.jobs[id] = job
 	return true, nil
-}
-
-type fakeMemoryAuthorizer struct {
-	auth scopecontracts.MemoryAuthorization
-	err  error
-}
-
-func (f fakeMemoryAuthorizer) ResolveMemoryAuthorization(context.Context, int64, scopedomain.ScopeType, int64) (scopecontracts.MemoryAuthorization, error) {
-	return f.auth, f.err
 }
 
 func TestRetryExtractionJobChecksSourceAndAuthorization(t *testing.T) {
@@ -65,7 +58,6 @@ func TestRetryExtractionJobChecksSourceAndAuthorization(t *testing.T) {
 	jobID := uuid.NewString()
 	repo.jobs[jobID] = domain.ExtractionJob{ID: jobID, BotID: 1, ScopeType: "group", ScopeID: 700,
 		MessageID: 12, MessageAuthorizationEventID: 44, AuthorizationEventID: 44, Status: "failed", SourceAvailable: true}
-	svc.SetMemoryAuthorizer(fakeMemoryAuthorizer{auth: scopecontracts.MemoryAuthorization{EventID: 44, Authorized: true}})
 	if err := svc.RetryExtractionJob(context.Background(), jobID); err != nil {
 		t.Fatalf("retry valid job: %v", err)
 	}
@@ -79,7 +71,7 @@ func TestRetryExtractionJobChecksSourceAndAuthorization(t *testing.T) {
 		jobID := uuid.NewString()
 		repo.jobs[jobID] = domain.ExtractionJob{ID: jobID, BotID: 1, ScopeType: "group", ScopeID: 700,
 			MessageID: 12, MessageAuthorizationEventID: 44, AuthorizationEventID: 44, Status: "failed", SourceAvailable: true}
-		svc.SetMemoryAuthorizer(fakeMemoryAuthorizer{auth: scopecontracts.MemoryAuthorization{EventID: 45, Authorized: true}})
+		repo.retryErr = ErrExtractionAuthorizationChanged
 		if err := svc.RetryExtractionJob(context.Background(), jobID); !errors.Is(err, ErrExtractionAuthorizationChanged) {
 			t.Fatalf("authorization mismatch error = %v", err)
 		}
@@ -91,7 +83,6 @@ func TestRetryExtractionJobChecksSourceAndAuthorization(t *testing.T) {
 		jobID := uuid.NewString()
 		repo.jobs[jobID] = domain.ExtractionJob{ID: jobID, BotID: 1, ScopeType: "group", ScopeID: 700,
 			AuthorizationEventID: 44, Status: "failed", SourceAvailable: false}
-		svc.SetMemoryAuthorizer(fakeMemoryAuthorizer{auth: scopecontracts.MemoryAuthorization{EventID: 44, Authorized: true}})
 		if err := svc.RetryExtractionJob(context.Background(), jobID); !errors.Is(err, ErrExtractionSourceMissing) {
 			t.Fatalf("source missing error = %v", err)
 		}

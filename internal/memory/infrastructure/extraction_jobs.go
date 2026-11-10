@@ -3,11 +3,13 @@ package infrastructure
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
+	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 )
 
 const extractionJobColumns = `
@@ -75,23 +77,87 @@ func (r *Repo) GetExtractionJob(ctx context.Context, id string) (domain.Extracti
 	return item, true, nil
 }
 
-// RetryExtractionJob resets one failed job to pending without resetting its
-// cumulative attempt count or exceeding the manual retry limit.
-// RetryExtractionJob 将一个失败任务重置为 pending，不重置累计尝试次数，
-// 且不超过手动重试上限。
+// RetryExtractionJob resets one failed job to pending only after rechecking its
+// source message, current authorization generation and retry state under the
+// shared memory-authorization lock and in one transaction.
+// RetryExtractionJob 在同一记忆授权锁与同一事务内复核来源消息、当前授权代际和
+// 重试状态后，才将一个失败任务重置为 pending，不重置累计尝试次数或超过手动重试上限。
 func (r *Repo) RetryExtractionJob(ctx context.Context, id string, maxManualRetries int) (bool, error) {
-	result, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var botID, scopeID, authorizationEventID int64
+	var scopeType, status string
+	var messageID sql.NullInt64
+	var manualRetries int
+	err = tx.QueryRow(ctx, `
+		SELECT bot_id, scope_type, scope_id, message_id, authorization_event_id,
+			status, manual_retries
+		FROM memory_extraction_jobs
+		WHERE id=$1`, id).Scan(&botID, &scopeType, &scopeID, &messageID, &authorizationEventID, &status, &manualRetries)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if status != "failed" || manualRetries >= maxManualRetries || !messageID.Valid {
+		return false, nil
+	}
+	if err := scopeinfra.LockMemoryAuthorization(ctx, tx, botID, scopeType, scopeID); err != nil {
+		return false, err
+	}
+	currentEventID, authorized, err := scopeinfra.ResolveMemoryAuthorizationInTx(ctx, tx, botID, scopeType, scopeID)
+	if err != nil {
+		return false, err
+	}
+
+	var lockedBotID, lockedScopeID, lockedAuthorizationEventID int64
+	var lockedScopeType, lockedStatus string
+	var lockedMessageID, lockedMessageEventID sql.NullInt64
+	var lockedManualRetries int
+	err = tx.QueryRow(ctx, `
+		SELECT j.bot_id, j.scope_type, j.scope_id, j.message_id,
+			j.authorization_event_id, j.status, j.manual_retries,
+			m.memory_authorization_event_id
+		FROM memory_extraction_jobs j
+		JOIN messages m ON m.id=j.message_id
+		WHERE j.id=$1
+		FOR UPDATE OF j, m`, id).Scan(&lockedBotID, &lockedScopeType, &lockedScopeID, &lockedMessageID, &lockedAuthorizationEventID, &lockedStatus, &lockedManualRetries, &lockedMessageEventID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if lockedBotID != botID || lockedScopeType != scopeType || lockedScopeID != scopeID ||
+		lockedStatus != "failed" || lockedManualRetries >= maxManualRetries ||
+		!lockedMessageID.Valid || !lockedMessageEventID.Valid ||
+		lockedAuthorizationEventID != authorizationEventID ||
+		lockedMessageEventID.Int64 != authorizationEventID ||
+		!authorized || currentEventID != authorizationEventID {
+		return false, nil
+	}
+
+	result, err := tx.Exec(ctx, `
 		UPDATE memory_extraction_jobs
 		SET status='pending', round_attempts=0, next_run_at=clock_timestamp(),
 			claim_token=NULL, lease_expires_at=NULL, last_error_code=NULL,
 			manual_retries=manual_retries+1, updated_at=clock_timestamp()
-		WHERE id=$1 AND status='failed' AND manual_retries < $2
-			AND message_id IS NOT NULL
-			AND EXISTS(SELECT 1 FROM messages m WHERE m.id=memory_extraction_jobs.message_id)`, id, maxManualRetries)
+		WHERE id=$1 AND status='failed' AND manual_retries < $2`, id, maxManualRetries)
 	if err != nil {
 		return false, err
 	}
-	return result.RowsAffected() == 1, nil
+	if result.RowsAffected() != 1 {
+		return false, nil
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 type extractionJobScanner interface {

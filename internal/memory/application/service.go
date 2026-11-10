@@ -14,7 +14,6 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
-	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // ErrInvalidID reports a malformed memory identifier before it reaches storage.
@@ -108,31 +107,43 @@ type CandidateInput struct {
 }
 
 // Propose dedupes and stores one memory candidate. Known-subject candidates use
-// the complete structured key; legacy entries without a subject keep exact
-// content dedupe. Conflicts require explicit management merge, never automatic
-// overwrite.
-// Propose 对记忆候选去重并存储。已知主体使用完整结构化键；无主体的旧条目保留
-// 精确内容去重。冲突必须经管理端显式合并，绝不自动覆盖。
+// the complete structured key; unknown extraction subjects derive provenance
+// from their source message and sender; legacy manual entries without a subject
+// keep exact content dedupe. Conflicts require explicit management merge, never
+// automatic overwrite.
+// Propose 对记忆候选去重并存储。已知主体使用完整结构化键；未知提取主体从来源
+// 消息与发送者生成出处标识；无主体的旧人工条目保留精确内容去重。冲突必须经
+// 管理端显式合并，绝不自动覆盖。
 func (s *Service) Propose(ctx context.Context, in CandidateInput) (string, bool, error) {
 	origin := in.Origin
 	if origin == "" {
 		origin = domain.OriginManual
 	}
+	content := strings.TrimSpace(in.Content)
+	subjectType := in.SubjectType
+	subjectID := strings.TrimSpace(in.SubjectID)
 	dedupeKey := in.DedupeKey
-	if dedupeKey == "" && in.SubjectType != "" && in.SubjectID != "" {
-		dedupeKey = domain.ComputeDedupeKey(in.BotID, in.Visibility, in.OwnerKey, in.SubjectType, in.SubjectID, strings.TrimSpace(in.Content))
+	if origin == domain.OriginExtraction && (subjectType == "" || subjectType == domain.SubjectUnknown) {
+		subjectType = domain.SubjectUnknown
+		if in.SourceMessageID <= 0 || in.SourceSenderID <= 0 {
+			return "", false, fmt.Errorf("memory: extraction unknown subject requires source message and sender")
+		}
+		subjectID = domain.ExtractionUnknownSubjectID(in.SourceMessageID, in.SourceSenderID)
+		dedupeKey = domain.ComputeDedupeKey(in.BotID, in.Visibility, in.OwnerKey, subjectType, subjectID, content)
+	} else if dedupeKey == "" && subjectType != "" && subjectID != "" {
+		dedupeKey = domain.ComputeDedupeKey(in.BotID, in.Visibility, in.OwnerKey, subjectType, subjectID, content)
 	}
 	m := domain.Memory{
 		BotID:           in.BotID,
 		Visibility:      in.Visibility,
 		OwnerKey:        in.OwnerKey,
-		Content:         strings.TrimSpace(in.Content),
+		Content:         content,
 		SourceMessageID: in.SourceMessageID,
 		Source:          in.Source,
 		SourceSenderID:  in.SourceSenderID,
 		Origin:          origin,
-		SubjectType:     in.SubjectType,
-		SubjectID:       in.SubjectID,
+		SubjectType:     subjectType,
+		SubjectID:       subjectID,
 		DedupeKey:       dedupeKey,
 		ReviewReason:    in.ReviewReason,
 		Confidence:      in.Confidence,
@@ -370,16 +381,11 @@ func (s *Service) RetryExtractionJob(ctx context.Context, jobID string) error {
 	if job.MessageAuthorizationEventID == 0 || job.MessageAuthorizationEventID != job.AuthorizationEventID {
 		return ErrExtractionAuthorizationChanged
 	}
-	if s.authorizer == nil {
-		return fmt.Errorf("memory: authorization resolver unavailable")
-	}
-	current, err := s.authorizer.ResolveMemoryAuthorization(ctx, job.BotID, scopedomain.ScopeType(job.ScopeType), job.ScopeID)
-	if err != nil {
-		return err
-	}
-	if !current.Authorized || current.EventID != job.AuthorizationEventID {
-		return ErrExtractionAuthorizationChanged
-	}
+	// The repository performs the authoritative source/state/authorization
+	// recheck under the shared memory-authorization lock in the same transaction
+	// as the update. Do not resolve authorization outside that transaction here.
+	// 仓储层在同一事务内、持有同一记忆授权锁时复核来源、状态与授权；服务层不再
+	// 在事务外解析授权，避免检查与更新之间出现撤权窗口。
 	retried, err := repo.RetryExtractionJob(ctx, jobID, DefaultManualRetryLimit)
 	if err != nil {
 		return err

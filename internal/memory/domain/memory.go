@@ -173,6 +173,15 @@ func ComputeDedupeKey(botID int64, visibility Visibility, ownerKey string, subje
 	return hex.EncodeToString(sum[:])
 }
 
+// ExtractionUnknownSubjectID returns a stable provenance identity for an
+// unknown extraction subject. The source message and sender are kept together
+// so unrelated speakers with identical text cannot collapse into one subject.
+// ExtractionUnknownSubjectID 返回未知提取主体的稳定出处标识；来源消息与发送者
+// 一同参与，避免不同发送者的相同文本被合并为同一主体。
+func ExtractionUnknownSubjectID(sourceMessageID, sourceSenderID int64) string {
+	return "source:" + strconv.FormatInt(sourceMessageID, 10) + ":" + strconv.FormatInt(sourceSenderID, 10)
+}
+
 // VisibleTo reports whether the memory may be read by the given conversation.
 // The caller must also verify the memory is active and unexpired.
 // VisibleTo 报告该记忆是否可被指定会话读取；调用方还必须校验激活与未过期状态。

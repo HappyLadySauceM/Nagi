@@ -16,8 +16,17 @@ type memoryAuthorization struct {
 	Authorized bool
 }
 
-type authorizationQuerier interface {
+// AuthorizationReader reads authorization state from a SQL transaction.
+// AuthorizationReader 从 SQL 事务中读取授权状态。
+type AuthorizationReader interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// AuthorizationExecutor runs authorization lock queries on a SQL transaction.
+// AuthorizationExecutor 在 SQL 事务中执行授权锁查询。
+type AuthorizationExecutor interface {
+	AuthorizationReader
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 type policyAuthorization struct {
@@ -35,6 +44,17 @@ func (r *Repo) ResolveMemoryAuthorization(ctx context.Context, botID int64, scop
 		return 0, false, fmt.Errorf("scope: invalid memory authorization identity")
 	}
 	auth, err := resolveMemoryAuthorization(ctx, r.pool.Client, botID, string(scopeType), scopeID)
+	if err != nil {
+		return 0, false, err
+	}
+	return auth.EventID, auth.Authorized, nil
+}
+
+// ResolveMemoryAuthorizationInTx reads authorization state through the caller's
+// transaction, so callers can keep policy resolution and their own update atomic.
+// ResolveMemoryAuthorizationInTx 通过调用方事务读取授权状态，使策略解析与自身写入保持原子性。
+func ResolveMemoryAuthorizationInTx(ctx context.Context, q AuthorizationReader, botID int64, scopeType string, scopeID int64) (int64, bool, error) {
+	auth, err := resolveMemoryAuthorization(ctx, q, botID, scopeType, scopeID)
 	if err != nil {
 		return 0, false, err
 	}
@@ -68,19 +88,30 @@ func lockMemoryAuthorization(ctx context.Context, client *ent.Client, botID int6
 	if client == nil {
 		return fmt.Errorf("scope: client required")
 	}
+	return LockMemoryAuthorization(ctx, client, botID, scopeType, scopeID)
+}
+
+// LockMemoryAuthorization serializes policy writes with message/finalize reads
+// using the same direct-then-template advisory lock order.
+// LockMemoryAuthorization 按“独立作用域→模板”的固定顺序串行化策略写入与
+// 消息/最终提交读取。
+func LockMemoryAuthorization(ctx context.Context, executor AuthorizationExecutor, botID int64, scopeType string, scopeID int64) error {
+	if executor == nil {
+		return fmt.Errorf("scope: authorization executor required")
+	}
 	keys := []string{
 		fmt.Sprintf("memory-auth:%d:%s:%d", botID, scopeType, scopeID),
 		fmt.Sprintf("memory-auth:%d:%s:0", botID, scopeType),
 	}
 	for _, key := range keys {
-		if _, err := client.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", key); err != nil {
+		if _, err := executor.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", key); err != nil {
 			return fmt.Errorf("scope: lock memory authorization: %w", err)
 		}
 	}
 	return nil
 }
 
-func resolveMemoryAuthorization(ctx context.Context, q authorizationQuerier, botID int64, scopeType string, scopeID int64) (memoryAuthorization, error) {
+func resolveMemoryAuthorization(ctx context.Context, q AuthorizationReader, botID int64, scopeType string, scopeID int64) (memoryAuthorization, error) {
 	direct, directFound, err := loadPolicyAuthorization(ctx, q, botID, scopeType, scopeID)
 	if err != nil {
 		return memoryAuthorization{}, err
@@ -143,7 +174,7 @@ func resolveMemoryAuthorization(ctx context.Context, q authorizationQuerier, bot
 	}, nil
 }
 
-func loadPolicyAuthorization(ctx context.Context, q authorizationQuerier, botID int64, scopeType string, scopeID int64) (policyAuthorization, bool, error) {
+func loadPolicyAuthorization(ctx context.Context, q AuthorizationReader, botID int64, scopeType string, scopeID int64) (policyAuthorization, bool, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT enabled, store_messages, allow_memory_write, memory_authorization_event_id
 		FROM scope_policies
@@ -165,7 +196,7 @@ func loadPolicyAuthorization(ctx context.Context, q authorizationQuerier, botID 
 	return out, true, nil
 }
 
-func latestAuthorizationEventID(ctx context.Context, q authorizationQuerier, botID int64, scopeType string, scopeID int64, kind string) (int64, error) {
+func latestAuthorizationEventID(ctx context.Context, q AuthorizationReader, botID int64, scopeType string, scopeID int64, kind string) (int64, error) {
 	query := `SELECT id FROM scope_memory_authorization_events WHERE bot_id=$1 AND scope_type=$2 AND scope_id=$3`
 	args := []any{botID, scopeType, scopeID}
 	if kind != "" {
