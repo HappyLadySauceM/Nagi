@@ -39,6 +39,7 @@ type Scope struct {
 	ClaimToken       string
 	MessageID        int64
 	AllowHistoryRead bool
+	AllowMemoryRead  bool
 	AuthorizeHistory func(context.Context) error
 	Reauthorize      func(context.Context, contracts.ToolDescriptor) error
 	BotID            int64

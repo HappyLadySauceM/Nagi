@@ -291,6 +291,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		Messages:            runtimeMessages,
 		PermissionOverrides: policy.ToolPermissions,
 		AllowHistoryRead:    policy.AllowHistoryRead,
+		AllowMemoryRead:     policy.AllowMemoryRead,
 		MaxOutputTokens:     r.currentMaxTokens(ctx),
 		OnToolRun: func(run agentcontracts.ToolRun) {
 			toolMu.Lock()

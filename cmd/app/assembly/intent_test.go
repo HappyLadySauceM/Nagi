@@ -290,3 +290,49 @@ func TestReplyRunStaysStoppedAfterRefusal(t *testing.T) {
 		t.Fatalf("run resumed after refusal: calls=%d runs=%+v", calls, runs)
 	}
 }
+
+// TestBuildToolsResolverGatesMemoryTools verifies memory tools are exposed only
+// when their separate run grants are present, and source additionally requires
+// history read.
+// TestBuildToolsResolverGatesMemoryTools 验证记忆工具仅在独立运行授权存在时暴露，
+// 来源工具还额外要求历史读取授权。
+func TestBuildToolsResolverGatesMemoryTools(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemoryDetailToolID, Description: "记忆详情", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "detail", nil },
+		},
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemorySourceToolID, Description: "记忆来源", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "source", nil },
+		},
+	}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+	resolver := buildToolsResolver(settingsForTest(&config.Config{}), registry)
+	cases := []struct {
+		name        string
+		memoryRead  bool
+		historyRead bool
+		want        []string
+	}{
+		{name: "memory_on_history_on", memoryRead: true, historyRead: true, want: []string{"memory_detail", "memory_source"}},
+		{name: "memory_on_history_off", memoryRead: true, historyRead: false, want: []string{"memory_detail"}},
+		{name: "memory_off_history_on", memoryRead: false, historyRead: true, want: []string{}},
+		{name: "memory_off_history_off", memoryRead: false, historyRead: false, want: []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exposed := resolver(context.Background(), agentcontracts.Request{
+				Kind: plugincontracts.ScopeKindGroup, AllowMemoryRead: tc.memoryRead, AllowHistoryRead: tc.historyRead,
+			})
+			got := exposedToolNames(t, exposed)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("tools = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

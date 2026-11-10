@@ -26,6 +26,7 @@ type Request struct {
 	ModelImages       bool
 	ModelTools        bool
 	AllowHistoryRead  bool
+	AllowMemoryRead   bool
 	ClaimToken        string
 	BotID             int64
 	ConversationID    string

@@ -186,7 +186,7 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 		// 脱敏由守卫在实际执行凭证工具时触发；仅凭授予集合不应静音会话。
 		var replyStopped atomic.Bool
 		scope := pluginsapp.Scope{
-			MessageID: req.MessageID, AllowHistoryRead: req.AllowHistoryRead,
+			MessageID: req.MessageID, AllowHistoryRead: req.AllowHistoryRead, AllowMemoryRead: req.AllowMemoryRead,
 			BotID:          req.BotID,
 			JobID:          req.JobID,
 			ClaimToken:     req.ClaimToken,
@@ -248,6 +248,12 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 					return fmt.Errorf("scope authorization revoked")
 				}
 				grants := pluginsapp.ResolvePermissions(visible, latest.Tools.PermissionDefaults, current.ToolPermissions)
+				if descriptor.ID == pluginscontracts.MemoryDetailToolID && !current.AllowMemoryRead {
+					return fmt.Errorf("memory read authorization revoked")
+				}
+				if descriptor.ID == pluginscontracts.MemorySourceToolID && (!current.AllowMemoryRead || !current.AllowHistoryRead) {
+					return fmt.Errorf("memory source authorization revoked")
+				}
 				if !pluginsapp.Allowed(descriptor, grants) {
 					return fmt.Errorf("tool authorization revoked")
 				}
@@ -273,6 +279,12 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 			}
 			// Revoked tools never reach the model, so it cannot even request them.
 			// 已撤销的工具不会到达模型，模型连请求它的机会都没有。
+			if registered.Descriptor.ID == pluginscontracts.MemoryDetailToolID && !req.AllowMemoryRead {
+				continue
+			}
+			if registered.Descriptor.ID == pluginscontracts.MemorySourceToolID && (!req.AllowMemoryRead || !req.AllowHistoryRead) {
+				continue
+			}
 			if !pluginsapp.Allowed(registered.Descriptor, granted) {
 				continue
 			}
