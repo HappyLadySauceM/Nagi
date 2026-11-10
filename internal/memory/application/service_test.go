@@ -5,15 +5,18 @@ package application
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
 // fakeMemoryRepo is an in-memory repository.
 // fakeMemoryRepo 是内存版仓库。
 type fakeMemoryRepo struct {
-	items map[string]domain.Memory
-	seq   int
+	items      map[string]domain.Memory
+	seq        int
+	lastSearch domain.SearchRequest
 }
 
 func newFakeMemoryRepo() *fakeMemoryRepo {
@@ -61,6 +64,7 @@ func (f *fakeMemoryRepo) FindSame(_ context.Context, botID int64, v domain.Visib
 }
 
 func (f *fakeMemoryRepo) SearchVisible(_ context.Context, in domain.SearchRequest) ([]domain.Memory, error) {
+	f.lastSearch = in
 	out := []domain.Memory{}
 	for _, m := range f.items {
 		if m.Status != domain.StatusActive {
@@ -187,5 +191,101 @@ func TestDeleteRemovesFromSearch(t *testing.T) {
 	got, err := svc.SearchVisible(ctx, domain.SearchRequest{BotID: 1, Kind: "group", TargetID: 700, Limit: 5})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("deleted memory still visible: got=%d err=%v", len(got), err)
+	}
+}
+
+// TestRecallMapsVisibleMemories verifies the reply-facing read model keeps the
+// identity and update timestamp needed to trace a hit, and that the requested
+// limit/query reach the repository unchanged.
+// TestRecallMapsVisibleMemories 验证回复侧读模型保留定位命中所需的标识与更新时间，
+// 且请求的 limit/query 原样传给仓库。
+func TestRecallMapsVisibleMemories(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	repo.items["m1"] = domain.Memory{
+		ID: "m1", BotID: 1, Visibility: domain.VisibilityBotShared,
+		Content: "群友喜欢晚上聊天", Status: domain.StatusActive,
+		UpdatedAt: time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC),
+	}
+	svc, _ := NewService(repo)
+	got, err := svc.Recall(context.Background(), contracts.RecallRequest{
+		BotID: 1, Kind: "group", TargetID: 700, ConversationID: "conv-1", Query: "晚上聊天", Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("recall: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "m1" || got[0].Visibility != string(domain.VisibilityBotShared) || got[0].UpdatedAt.IsZero() {
+		t.Fatalf("recall = %+v", got)
+	}
+	if repo.lastSearch.Query != "晚上聊天" || repo.lastSearch.Limit != 2 || repo.lastSearch.ConversationID != "conv-1" {
+		t.Fatalf("search request = %+v", repo.lastSearch)
+	}
+}
+
+// TestRecallRejectsInvalidScope verifies malformed scope inputs never reach the
+// repository.
+// TestRecallRejectsInvalidScope 验证畸形作用域不会到达仓库。
+func TestRecallRejectsInvalidScope(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	cases := []contracts.RecallRequest{
+		{BotID: 0, Kind: "group", TargetID: 1},
+		{BotID: 1, Kind: "channel", TargetID: 1},
+		{BotID: 1, Kind: "group", TargetID: 0},
+	}
+	for _, in := range cases {
+		if _, err := svc.Recall(context.Background(), in); err == nil {
+			t.Fatalf("expected rejection for %+v", in)
+		}
+	}
+}
+
+// TestReviseChangesNextRecall verifies an administrator edit is visible to the
+// next retrieval without restarting or rebuilding any cache.
+// TestReviseChangesNextRecall 验证管理员修订在下一次检索即生效，无需重启或重建缓存。
+func TestReviseChangesNextRecall(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	ctx := context.Background()
+	id, _, err := svc.Propose(ctx, CandidateInput{
+		BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "旧内容",
+	})
+	if err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	if err := svc.Approve(ctx, id, "admin"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if err := svc.Revise(ctx, id, "新内容", domain.VisibilityGroup, nil); err != nil {
+		t.Fatalf("revise: %v", err)
+	}
+	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Limit: 3})
+	if err != nil || len(got) != 1 || got[0].Content != "新内容" {
+		t.Fatalf("recall after revise = %+v err=%v", got, err)
+	}
+}
+
+// TestPrivateMemoriesStayPerUser verifies two private users never share the
+// same owner key and therefore never merge into one person.
+// TestPrivateMemoriesStayPerUser 验证两个私聊用户不共享 owner key，不会合并成同一个人。
+func TestPrivateMemoriesStayPerUser(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	ctx := context.Background()
+	for _, owner := range []string{"200", "201"} {
+		id, _, err := svc.Propose(ctx, CandidateInput{
+			BotID: 1, Visibility: domain.VisibilityPrivateUser, OwnerKey: owner, Content: "用户" + owner + "的偏好",
+		})
+		if err != nil {
+			t.Fatalf("propose %s: %v", owner, err)
+		}
+		if err := svc.Approve(ctx, id, "admin"); err != nil {
+			t.Fatalf("approve %s: %v", owner, err)
+		}
+	}
+	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "private", TargetID: 200, Limit: 5})
+	if err != nil {
+		t.Fatalf("recall: %v", err)
+	}
+	if len(got) != 1 || got[0].Content != "用户200的偏好" {
+		t.Fatalf("private recall = %+v", got)
 	}
 }

@@ -9,8 +9,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
+
+// Service implements the read-only recall port used by reply generation.
+// Service 实现回复生成使用的只读召回端口。
+var _ contracts.Reader = (*Service)(nil)
 
 // Repository persists memories; implemented by infrastructure.
 // Repository 持久化记忆；由 infrastructure 实现。
@@ -154,6 +159,48 @@ func (s *Service) SearchVisible(ctx context.Context, in domain.SearchRequest) ([
 		in.Limit = 5
 	}
 	return s.repo.SearchVisible(ctx, in)
+}
+
+// Recall returns a bounded, visibility-scoped read model for reply generation.
+// Unlike management listing, it is intentionally limited to the few entries a
+// reply prompt can safely carry.
+// Recall 返回供回复生成使用的有界、按可见性过滤的读模型。
+// 与后台列表不同，它刻意只返回回复提示可以安全承载的少量条目。
+func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) ([]contracts.Memory, error) {
+	if in.BotID <= 0 {
+		return nil, fmt.Errorf("memory: bot id must be positive")
+	}
+	if in.Kind != "group" && in.Kind != "private" {
+		return nil, fmt.Errorf("memory: invalid conversation kind %q", in.Kind)
+	}
+	if in.TargetID <= 0 {
+		return nil, fmt.Errorf("memory: target id must be positive")
+	}
+	limit := in.Limit
+	if limit <= 0 || limit > 5 {
+		limit = 5
+	}
+	items, err := s.repo.SearchVisible(ctx, domain.SearchRequest{
+		BotID:          in.BotID,
+		Kind:           in.Kind,
+		TargetID:       in.TargetID,
+		ConversationID: in.ConversationID,
+		Query:          in.Query,
+		Limit:          limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]contracts.Memory, 0, len(items))
+	for _, item := range items {
+		out = append(out, contracts.Memory{
+			ID:         item.ID,
+			Content:    item.Content,
+			Visibility: string(item.Visibility),
+			UpdatedAt:  item.UpdatedAt,
+		})
+	}
+	return out, nil
 }
 
 // NewID generates a memory identifier.

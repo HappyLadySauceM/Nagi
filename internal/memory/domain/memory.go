@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Visibility controls which conversations may read a memory.
@@ -141,3 +142,78 @@ func (f ListFilter) Normalized() ListFilter {
 // Offset is the SQL offset for the normalized filter.
 // Offset 返回规范化过滤条件的 SQL 偏移量。
 func (f ListFilter) Offset() int { return (f.Page - 1) * f.Limit }
+
+// KeywordLimit bounds the number of search tokens extracted from one query.
+// KeywordLimit 限制单条查询提取的检索词数量。
+const KeywordLimit = 8
+
+// queryStopWords drops low-signal Chinese bigrams that would otherwise turn
+// short chatter into an overly broad recall.
+// queryStopWords 过滤低信息量的中文双字词，避免短句触发过宽的召回。
+var queryStopWords = map[string]struct{}{
+	"的是": {}, "了吗": {}, "什么": {}, "怎么": {}, "这个": {}, "那个": {},
+	"我们": {}, "你们": {}, "他们": {}, "可以": {}, "一下": {}, "就是": {},
+	"不是": {}, "没有": {}, "还是": {}, "然后": {}, "现在": {}, "时候": {},
+	"觉得": {}, "那么": {}, "这么": {}, "如果": {}, "因为": {}, "所以": {},
+	"但是": {}, "而且": {}, "已经": {}, "一个": {}, "一种": {}, "能否": {},
+	"是否": {}, "好的": {}, "嗯嗯": {},
+}
+
+// QueryKeywords extracts bounded keyword tokens from a free-form chat query.
+// Han runs become overlapping two-rune windows; ASCII/digit runs stay whole.
+// The result is de-duplicated and capped by KeywordLimit.
+// QueryKeywords 从自由文本查询中提取有界检索词：中文按双字滑窗，ASCII/数字整体保留；
+// 结果去重并受 KeywordLimit 限制。
+func QueryKeywords(query string) []string {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+	out := make([]string, 0, KeywordLimit)
+	seen := make(map[string]struct{}, KeywordLimit)
+	add := func(token string) {
+		if token == "" || len(out) >= KeywordLimit {
+			return
+		}
+		if _, exists := seen[token]; exists {
+			return
+		}
+		if _, stop := queryStopWords[token]; stop {
+			return
+		}
+		seen[token] = struct{}{}
+		out = append(out, token)
+	}
+	run := make([]rune, 0, 16)
+	flush := func() {
+		if len(run) == 0 {
+			return
+		}
+		ascii := true
+		for _, r := range run {
+			if r > unicode.MaxASCII {
+				ascii = false
+				break
+			}
+		}
+		if ascii {
+			if len(run) >= 2 {
+				add(strings.ToLower(string(run)))
+			}
+		} else {
+			for i := 0; i+1 < len(run); i++ {
+				add(string(run[i : i+2]))
+			}
+		}
+		run = run[:0]
+	}
+	for _, r := range query {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			run = append(run, r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
+}

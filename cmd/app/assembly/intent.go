@@ -328,9 +328,11 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 
 // buildReplyExecutor wires the Eino-backed reply executor. The runtime is built
 // lazily from the live settings so enabling generation or switching the model in
-// the console needs no restart; long-term memory is deliberately out of scope.
+// the console needs no restart. Long-term memory stays unwired until the product
+// authorization decision is made: this function must not invent a read permit.
 // buildReplyExecutor 装配 Eino 驱动的回复执行器。运行时按实时配置惰性构建，
-// 控制台开启生成或切换模型因此无需重启；本阶段刻意不接入长期记忆。
+// 控制台开启生成或切换模型因此无需重启。长期记忆在产品授权口径确定前不装配：
+// 该函数不得自行设定读取许可。
 func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
 	catalog *settingsapp.Service,
