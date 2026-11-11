@@ -32,6 +32,18 @@ type Memory struct {
 	SourceMessageID *int64 `json:"source_message_id,omitempty"`
 	// Source holds the value of the "source" field.
 	Source string `json:"source,omitempty"`
+	// SourceSenderID holds the value of the "source_sender_id" field.
+	SourceSenderID *int64 `json:"source_sender_id,omitempty"`
+	// Origin holds the value of the "origin" field.
+	Origin string `json:"origin,omitempty"`
+	// SubjectType holds the value of the "subject_type" field.
+	SubjectType *string `json:"subject_type,omitempty"`
+	// SubjectID holds the value of the "subject_id" field.
+	SubjectID *string `json:"subject_id,omitempty"`
+	// DedupeKey holds the value of the "dedupe_key" field.
+	DedupeKey *string `json:"dedupe_key,omitempty"`
+	// ReviewReason holds the value of the "review_reason" field.
+	ReviewReason string `json:"review_reason,omitempty"`
 	// Confidence holds the value of the "confidence" field.
 	Confidence float32 `json:"confidence,omitempty"`
 	// Status holds the value of the "status" field.
@@ -90,9 +102,9 @@ func (*Memory) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case memory.FieldConfidence:
 			values[i] = new(sql.NullFloat64)
-		case memory.FieldBotID, memory.FieldSourceMessageID:
+		case memory.FieldBotID, memory.FieldSourceMessageID, memory.FieldSourceSenderID:
 			values[i] = new(sql.NullInt64)
-		case memory.FieldVisibility, memory.FieldOwnerKey, memory.FieldContent, memory.FieldSource, memory.FieldStatus, memory.FieldApprovedBy:
+		case memory.FieldVisibility, memory.FieldOwnerKey, memory.FieldContent, memory.FieldSource, memory.FieldOrigin, memory.FieldSubjectType, memory.FieldSubjectID, memory.FieldDedupeKey, memory.FieldReviewReason, memory.FieldStatus, memory.FieldApprovedBy:
 			values[i] = new(sql.NullString)
 		case memory.FieldExpiresAt, memory.FieldCreatedAt, memory.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -155,6 +167,46 @@ func (_m *Memory) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field source", values[i])
 			} else if value.Valid {
 				_m.Source = value.String
+			}
+		case memory.FieldSourceSenderID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field source_sender_id", values[i])
+			} else if value.Valid {
+				_m.SourceSenderID = new(int64)
+				*_m.SourceSenderID = value.Int64
+			}
+		case memory.FieldOrigin:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field origin", values[i])
+			} else if value.Valid {
+				_m.Origin = value.String
+			}
+		case memory.FieldSubjectType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field subject_type", values[i])
+			} else if value.Valid {
+				_m.SubjectType = new(string)
+				*_m.SubjectType = value.String
+			}
+		case memory.FieldSubjectID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field subject_id", values[i])
+			} else if value.Valid {
+				_m.SubjectID = new(string)
+				*_m.SubjectID = value.String
+			}
+		case memory.FieldDedupeKey:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field dedupe_key", values[i])
+			} else if value.Valid {
+				_m.DedupeKey = new(string)
+				*_m.DedupeKey = value.String
+			}
+		case memory.FieldReviewReason:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field review_reason", values[i])
+			} else if value.Valid {
+				_m.ReviewReason = value.String
 			}
 		case memory.FieldConfidence:
 			if value, ok := values[i].(*sql.NullFloat64); !ok {
@@ -258,6 +310,32 @@ func (_m *Memory) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("source=")
 	builder.WriteString(_m.Source)
+	builder.WriteString(", ")
+	if v := _m.SourceSenderID; v != nil {
+		builder.WriteString("source_sender_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("origin=")
+	builder.WriteString(_m.Origin)
+	builder.WriteString(", ")
+	if v := _m.SubjectType; v != nil {
+		builder.WriteString("subject_type=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.SubjectID; v != nil {
+		builder.WriteString("subject_id=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.DedupeKey; v != nil {
+		builder.WriteString("dedupe_key=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("review_reason=")
+	builder.WriteString(_m.ReviewReason)
 	builder.WriteString(", ")
 	builder.WriteString("confidence=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Confidence))

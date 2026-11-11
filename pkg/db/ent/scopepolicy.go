@@ -38,6 +38,8 @@ type ScopePolicy struct {
 	AllowMemoryRead bool `json:"allow_memory_read,omitempty"`
 	// AllowHistoryRead holds the value of the "allow_history_read" field.
 	AllowHistoryRead bool `json:"allow_history_read,omitempty"`
+	// MemoryAuthorizationEventID holds the value of the "memory_authorization_event_id" field.
+	MemoryAuthorizationEventID *int64 `json:"memory_authorization_event_id,omitempty"`
 	// MinReplyIntervalMs holds the value of the "min_reply_interval_ms" field.
 	MinReplyIntervalMs int `json:"min_reply_interval_ms,omitempty"`
 	// MaxRepliesPerHour holds the value of the "max_replies_per_hour" field.
@@ -93,7 +95,7 @@ func (*ScopePolicy) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case scopepolicy.FieldEnabled, scopepolicy.FieldStoreMessages, scopepolicy.FieldAllowMemoryWrite, scopepolicy.FieldAllowMemoryRead, scopepolicy.FieldAllowHistoryRead:
 			values[i] = new(sql.NullBool)
-		case scopepolicy.FieldID, scopepolicy.FieldBotID, scopepolicy.FieldScopeID, scopepolicy.FieldMinReplyIntervalMs, scopepolicy.FieldMaxRepliesPerHour, scopepolicy.FieldVersion, scopepolicy.FieldMaxMessagesPerRun, scopepolicy.FieldMaxCharsPerMessage, scopepolicy.FieldMaxTotalCharsPerRun, scopepolicy.FieldMessageIntervalMs:
+		case scopepolicy.FieldID, scopepolicy.FieldBotID, scopepolicy.FieldScopeID, scopepolicy.FieldMemoryAuthorizationEventID, scopepolicy.FieldMinReplyIntervalMs, scopepolicy.FieldMaxRepliesPerHour, scopepolicy.FieldVersion, scopepolicy.FieldMaxMessagesPerRun, scopepolicy.FieldMaxCharsPerMessage, scopepolicy.FieldMaxTotalCharsPerRun, scopepolicy.FieldMessageIntervalMs:
 			values[i] = new(sql.NullInt64)
 		case scopepolicy.FieldScopeType, scopepolicy.FieldReplyMode:
 			values[i] = new(sql.NullString)
@@ -173,6 +175,13 @@ func (_m *ScopePolicy) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field allow_history_read", values[i])
 			} else if value.Valid {
 				_m.AllowHistoryRead = value.Bool
+			}
+		case scopepolicy.FieldMemoryAuthorizationEventID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field memory_authorization_event_id", values[i])
+			} else if value.Valid {
+				_m.MemoryAuthorizationEventID = new(int64)
+				*_m.MemoryAuthorizationEventID = value.Int64
 			}
 		case scopepolicy.FieldMinReplyIntervalMs:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -305,6 +314,11 @@ func (_m *ScopePolicy) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("allow_history_read=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AllowHistoryRead))
+	builder.WriteString(", ")
+	if v := _m.MemoryAuthorizationEventID; v != nil {
+		builder.WriteString("memory_authorization_event_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("min_reply_interval_ms=")
 	builder.WriteString(fmt.Sprintf("%v", _m.MinReplyIntervalMs))

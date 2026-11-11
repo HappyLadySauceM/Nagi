@@ -15,6 +15,11 @@ type Memory struct {
 	Visibility      string
 	Source          string
 	SourceMessageID int64
+	SourceSenderID  int64
+	Origin          string
+	SubjectType     string
+	SubjectID       string
+	ReviewReason    string
 	UpdatedAt       time.Time
 }
 

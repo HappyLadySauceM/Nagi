@@ -50,6 +50,11 @@ func (f *fakeRepo) Delete(_ context.Context, botID int64, t domain.ScopeType, id
 	return ok, nil
 }
 
+func (f *fakeRepo) ResolveMemoryAuthorization(_ context.Context, botID int64, t domain.ScopeType, id int64) (int64, bool, error) {
+	p := f.stored[f.key(botID, t, id)]
+	return 0, p.Enabled && p.StoreMessages && p.AllowMemoryWrite, nil
+}
+
 func serviceCacheKeyForTest(botID int64, t domain.ScopeType, id int64) string {
 	return cacheKey(botID, t, id)
 }

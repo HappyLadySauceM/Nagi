@@ -65,6 +65,15 @@ func (f *fakeMemoryRepo) FindSame(_ context.Context, botID int64, v domain.Visib
 	return domain.Memory{}, false, nil
 }
 
+func (f *fakeMemoryRepo) FindByDedupeKey(_ context.Context, key string) (domain.Memory, bool, error) {
+	for _, m := range f.items {
+		if m.DedupeKey == key && (m.Status == domain.StatusCandidate || m.Status == domain.StatusActive) {
+			return m, true, nil
+		}
+	}
+	return domain.Memory{}, false, nil
+}
+
 func (f *fakeMemoryRepo) SearchVisible(_ context.Context, in domain.SearchRequest) ([]domain.Memory, error) {
 	f.lastSearch = in
 	out := []domain.Memory{}
@@ -417,5 +426,64 @@ func TestMemoryVisibleToKeepsGroupsAndPrivateUsersSeparate(t *testing.T) {
 	shared := domain.Memory{Visibility: domain.VisibilityBotShared}
 	if !shared.VisibleTo("group", 700, "") || !shared.VisibleTo("private", 200, "") {
 		t.Fatal("bot-shared memory must be visible to every conversation")
+	}
+}
+
+// TestProposeCompleteKeyKeepsDifferentSubjectsSeparate verifies two users saying
+// the same text do not collapse into one candidate.
+// TestProposeCompleteKeyKeepsDifferentSubjectsSeparate 验证不同用户说同一句话
+// 不会被合并成同一个候选。
+func TestProposeCompleteKeyKeepsDifferentSubjectsSeparate(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	ctx := context.Background()
+	first, duplicate, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "我喜欢茶", SubjectType: domain.SubjectUser, SubjectID: "1001", Origin: domain.OriginManual})
+	if err != nil || duplicate {
+		t.Fatalf("first propose: id=%s dup=%v err=%v", first, duplicate, err)
+	}
+	second, duplicate, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "我喜欢茶", SubjectType: domain.SubjectUser, SubjectID: "1002", Origin: domain.OriginManual})
+	if err != nil || duplicate || second == first {
+		t.Fatalf("second subject: id=%s dup=%v err=%v first=%s", second, duplicate, err, first)
+	}
+}
+
+// TestProposeExtractionUnknownUsesSourceProvenance verifies the server derives
+// an unknown extraction subject from the source message and sender, so retries
+// dedupe while different speakers with identical text remain separate.
+// TestProposeExtractionUnknownUsesSourceProvenance 验证服务器从来源消息与发送者
+// 构造未知提取主体，使重试可去重，而不同发送者的相同文本不会被合并。
+func TestProposeExtractionUnknownUsesSourceProvenance(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	ctx := context.Background()
+	in := CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "来源不明的同一句话", SubjectType: domain.SubjectUnknown, Origin: domain.OriginExtraction, SourceMessageID: 11, SourceSenderID: 1001}
+	first, duplicate, err := svc.Propose(ctx, in)
+	if err != nil || duplicate {
+		t.Fatalf("first propose: id=%s dup=%v err=%v", first, duplicate, err)
+	}
+	second, duplicate, err := svc.Propose(ctx, in)
+	if err != nil || !duplicate || second != first {
+		t.Fatalf("second propose: id=%s dup=%v err=%v first=%s", second, duplicate, err, first)
+	}
+	differentSender := in
+	differentSender.SourceSenderID = 1002
+	third, duplicate, err := svc.Propose(ctx, differentSender)
+	if err != nil || duplicate || third == first {
+		t.Fatalf("different sender: id=%s dup=%v err=%v first=%s", third, duplicate, err, first)
+	}
+	stored := repo.items[first]
+	if stored.SubjectType != domain.SubjectUnknown || stored.SubjectID != domain.ExtractionUnknownSubjectID(in.SourceMessageID, in.SourceSenderID) || stored.DedupeKey == "" {
+		t.Fatalf("stored provenance subject=%q/%q key=%q", stored.SubjectType, stored.SubjectID, stored.DedupeKey)
+	}
+}
+
+// TestProposeExtractionUnknownRequiresSource verifies extraction unknowns cannot
+// fall back to content-only dedupe without source provenance.
+// TestProposeExtractionUnknownRequiresSource 验证未知提取主体缺少来源出处处不能回退到
+// 仅按内容去重。
+func TestProposeExtractionUnknownRequiresSource(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	_, _, err := svc.Propose(context.Background(), CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "来源不明的同一句话", SubjectType: domain.SubjectUnknown, Origin: domain.OriginExtraction})
+	if err == nil {
+		t.Fatal("extraction unknown without source provenance was accepted")
 	}
 }

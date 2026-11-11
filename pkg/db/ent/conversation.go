@@ -41,9 +41,13 @@ type ConversationEdges struct {
 	MessagesConversationID []*Message `json:"messages_conversation_id,omitempty"`
 	// AgentOutboundMessagesConversationID holds the value of the agent_outbound_messages_conversation_id edge.
 	AgentOutboundMessagesConversationID []*AgentOutboundMessage `json:"agent_outbound_messages_conversation_id,omitempty"`
+	// MemoryExtractionCursorsConversationID holds the value of the memory_extraction_cursors_conversation_id edge.
+	MemoryExtractionCursorsConversationID []*MemoryExtractionCursor `json:"memory_extraction_cursors_conversation_id,omitempty"`
+	// MemoryExtractionJobsConversationID holds the value of the memory_extraction_jobs_conversation_id edge.
+	MemoryExtractionJobsConversationID []*MemoryExtractionJob `json:"memory_extraction_jobs_conversation_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [5]bool
 }
 
 // BotIDRefOrErr returns the BotIDRef value or an error if the edge
@@ -73,6 +77,24 @@ func (e ConversationEdges) AgentOutboundMessagesConversationIDOrErr() ([]*AgentO
 		return e.AgentOutboundMessagesConversationID, nil
 	}
 	return nil, &NotLoadedError{edge: "agent_outbound_messages_conversation_id"}
+}
+
+// MemoryExtractionCursorsConversationIDOrErr returns the MemoryExtractionCursorsConversationID value or an error if the edge
+// was not loaded in eager-loading.
+func (e ConversationEdges) MemoryExtractionCursorsConversationIDOrErr() ([]*MemoryExtractionCursor, error) {
+	if e.loadedTypes[3] {
+		return e.MemoryExtractionCursorsConversationID, nil
+	}
+	return nil, &NotLoadedError{edge: "memory_extraction_cursors_conversation_id"}
+}
+
+// MemoryExtractionJobsConversationIDOrErr returns the MemoryExtractionJobsConversationID value or an error if the edge
+// was not loaded in eager-loading.
+func (e ConversationEdges) MemoryExtractionJobsConversationIDOrErr() ([]*MemoryExtractionJob, error) {
+	if e.loadedTypes[4] {
+		return e.MemoryExtractionJobsConversationID, nil
+	}
+	return nil, &NotLoadedError{edge: "memory_extraction_jobs_conversation_id"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -160,6 +182,16 @@ func (_m *Conversation) QueryMessagesConversationID() *MessageQuery {
 // QueryAgentOutboundMessagesConversationID queries the "agent_outbound_messages_conversation_id" edge of the Conversation entity.
 func (_m *Conversation) QueryAgentOutboundMessagesConversationID() *AgentOutboundMessageQuery {
 	return NewConversationClient(_m.config).QueryAgentOutboundMessagesConversationID(_m)
+}
+
+// QueryMemoryExtractionCursorsConversationID queries the "memory_extraction_cursors_conversation_id" edge of the Conversation entity.
+func (_m *Conversation) QueryMemoryExtractionCursorsConversationID() *MemoryExtractionCursorQuery {
+	return NewConversationClient(_m.config).QueryMemoryExtractionCursorsConversationID(_m)
+}
+
+// QueryMemoryExtractionJobsConversationID queries the "memory_extraction_jobs_conversation_id" edge of the Conversation entity.
+func (_m *Conversation) QueryMemoryExtractionJobsConversationID() *MemoryExtractionJobQuery {
+	return NewConversationClient(_m.config).QueryMemoryExtractionJobsConversationID(_m)
 }
 
 // Update returns a builder for updating this Conversation.

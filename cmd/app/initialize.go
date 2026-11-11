@@ -222,6 +222,16 @@ func Run(ctx context.Context, opts options.Options) error {
 			}
 		}()
 	}
+	var extractionDone chan struct{}
+	if rt.ExtractionWorker != nil {
+		extractionDone = make(chan struct{})
+		go func() {
+			defer close(extractionDone)
+			if err := rt.ExtractionWorker.Run(runCtx); err != nil {
+				logger.Error("memory extraction worker exited with error", "error", err)
+			}
+		}()
+	}
 	var archiveDone chan struct{}
 	if rt.MediaArchive != nil {
 		archiveDone = make(chan struct{})
@@ -249,6 +259,9 @@ func Run(ctx context.Context, opts options.Options) error {
 	loops.Wait()
 	if workerDone != nil {
 		<-workerDone
+	}
+	if extractionDone != nil {
+		<-extractionDone
 	}
 	if archiveDone != nil {
 		<-archiveDone

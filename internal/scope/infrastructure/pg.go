@@ -143,6 +143,9 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 	if _, err := client.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("scope:%d:%s", botID, policy.ScopeType)); err != nil {
 		return err
 	}
+	if err := lockMemoryAuthorization(ctx, client, botID, string(policy.ScopeType), policy.ScopeID); err != nil {
+		return err
+	}
 	if policy.ExpectedTemplateVersion != nil {
 		v, err := client.ScopePolicy.Query().Where(sp.BotID(botID), sp.ScopeType(string(policy.ScopeType)), sp.ScopeID(0)).Only(ctx)
 		if err != nil && !ent.IsNotFound(err) {
@@ -156,7 +159,33 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 			return domain.ErrTemplateConflict
 		}
 	}
-	err = client.ScopePolicy.Create().SetBotID(botID).SetScopeType(string(policy.ScopeType)).SetScopeID(policy.ScopeID).SetEnabled(policy.Enabled).SetReplyMode(string(policy.ReplyMode)).SetStoreMessages(policy.StoreMessages).SetAllowMemoryWrite(policy.AllowMemoryWrite).SetAllowMemoryRead(policy.AllowMemoryRead).SetAllowHistoryRead(policy.AllowHistoryRead).SetMinReplyIntervalMs(policy.MinReplyIntervalMS).SetMaxRepliesPerHour(policy.MaxRepliesPerHour).SetMaxMessagesPerRun(policy.MaxMessagesPerRun).SetMaxCharsPerMessage(policy.MaxCharsPerMessage).SetMaxTotalCharsPerRun(policy.MaxTotalCharsPerRun).SetMessageIntervalMs(policy.MessageIntervalMS).SetToolPermissions(permissions).SetUpdatedAt(time.Now()).OnConflict(entsql.ConflictColumns("bot_id", "scope_type", "scope_id")).Update(func(u *ent.ScopePolicyUpsert) {
+	previous, err := client.ScopePolicy.Query().Where(sp.BotID(botID), sp.ScopeType(string(policy.ScopeType)), sp.ScopeID(policy.ScopeID)).Only(ctx)
+	if err != nil && !ent.IsNotFound(err) {
+		return err
+	}
+	var eventID int64
+	if previous != nil && previous.MemoryAuthorizationEventID != nil {
+		eventID = *previous.MemoryAuthorizationEventID
+	}
+	relevantChanged := previous == nil || previous.Enabled != policy.Enabled || previous.StoreMessages != policy.StoreMessages || previous.AllowMemoryWrite != policy.AllowMemoryWrite
+	eventKind := "created"
+	policyVersion := int64(1)
+	if previous != nil {
+		eventKind = "updated"
+		policyVersion = previous.Version + 1
+	}
+	if relevantChanged {
+		authorized := policy.Enabled && policy.StoreMessages && policy.AllowMemoryWrite
+		eventID, err = insertMemoryAuthorizationEvent(ctx, client, botID, string(policy.ScopeType), policy.ScopeID, eventKind, authorized, policyVersion)
+		if err != nil {
+			return err
+		}
+	}
+	create := client.ScopePolicy.Create().SetBotID(botID).SetScopeType(string(policy.ScopeType)).SetScopeID(policy.ScopeID).SetEnabled(policy.Enabled).SetReplyMode(string(policy.ReplyMode)).SetStoreMessages(policy.StoreMessages).SetAllowMemoryWrite(policy.AllowMemoryWrite).SetAllowMemoryRead(policy.AllowMemoryRead).SetAllowHistoryRead(policy.AllowHistoryRead).SetMinReplyIntervalMs(policy.MinReplyIntervalMS).SetMaxRepliesPerHour(policy.MaxRepliesPerHour).SetMaxMessagesPerRun(policy.MaxMessagesPerRun).SetMaxCharsPerMessage(policy.MaxCharsPerMessage).SetMaxTotalCharsPerRun(policy.MaxTotalCharsPerRun).SetMessageIntervalMs(policy.MessageIntervalMS).SetToolPermissions(permissions).SetUpdatedAt(time.Now())
+	if eventID > 0 {
+		create.SetMemoryAuthorizationEventID(eventID)
+	}
+	err = create.OnConflict(entsql.ConflictColumns("bot_id", "scope_type", "scope_id")).Update(func(u *ent.ScopePolicyUpsert) {
 		u.UpdateEnabled()
 		u.UpdateReplyMode()
 		u.UpdateStoreMessages()
@@ -172,6 +201,9 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 		u.UpdateToolPermissions()
 		u.UpdateUpdatedAt()
 		u.AddVersion(1)
+		if relevantChanged {
+			u.UpdateMemoryAuthorizationEventID()
+		}
 	}).Exec(ctx)
 	if err != nil {
 		return err
@@ -182,8 +214,53 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 // Delete removes one stored policy and reports whether a row was deleted.
 // Delete 删除一条已存策略并报告是否删除了行。
 func (r *Repo) Delete(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (bool, error) {
-	n, err := r.pool.Client.ScopePolicy.Delete().Where(sp.BotID(botID), sp.ScopeType(string(scopeType)), sp.ScopeID(scopeID)).Exec(ctx)
-	return n > 0, err
+	tx, err := r.pool.Client.Tx(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	client := tx.Client()
+	if _, err := client.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("scope:%d:%s", botID, scopeType)); err != nil {
+		return false, err
+	}
+	if err := lockMemoryAuthorization(ctx, client, botID, string(scopeType), scopeID); err != nil {
+		return false, err
+	}
+	old, err := client.ScopePolicy.Query().Where(sp.BotID(botID), sp.ScopeType(string(scopeType)), sp.ScopeID(scopeID)).Only(ctx)
+	if ent.IsNotFound(err) {
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	effective := domain.Default(scopeType, scopeID)
+	if scopeID != 0 {
+		template, templateErr := client.ScopePolicy.Query().Where(sp.BotID(botID), sp.ScopeType(string(scopeType)), sp.ScopeID(0)).Only(ctx)
+		if templateErr != nil && !ent.IsNotFound(templateErr) {
+			return false, templateErr
+		}
+		if template != nil {
+			var effectiveErr error
+			effective, effectiveErr = policyModel(template)
+			if effectiveErr != nil {
+				return false, effectiveErr
+			}
+		}
+	}
+	authorized := effective.Enabled && effective.StoreMessages && effective.AllowMemoryWrite
+	if _, err := insertMemoryAuthorizationEvent(ctx, client, botID, string(scopeType), scopeID, "removed", authorized, old.Version+1); err != nil {
+		return false, err
+	}
+	if _, err := client.ScopePolicy.Delete().Where(sp.BotID(botID), sp.ScopeType(string(scopeType)), sp.ScopeID(scopeID)).Exec(ctx); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func policyModel(v *ent.ScopePolicy) (domain.Policy, error) {

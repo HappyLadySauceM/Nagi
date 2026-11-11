@@ -42,6 +42,35 @@ func TestLoadUsesDefaultsWithoutFileOrEnv(t *testing.T) {
 	if !cfg.Tools.PermissionDefaults["qq.reply.current"] {
 		t.Fatalf("reply tool must be granted by default: %+v", cfg.Tools.PermissionDefaults)
 	}
+	if cfg.Memory.Extraction.Enabled || cfg.Memory.Extraction.Concurrency != 1 ||
+		cfg.Memory.Extraction.BatchMaxMessages != 10 || cfg.Memory.Extraction.BatchMaxRunes != 4000 ||
+		cfg.Memory.Extraction.MaxWait.D() != 5*time.Second || cfg.Memory.Extraction.MaxAttempts != 3 {
+		t.Fatalf("unexpected default extraction config: %+v", cfg.Memory.Extraction)
+	}
+}
+
+func TestLoadReadsExtractionConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+memory:
+  extraction:
+    enabled: true
+    concurrency: 2
+    batch-max-messages: 7
+    batch-max-runes: 2500
+    max-wait: 3s
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(Options{File: path, LookupEnv: func(string) (string, bool) { return "", false }})
+	if err != nil {
+		t.Fatalf("load extraction config: %v", err)
+	}
+	if !cfg.Memory.Extraction.Enabled || cfg.Memory.Extraction.Concurrency != 2 ||
+		cfg.Memory.Extraction.BatchMaxMessages != 7 || cfg.Memory.Extraction.BatchMaxRunes != 2500 ||
+		cfg.Memory.Extraction.MaxWait.D() != 3*time.Second {
+		t.Fatalf("extraction config = %+v", cfg.Memory.Extraction)
+	}
 }
 
 func TestLoadAppliesYamlThenOverrides(t *testing.T) {

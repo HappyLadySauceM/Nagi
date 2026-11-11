@@ -213,6 +213,30 @@ func (f MemoryFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, erro
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryMutation", m)
 }
 
+// The MemoryExtractionCursorFunc type is an adapter to allow the use of ordinary
+// function as MemoryExtractionCursor mutator.
+type MemoryExtractionCursorFunc func(context.Context, *ent.MemoryExtractionCursorMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MemoryExtractionCursorFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MemoryExtractionCursorMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryExtractionCursorMutation", m)
+}
+
+// The MemoryExtractionJobFunc type is an adapter to allow the use of ordinary
+// function as MemoryExtractionJob mutator.
+type MemoryExtractionJobFunc func(context.Context, *ent.MemoryExtractionJobMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MemoryExtractionJobFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MemoryExtractionJobMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryExtractionJobMutation", m)
+}
+
 // The MessageFunc type is an adapter to allow the use of ordinary
 // function as Message mutator.
 type MessageFunc func(context.Context, *ent.MessageMutation) (ent.Value, error)
@@ -247,6 +271,18 @@ func (f QQGroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.QQGroupMutation", m)
+}
+
+// The ScopeMemoryAuthorizationEventFunc type is an adapter to allow the use of ordinary
+// function as ScopeMemoryAuthorizationEvent mutator.
+type ScopeMemoryAuthorizationEventFunc func(context.Context, *ent.ScopeMemoryAuthorizationEventMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ScopeMemoryAuthorizationEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ScopeMemoryAuthorizationEventMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ScopeMemoryAuthorizationEventMutation", m)
 }
 
 // The ScopePolicyFunc type is an adapter to allow the use of ordinary

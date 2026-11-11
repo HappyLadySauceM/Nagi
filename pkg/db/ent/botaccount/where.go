@@ -272,6 +272,75 @@ func HasScopePoliciesBotIDWith(preds ...predicate.ScopePolicy) predicate.BotAcco
 	})
 }
 
+// HasScopeMemoryAuthorizationEventsBotID applies the HasEdge predicate on the "scope_memory_authorization_events_bot_id" edge.
+func HasScopeMemoryAuthorizationEventsBotID() predicate.BotAccount {
+	return predicate.BotAccount(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ScopeMemoryAuthorizationEventsBotIDTable, ScopeMemoryAuthorizationEventsBotIDColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasScopeMemoryAuthorizationEventsBotIDWith applies the HasEdge predicate on the "scope_memory_authorization_events_bot_id" edge with a given conditions (other predicates).
+func HasScopeMemoryAuthorizationEventsBotIDWith(preds ...predicate.ScopeMemoryAuthorizationEvent) predicate.BotAccount {
+	return predicate.BotAccount(func(s *sql.Selector) {
+		step := newScopeMemoryAuthorizationEventsBotIDStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasMemoryExtractionCursorsBotID applies the HasEdge predicate on the "memory_extraction_cursors_bot_id" edge.
+func HasMemoryExtractionCursorsBotID() predicate.BotAccount {
+	return predicate.BotAccount(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionCursorsBotIDTable, MemoryExtractionCursorsBotIDColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMemoryExtractionCursorsBotIDWith applies the HasEdge predicate on the "memory_extraction_cursors_bot_id" edge with a given conditions (other predicates).
+func HasMemoryExtractionCursorsBotIDWith(preds ...predicate.MemoryExtractionCursor) predicate.BotAccount {
+	return predicate.BotAccount(func(s *sql.Selector) {
+		step := newMemoryExtractionCursorsBotIDStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasMemoryExtractionJobsBotID applies the HasEdge predicate on the "memory_extraction_jobs_bot_id" edge.
+func HasMemoryExtractionJobsBotID() predicate.BotAccount {
+	return predicate.BotAccount(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionJobsBotIDTable, MemoryExtractionJobsBotIDColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMemoryExtractionJobsBotIDWith applies the HasEdge predicate on the "memory_extraction_jobs_bot_id" edge with a given conditions (other predicates).
+func HasMemoryExtractionJobsBotIDWith(preds ...predicate.MemoryExtractionJob) predicate.BotAccount {
+	return predicate.BotAccount(func(s *sql.Selector) {
+		step := newMemoryExtractionJobsBotIDStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasConversationsBotID applies the HasEdge predicate on the "conversations_bot_id" edge.
 func HasConversationsBotID() predicate.BotAccount {
 	return predicate.BotAccount(func(s *sql.Selector) {

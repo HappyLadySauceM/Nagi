@@ -17,6 +17,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -26,16 +27,17 @@ import (
 // MessageQuery is the builder for querying Message entities.
 type MessageQuery struct {
 	config
-	ctx                              *QueryContext
-	order                            []message.OrderOption
-	inters                           []Interceptor
-	predicates                       []predicate.Message
-	withConversationIDRef            *ConversationQuery
-	withBotIDRef                     *BotAccountQuery
-	withMessageJobsIncomingMessageID *MessageJobQuery
-	withOutboundIDRef                *AgentOutboundMessageQuery
-	withMemoriesSourceMessageID      *MemoryQuery
-	modifiers                        []func(*sql.Selector)
+	ctx                               *QueryContext
+	order                             []message.OrderOption
+	inters                            []Interceptor
+	predicates                        []predicate.Message
+	withConversationIDRef             *ConversationQuery
+	withBotIDRef                      *BotAccountQuery
+	withMessageJobsIncomingMessageID  *MessageJobQuery
+	withOutboundIDRef                 *AgentOutboundMessageQuery
+	withMemoriesSourceMessageID       *MemoryQuery
+	withMemoryExtractionJobsMessageID *MemoryExtractionJobQuery
+	modifiers                         []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -175,6 +177,28 @@ func (_q *MessageQuery) QueryMemoriesSourceMessageID() *MemoryQuery {
 			sqlgraph.From(message.Table, message.FieldID, selector),
 			sqlgraph.To(memory.Table, memory.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, message.MemoriesSourceMessageIDTable, message.MemoriesSourceMessageIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionJobsMessageID chains the current query on the "memory_extraction_jobs_message_id" edge.
+func (_q *MessageQuery) QueryMemoryExtractionJobsMessageID() *MemoryExtractionJobQuery {
+	query := (&MemoryExtractionJobClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, selector),
+			sqlgraph.To(memoryextractionjob.Table, memoryextractionjob.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, message.MemoryExtractionJobsMessageIDTable, message.MemoryExtractionJobsMessageIDColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -369,16 +393,17 @@ func (_q *MessageQuery) Clone() *MessageQuery {
 		return nil
 	}
 	return &MessageQuery{
-		config:                           _q.config,
-		ctx:                              _q.ctx.Clone(),
-		order:                            append([]message.OrderOption{}, _q.order...),
-		inters:                           append([]Interceptor{}, _q.inters...),
-		predicates:                       append([]predicate.Message{}, _q.predicates...),
-		withConversationIDRef:            _q.withConversationIDRef.Clone(),
-		withBotIDRef:                     _q.withBotIDRef.Clone(),
-		withMessageJobsIncomingMessageID: _q.withMessageJobsIncomingMessageID.Clone(),
-		withOutboundIDRef:                _q.withOutboundIDRef.Clone(),
-		withMemoriesSourceMessageID:      _q.withMemoriesSourceMessageID.Clone(),
+		config:                            _q.config,
+		ctx:                               _q.ctx.Clone(),
+		order:                             append([]message.OrderOption{}, _q.order...),
+		inters:                            append([]Interceptor{}, _q.inters...),
+		predicates:                        append([]predicate.Message{}, _q.predicates...),
+		withConversationIDRef:             _q.withConversationIDRef.Clone(),
+		withBotIDRef:                      _q.withBotIDRef.Clone(),
+		withMessageJobsIncomingMessageID:  _q.withMessageJobsIncomingMessageID.Clone(),
+		withOutboundIDRef:                 _q.withOutboundIDRef.Clone(),
+		withMemoriesSourceMessageID:       _q.withMemoriesSourceMessageID.Clone(),
+		withMemoryExtractionJobsMessageID: _q.withMemoryExtractionJobsMessageID.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -437,6 +462,17 @@ func (_q *MessageQuery) WithMemoriesSourceMessageID(opts ...func(*MemoryQuery)) 
 		opt(query)
 	}
 	_q.withMemoriesSourceMessageID = query
+	return _q
+}
+
+// WithMemoryExtractionJobsMessageID tells the query-builder to eager-load the nodes that are connected to
+// the "memory_extraction_jobs_message_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MessageQuery) WithMemoryExtractionJobsMessageID(opts ...func(*MemoryExtractionJobQuery)) *MessageQuery {
+	query := (&MemoryExtractionJobClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withMemoryExtractionJobsMessageID = query
 	return _q
 }
 
@@ -518,12 +554,13 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 	var (
 		nodes       = []*Message{}
 		_spec       = _q.querySpec()
-		loadedTypes = [5]bool{
+		loadedTypes = [6]bool{
 			_q.withConversationIDRef != nil,
 			_q.withBotIDRef != nil,
 			_q.withMessageJobsIncomingMessageID != nil,
 			_q.withOutboundIDRef != nil,
 			_q.withMemoriesSourceMessageID != nil,
+			_q.withMemoryExtractionJobsMessageID != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -579,6 +616,15 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 			func(n *Message) { n.Edges.MemoriesSourceMessageID = []*Memory{} },
 			func(n *Message, e *Memory) {
 				n.Edges.MemoriesSourceMessageID = append(n.Edges.MemoriesSourceMessageID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withMemoryExtractionJobsMessageID; query != nil {
+		if err := _q.loadMemoryExtractionJobsMessageID(ctx, query, nodes,
+			func(n *Message) { n.Edges.MemoryExtractionJobsMessageID = []*MemoryExtractionJob{} },
+			func(n *Message, e *MemoryExtractionJob) {
+				n.Edges.MemoryExtractionJobsMessageID = append(n.Edges.MemoryExtractionJobsMessageID, e)
 			}); err != nil {
 			return nil, err
 		}
@@ -734,6 +780,39 @@ func (_q *MessageQuery) loadMemoriesSourceMessageID(ctx context.Context, query *
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "source_message_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *MessageQuery) loadMemoryExtractionJobsMessageID(ctx context.Context, query *MemoryExtractionJobQuery, nodes []*Message, init func(*Message), assign func(*Message, *MemoryExtractionJob)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Message)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(memoryextractionjob.FieldMessageID)
+	}
+	query.Where(predicate.MemoryExtractionJob(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(message.MemoryExtractionJobsMessageIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.MessageID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "message_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "message_id" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}
