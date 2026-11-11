@@ -320,6 +320,52 @@ func HasAgentOutboundMessagesConversationIDWith(preds ...predicate.AgentOutbound
 	})
 }
 
+// HasMemoryExtractionCursorsConversationID applies the HasEdge predicate on the "memory_extraction_cursors_conversation_id" edge.
+func HasMemoryExtractionCursorsConversationID() predicate.Conversation {
+	return predicate.Conversation(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionCursorsConversationIDTable, MemoryExtractionCursorsConversationIDColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMemoryExtractionCursorsConversationIDWith applies the HasEdge predicate on the "memory_extraction_cursors_conversation_id" edge with a given conditions (other predicates).
+func HasMemoryExtractionCursorsConversationIDWith(preds ...predicate.MemoryExtractionCursor) predicate.Conversation {
+	return predicate.Conversation(func(s *sql.Selector) {
+		step := newMemoryExtractionCursorsConversationIDStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasMemoryExtractionJobsConversationID applies the HasEdge predicate on the "memory_extraction_jobs_conversation_id" edge.
+func HasMemoryExtractionJobsConversationID() predicate.Conversation {
+	return predicate.Conversation(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionJobsConversationIDTable, MemoryExtractionJobsConversationIDColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMemoryExtractionJobsConversationIDWith applies the HasEdge predicate on the "memory_extraction_jobs_conversation_id" edge with a given conditions (other predicates).
+func HasMemoryExtractionJobsConversationIDWith(preds ...predicate.MemoryExtractionJob) predicate.Conversation {
+	return predicate.Conversation(func(s *sql.Selector) {
+		step := newMemoryExtractionJobsConversationIDStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Conversation) predicate.Conversation {
 	return predicate.Conversation(sql.AndPredicates(predicates...))

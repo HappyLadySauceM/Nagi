@@ -4,6 +4,8 @@ package application
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -57,6 +59,15 @@ func (f *fakeMemoryRepo) FindSame(_ context.Context, botID int64, v domain.Visib
 	for _, m := range f.items {
 		if m.BotID == botID && m.Visibility == v && m.OwnerKey == ownerKey && m.Content == content &&
 			(m.Status == domain.StatusCandidate || m.Status == domain.StatusActive) {
+			return m, true, nil
+		}
+	}
+	return domain.Memory{}, false, nil
+}
+
+func (f *fakeMemoryRepo) FindByDedupeKey(_ context.Context, key string) (domain.Memory, bool, error) {
+	for _, m := range f.items {
+		if m.DedupeKey == key && (m.Status == domain.StatusCandidate || m.Status == domain.StatusActive) {
 			return m, true, nil
 		}
 	}
@@ -294,18 +305,23 @@ func TestPrivateMemoriesStayPerUser(t *testing.T) {
 // returns active, unexpired memories visible to the requested conversation.
 // TestRecallDetailEnforcesVisibility 验证按需详情只返回对指定会话可见的
 // 激活且未过期记忆。
+func detailID(n int) string {
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", n)
+}
+
 func TestRecallDetailEnforcesVisibility(t *testing.T) {
 	repo := newFakeMemoryRepo()
 	svc, _ := NewService(repo)
 	ctx := context.Background()
 	now := time.Now()
 	items := map[string]domain.Memory{
-		"shared":    {ID: "shared", BotID: 1, Visibility: domain.VisibilityBotShared, Content: "共享", Status: domain.StatusActive, UpdatedAt: now},
-		"group":     {ID: "group", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "本群", Status: domain.StatusActive, UpdatedAt: now},
-		"other":     {ID: "other", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "701", Content: "别的群", Status: domain.StatusActive, UpdatedAt: now},
-		"private":   {ID: "private", BotID: 1, Visibility: domain.VisibilityPrivateUser, OwnerKey: "200", Content: "私聊", Status: domain.StatusActive, UpdatedAt: now},
-		"candidate": {ID: "candidate", BotID: 1, Visibility: domain.VisibilityBotShared, Content: "候选", Status: domain.StatusCandidate, UpdatedAt: now},
-		"expired":   {ID: "expired", BotID: 1, Visibility: domain.VisibilityBotShared, Content: "过期", Status: domain.StatusActive, ExpiresAt: now.Add(-time.Minute), UpdatedAt: now},
+		detailID(1): {ID: detailID(1), BotID: 1, Visibility: domain.VisibilityBotShared, Content: "共享", Status: domain.StatusActive, UpdatedAt: now},
+		detailID(2): {ID: detailID(2), BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "本群", Status: domain.StatusActive, UpdatedAt: now},
+		detailID(3): {ID: detailID(3), BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "701", Content: "别的群", Status: domain.StatusActive, UpdatedAt: now},
+		detailID(4): {ID: detailID(4), BotID: 1, Visibility: domain.VisibilityPrivateUser, OwnerKey: "200", Content: "私聊", Status: domain.StatusActive, UpdatedAt: now},
+		detailID(5): {ID: detailID(5), BotID: 1, Visibility: domain.VisibilityBotShared, Content: "候选", Status: domain.StatusCandidate, UpdatedAt: now},
+		detailID(6): {ID: detailID(6), BotID: 1, Visibility: domain.VisibilityBotShared, Content: "过期", Status: domain.StatusActive, ExpiresAt: now.Add(-time.Minute), UpdatedAt: now},
+		detailID(7): {ID: detailID(7), BotID: 1, Visibility: domain.VisibilityBotShared, Content: "已删除", Status: domain.StatusDeleted, UpdatedAt: now},
 	}
 	for id, item := range items {
 		repo.items[id] = item
@@ -315,14 +331,15 @@ func TestRecallDetailEnforcesVisibility(t *testing.T) {
 		req  contracts.DetailRequest
 		want bool
 	}{
-		{name: "shared visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "shared"}, want: true},
-		{name: "own group visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "group"}, want: true},
-		{name: "other group invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "other"}, want: false},
-		{name: "private only matches same user", req: contracts.DetailRequest{BotID: 1, Kind: "private", TargetID: 200, MemoryID: "private"}, want: true},
-		{name: "private does not leak to group", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 200, MemoryID: "private"}, want: false},
-		{name: "candidate invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "candidate"}, want: false},
-		{name: "expired invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "expired"}, want: false},
-		{name: "other bot invisible", req: contracts.DetailRequest{BotID: 2, Kind: "group", TargetID: 700, MemoryID: "shared"}, want: false},
+		{name: "shared visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(1)}, want: true},
+		{name: "own group visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(2)}, want: true},
+		{name: "other group invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(3)}, want: false},
+		{name: "private only matches same user", req: contracts.DetailRequest{BotID: 1, Kind: "private", TargetID: 200, MemoryID: detailID(4)}, want: true},
+		{name: "private does not leak to group", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 200, MemoryID: detailID(4)}, want: false},
+		{name: "candidate invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(5)}, want: false},
+		{name: "expired invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(6)}, want: false},
+		{name: "deleted invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(7)}, want: false},
+		{name: "other bot invisible", req: contracts.DetailRequest{BotID: 2, Kind: "group", TargetID: 700, MemoryID: detailID(1)}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, found, err := svc.RecallDetail(ctx, tc.req)
@@ -345,32 +362,51 @@ func TestRecallDetailEnforcesVisibilityAndLifecycle(t *testing.T) {
 	repo := newFakeMemoryRepo()
 	svc, _ := NewService(repo)
 	ctx := context.Background()
-	repo.items["m1"] = domain.Memory{
-		ID: "m1", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700",
+	id := detailID(10)
+	repo.items[id] = domain.Memory{
+		ID: id, BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700",
 		Content: "群友喜欢晚上聊天", Source: "群聊 700", SourceMessageID: 9001,
 		Status: domain.StatusActive,
 	}
-	got, found, err := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "m1"})
+	got, found, err := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: id})
 	if err != nil || !found || got.Source != "群聊 700" || got.SourceMessageID != 9001 || got.Content != "群友喜欢晚上聊天" {
 		t.Fatalf("detail = %+v found=%v err=%v", got, found, err)
 	}
 	for _, in := range []contracts.DetailRequest{
-		{BotID: 1, Kind: "group", TargetID: 701, MemoryID: "m1"},
-		{BotID: 1, Kind: "private", TargetID: 700, MemoryID: "m1"},
-		{BotID: 2, Kind: "group", TargetID: 700, MemoryID: "m1"},
+		{BotID: 1, Kind: "group", TargetID: 701, MemoryID: id},
+		{BotID: 1, Kind: "private", TargetID: 700, MemoryID: id},
+		{BotID: 2, Kind: "group", TargetID: 700, MemoryID: id},
 	} {
 		if _, found, err := svc.RecallDetail(ctx, in); err != nil || found {
 			t.Fatalf("cross-scope detail leaked: %+v found=%v err=%v", in, found, err)
 		}
 	}
-	repo.items["candidate"] = domain.Memory{ID: "candidate", BotID: 1, Visibility: domain.VisibilityBotShared, Status: domain.StatusCandidate}
-	if _, found, _ := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "candidate"}); found {
+	candidateID := detailID(11)
+	repo.items[candidateID] = domain.Memory{ID: candidateID, BotID: 1, Visibility: domain.VisibilityBotShared, Status: domain.StatusCandidate}
+	if _, found, _ := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: candidateID}); found {
 		t.Fatal("candidate memory detail leaked")
 	}
+	expiredID := detailID(12)
 	expired := time.Now().Add(-time.Minute)
-	repo.items["expired"] = domain.Memory{ID: "expired", BotID: 1, Visibility: domain.VisibilityBotShared, Status: domain.StatusActive, ExpiresAt: expired}
-	if _, found, _ := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: "expired"}); found {
+	repo.items[expiredID] = domain.Memory{ID: expiredID, BotID: 1, Visibility: domain.VisibilityBotShared, Status: domain.StatusActive, ExpiresAt: expired}
+	if _, found, _ := svc.RecallDetail(ctx, contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: expiredID}); found {
 		t.Fatal("expired memory detail leaked")
+	}
+}
+
+// TestRecallDetailRejectsMalformedID verifies a malformed path parameter is a
+// caller error, not an infrastructure error.
+// TestRecallDetailRejectsMalformedID 验证非法 ID 是调用方参数错误，不是内部错误。
+func TestRecallDetailRejectsMalformedID(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	_, found, err := svc.RecallDetail(context.Background(), contracts.DetailRequest{
+		BotID: 1, Kind: "group", TargetID: 700, MemoryID: "not-a-uuid",
+	})
+	if found {
+		t.Fatal("malformed memory id must not be found")
+	}
+	if !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("err=%v, want ErrInvalidID", err)
 	}
 }
 
@@ -390,5 +426,64 @@ func TestMemoryVisibleToKeepsGroupsAndPrivateUsersSeparate(t *testing.T) {
 	shared := domain.Memory{Visibility: domain.VisibilityBotShared}
 	if !shared.VisibleTo("group", 700, "") || !shared.VisibleTo("private", 200, "") {
 		t.Fatal("bot-shared memory must be visible to every conversation")
+	}
+}
+
+// TestProposeCompleteKeyKeepsDifferentSubjectsSeparate verifies two users saying
+// the same text do not collapse into one candidate.
+// TestProposeCompleteKeyKeepsDifferentSubjectsSeparate 验证不同用户说同一句话
+// 不会被合并成同一个候选。
+func TestProposeCompleteKeyKeepsDifferentSubjectsSeparate(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	ctx := context.Background()
+	first, duplicate, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "我喜欢茶", SubjectType: domain.SubjectUser, SubjectID: "1001", Origin: domain.OriginManual})
+	if err != nil || duplicate {
+		t.Fatalf("first propose: id=%s dup=%v err=%v", first, duplicate, err)
+	}
+	second, duplicate, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "我喜欢茶", SubjectType: domain.SubjectUser, SubjectID: "1002", Origin: domain.OriginManual})
+	if err != nil || duplicate || second == first {
+		t.Fatalf("second subject: id=%s dup=%v err=%v first=%s", second, duplicate, err, first)
+	}
+}
+
+// TestProposeExtractionUnknownUsesSourceProvenance verifies the server derives
+// an unknown extraction subject from the source message and sender, so retries
+// dedupe while different speakers with identical text remain separate.
+// TestProposeExtractionUnknownUsesSourceProvenance 验证服务器从来源消息与发送者
+// 构造未知提取主体，使重试可去重，而不同发送者的相同文本不会被合并。
+func TestProposeExtractionUnknownUsesSourceProvenance(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	ctx := context.Background()
+	in := CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "来源不明的同一句话", SubjectType: domain.SubjectUnknown, Origin: domain.OriginExtraction, SourceMessageID: 11, SourceSenderID: 1001}
+	first, duplicate, err := svc.Propose(ctx, in)
+	if err != nil || duplicate {
+		t.Fatalf("first propose: id=%s dup=%v err=%v", first, duplicate, err)
+	}
+	second, duplicate, err := svc.Propose(ctx, in)
+	if err != nil || !duplicate || second != first {
+		t.Fatalf("second propose: id=%s dup=%v err=%v first=%s", second, duplicate, err, first)
+	}
+	differentSender := in
+	differentSender.SourceSenderID = 1002
+	third, duplicate, err := svc.Propose(ctx, differentSender)
+	if err != nil || duplicate || third == first {
+		t.Fatalf("different sender: id=%s dup=%v err=%v first=%s", third, duplicate, err, first)
+	}
+	stored := repo.items[first]
+	if stored.SubjectType != domain.SubjectUnknown || stored.SubjectID != domain.ExtractionUnknownSubjectID(in.SourceMessageID, in.SourceSenderID) || stored.DedupeKey == "" {
+		t.Fatalf("stored provenance subject=%q/%q key=%q", stored.SubjectType, stored.SubjectID, stored.DedupeKey)
+	}
+}
+
+// TestProposeExtractionUnknownRequiresSource verifies extraction unknowns cannot
+// fall back to content-only dedupe without source provenance.
+// TestProposeExtractionUnknownRequiresSource 验证未知提取主体缺少来源出处处不能回退到
+// 仅按内容去重。
+func TestProposeExtractionUnknownRequiresSource(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	_, _, err := svc.Propose(context.Background(), CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "来源不明的同一句话", SubjectType: domain.SubjectUnknown, Origin: domain.OriginExtraction})
+	if err == nil {
+		t.Fatal("extraction unknown without source provenance was accepted")
 	}
 }

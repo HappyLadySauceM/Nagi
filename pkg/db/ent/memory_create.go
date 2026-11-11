@@ -86,6 +86,90 @@ func (_c *MemoryCreate) SetNillableSource(v *string) *MemoryCreate {
 	return _c
 }
 
+// SetSourceSenderID sets the "source_sender_id" field.
+func (_c *MemoryCreate) SetSourceSenderID(v int64) *MemoryCreate {
+	_c.mutation.SetSourceSenderID(v)
+	return _c
+}
+
+// SetNillableSourceSenderID sets the "source_sender_id" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableSourceSenderID(v *int64) *MemoryCreate {
+	if v != nil {
+		_c.SetSourceSenderID(*v)
+	}
+	return _c
+}
+
+// SetOrigin sets the "origin" field.
+func (_c *MemoryCreate) SetOrigin(v string) *MemoryCreate {
+	_c.mutation.SetOrigin(v)
+	return _c
+}
+
+// SetNillableOrigin sets the "origin" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableOrigin(v *string) *MemoryCreate {
+	if v != nil {
+		_c.SetOrigin(*v)
+	}
+	return _c
+}
+
+// SetSubjectType sets the "subject_type" field.
+func (_c *MemoryCreate) SetSubjectType(v string) *MemoryCreate {
+	_c.mutation.SetSubjectType(v)
+	return _c
+}
+
+// SetNillableSubjectType sets the "subject_type" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableSubjectType(v *string) *MemoryCreate {
+	if v != nil {
+		_c.SetSubjectType(*v)
+	}
+	return _c
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (_c *MemoryCreate) SetSubjectID(v string) *MemoryCreate {
+	_c.mutation.SetSubjectID(v)
+	return _c
+}
+
+// SetNillableSubjectID sets the "subject_id" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableSubjectID(v *string) *MemoryCreate {
+	if v != nil {
+		_c.SetSubjectID(*v)
+	}
+	return _c
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (_c *MemoryCreate) SetDedupeKey(v string) *MemoryCreate {
+	_c.mutation.SetDedupeKey(v)
+	return _c
+}
+
+// SetNillableDedupeKey sets the "dedupe_key" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableDedupeKey(v *string) *MemoryCreate {
+	if v != nil {
+		_c.SetDedupeKey(*v)
+	}
+	return _c
+}
+
+// SetReviewReason sets the "review_reason" field.
+func (_c *MemoryCreate) SetReviewReason(v string) *MemoryCreate {
+	_c.mutation.SetReviewReason(v)
+	return _c
+}
+
+// SetNillableReviewReason sets the "review_reason" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableReviewReason(v *string) *MemoryCreate {
+	if v != nil {
+		_c.SetReviewReason(*v)
+	}
+	return _c
+}
+
 // SetConfidence sets the "confidence" field.
 func (_c *MemoryCreate) SetConfidence(v float32) *MemoryCreate {
 	_c.mutation.SetConfidence(v)
@@ -249,6 +333,14 @@ func (_c *MemoryCreate) defaults() {
 		v := memory.DefaultSource
 		_c.mutation.SetSource(v)
 	}
+	if _, ok := _c.mutation.Origin(); !ok {
+		v := memory.DefaultOrigin
+		_c.mutation.SetOrigin(v)
+	}
+	if _, ok := _c.mutation.ReviewReason(); !ok {
+		v := memory.DefaultReviewReason
+		_c.mutation.SetReviewReason(v)
+	}
 	if _, ok := _c.mutation.Confidence(); !ok {
 		v := memory.DefaultConfidence
 		_c.mutation.SetConfidence(v)
@@ -336,6 +428,30 @@ func (_c *MemoryCreate) createSpec() (*Memory, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Source(); ok {
 		_spec.SetField(memory.FieldSource, field.TypeString, value)
 		_node.Source = value
+	}
+	if value, ok := _c.mutation.SourceSenderID(); ok {
+		_spec.SetField(memory.FieldSourceSenderID, field.TypeInt64, value)
+		_node.SourceSenderID = &value
+	}
+	if value, ok := _c.mutation.Origin(); ok {
+		_spec.SetField(memory.FieldOrigin, field.TypeString, value)
+		_node.Origin = value
+	}
+	if value, ok := _c.mutation.SubjectType(); ok {
+		_spec.SetField(memory.FieldSubjectType, field.TypeString, value)
+		_node.SubjectType = &value
+	}
+	if value, ok := _c.mutation.SubjectID(); ok {
+		_spec.SetField(memory.FieldSubjectID, field.TypeString, value)
+		_node.SubjectID = &value
+	}
+	if value, ok := _c.mutation.DedupeKey(); ok {
+		_spec.SetField(memory.FieldDedupeKey, field.TypeString, value)
+		_node.DedupeKey = &value
+	}
+	if value, ok := _c.mutation.ReviewReason(); ok {
+		_spec.SetField(memory.FieldReviewReason, field.TypeString, value)
+		_node.ReviewReason = value
 	}
 	if value, ok := _c.mutation.Confidence(); ok {
 		_spec.SetField(memory.FieldConfidence, field.TypeFloat32, value)
@@ -522,6 +638,108 @@ func (u *MemoryUpsert) SetSource(v string) *MemoryUpsert {
 // UpdateSource sets the "source" field to the value that was provided on create.
 func (u *MemoryUpsert) UpdateSource() *MemoryUpsert {
 	u.SetExcluded(memory.FieldSource)
+	return u
+}
+
+// SetSourceSenderID sets the "source_sender_id" field.
+func (u *MemoryUpsert) SetSourceSenderID(v int64) *MemoryUpsert {
+	u.Set(memory.FieldSourceSenderID, v)
+	return u
+}
+
+// UpdateSourceSenderID sets the "source_sender_id" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateSourceSenderID() *MemoryUpsert {
+	u.SetExcluded(memory.FieldSourceSenderID)
+	return u
+}
+
+// AddSourceSenderID adds v to the "source_sender_id" field.
+func (u *MemoryUpsert) AddSourceSenderID(v int64) *MemoryUpsert {
+	u.Add(memory.FieldSourceSenderID, v)
+	return u
+}
+
+// ClearSourceSenderID clears the value of the "source_sender_id" field.
+func (u *MemoryUpsert) ClearSourceSenderID() *MemoryUpsert {
+	u.SetNull(memory.FieldSourceSenderID)
+	return u
+}
+
+// SetOrigin sets the "origin" field.
+func (u *MemoryUpsert) SetOrigin(v string) *MemoryUpsert {
+	u.Set(memory.FieldOrigin, v)
+	return u
+}
+
+// UpdateOrigin sets the "origin" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateOrigin() *MemoryUpsert {
+	u.SetExcluded(memory.FieldOrigin)
+	return u
+}
+
+// SetSubjectType sets the "subject_type" field.
+func (u *MemoryUpsert) SetSubjectType(v string) *MemoryUpsert {
+	u.Set(memory.FieldSubjectType, v)
+	return u
+}
+
+// UpdateSubjectType sets the "subject_type" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateSubjectType() *MemoryUpsert {
+	u.SetExcluded(memory.FieldSubjectType)
+	return u
+}
+
+// ClearSubjectType clears the value of the "subject_type" field.
+func (u *MemoryUpsert) ClearSubjectType() *MemoryUpsert {
+	u.SetNull(memory.FieldSubjectType)
+	return u
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (u *MemoryUpsert) SetSubjectID(v string) *MemoryUpsert {
+	u.Set(memory.FieldSubjectID, v)
+	return u
+}
+
+// UpdateSubjectID sets the "subject_id" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateSubjectID() *MemoryUpsert {
+	u.SetExcluded(memory.FieldSubjectID)
+	return u
+}
+
+// ClearSubjectID clears the value of the "subject_id" field.
+func (u *MemoryUpsert) ClearSubjectID() *MemoryUpsert {
+	u.SetNull(memory.FieldSubjectID)
+	return u
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (u *MemoryUpsert) SetDedupeKey(v string) *MemoryUpsert {
+	u.Set(memory.FieldDedupeKey, v)
+	return u
+}
+
+// UpdateDedupeKey sets the "dedupe_key" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateDedupeKey() *MemoryUpsert {
+	u.SetExcluded(memory.FieldDedupeKey)
+	return u
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (u *MemoryUpsert) ClearDedupeKey() *MemoryUpsert {
+	u.SetNull(memory.FieldDedupeKey)
+	return u
+}
+
+// SetReviewReason sets the "review_reason" field.
+func (u *MemoryUpsert) SetReviewReason(v string) *MemoryUpsert {
+	u.Set(memory.FieldReviewReason, v)
+	return u
+}
+
+// UpdateReviewReason sets the "review_reason" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateReviewReason() *MemoryUpsert {
+	u.SetExcluded(memory.FieldReviewReason)
 	return u
 }
 
@@ -745,6 +963,125 @@ func (u *MemoryUpsertOne) SetSource(v string) *MemoryUpsertOne {
 func (u *MemoryUpsertOne) UpdateSource() *MemoryUpsertOne {
 	return u.Update(func(s *MemoryUpsert) {
 		s.UpdateSource()
+	})
+}
+
+// SetSourceSenderID sets the "source_sender_id" field.
+func (u *MemoryUpsertOne) SetSourceSenderID(v int64) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetSourceSenderID(v)
+	})
+}
+
+// AddSourceSenderID adds v to the "source_sender_id" field.
+func (u *MemoryUpsertOne) AddSourceSenderID(v int64) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.AddSourceSenderID(v)
+	})
+}
+
+// UpdateSourceSenderID sets the "source_sender_id" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateSourceSenderID() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateSourceSenderID()
+	})
+}
+
+// ClearSourceSenderID clears the value of the "source_sender_id" field.
+func (u *MemoryUpsertOne) ClearSourceSenderID() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearSourceSenderID()
+	})
+}
+
+// SetOrigin sets the "origin" field.
+func (u *MemoryUpsertOne) SetOrigin(v string) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetOrigin(v)
+	})
+}
+
+// UpdateOrigin sets the "origin" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateOrigin() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateOrigin()
+	})
+}
+
+// SetSubjectType sets the "subject_type" field.
+func (u *MemoryUpsertOne) SetSubjectType(v string) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetSubjectType(v)
+	})
+}
+
+// UpdateSubjectType sets the "subject_type" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateSubjectType() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateSubjectType()
+	})
+}
+
+// ClearSubjectType clears the value of the "subject_type" field.
+func (u *MemoryUpsertOne) ClearSubjectType() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearSubjectType()
+	})
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (u *MemoryUpsertOne) SetSubjectID(v string) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetSubjectID(v)
+	})
+}
+
+// UpdateSubjectID sets the "subject_id" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateSubjectID() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateSubjectID()
+	})
+}
+
+// ClearSubjectID clears the value of the "subject_id" field.
+func (u *MemoryUpsertOne) ClearSubjectID() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearSubjectID()
+	})
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (u *MemoryUpsertOne) SetDedupeKey(v string) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetDedupeKey(v)
+	})
+}
+
+// UpdateDedupeKey sets the "dedupe_key" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateDedupeKey() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateDedupeKey()
+	})
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (u *MemoryUpsertOne) ClearDedupeKey() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearDedupeKey()
+	})
+}
+
+// SetReviewReason sets the "review_reason" field.
+func (u *MemoryUpsertOne) SetReviewReason(v string) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetReviewReason(v)
+	})
+}
+
+// UpdateReviewReason sets the "review_reason" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateReviewReason() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateReviewReason()
 	})
 }
 
@@ -1149,6 +1486,125 @@ func (u *MemoryUpsertBulk) SetSource(v string) *MemoryUpsertBulk {
 func (u *MemoryUpsertBulk) UpdateSource() *MemoryUpsertBulk {
 	return u.Update(func(s *MemoryUpsert) {
 		s.UpdateSource()
+	})
+}
+
+// SetSourceSenderID sets the "source_sender_id" field.
+func (u *MemoryUpsertBulk) SetSourceSenderID(v int64) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetSourceSenderID(v)
+	})
+}
+
+// AddSourceSenderID adds v to the "source_sender_id" field.
+func (u *MemoryUpsertBulk) AddSourceSenderID(v int64) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.AddSourceSenderID(v)
+	})
+}
+
+// UpdateSourceSenderID sets the "source_sender_id" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateSourceSenderID() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateSourceSenderID()
+	})
+}
+
+// ClearSourceSenderID clears the value of the "source_sender_id" field.
+func (u *MemoryUpsertBulk) ClearSourceSenderID() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearSourceSenderID()
+	})
+}
+
+// SetOrigin sets the "origin" field.
+func (u *MemoryUpsertBulk) SetOrigin(v string) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetOrigin(v)
+	})
+}
+
+// UpdateOrigin sets the "origin" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateOrigin() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateOrigin()
+	})
+}
+
+// SetSubjectType sets the "subject_type" field.
+func (u *MemoryUpsertBulk) SetSubjectType(v string) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetSubjectType(v)
+	})
+}
+
+// UpdateSubjectType sets the "subject_type" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateSubjectType() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateSubjectType()
+	})
+}
+
+// ClearSubjectType clears the value of the "subject_type" field.
+func (u *MemoryUpsertBulk) ClearSubjectType() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearSubjectType()
+	})
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (u *MemoryUpsertBulk) SetSubjectID(v string) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetSubjectID(v)
+	})
+}
+
+// UpdateSubjectID sets the "subject_id" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateSubjectID() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateSubjectID()
+	})
+}
+
+// ClearSubjectID clears the value of the "subject_id" field.
+func (u *MemoryUpsertBulk) ClearSubjectID() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearSubjectID()
+	})
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (u *MemoryUpsertBulk) SetDedupeKey(v string) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetDedupeKey(v)
+	})
+}
+
+// UpdateDedupeKey sets the "dedupe_key" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateDedupeKey() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateDedupeKey()
+	})
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (u *MemoryUpsertBulk) ClearDedupeKey() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearDedupeKey()
+	})
+}
+
+// SetReviewReason sets the "review_reason" field.
+func (u *MemoryUpsertBulk) SetReviewReason(v string) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetReviewReason(v)
+	})
+}
+
+// UpdateReviewReason sets the "review_reason" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateReviewReason() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateReviewReason()
 	})
 }
 

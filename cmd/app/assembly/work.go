@@ -132,6 +132,10 @@ type Runtime struct {
 	// SettingsProvider is the live snapshot every run reads.
 	// SettingsProvider 是每次运行读取的实时快照。
 	SettingsProvider *settingsapp.Provider
+	// ExtractionWorker runs asynchronous memory candidate extraction; nil when
+	// memory.extraction.enabled is false.
+	// ExtractionWorker 运行异步记忆候选提取；memory.extraction.enabled 为 false 时为 nil。
+	ExtractionWorker *memoryapp.ExtractionWorker
 }
 
 // Assemble wires one connection per configured endpoint, registers the shared
@@ -202,7 +206,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if rt.Conversation, err = buildConversation(pool, logger); err != nil {
 			return nil, err
 		}
-		if rt.Memory, err = buildMemory(pool); err != nil {
+		if rt.Memory, err = buildMemory(pool, rt.Scope); err != nil {
 			return nil, err
 		}
 		if rt.Audit, err = auditinfra.NewRecorder(pool); err != nil {
@@ -287,6 +291,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		toolRegistry := pluginsapp.NewRegistry()
 		providers := []pluginscontracts.ToolProvider{
 			builtin.NewTimeProvider(),
+			builtin.NewMemoryProvider(rt.Memory, conversationSourceAdapter{svc: rt.Conversation}),
 			&mediainfra.VideoProvider{Service: mediaService, Attachments: attachmentRepo},
 			builtin.WithoutPublicDuplicates(builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry})),
 			builtin.WithoutPublicDuplicates(builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry})),
@@ -378,6 +383,37 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		})
 		rt.Settings = settingsService
 		rt.SettingsProvider = settingsProvider
+		if cfg.Memory.Extraction.Enabled {
+			extractionRepo, extractionRepoErr := memoryinfra.NewRepo(pool)
+			if extractionRepoErr != nil {
+				return nil, extractionRepoErr
+			}
+			extractionRetryDelays := make([]time.Duration, 0, len(cfg.Memory.Extraction.RetryDelays))
+			for _, delay := range cfg.Memory.Extraction.RetryDelays {
+				extractionRetryDelays = append(extractionRetryDelays, delay.D())
+			}
+			extractionWorker, extractionWorkerErr := memoryapp.NewExtractionWorker(
+				extractionRepo,
+				memoryinfra.NewModelExtractor(settingsService),
+				rt.Scope,
+				memoryapp.ExtractionWorkerOptions{
+					Enabled:          func() bool { return cfg.Memory.Extraction.Enabled },
+					Concurrency:      cfg.Memory.Extraction.Concurrency,
+					BatchMaxMessages: cfg.Memory.Extraction.BatchMaxMessages,
+					BatchMaxRunes:    cfg.Memory.Extraction.BatchMaxRunes,
+					MaxWait:          cfg.Memory.Extraction.MaxWait.D(),
+					PollInterval:     cfg.Memory.Extraction.PollInterval.D(),
+					MaxAttempts:      cfg.Memory.Extraction.MaxAttempts,
+					RetryDelays:      extractionRetryDelays,
+					Lease:            cfg.Memory.Extraction.LeaseDuration.D(),
+				},
+				logger,
+			)
+			if extractionWorkerErr != nil {
+				return nil, extractionWorkerErr
+			}
+			rt.ExtractionWorker = extractionWorker
+		}
 		logger.Info("tools registered",
 			"count", len(toolRegistry.Snapshot()),
 			"providers", len(toolRegistry.Manifests()))
@@ -446,7 +482,11 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 // buildConversation binds the pgx repository to the conversation service.
 // buildConversation 将 pgx 仓库绑定到会话服务。
 func buildConversation(pool *db.Pool, logger *slog.Logger) (*conversationapp.Service, error) {
-	repo, err := conversationinfra.NewRepo(pool)
+	scopeRepo, err := scopeinfra.NewRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := conversationinfra.NewRepo(pool, conversationinfra.WithMemoryAuthorizationStamper(scopeRepo))
 	if err != nil {
 		return nil, err
 	}
@@ -455,12 +495,19 @@ func buildConversation(pool *db.Pool, logger *slog.Logger) (*conversationapp.Ser
 
 // buildMemory binds the pgx repository to the memory service.
 // buildMemory 将 pgx 仓库绑定到记忆服务。
-func buildMemory(pool *db.Pool) (*memoryapp.Service, error) {
+func buildMemory(pool *db.Pool, scopeService *scopeapp.Service) (*memoryapp.Service, error) {
 	repo, err := memoryinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
 	}
-	return memoryapp.NewService(repo)
+	service, err := memoryapp.NewService(repo)
+	if err != nil {
+		return nil, err
+	}
+	if scopeService != nil {
+		service.SetMemoryAuthorizer(scopeService)
+	}
+	return service, nil
 }
 
 // buildDirectory binds the pgx repository and the account registry to the
@@ -496,6 +543,19 @@ func buildBuiltins(cfg *config.Config, accounts *svc.Accounts) ([]botcontracts.H
 		handlers = append(handlers, echoinfra.NewHandler(service, cfg.Echo.Prefix))
 	}
 	return handlers, nil
+}
+
+// conversationSourceAdapter exposes only exact stored message text to the
+// built-in memory source tool.
+// conversationSourceAdapter 只向内置记忆来源工具暴露确切已存消息文本。
+type conversationSourceAdapter struct{ svc *conversationapp.Service }
+
+func (a conversationSourceAdapter) MessageSource(ctx context.Context, botID, messageID int64) (string, string, bool, error) {
+	if a.svc == nil {
+		return "", "", false, nil
+	}
+	message, found, err := a.svc.MessageSource(ctx, botID, messageID)
+	return message.ConversationID, message.Text, found, err
 }
 
 // groupInfoResolver adapts the account registry to the tool's narrow port.

@@ -29,5 +29,5 @@ func (Conversation) Indexes() []ent.Index {
 }
 
 func (Conversation) Edges() []ent.Edge {
-	return []ent.Edge{edge.From("bot_id_ref", BotAccount.Type).Ref("conversations_bot_id").Field("bot_id").Unique().Annotations(entsql.OnDelete("NO ACTION")).Required(), edge.To("messages_conversation_id", Message.Type).Annotations(entsql.OnDelete("NO ACTION")), edge.To("agent_outbound_messages_conversation_id", AgentOutboundMessage.Type).Annotations(entsql.OnDelete("NO ACTION"))}
+	return []ent.Edge{edge.From("bot_id_ref", BotAccount.Type).Ref("conversations_bot_id").Field("bot_id").Unique().Annotations(entsql.OnDelete("NO ACTION")).Required(), edge.To("messages_conversation_id", Message.Type).Annotations(entsql.OnDelete("NO ACTION")), edge.To("agent_outbound_messages_conversation_id", AgentOutboundMessage.Type).Annotations(entsql.OnDelete("NO ACTION")), edge.To("memory_extraction_cursors_conversation_id", MemoryExtractionCursor.Type).Annotations(entsql.OnDelete("CASCADE")), edge.To("memory_extraction_jobs_conversation_id", MemoryExtractionJob.Type).Annotations(entsql.OnDelete("CASCADE"))}
 }

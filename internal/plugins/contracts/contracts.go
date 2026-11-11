@@ -42,6 +42,16 @@ const (
 	CategoryGroup  = "group"
 	CategorySystem = "system"
 	CategoryReply  = "reply"
+	CategoryMemory = "memory"
+)
+
+// Built-in memory tool IDs. They are read-only and are filtered by the
+// conversation's allow_memory_read / allow_history_read grants at run time.
+// 内置记忆工具 ID。它们只读，并在运行时按会话的 allow_memory_read /
+// allow_history_read 授权过滤。
+const (
+	MemoryDetailToolID = "memory.detail"
+	MemorySourceToolID = "memory.source"
 )
 
 // PermissionPrerequisites lists capabilities needed whenever a permission is used.

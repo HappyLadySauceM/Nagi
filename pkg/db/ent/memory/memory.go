@@ -26,6 +26,18 @@ const (
 	FieldSourceMessageID = "source_message_id"
 	// FieldSource holds the string denoting the source field in the database.
 	FieldSource = "source"
+	// FieldSourceSenderID holds the string denoting the source_sender_id field in the database.
+	FieldSourceSenderID = "source_sender_id"
+	// FieldOrigin holds the string denoting the origin field in the database.
+	FieldOrigin = "origin"
+	// FieldSubjectType holds the string denoting the subject_type field in the database.
+	FieldSubjectType = "subject_type"
+	// FieldSubjectID holds the string denoting the subject_id field in the database.
+	FieldSubjectID = "subject_id"
+	// FieldDedupeKey holds the string denoting the dedupe_key field in the database.
+	FieldDedupeKey = "dedupe_key"
+	// FieldReviewReason holds the string denoting the review_reason field in the database.
+	FieldReviewReason = "review_reason"
 	// FieldConfidence holds the string denoting the confidence field in the database.
 	FieldConfidence = "confidence"
 	// FieldStatus holds the string denoting the status field in the database.
@@ -73,6 +85,12 @@ var Columns = []string{
 	FieldContent,
 	FieldSourceMessageID,
 	FieldSource,
+	FieldSourceSenderID,
+	FieldOrigin,
+	FieldSubjectType,
+	FieldSubjectID,
+	FieldDedupeKey,
+	FieldReviewReason,
 	FieldConfidence,
 	FieldStatus,
 	FieldApprovedBy,
@@ -96,6 +114,10 @@ var (
 	DefaultOwnerKey string
 	// DefaultSource holds the default value on creation for the "source" field.
 	DefaultSource string
+	// DefaultOrigin holds the default value on creation for the "origin" field.
+	DefaultOrigin string
+	// DefaultReviewReason holds the default value on creation for the "review_reason" field.
+	DefaultReviewReason string
 	// DefaultConfidence holds the default value on creation for the "confidence" field.
 	DefaultConfidence float32
 	// DefaultStatus holds the default value on creation for the "status" field.
@@ -144,6 +166,36 @@ func BySourceMessageID(opts ...sql.OrderTermOption) OrderOption {
 // BySource orders the results by the source field.
 func BySource(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSource, opts...).ToFunc()
+}
+
+// BySourceSenderID orders the results by the source_sender_id field.
+func BySourceSenderID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourceSenderID, opts...).ToFunc()
+}
+
+// ByOrigin orders the results by the origin field.
+func ByOrigin(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOrigin, opts...).ToFunc()
+}
+
+// BySubjectType orders the results by the subject_type field.
+func BySubjectType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubjectType, opts...).ToFunc()
+}
+
+// BySubjectID orders the results by the subject_id field.
+func BySubjectID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSubjectID, opts...).ToFunc()
+}
+
+// ByDedupeKey orders the results by the dedupe_key field.
+func ByDedupeKey(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDedupeKey, opts...).ToFunc()
+}
+
+// ByReviewReason orders the results by the review_reason field.
+func ByReviewReason(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldReviewReason, opts...).ToFunc()
 }
 
 // ByConfidence orders the results by the confidence field.

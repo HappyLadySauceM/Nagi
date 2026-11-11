@@ -4,8 +4,11 @@ package memory
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/google/uuid"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
@@ -41,6 +44,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/memories", h.Create)
 	mux.HandleFunc("PATCH /api/v1/memories/{id}", h.Patch)
 	mux.HandleFunc("DELETE /api/v1/memories/{id}", h.Delete)
+	mux.HandleFunc("GET /api/v1/memory-extraction/jobs", h.ListExtractionJobs)
+	mux.HandleFunc("POST /api/v1/memory-extraction/jobs/{id}/retry", h.RetryExtractionJob)
 }
 
 // requireDB replies with 503 when the database is not configured.
@@ -51,6 +56,13 @@ func (h *Handler) requireDB(w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+// validMemoryID rejects malformed path identifiers before any storage call.
+// validMemoryID 在进入存储层前拒绝格式非法的路径 ID。
+func validMemoryID(id string) bool {
+	_, err := uuid.Parse(id)
+	return err == nil
 }
 
 // List returns one page of memories filtered by visibility, owner, status or search.
@@ -82,12 +94,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get returns one memory only when it is active and visible to the requested
-// bot and conversation scope. Source metadata is returned only when stored on
-// the entry; the handler never invents or resolves message bodies.
+// bot and conversation scope. This is an administrator management endpoint: it
+// deliberately does not apply the conversation-level allow_memory_read grant.
+// Source metadata is returned only when stored on the entry; the handler never
+// invents or resolves message bodies.
 // Get 仅在记忆激活且对请求账号、会话可见时返回该条记忆。
+// 这是管理员管理接口，刻意不套用会话级 allow_memory_read 授权。
 // 只有条目自身已存来源信息时才返回来源；处理器不编造、也不展开原始消息正文。
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
+		return
+	}
+	if !validMemoryID(r.PathValue("id")) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
 		return
 	}
 	q := r.URL.Query()
@@ -107,6 +126,10 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		ConversationID: q.Get("conversation_id"), MemoryID: r.PathValue("id"),
 	})
 	if err != nil {
+		if errors.Is(err, memoryapp.ErrInvalidID) {
+			common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+			return
+		}
 		common.WriteFailure(w, http.StatusInternalServerError, "read memory failed")
 		return
 	}
@@ -120,13 +143,17 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // createRequest is the POST body; approve=true activates the memory immediately.
 // createRequest 是 POST 请求体；approve=true 时立即激活记忆。
 type createRequest struct {
-	BotID      int64   `json:"bot_id"`
-	Visibility string  `json:"visibility"`
-	OwnerKey   string  `json:"owner_key"`
-	Content    string  `json:"content"`
-	Source     string  `json:"source"`
-	Confidence float64 `json:"confidence"`
-	Approve    bool    `json:"approve"`
+	BotID          int64   `json:"bot_id"`
+	Visibility     string  `json:"visibility"`
+	OwnerKey       string  `json:"owner_key"`
+	Content        string  `json:"content"`
+	Source         string  `json:"source"`
+	SourceSenderID int64   `json:"source_sender_id"`
+	SubjectType    string  `json:"subject_type"`
+	SubjectID      string  `json:"subject_id"`
+	ReviewReason   string  `json:"review_reason"`
+	Confidence     float64 `json:"confidence"`
+	Approve        bool    `json:"approve"`
 }
 
 // Create stores a new memory, optionally approved by the acting administrator.
@@ -141,12 +168,17 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, duplicate, err := h.svcCtx.Memory.Propose(r.Context(), memoryapp.CandidateInput{
-		BotID:      body.BotID,
-		Visibility: memorydomain.Visibility(body.Visibility),
-		OwnerKey:   body.OwnerKey,
-		Content:    body.Content,
-		Source:     body.Source,
-		Confidence: body.Confidence,
+		BotID:          body.BotID,
+		Visibility:     memorydomain.Visibility(body.Visibility),
+		OwnerKey:       body.OwnerKey,
+		Content:        body.Content,
+		Source:         body.Source,
+		SourceSenderID: body.SourceSenderID,
+		Origin:         memorydomain.OriginManual,
+		SubjectType:    memorydomain.SubjectType(body.SubjectType),
+		SubjectID:      body.SubjectID,
+		ReviewReason:   body.ReviewReason,
+		Confidence:     body.Confidence,
 	})
 	if err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid memory")
@@ -209,6 +241,10 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if !validMemoryID(id) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+		return
+	}
 	var body patchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
@@ -247,13 +283,82 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, map[string]any{"id": id})
 }
 
+// ListExtractionJobs returns a management page of memory extraction jobs.
+// ListExtractionJobs 返回一页管理用记忆提取任务。
+func (h *Handler) ListExtractionJobs(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDB(w) {
+		return
+	}
+	q := r.URL.Query()
+	botID, err := strconv.ParseInt(q.Get("bot_id"), 10, 64)
+	if err != nil || botID <= 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "bot_id is required")
+		return
+	}
+	status := q.Get("status")
+	switch status {
+	case "", "pending", "processing", "done", "failed", "cancelled":
+	default:
+		common.WriteFailure(w, http.StatusBadRequest, "invalid extraction job status")
+		return
+	}
+	f := memorydomain.ExtractionJobFilter{
+		BotID:          botID,
+		ConversationID: q.Get("conversation_id"),
+		Status:         status,
+	}
+	f.Page, _ = strconv.Atoi(q.Get("page"))
+	f.Limit, _ = strconv.Atoi(q.Get("limit"))
+	f = f.Normalized()
+	items, total, err := h.svcCtx.Memory.ListExtractionJobs(r.Context(), f)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "list memory extraction jobs failed")
+		return
+	}
+	common.WriteSuccess(w, map[string]any{"items": items, "total": total, "page": f.Page, "limit": f.Limit})
+}
+
+// RetryExtractionJob restarts one failed extraction job while its source and
+// authorization generation remain valid.
+// RetryExtractionJob 在来源与授权代际仍然有效时重启一个失败提取任务。
+func (h *Handler) RetryExtractionJob(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDB(w) {
+		return
+	}
+	id := r.PathValue("id")
+	if !validMemoryID(id) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid extraction job id")
+		return
+	}
+	err := h.svcCtx.Memory.RetryExtractionJob(r.Context(), id)
+	switch {
+	case err == nil:
+		common.WriteSuccess(w, map[string]any{"retried": true})
+	case errors.Is(err, memoryapp.ErrInvalidID):
+		common.WriteFailure(w, http.StatusBadRequest, "invalid extraction job id")
+	case errors.Is(err, memoryapp.ErrExtractionJobNotFound):
+		common.WriteFailure(w, http.StatusNotFound, "extraction job not found")
+	case errors.Is(err, memoryapp.ErrExtractionSourceMissing):
+		common.WriteFailure(w, http.StatusGone, "extraction source unavailable")
+	case errors.Is(err, memoryapp.ErrExtractionJobState), errors.Is(err, memoryapp.ErrExtractionAuthorizationChanged), errors.Is(err, memoryapp.ErrExtractionRetryLimit):
+		common.WriteFailure(w, http.StatusConflict, "extraction job not retryable")
+	default:
+		common.WriteFailure(w, http.StatusInternalServerError, "retry memory extraction job failed")
+	}
+}
+
 // Delete removes one memory from retrieval.
 // Delete 将一条记忆从检索中移除。
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
-	if err := h.svcCtx.Memory.Delete(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if !validMemoryID(id) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+		return
+	}
+	if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "delete memory failed")
 		return
 	}

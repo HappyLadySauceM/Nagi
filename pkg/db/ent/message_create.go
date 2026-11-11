@@ -16,6 +16,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/google/uuid"
@@ -129,6 +130,20 @@ func (_c *MessageCreate) SetNillableOutboundID(v *uuid.UUID) *MessageCreate {
 	return _c
 }
 
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (_c *MessageCreate) SetMemoryAuthorizationEventID(v int64) *MessageCreate {
+	_c.mutation.SetMemoryAuthorizationEventID(v)
+	return _c
+}
+
+// SetNillableMemoryAuthorizationEventID sets the "memory_authorization_event_id" field if the given value is not nil.
+func (_c *MessageCreate) SetNillableMemoryAuthorizationEventID(v *int64) *MessageCreate {
+	if v != nil {
+		_c.SetMemoryAuthorizationEventID(*v)
+	}
+	return _c
+}
+
 // SetID sets the "id" field.
 func (_c *MessageCreate) SetID(v int64) *MessageCreate {
 	_c.mutation.SetID(v)
@@ -204,6 +219,21 @@ func (_c *MessageCreate) AddMemoriesSourceMessageID(v ...*Memory) *MessageCreate
 		ids[i] = v[i].ID
 	}
 	return _c.AddMemoriesSourceMessageIDIDs(ids...)
+}
+
+// AddMemoryExtractionJobsMessageIDIDs adds the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity by IDs.
+func (_c *MessageCreate) AddMemoryExtractionJobsMessageIDIDs(ids ...uuid.UUID) *MessageCreate {
+	_c.mutation.AddMemoryExtractionJobsMessageIDIDs(ids...)
+	return _c
+}
+
+// AddMemoryExtractionJobsMessageID adds the "memory_extraction_jobs_message_id" edges to the MemoryExtractionJob entity.
+func (_c *MessageCreate) AddMemoryExtractionJobsMessageID(v ...*MemoryExtractionJob) *MessageCreate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMemoryExtractionJobsMessageIDIDs(ids...)
 }
 
 // Mutation returns the MessageMutation object of the builder.
@@ -336,6 +366,10 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 		_spec.SetField(message.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if value, ok := _c.mutation.MemoryAuthorizationEventID(); ok {
+		_spec.SetField(message.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+		_node.MemoryAuthorizationEventID = &value
+	}
 	if nodes := _c.mutation.ConversationIDRefIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -412,6 +446,22 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(memory.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MemoryExtractionJobsMessageIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryExtractionJobsMessageIDTable,
+			Columns: []string{message.MemoryExtractionJobsMessageIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {
@@ -618,6 +668,30 @@ func (u *MessageUpsert) UpdateOutboundID() *MessageUpsert {
 // ClearOutboundID clears the value of the "outbound_id" field.
 func (u *MessageUpsert) ClearOutboundID() *MessageUpsert {
 	u.SetNull(message.FieldOutboundID)
+	return u
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (u *MessageUpsert) SetMemoryAuthorizationEventID(v int64) *MessageUpsert {
+	u.Set(message.FieldMemoryAuthorizationEventID, v)
+	return u
+}
+
+// UpdateMemoryAuthorizationEventID sets the "memory_authorization_event_id" field to the value that was provided on create.
+func (u *MessageUpsert) UpdateMemoryAuthorizationEventID() *MessageUpsert {
+	u.SetExcluded(message.FieldMemoryAuthorizationEventID)
+	return u
+}
+
+// AddMemoryAuthorizationEventID adds v to the "memory_authorization_event_id" field.
+func (u *MessageUpsert) AddMemoryAuthorizationEventID(v int64) *MessageUpsert {
+	u.Add(message.FieldMemoryAuthorizationEventID, v)
+	return u
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (u *MessageUpsert) ClearMemoryAuthorizationEventID() *MessageUpsert {
+	u.SetNull(message.FieldMemoryAuthorizationEventID)
 	return u
 }
 
@@ -841,6 +915,34 @@ func (u *MessageUpsertOne) UpdateOutboundID() *MessageUpsertOne {
 func (u *MessageUpsertOne) ClearOutboundID() *MessageUpsertOne {
 	return u.Update(func(s *MessageUpsert) {
 		s.ClearOutboundID()
+	})
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (u *MessageUpsertOne) SetMemoryAuthorizationEventID(v int64) *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.SetMemoryAuthorizationEventID(v)
+	})
+}
+
+// AddMemoryAuthorizationEventID adds v to the "memory_authorization_event_id" field.
+func (u *MessageUpsertOne) AddMemoryAuthorizationEventID(v int64) *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.AddMemoryAuthorizationEventID(v)
+	})
+}
+
+// UpdateMemoryAuthorizationEventID sets the "memory_authorization_event_id" field to the value that was provided on create.
+func (u *MessageUpsertOne) UpdateMemoryAuthorizationEventID() *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.UpdateMemoryAuthorizationEventID()
+	})
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (u *MessageUpsertOne) ClearMemoryAuthorizationEventID() *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.ClearMemoryAuthorizationEventID()
 	})
 }
 
@@ -1230,6 +1332,34 @@ func (u *MessageUpsertBulk) UpdateOutboundID() *MessageUpsertBulk {
 func (u *MessageUpsertBulk) ClearOutboundID() *MessageUpsertBulk {
 	return u.Update(func(s *MessageUpsert) {
 		s.ClearOutboundID()
+	})
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (u *MessageUpsertBulk) SetMemoryAuthorizationEventID(v int64) *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.SetMemoryAuthorizationEventID(v)
+	})
+}
+
+// AddMemoryAuthorizationEventID adds v to the "memory_authorization_event_id" field.
+func (u *MessageUpsertBulk) AddMemoryAuthorizationEventID(v int64) *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.AddMemoryAuthorizationEventID(v)
+	})
+}
+
+// UpdateMemoryAuthorizationEventID sets the "memory_authorization_event_id" field to the value that was provided on create.
+func (u *MessageUpsertBulk) UpdateMemoryAuthorizationEventID() *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.UpdateMemoryAuthorizationEventID()
+	})
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (u *MessageUpsertBulk) ClearMemoryAuthorizationEventID() *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.ClearMemoryAuthorizationEventID()
 	})
 }
 

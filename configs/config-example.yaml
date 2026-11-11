@@ -59,6 +59,25 @@ worker:
   # 任务轮询间隔
   poll-interval: 200ms
 
+memory:
+  extraction:
+    # 长期记忆候选自动抽取；缺省关闭。开启后只处理同时授予
+    # enabled、store_messages、allow_memory_write 的会话。
+    enabled: false
+    # 抽取批次独立并发上限，避免占满回复模型的调用额度
+    concurrency: 1
+    # 单批最多合并的消息条数
+    batch-max-messages: 10
+    # 单批消息正文总字符预算（含来源标签、ID 与发送者）
+    batch-max-runes: 4000
+    # 消息建任务后最多等待合并的时间；超时后不足批也处理
+    max-wait: 5s
+    # worker 轮询、租约与重试参数
+    poll-interval: 1s
+    lease-duration: 2m
+    max-attempts: 3
+    retry-delays: [30s, 2m]
+
 ai:
   # LLM 生成初始值（OpenAI 兼容 chat/completions）。模型目录首次初始化时导入；
   # 之后通过控制台模型配置维护接口、模型和 Token，不再从此处恢复凭证。

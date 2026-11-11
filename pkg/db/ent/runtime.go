@@ -22,9 +22,12 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/schema/nagi"
@@ -323,26 +326,82 @@ func init() {
 	memoryDescSource := memoryFields[6].Descriptor()
 	// memory.DefaultSource holds the default value on creation for the source field.
 	memory.DefaultSource = memoryDescSource.Default.(string)
+	// memoryDescOrigin is the schema descriptor for origin field.
+	memoryDescOrigin := memoryFields[8].Descriptor()
+	// memory.DefaultOrigin holds the default value on creation for the origin field.
+	memory.DefaultOrigin = memoryDescOrigin.Default.(string)
+	// memoryDescReviewReason is the schema descriptor for review_reason field.
+	memoryDescReviewReason := memoryFields[12].Descriptor()
+	// memory.DefaultReviewReason holds the default value on creation for the review_reason field.
+	memory.DefaultReviewReason = memoryDescReviewReason.Default.(string)
 	// memoryDescConfidence is the schema descriptor for confidence field.
-	memoryDescConfidence := memoryFields[7].Descriptor()
+	memoryDescConfidence := memoryFields[13].Descriptor()
 	// memory.DefaultConfidence holds the default value on creation for the confidence field.
 	memory.DefaultConfidence = memoryDescConfidence.Default.(float32)
 	// memoryDescStatus is the schema descriptor for status field.
-	memoryDescStatus := memoryFields[8].Descriptor()
+	memoryDescStatus := memoryFields[14].Descriptor()
 	// memory.DefaultStatus holds the default value on creation for the status field.
 	memory.DefaultStatus = memoryDescStatus.Default.(string)
 	// memoryDescApprovedBy is the schema descriptor for approved_by field.
-	memoryDescApprovedBy := memoryFields[9].Descriptor()
+	memoryDescApprovedBy := memoryFields[15].Descriptor()
 	// memory.DefaultApprovedBy holds the default value on creation for the approved_by field.
 	memory.DefaultApprovedBy = memoryDescApprovedBy.Default.(string)
 	// memoryDescCreatedAt is the schema descriptor for created_at field.
-	memoryDescCreatedAt := memoryFields[11].Descriptor()
+	memoryDescCreatedAt := memoryFields[17].Descriptor()
 	// memory.DefaultCreatedAt holds the default value on creation for the created_at field.
 	memory.DefaultCreatedAt = memoryDescCreatedAt.Default.(func() time.Time)
 	// memoryDescUpdatedAt is the schema descriptor for updated_at field.
-	memoryDescUpdatedAt := memoryFields[12].Descriptor()
+	memoryDescUpdatedAt := memoryFields[18].Descriptor()
 	// memory.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	memory.DefaultUpdatedAt = memoryDescUpdatedAt.Default.(func() time.Time)
+	memoryextractioncursorFields := nagi.MemoryExtractionCursor{}.Fields()
+	_ = memoryextractioncursorFields
+	// memoryextractioncursorDescLastMessageID is the schema descriptor for last_message_id field.
+	memoryextractioncursorDescLastMessageID := memoryextractioncursorFields[3].Descriptor()
+	// memoryextractioncursor.DefaultLastMessageID holds the default value on creation for the last_message_id field.
+	memoryextractioncursor.DefaultLastMessageID = memoryextractioncursorDescLastMessageID.Default.(int64)
+	// memoryextractioncursorDescCreatedAt is the schema descriptor for created_at field.
+	memoryextractioncursorDescCreatedAt := memoryextractioncursorFields[6].Descriptor()
+	// memoryextractioncursor.DefaultCreatedAt holds the default value on creation for the created_at field.
+	memoryextractioncursor.DefaultCreatedAt = memoryextractioncursorDescCreatedAt.Default.(func() time.Time)
+	// memoryextractioncursorDescUpdatedAt is the schema descriptor for updated_at field.
+	memoryextractioncursorDescUpdatedAt := memoryextractioncursorFields[7].Descriptor()
+	// memoryextractioncursor.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	memoryextractioncursor.DefaultUpdatedAt = memoryextractioncursorDescUpdatedAt.Default.(func() time.Time)
+	memoryextractionjobFields := nagi.MemoryExtractionJob{}.Fields()
+	_ = memoryextractionjobFields
+	// memoryextractionjobDescStatus is the schema descriptor for status field.
+	memoryextractionjobDescStatus := memoryextractionjobFields[7].Descriptor()
+	// memoryextractionjob.DefaultStatus holds the default value on creation for the status field.
+	memoryextractionjob.DefaultStatus = memoryextractionjobDescStatus.Default.(string)
+	// memoryextractionjobDescAttempts is the schema descriptor for attempts field.
+	memoryextractionjobDescAttempts := memoryextractionjobFields[8].Descriptor()
+	// memoryextractionjob.DefaultAttempts holds the default value on creation for the attempts field.
+	memoryextractionjob.DefaultAttempts = memoryextractionjobDescAttempts.Default.(int)
+	// memoryextractionjobDescRoundAttempts is the schema descriptor for round_attempts field.
+	memoryextractionjobDescRoundAttempts := memoryextractionjobFields[9].Descriptor()
+	// memoryextractionjob.DefaultRoundAttempts holds the default value on creation for the round_attempts field.
+	memoryextractionjob.DefaultRoundAttempts = memoryextractionjobDescRoundAttempts.Default.(int)
+	// memoryextractionjobDescNextRunAt is the schema descriptor for next_run_at field.
+	memoryextractionjobDescNextRunAt := memoryextractionjobFields[10].Descriptor()
+	// memoryextractionjob.DefaultNextRunAt holds the default value on creation for the next_run_at field.
+	memoryextractionjob.DefaultNextRunAt = memoryextractionjobDescNextRunAt.Default.(func() time.Time)
+	// memoryextractionjobDescManualRetries is the schema descriptor for manual_retries field.
+	memoryextractionjobDescManualRetries := memoryextractionjobFields[15].Descriptor()
+	// memoryextractionjob.DefaultManualRetries holds the default value on creation for the manual_retries field.
+	memoryextractionjob.DefaultManualRetries = memoryextractionjobDescManualRetries.Default.(int)
+	// memoryextractionjobDescCreatedAt is the schema descriptor for created_at field.
+	memoryextractionjobDescCreatedAt := memoryextractionjobFields[16].Descriptor()
+	// memoryextractionjob.DefaultCreatedAt holds the default value on creation for the created_at field.
+	memoryextractionjob.DefaultCreatedAt = memoryextractionjobDescCreatedAt.Default.(func() time.Time)
+	// memoryextractionjobDescUpdatedAt is the schema descriptor for updated_at field.
+	memoryextractionjobDescUpdatedAt := memoryextractionjobFields[17].Descriptor()
+	// memoryextractionjob.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	memoryextractionjob.DefaultUpdatedAt = memoryextractionjobDescUpdatedAt.Default.(func() time.Time)
+	// memoryextractionjobDescID is the schema descriptor for id field.
+	memoryextractionjobDescID := memoryextractionjobFields[0].Descriptor()
+	// memoryextractionjob.DefaultID holds the default value on creation for the id field.
+	memoryextractionjob.DefaultID = memoryextractionjobDescID.Default.(func() uuid.UUID)
 	messageFields := nagi.Message{}.Fields()
 	_ = messageFields
 	// messageDescTextContent is the schema descriptor for text_content field.
@@ -405,6 +464,20 @@ func init() {
 	qqgroupDescMemberCount := qqgroupFields[4].Descriptor()
 	// qqgroup.DefaultMemberCount holds the default value on creation for the member_count field.
 	qqgroup.DefaultMemberCount = qqgroupDescMemberCount.Default.(int)
+	scopememoryauthorizationeventFields := nagi.ScopeMemoryAuthorizationEvent{}.Fields()
+	_ = scopememoryauthorizationeventFields
+	// scopememoryauthorizationeventDescAuthorized is the schema descriptor for authorized field.
+	scopememoryauthorizationeventDescAuthorized := scopememoryauthorizationeventFields[5].Descriptor()
+	// scopememoryauthorizationevent.DefaultAuthorized holds the default value on creation for the authorized field.
+	scopememoryauthorizationevent.DefaultAuthorized = scopememoryauthorizationeventDescAuthorized.Default.(bool)
+	// scopememoryauthorizationeventDescPolicyVersion is the schema descriptor for policy_version field.
+	scopememoryauthorizationeventDescPolicyVersion := scopememoryauthorizationeventFields[6].Descriptor()
+	// scopememoryauthorizationevent.DefaultPolicyVersion holds the default value on creation for the policy_version field.
+	scopememoryauthorizationevent.DefaultPolicyVersion = scopememoryauthorizationeventDescPolicyVersion.Default.(int64)
+	// scopememoryauthorizationeventDescCreatedAt is the schema descriptor for created_at field.
+	scopememoryauthorizationeventDescCreatedAt := scopememoryauthorizationeventFields[7].Descriptor()
+	// scopememoryauthorizationevent.DefaultCreatedAt holds the default value on creation for the created_at field.
+	scopememoryauthorizationevent.DefaultCreatedAt = scopememoryauthorizationeventDescCreatedAt.Default.(func() time.Time)
 	scopepolicyFields := nagi.ScopePolicy{}.Fields()
 	_ = scopepolicyFields
 	// scopepolicyDescEnabled is the schema descriptor for enabled field.
@@ -432,39 +505,39 @@ func init() {
 	// scopepolicy.DefaultAllowHistoryRead holds the default value on creation for the allow_history_read field.
 	scopepolicy.DefaultAllowHistoryRead = scopepolicyDescAllowHistoryRead.Default.(bool)
 	// scopepolicyDescMinReplyIntervalMs is the schema descriptor for min_reply_interval_ms field.
-	scopepolicyDescMinReplyIntervalMs := scopepolicyFields[10].Descriptor()
+	scopepolicyDescMinReplyIntervalMs := scopepolicyFields[11].Descriptor()
 	// scopepolicy.DefaultMinReplyIntervalMs holds the default value on creation for the min_reply_interval_ms field.
 	scopepolicy.DefaultMinReplyIntervalMs = scopepolicyDescMinReplyIntervalMs.Default.(int)
 	// scopepolicyDescMaxRepliesPerHour is the schema descriptor for max_replies_per_hour field.
-	scopepolicyDescMaxRepliesPerHour := scopepolicyFields[11].Descriptor()
+	scopepolicyDescMaxRepliesPerHour := scopepolicyFields[12].Descriptor()
 	// scopepolicy.DefaultMaxRepliesPerHour holds the default value on creation for the max_replies_per_hour field.
 	scopepolicy.DefaultMaxRepliesPerHour = scopepolicyDescMaxRepliesPerHour.Default.(int)
 	// scopepolicyDescUpdatedAt is the schema descriptor for updated_at field.
-	scopepolicyDescUpdatedAt := scopepolicyFields[12].Descriptor()
+	scopepolicyDescUpdatedAt := scopepolicyFields[13].Descriptor()
 	// scopepolicy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	scopepolicy.DefaultUpdatedAt = scopepolicyDescUpdatedAt.Default.(func() time.Time)
 	// scopepolicyDescToolPermissions is the schema descriptor for tool_permissions field.
-	scopepolicyDescToolPermissions := scopepolicyFields[13].Descriptor()
+	scopepolicyDescToolPermissions := scopepolicyFields[14].Descriptor()
 	// scopepolicy.DefaultToolPermissions holds the default value on creation for the tool_permissions field.
 	scopepolicy.DefaultToolPermissions = scopepolicyDescToolPermissions.Default.(jsontext.Value)
 	// scopepolicyDescVersion is the schema descriptor for version field.
-	scopepolicyDescVersion := scopepolicyFields[14].Descriptor()
+	scopepolicyDescVersion := scopepolicyFields[15].Descriptor()
 	// scopepolicy.DefaultVersion holds the default value on creation for the version field.
 	scopepolicy.DefaultVersion = scopepolicyDescVersion.Default.(int64)
 	// scopepolicyDescMaxMessagesPerRun is the schema descriptor for max_messages_per_run field.
-	scopepolicyDescMaxMessagesPerRun := scopepolicyFields[16].Descriptor()
+	scopepolicyDescMaxMessagesPerRun := scopepolicyFields[17].Descriptor()
 	// scopepolicy.DefaultMaxMessagesPerRun holds the default value on creation for the max_messages_per_run field.
 	scopepolicy.DefaultMaxMessagesPerRun = scopepolicyDescMaxMessagesPerRun.Default.(int)
 	// scopepolicyDescMaxCharsPerMessage is the schema descriptor for max_chars_per_message field.
-	scopepolicyDescMaxCharsPerMessage := scopepolicyFields[17].Descriptor()
+	scopepolicyDescMaxCharsPerMessage := scopepolicyFields[18].Descriptor()
 	// scopepolicy.DefaultMaxCharsPerMessage holds the default value on creation for the max_chars_per_message field.
 	scopepolicy.DefaultMaxCharsPerMessage = scopepolicyDescMaxCharsPerMessage.Default.(int)
 	// scopepolicyDescMaxTotalCharsPerRun is the schema descriptor for max_total_chars_per_run field.
-	scopepolicyDescMaxTotalCharsPerRun := scopepolicyFields[18].Descriptor()
+	scopepolicyDescMaxTotalCharsPerRun := scopepolicyFields[19].Descriptor()
 	// scopepolicy.DefaultMaxTotalCharsPerRun holds the default value on creation for the max_total_chars_per_run field.
 	scopepolicy.DefaultMaxTotalCharsPerRun = scopepolicyDescMaxTotalCharsPerRun.Default.(int)
 	// scopepolicyDescMessageIntervalMs is the schema descriptor for message_interval_ms field.
-	scopepolicyDescMessageIntervalMs := scopepolicyFields[19].Descriptor()
+	scopepolicyDescMessageIntervalMs := scopepolicyFields[20].Descriptor()
 	// scopepolicy.DefaultMessageIntervalMs holds the default value on creation for the message_interval_ms field.
 	scopepolicy.DefaultMessageIntervalMs = scopepolicyDescMessageIntervalMs.Default.(int)
 	systemsettingFields := nagi.SystemSetting{}.Fields()

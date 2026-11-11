@@ -24,6 +24,12 @@ const (
 	EdgeGroupMembersBotID = "group_members_bot_id"
 	// EdgeScopePoliciesBotID holds the string denoting the scope_policies_bot_id edge name in mutations.
 	EdgeScopePoliciesBotID = "scope_policies_bot_id"
+	// EdgeScopeMemoryAuthorizationEventsBotID holds the string denoting the scope_memory_authorization_events_bot_id edge name in mutations.
+	EdgeScopeMemoryAuthorizationEventsBotID = "scope_memory_authorization_events_bot_id"
+	// EdgeMemoryExtractionCursorsBotID holds the string denoting the memory_extraction_cursors_bot_id edge name in mutations.
+	EdgeMemoryExtractionCursorsBotID = "memory_extraction_cursors_bot_id"
+	// EdgeMemoryExtractionJobsBotID holds the string denoting the memory_extraction_jobs_bot_id edge name in mutations.
+	EdgeMemoryExtractionJobsBotID = "memory_extraction_jobs_bot_id"
 	// EdgeConversationsBotID holds the string denoting the conversations_bot_id edge name in mutations.
 	EdgeConversationsBotID = "conversations_bot_id"
 	// EdgeMessagesBotID holds the string denoting the messages_bot_id edge name in mutations.
@@ -40,6 +46,12 @@ const (
 	GroupMemberFieldID = "id"
 	// ScopePolicyFieldID holds the string denoting the ID field of the ScopePolicy.
 	ScopePolicyFieldID = "id"
+	// ScopeMemoryAuthorizationEventFieldID holds the string denoting the ID field of the ScopeMemoryAuthorizationEvent.
+	ScopeMemoryAuthorizationEventFieldID = "id"
+	// MemoryExtractionCursorFieldID holds the string denoting the ID field of the MemoryExtractionCursor.
+	MemoryExtractionCursorFieldID = "id"
+	// MemoryExtractionJobFieldID holds the string denoting the ID field of the MemoryExtractionJob.
+	MemoryExtractionJobFieldID = "id"
 	// ConversationFieldID holds the string denoting the ID field of the Conversation.
 	ConversationFieldID = "id"
 	// MessageFieldID holds the string denoting the ID field of the Message.
@@ -78,6 +90,27 @@ const (
 	ScopePoliciesBotIDInverseTable = "scope_policies"
 	// ScopePoliciesBotIDColumn is the table column denoting the scope_policies_bot_id relation/edge.
 	ScopePoliciesBotIDColumn = "bot_id"
+	// ScopeMemoryAuthorizationEventsBotIDTable is the table that holds the scope_memory_authorization_events_bot_id relation/edge.
+	ScopeMemoryAuthorizationEventsBotIDTable = "scope_memory_authorization_events"
+	// ScopeMemoryAuthorizationEventsBotIDInverseTable is the table name for the ScopeMemoryAuthorizationEvent entity.
+	// It exists in this package in order to avoid circular dependency with the "scopememoryauthorizationevent" package.
+	ScopeMemoryAuthorizationEventsBotIDInverseTable = "scope_memory_authorization_events"
+	// ScopeMemoryAuthorizationEventsBotIDColumn is the table column denoting the scope_memory_authorization_events_bot_id relation/edge.
+	ScopeMemoryAuthorizationEventsBotIDColumn = "bot_id"
+	// MemoryExtractionCursorsBotIDTable is the table that holds the memory_extraction_cursors_bot_id relation/edge.
+	MemoryExtractionCursorsBotIDTable = "memory_extraction_cursors"
+	// MemoryExtractionCursorsBotIDInverseTable is the table name for the MemoryExtractionCursor entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryextractioncursor" package.
+	MemoryExtractionCursorsBotIDInverseTable = "memory_extraction_cursors"
+	// MemoryExtractionCursorsBotIDColumn is the table column denoting the memory_extraction_cursors_bot_id relation/edge.
+	MemoryExtractionCursorsBotIDColumn = "bot_id"
+	// MemoryExtractionJobsBotIDTable is the table that holds the memory_extraction_jobs_bot_id relation/edge.
+	MemoryExtractionJobsBotIDTable = "memory_extraction_jobs"
+	// MemoryExtractionJobsBotIDInverseTable is the table name for the MemoryExtractionJob entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryextractionjob" package.
+	MemoryExtractionJobsBotIDInverseTable = "memory_extraction_jobs"
+	// MemoryExtractionJobsBotIDColumn is the table column denoting the memory_extraction_jobs_bot_id relation/edge.
+	MemoryExtractionJobsBotIDColumn = "bot_id"
 	// ConversationsBotIDTable is the table that holds the conversations_bot_id relation/edge.
 	ConversationsBotIDTable = "conversations"
 	// ConversationsBotIDInverseTable is the table name for the Conversation entity.
@@ -204,6 +237,48 @@ func ByScopePoliciesBotID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOptio
 	}
 }
 
+// ByScopeMemoryAuthorizationEventsBotIDCount orders the results by scope_memory_authorization_events_bot_id count.
+func ByScopeMemoryAuthorizationEventsBotIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newScopeMemoryAuthorizationEventsBotIDStep(), opts...)
+	}
+}
+
+// ByScopeMemoryAuthorizationEventsBotID orders the results by scope_memory_authorization_events_bot_id terms.
+func ByScopeMemoryAuthorizationEventsBotID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newScopeMemoryAuthorizationEventsBotIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByMemoryExtractionCursorsBotIDCount orders the results by memory_extraction_cursors_bot_id count.
+func ByMemoryExtractionCursorsBotIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newMemoryExtractionCursorsBotIDStep(), opts...)
+	}
+}
+
+// ByMemoryExtractionCursorsBotID orders the results by memory_extraction_cursors_bot_id terms.
+func ByMemoryExtractionCursorsBotID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newMemoryExtractionCursorsBotIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByMemoryExtractionJobsBotIDCount orders the results by memory_extraction_jobs_bot_id count.
+func ByMemoryExtractionJobsBotIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newMemoryExtractionJobsBotIDStep(), opts...)
+	}
+}
+
+// ByMemoryExtractionJobsBotID orders the results by memory_extraction_jobs_bot_id terms.
+func ByMemoryExtractionJobsBotID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newMemoryExtractionJobsBotIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByConversationsBotIDCount orders the results by conversations_bot_id count.
 func ByConversationsBotIDCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -285,6 +360,27 @@ func newScopePoliciesBotIDStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ScopePoliciesBotIDInverseTable, ScopePolicyFieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, ScopePoliciesBotIDTable, ScopePoliciesBotIDColumn),
+	)
+}
+func newScopeMemoryAuthorizationEventsBotIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ScopeMemoryAuthorizationEventsBotIDInverseTable, ScopeMemoryAuthorizationEventFieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ScopeMemoryAuthorizationEventsBotIDTable, ScopeMemoryAuthorizationEventsBotIDColumn),
+	)
+}
+func newMemoryExtractionCursorsBotIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(MemoryExtractionCursorsBotIDInverseTable, MemoryExtractionCursorFieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionCursorsBotIDTable, MemoryExtractionCursorsBotIDColumn),
+	)
+}
+func newMemoryExtractionJobsBotIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(MemoryExtractionJobsBotIDInverseTable, MemoryExtractionJobFieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionJobsBotIDTable, MemoryExtractionJobsBotIDColumn),
 	)
 }
 func newConversationsBotIDStep() *sqlgraph.Step {

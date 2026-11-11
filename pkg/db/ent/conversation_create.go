@@ -15,6 +15,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/google/uuid"
 )
@@ -104,6 +106,36 @@ func (_c *ConversationCreate) AddAgentOutboundMessagesConversationID(v ...*Agent
 		ids[i] = v[i].ID
 	}
 	return _c.AddAgentOutboundMessagesConversationIDIDs(ids...)
+}
+
+// AddMemoryExtractionCursorsConversationIDIDs adds the "memory_extraction_cursors_conversation_id" edge to the MemoryExtractionCursor entity by IDs.
+func (_c *ConversationCreate) AddMemoryExtractionCursorsConversationIDIDs(ids ...int64) *ConversationCreate {
+	_c.mutation.AddMemoryExtractionCursorsConversationIDIDs(ids...)
+	return _c
+}
+
+// AddMemoryExtractionCursorsConversationID adds the "memory_extraction_cursors_conversation_id" edges to the MemoryExtractionCursor entity.
+func (_c *ConversationCreate) AddMemoryExtractionCursorsConversationID(v ...*MemoryExtractionCursor) *ConversationCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMemoryExtractionCursorsConversationIDIDs(ids...)
+}
+
+// AddMemoryExtractionJobsConversationIDIDs adds the "memory_extraction_jobs_conversation_id" edge to the MemoryExtractionJob entity by IDs.
+func (_c *ConversationCreate) AddMemoryExtractionJobsConversationIDIDs(ids ...uuid.UUID) *ConversationCreate {
+	_c.mutation.AddMemoryExtractionJobsConversationIDIDs(ids...)
+	return _c
+}
+
+// AddMemoryExtractionJobsConversationID adds the "memory_extraction_jobs_conversation_id" edges to the MemoryExtractionJob entity.
+func (_c *ConversationCreate) AddMemoryExtractionJobsConversationID(v ...*MemoryExtractionJob) *ConversationCreate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMemoryExtractionJobsConversationIDIDs(ids...)
 }
 
 // Mutation returns the ConversationMutation object of the builder.
@@ -242,6 +274,38 @@ func (_c *ConversationCreate) createSpec() (*Conversation, *sqlgraph.CreateSpec)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(agentoutboundmessage.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MemoryExtractionCursorsConversationIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   conversation.MemoryExtractionCursorsConversationIDTable,
+			Columns: []string{conversation.MemoryExtractionCursorsConversationIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractioncursor.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MemoryExtractionJobsConversationIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   conversation.MemoryExtractionJobsConversationIDTable,
+			Columns: []string{conversation.MemoryExtractionJobsConversationIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {

@@ -25,16 +25,46 @@ import (
 // Repo is the Ent-backed conversation repository.
 // Repo 是基于 Ent 的会话仓库。
 type Repo struct {
-	pool *db.Pool
+	pool                *db.Pool
+	memoryAuthorization MemoryAuthorizationStamper
+}
+
+// MemoryAuthorizationStamper stamps the effective memory authorization event
+// inside the message persistence transaction.
+// MemoryAuthorizationStamper 在消息持久化事务内写入有效记忆授权事件。
+type MemoryAuthorizationStamper interface {
+	StampMemoryAuthorization(ctx context.Context, tx *ent.Tx, botID int64, scopeType string, scopeID int64) (int64, bool, error)
+}
+
+// RepoOption customizes the conversation repository.
+// RepoOption 定制会话仓库。
+type RepoOption func(*Repo) error
+
+// WithMemoryAuthorizationStamper binds the memory authorization stamper.
+// WithMemoryAuthorizationStamper 绑定记忆授权盖章器。
+func WithMemoryAuthorizationStamper(stamper MemoryAuthorizationStamper) RepoOption {
+	return func(r *Repo) error {
+		if stamper == nil {
+			return fmt.Errorf("conversation: memory authorization stamper required")
+		}
+		r.memoryAuthorization = stamper
+		return nil
+	}
 }
 
 // NewRepo builds the repository; the pool must not be nil.
 // NewRepo 构建仓库；pool 不能为 nil。
-func NewRepo(pool *db.Pool) (*Repo, error) {
+func NewRepo(pool *db.Pool, opts ...RepoOption) (*Repo, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("conversation: pool required")
 	}
-	return &Repo{pool: pool}, nil
+	r := &Repo{pool: pool}
+	for _, opt := range opts {
+		if err := opt(r); err != nil {
+			return nil, err
+		}
+	}
+	return r, nil
 }
 
 // Ingest persists one inbound message and creates its decision job atomically.
@@ -71,7 +101,21 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 		}
 		return domain.IngestResult{ConversationID: conv.String(), Duplicate: true}, nil
 	}
-	stored, err := c.Message.Create().SetConversationID(conv).SetBotID(in.BotID).SetDirection("incoming").SetPlatformMessageID(in.PlatformMessageID).SetSenderID(in.SenderID).SetTextContent(in.Text).SetSegments(segments).Save(ctx)
+	var authorizationEventID *int64
+	if r.memoryAuthorization != nil {
+		id, authorized, err := r.memoryAuthorization.StampMemoryAuthorization(ctx, tx, in.BotID, string(in.Kind), in.TargetID)
+		if err != nil {
+			return domain.IngestResult{}, err
+		}
+		if authorized && id > 0 {
+			authorizationEventID = &id
+		}
+	}
+	messageCreate := c.Message.Create().SetConversationID(conv).SetBotID(in.BotID).SetDirection("incoming").SetPlatformMessageID(in.PlatformMessageID).SetSenderID(in.SenderID).SetTextContent(in.Text).SetSegments(segments)
+	if authorizationEventID != nil {
+		messageCreate.SetMemoryAuthorizationEventID(*authorizationEventID)
+	}
+	stored, err := messageCreate.Save(ctx)
 	if err != nil {
 		return domain.IngestResult{}, err
 	}
@@ -107,6 +151,22 @@ func (r *Repo) RecentMessages(ctx context.Context, conversationID string, limit 
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// MessageByID returns one stored message scoped to its bot account. A missing
+// row is reported as not found, which is also the observable result after the
+// retention sweep deletes an expired message.
+// MessageByID 返回属于指定机器人账号的一条已存消息。行不存在返回未找到，
+// 这也是留存清理删除过期消息后的可观察结果。
+func (r *Repo) MessageByID(ctx context.Context, botID, messageID int64) (domain.SourceMessage, bool, error) {
+	v, err := r.pool.Client.Message.Query().Where(em.ID(messageID), em.BotID(botID)).Only(ctx)
+	if ent.IsNotFound(err) {
+		return domain.SourceMessage{}, false, nil
+	}
+	if err != nil {
+		return domain.SourceMessage{}, false, err
+	}
+	return domain.SourceMessage{ID: v.ID, ConversationID: v.ConversationID.String(), BotID: v.BotID, Text: v.TextContent, CreatedAt: v.CreatedAt}, true, nil
 }
 
 // GetConversation returns one conversation when it exists.

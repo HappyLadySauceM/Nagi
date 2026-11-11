@@ -524,6 +524,12 @@ var (
 		{Name: "owner_key", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "content", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "source", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "source_sender_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "origin", Type: field.TypeString, Default: schema.Expr("'manual'::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "subject_type", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "subject_id", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "dedupe_key", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "review_reason", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "confidence", Type: field.TypeFloat32, Default: schema.Expr("0")},
 		{Name: "status", Type: field.TypeString, Default: schema.Expr("'candidate'::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "approved_by", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
@@ -541,13 +547,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "memories_bot_accounts_memories_bot_id",
-				Columns:    []*schema.Column{MemoriesColumns[11]},
+				Columns:    []*schema.Column{MemoriesColumns[17]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "memories_messages_memories_source_message_id",
-				Columns:    []*schema.Column{MemoriesColumns[12]},
+				Columns:    []*schema.Column{MemoriesColumns[18]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -556,7 +562,120 @@ var (
 			{
 				Name:    "memories_visibility",
 				Unique:  false,
-				Columns: []*schema.Column{MemoriesColumns[11], MemoriesColumns[1], MemoriesColumns[2], MemoriesColumns[6]},
+				Columns: []*schema.Column{MemoriesColumns[17], MemoriesColumns[1], MemoriesColumns[2], MemoriesColumns[12]},
+			},
+			{
+				Name:    "memories_dedupe_key",
+				Unique:  true,
+				Columns: []*schema.Column{MemoriesColumns[9]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "((dedupe_key IS NOT NULL) AND (status = ANY (ARRAY['candidate'::text, 'active'::text])))",
+				},
+			},
+		},
+	}
+	// MemoryExtractionCursorsColumns holds the columns for the "memory_extraction_cursors" table.
+	MemoryExtractionCursorsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "last_message_id", Type: field.TypeInt64, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "last_authorization_event_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "last_scanned_at", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "bot_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "conversation_id", Type: field.TypeUUID},
+	}
+	// MemoryExtractionCursorsTable holds the schema information for the "memory_extraction_cursors" table.
+	MemoryExtractionCursorsTable = &schema.Table{
+		Name:       "memory_extraction_cursors",
+		Columns:    MemoryExtractionCursorsColumns,
+		PrimaryKey: []*schema.Column{MemoryExtractionCursorsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "memory_extraction_cursors_bot_accounts_memory_extraction_cursors_bot_id",
+				Columns:    []*schema.Column{MemoryExtractionCursorsColumns[6]},
+				RefColumns: []*schema.Column{BotAccountsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "memory_extraction_cursors_conversations_memory_extraction_cursors_conversation_id",
+				Columns:    []*schema.Column{MemoryExtractionCursorsColumns[7]},
+				RefColumns: []*schema.Column{ConversationsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "memory_extraction_cursors_business_key",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryExtractionCursorsColumns[6], MemoryExtractionCursorsColumns[7]},
+			},
+		},
+	}
+	// MemoryExtractionJobsColumns holds the columns for the "memory_extraction_jobs" table.
+	MemoryExtractionJobsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "scope_type", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "scope_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "authorization_event_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "status", Type: field.TypeString, Default: schema.Expr("'pending'::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "attempts", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
+		{Name: "round_attempts", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
+		{Name: "next_run_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "claim_token", Type: field.TypeUUID, Nullable: true},
+		{Name: "lease_expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "last_error_code", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "extraction_payload", Type: field.TypeJSON, Nullable: true},
+		{Name: "manual_retries", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "bot_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "message_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
+	}
+	// MemoryExtractionJobsTable holds the schema information for the "memory_extraction_jobs" table.
+	MemoryExtractionJobsTable = &schema.Table{
+		Name:       "memory_extraction_jobs",
+		Columns:    MemoryExtractionJobsColumns,
+		PrimaryKey: []*schema.Column{MemoryExtractionJobsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "memory_extraction_jobs_bot_accounts_memory_extraction_jobs_bot_id",
+				Columns:    []*schema.Column{MemoryExtractionJobsColumns[15]},
+				RefColumns: []*schema.Column{BotAccountsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "memory_extraction_jobs_conversations_memory_extraction_jobs_conversation_id",
+				Columns:    []*schema.Column{MemoryExtractionJobsColumns[16]},
+				RefColumns: []*schema.Column{ConversationsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "memory_extraction_jobs_messages_memory_extraction_jobs_message_id",
+				Columns:    []*schema.Column{MemoryExtractionJobsColumns[17]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "memory_extraction_jobs_due",
+				Unique:  false,
+				Columns: []*schema.Column{MemoryExtractionJobsColumns[4], MemoryExtractionJobsColumns[7], MemoryExtractionJobsColumns[0]},
+			},
+			{
+				Name:    "memory_extraction_jobs_conversation",
+				Unique:  false,
+				Columns: []*schema.Column{MemoryExtractionJobsColumns[15], MemoryExtractionJobsColumns[16]},
+			},
+			{
+				Name:    "memory_extraction_jobs_message_key",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryExtractionJobsColumns[17]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "(message_id IS NOT NULL)",
+				},
 			},
 		},
 	}
@@ -570,6 +689,7 @@ var (
 		{Name: "segments", Type: field.TypeJSON, Default: schema.Expr("'[]'::jsonb")},
 		{Name: "sent_status", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "memory_authorization_event_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "outbound_id", Type: field.TypeUUID, Nullable: true},
 		{Name: "bot_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "conversation_id", Type: field.TypeUUID},
@@ -582,19 +702,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "messages_agent_outbound_messages_messages_outbound_id",
-				Columns:    []*schema.Column{MessagesColumns[8]},
+				Columns:    []*schema.Column{MessagesColumns[9]},
 				RefColumns: []*schema.Column{AgentOutboundMessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "messages_bot_accounts_messages_bot_id",
-				Columns:    []*schema.Column{MessagesColumns[9]},
+				Columns:    []*schema.Column{MessagesColumns[10]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "messages_conversations_messages_conversation_id",
-				Columns:    []*schema.Column{MessagesColumns[10]},
+				Columns:    []*schema.Column{MessagesColumns[11]},
 				RefColumns: []*schema.Column{ConversationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -603,7 +723,7 @@ var (
 			{
 				Name:    "messages_incoming_event_uniq",
 				Unique:  true,
-				Columns: []*schema.Column{MessagesColumns[9], MessagesColumns[10], MessagesColumns[2]},
+				Columns: []*schema.Column{MessagesColumns[10], MessagesColumns[11], MessagesColumns[2]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "((direction = 'incoming'::text) AND (platform_message_id IS NOT NULL))",
 				},
@@ -611,12 +731,17 @@ var (
 			{
 				Name:    "messages_conversation_timeline",
 				Unique:  false,
-				Columns: []*schema.Column{MessagesColumns[10], MessagesColumns[7], MessagesColumns[0]},
+				Columns: []*schema.Column{MessagesColumns[11], MessagesColumns[7], MessagesColumns[0]},
+			},
+			{
+				Name:    "messages_memory_authorization_event",
+				Unique:  false,
+				Columns: []*schema.Column{MessagesColumns[10], MessagesColumns[11], MessagesColumns[8]},
 			},
 			{
 				Name:    "messages_outbound_unique",
 				Unique:  true,
-				Columns: []*schema.Column{MessagesColumns[8]},
+				Columns: []*schema.Column{MessagesColumns[9]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "(outbound_id IS NOT NULL)",
 				},
@@ -709,6 +834,38 @@ var (
 			},
 		},
 	}
+	// ScopeMemoryAuthorizationEventsColumns holds the columns for the "scope_memory_authorization_events" table.
+	ScopeMemoryAuthorizationEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "scope_type", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "scope_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "event_kind", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "authorized", Type: field.TypeBool, Default: schema.Expr("false")},
+		{Name: "policy_version", Type: field.TypeInt64, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "bot_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+	}
+	// ScopeMemoryAuthorizationEventsTable holds the schema information for the "scope_memory_authorization_events" table.
+	ScopeMemoryAuthorizationEventsTable = &schema.Table{
+		Name:       "scope_memory_authorization_events",
+		Columns:    ScopeMemoryAuthorizationEventsColumns,
+		PrimaryKey: []*schema.Column{ScopeMemoryAuthorizationEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "scope_memory_authorization_events_bot_accounts_scope_memory_authorization_events_bot_id",
+				Columns:    []*schema.Column{ScopeMemoryAuthorizationEventsColumns[7]},
+				RefColumns: []*schema.Column{BotAccountsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "scope_memory_auth_events_scope",
+				Unique:  false,
+				Columns: []*schema.Column{ScopeMemoryAuthorizationEventsColumns[7], ScopeMemoryAuthorizationEventsColumns[1], ScopeMemoryAuthorizationEventsColumns[2], ScopeMemoryAuthorizationEventsColumns[0]},
+			},
+		},
+	}
 	// ScopePoliciesColumns holds the columns for the "scope_policies" table.
 	ScopePoliciesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -720,6 +877,7 @@ var (
 		{Name: "allow_memory_write", Type: field.TypeBool, Default: schema.Expr("false")},
 		{Name: "allow_memory_read", Type: field.TypeBool, Default: schema.Expr("false")},
 		{Name: "allow_history_read", Type: field.TypeBool, Default: schema.Expr("false")},
+		{Name: "memory_authorization_event_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "min_reply_interval_ms", Type: field.TypeInt, Default: schema.Expr("10000"), SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "max_replies_per_hour", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("now()")},
@@ -740,7 +898,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "scope_policies_bot_accounts_scope_policies_bot_id",
-				Columns:    []*schema.Column{ScopePoliciesColumns[19]},
+				Columns:    []*schema.Column{ScopePoliciesColumns[20]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -749,7 +907,7 @@ var (
 			{
 				Name:    "scope_policies_business_key",
 				Unique:  true,
-				Columns: []*schema.Column{ScopePoliciesColumns[19], ScopePoliciesColumns[1], ScopePoliciesColumns[2]},
+				Columns: []*schema.Column{ScopePoliciesColumns[20], ScopePoliciesColumns[1], ScopePoliciesColumns[2]},
 			},
 		},
 	}
@@ -786,9 +944,12 @@ var (
 		IntentRuleEntriesTable,
 		IntentRulesetsTable,
 		MemoriesTable,
+		MemoryExtractionCursorsTable,
+		MemoryExtractionJobsTable,
 		MessagesTable,
 		MessageJobsTable,
 		QqGroupsTable,
+		ScopeMemoryAuthorizationEventsTable,
 		ScopePoliciesTable,
 		SystemSettingsTable,
 	}
@@ -886,8 +1047,29 @@ func init() {
 		Table: "memories",
 	}
 	MemoriesTable.Annotation.Checks = map[string]string{
-		"memories_status_check":     "((status = ANY (ARRAY['candidate'::text, 'active'::text, 'superseded'::text, 'deleted'::text])))",
-		"memories_visibility_check": "((visibility = ANY (ARRAY['bot_shared'::text, 'group'::text, 'private_user'::text, 'conversation'::text])))",
+		"memories_origin_check":       "((origin = ANY (ARRAY['manual'::text, 'extraction'::text])))",
+		"memories_status_check":       "((status = ANY (ARRAY['candidate'::text, 'active'::text, 'superseded'::text, 'deleted'::text])))",
+		"memories_subject_type_check": "((subject_type IS NULL) OR (subject_type = ANY (ARRAY['user'::text, 'group'::text, 'unknown'::text])))",
+		"memories_visibility_check":   "((visibility = ANY (ARRAY['bot_shared'::text, 'group'::text, 'private_user'::text, 'conversation'::text])))",
+	}
+	MemoryExtractionCursorsTable.ForeignKeys[0].RefTable = BotAccountsTable
+	MemoryExtractionCursorsTable.ForeignKeys[1].RefTable = ConversationsTable
+	MemoryExtractionCursorsTable.Annotation = &entsql.Annotation{
+		Table: "memory_extraction_cursors",
+	}
+	MemoryExtractionJobsTable.ForeignKeys[0].RefTable = BotAccountsTable
+	MemoryExtractionJobsTable.ForeignKeys[1].RefTable = ConversationsTable
+	MemoryExtractionJobsTable.ForeignKeys[2].RefTable = MessagesTable
+	MemoryExtractionJobsTable.Annotation = &entsql.Annotation{
+		Table: "memory_extraction_jobs",
+	}
+	MemoryExtractionJobsTable.Annotation.Checks = map[string]string{
+		"memory_extraction_jobs_attempts_check":       "(attempts >= 0)",
+		"memory_extraction_jobs_lease_check":          "(((status = 'processing'::text) AND (claim_token IS NOT NULL) AND (lease_expires_at IS NOT NULL)) OR ((status <> 'processing'::text) AND (claim_token IS NULL) AND (lease_expires_at IS NULL)))",
+		"memory_extraction_jobs_manual_retries_check": "(manual_retries >= 0)",
+		"memory_extraction_jobs_round_attempts_check": "(round_attempts >= 0)",
+		"memory_extraction_jobs_scope_type_check":     "((scope_type = ANY (ARRAY['group'::text, 'private'::text])))",
+		"memory_extraction_jobs_status_check":         "((status = ANY (ARRAY['pending'::text, 'processing'::text, 'done'::text, 'failed'::text, 'cancelled'::text])))",
 	}
 	MessagesTable.ForeignKeys[0].RefTable = AgentOutboundMessagesTable
 	MessagesTable.ForeignKeys[1].RefTable = BotAccountsTable
@@ -911,6 +1093,14 @@ func init() {
 	QqGroupsTable.ForeignKeys[0].RefTable = BotAccountsTable
 	QqGroupsTable.Annotation = &entsql.Annotation{
 		Table: "qq_groups",
+	}
+	ScopeMemoryAuthorizationEventsTable.ForeignKeys[0].RefTable = BotAccountsTable
+	ScopeMemoryAuthorizationEventsTable.Annotation = &entsql.Annotation{
+		Table: "scope_memory_authorization_events",
+	}
+	ScopeMemoryAuthorizationEventsTable.Annotation.Checks = map[string]string{
+		"scope_memory_authorization_events_event_kind_check": "((event_kind = ANY (ARRAY['created'::text, 'updated'::text, 'removed'::text, 'bootstrap'::text])))",
+		"scope_memory_authorization_events_scope_type_check": "((scope_type = ANY (ARRAY['group'::text, 'private'::text])))",
 	}
 	ScopePoliciesTable.ForeignKeys[0].RefTable = BotAccountsTable
 	ScopePoliciesTable.Annotation = &entsql.Annotation{

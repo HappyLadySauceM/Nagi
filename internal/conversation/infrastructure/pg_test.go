@@ -849,3 +849,38 @@ func TestIngressCannotForgeTranscriptStatus(t *testing.T) {
 		t.Fatal("incoming transcription status was trusted")
 	}
 }
+
+// TestMessageByIDScopedToBot verifies the narrow source lookup returns only the
+// exact message of its bot and reports missing rows after retention deletion.
+// TestMessageByIDScopedToBot 验证窄来源查询只返回自身机器人的确切消息，
+// 并在留存删除后报告未找到。
+func TestMessageByIDScopedToBot(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	ctx := context.Background()
+	const botID = 993001
+	platformID := time.Now().UnixNano()
+	result, err := repo.Ingest(ctx, domain.IngestInput{
+		BotID: botID, Kind: domain.KindGroup, TargetID: 993002,
+		PlatformMessageID: platformID, SenderID: 993004, Text: "来源原文",
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if result.Duplicate || result.MessageID == 0 {
+		t.Fatalf("ingest did not create a fresh message: %+v", result)
+	}
+	msg, found, err := repo.MessageByID(ctx, botID, result.MessageID)
+	if err != nil || !found || msg.Text != "来源原文" || msg.BotID != botID || msg.ConversationID != result.ConversationID {
+		t.Fatalf("source message = %+v found=%v err=%v", msg, found, err)
+	}
+	if _, found, err := repo.MessageByID(ctx, botID+1, result.MessageID); err != nil || found {
+		t.Fatalf("cross-bot source leaked: found=%v err=%v", found, err)
+	}
+	if _, found, err := repo.MessageByID(ctx, botID, result.MessageID+999999); err != nil || found {
+		t.Fatalf("missing source must be unavailable: found=%v err=%v", found, err)
+	}
+}

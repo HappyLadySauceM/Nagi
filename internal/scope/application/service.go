@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -123,6 +124,27 @@ func (s *Service) List(ctx context.Context, botID *int64) ([]domain.Policy, erro
 // Get 返回单个作用域的生效策略；是 Resolve 的别名。
 func (s *Service) Get(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (domain.Policy, error) {
 	return s.Resolve(ctx, botID, scopeType, scopeID)
+}
+
+// MemoryAuthorizationRepository is an optional read port used by extraction
+// and the management retry path.
+// MemoryAuthorizationRepository 是提取与管理重试路径使用的可选读取端口。
+type MemoryAuthorizationRepository interface {
+	ResolveMemoryAuthorization(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (int64, bool, error)
+}
+
+// ResolveMemoryAuthorization returns the current memory authorization generation.
+// ResolveMemoryAuthorization 返回当前记忆授权代际。
+func (s *Service) ResolveMemoryAuthorization(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (scopecontracts.MemoryAuthorization, error) {
+	repo, ok := s.repo.(MemoryAuthorizationRepository)
+	if !ok {
+		return scopecontracts.MemoryAuthorization{}, fmt.Errorf("scope: memory authorization repository unavailable")
+	}
+	eventID, authorized, err := repo.ResolveMemoryAuthorization(ctx, botID, scopeType, scopeID)
+	if err != nil {
+		return scopecontracts.MemoryAuthorization{}, err
+	}
+	return scopecontracts.MemoryAuthorization{EventID: eventID, Authorized: authorized}, nil
 }
 
 // Upsert validates and persists one complete policy.

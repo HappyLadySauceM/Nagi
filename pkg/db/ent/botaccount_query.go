@@ -19,28 +19,34 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 )
 
 // BotAccountQuery is the builder for querying BotAccount entities.
 type BotAccountQuery struct {
 	config
-	ctx                            *QueryContext
-	order                          []botaccount.OrderOption
-	inters                         []Interceptor
-	predicates                     []predicate.BotAccount
-	withContactsBotID              *ContactQuery
-	withQqGroupsBotID              *QQGroupQuery
-	withGroupMembersBotID          *GroupMemberQuery
-	withScopePoliciesBotID         *ScopePolicyQuery
-	withConversationsBotID         *ConversationQuery
-	withMessagesBotID              *MessageQuery
-	withMemoriesBotID              *MemoryQuery
-	withAgentOutboundMessagesBotID *AgentOutboundMessageQuery
-	modifiers                      []func(*sql.Selector)
+	ctx                                     *QueryContext
+	order                                   []botaccount.OrderOption
+	inters                                  []Interceptor
+	predicates                              []predicate.BotAccount
+	withContactsBotID                       *ContactQuery
+	withQqGroupsBotID                       *QQGroupQuery
+	withGroupMembersBotID                   *GroupMemberQuery
+	withScopePoliciesBotID                  *ScopePolicyQuery
+	withScopeMemoryAuthorizationEventsBotID *ScopeMemoryAuthorizationEventQuery
+	withMemoryExtractionCursorsBotID        *MemoryExtractionCursorQuery
+	withMemoryExtractionJobsBotID           *MemoryExtractionJobQuery
+	withConversationsBotID                  *ConversationQuery
+	withMessagesBotID                       *MessageQuery
+	withMemoriesBotID                       *MemoryQuery
+	withAgentOutboundMessagesBotID          *AgentOutboundMessageQuery
+	modifiers                               []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -158,6 +164,72 @@ func (_q *BotAccountQuery) QueryScopePoliciesBotID() *ScopePolicyQuery {
 			sqlgraph.From(botaccount.Table, botaccount.FieldID, selector),
 			sqlgraph.To(scopepolicy.Table, scopepolicy.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, botaccount.ScopePoliciesBotIDTable, botaccount.ScopePoliciesBotIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryScopeMemoryAuthorizationEventsBotID chains the current query on the "scope_memory_authorization_events_bot_id" edge.
+func (_q *BotAccountQuery) QueryScopeMemoryAuthorizationEventsBotID() *ScopeMemoryAuthorizationEventQuery {
+	query := (&ScopeMemoryAuthorizationEventClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(botaccount.Table, botaccount.FieldID, selector),
+			sqlgraph.To(scopememoryauthorizationevent.Table, scopememoryauthorizationevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, botaccount.ScopeMemoryAuthorizationEventsBotIDTable, botaccount.ScopeMemoryAuthorizationEventsBotIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionCursorsBotID chains the current query on the "memory_extraction_cursors_bot_id" edge.
+func (_q *BotAccountQuery) QueryMemoryExtractionCursorsBotID() *MemoryExtractionCursorQuery {
+	query := (&MemoryExtractionCursorClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(botaccount.Table, botaccount.FieldID, selector),
+			sqlgraph.To(memoryextractioncursor.Table, memoryextractioncursor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, botaccount.MemoryExtractionCursorsBotIDTable, botaccount.MemoryExtractionCursorsBotIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionJobsBotID chains the current query on the "memory_extraction_jobs_bot_id" edge.
+func (_q *BotAccountQuery) QueryMemoryExtractionJobsBotID() *MemoryExtractionJobQuery {
+	query := (&MemoryExtractionJobClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(botaccount.Table, botaccount.FieldID, selector),
+			sqlgraph.To(memoryextractionjob.Table, memoryextractionjob.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, botaccount.MemoryExtractionJobsBotIDTable, botaccount.MemoryExtractionJobsBotIDColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -440,19 +512,22 @@ func (_q *BotAccountQuery) Clone() *BotAccountQuery {
 		return nil
 	}
 	return &BotAccountQuery{
-		config:                         _q.config,
-		ctx:                            _q.ctx.Clone(),
-		order:                          append([]botaccount.OrderOption{}, _q.order...),
-		inters:                         append([]Interceptor{}, _q.inters...),
-		predicates:                     append([]predicate.BotAccount{}, _q.predicates...),
-		withContactsBotID:              _q.withContactsBotID.Clone(),
-		withQqGroupsBotID:              _q.withQqGroupsBotID.Clone(),
-		withGroupMembersBotID:          _q.withGroupMembersBotID.Clone(),
-		withScopePoliciesBotID:         _q.withScopePoliciesBotID.Clone(),
-		withConversationsBotID:         _q.withConversationsBotID.Clone(),
-		withMessagesBotID:              _q.withMessagesBotID.Clone(),
-		withMemoriesBotID:              _q.withMemoriesBotID.Clone(),
-		withAgentOutboundMessagesBotID: _q.withAgentOutboundMessagesBotID.Clone(),
+		config:                                  _q.config,
+		ctx:                                     _q.ctx.Clone(),
+		order:                                   append([]botaccount.OrderOption{}, _q.order...),
+		inters:                                  append([]Interceptor{}, _q.inters...),
+		predicates:                              append([]predicate.BotAccount{}, _q.predicates...),
+		withContactsBotID:                       _q.withContactsBotID.Clone(),
+		withQqGroupsBotID:                       _q.withQqGroupsBotID.Clone(),
+		withGroupMembersBotID:                   _q.withGroupMembersBotID.Clone(),
+		withScopePoliciesBotID:                  _q.withScopePoliciesBotID.Clone(),
+		withScopeMemoryAuthorizationEventsBotID: _q.withScopeMemoryAuthorizationEventsBotID.Clone(),
+		withMemoryExtractionCursorsBotID:        _q.withMemoryExtractionCursorsBotID.Clone(),
+		withMemoryExtractionJobsBotID:           _q.withMemoryExtractionJobsBotID.Clone(),
+		withConversationsBotID:                  _q.withConversationsBotID.Clone(),
+		withMessagesBotID:                       _q.withMessagesBotID.Clone(),
+		withMemoriesBotID:                       _q.withMemoriesBotID.Clone(),
+		withAgentOutboundMessagesBotID:          _q.withAgentOutboundMessagesBotID.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -500,6 +575,39 @@ func (_q *BotAccountQuery) WithScopePoliciesBotID(opts ...func(*ScopePolicyQuery
 		opt(query)
 	}
 	_q.withScopePoliciesBotID = query
+	return _q
+}
+
+// WithScopeMemoryAuthorizationEventsBotID tells the query-builder to eager-load the nodes that are connected to
+// the "scope_memory_authorization_events_bot_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *BotAccountQuery) WithScopeMemoryAuthorizationEventsBotID(opts ...func(*ScopeMemoryAuthorizationEventQuery)) *BotAccountQuery {
+	query := (&ScopeMemoryAuthorizationEventClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withScopeMemoryAuthorizationEventsBotID = query
+	return _q
+}
+
+// WithMemoryExtractionCursorsBotID tells the query-builder to eager-load the nodes that are connected to
+// the "memory_extraction_cursors_bot_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *BotAccountQuery) WithMemoryExtractionCursorsBotID(opts ...func(*MemoryExtractionCursorQuery)) *BotAccountQuery {
+	query := (&MemoryExtractionCursorClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withMemoryExtractionCursorsBotID = query
+	return _q
+}
+
+// WithMemoryExtractionJobsBotID tells the query-builder to eager-load the nodes that are connected to
+// the "memory_extraction_jobs_bot_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *BotAccountQuery) WithMemoryExtractionJobsBotID(opts ...func(*MemoryExtractionJobQuery)) *BotAccountQuery {
+	query := (&MemoryExtractionJobClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withMemoryExtractionJobsBotID = query
 	return _q
 }
 
@@ -625,11 +733,14 @@ func (_q *BotAccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*B
 	var (
 		nodes       = []*BotAccount{}
 		_spec       = _q.querySpec()
-		loadedTypes = [8]bool{
+		loadedTypes = [11]bool{
 			_q.withContactsBotID != nil,
 			_q.withQqGroupsBotID != nil,
 			_q.withGroupMembersBotID != nil,
 			_q.withScopePoliciesBotID != nil,
+			_q.withScopeMemoryAuthorizationEventsBotID != nil,
+			_q.withMemoryExtractionCursorsBotID != nil,
+			_q.withMemoryExtractionJobsBotID != nil,
 			_q.withConversationsBotID != nil,
 			_q.withMessagesBotID != nil,
 			_q.withMemoriesBotID != nil,
@@ -683,6 +794,33 @@ func (_q *BotAccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*B
 			func(n *BotAccount) { n.Edges.ScopePoliciesBotID = []*ScopePolicy{} },
 			func(n *BotAccount, e *ScopePolicy) {
 				n.Edges.ScopePoliciesBotID = append(n.Edges.ScopePoliciesBotID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withScopeMemoryAuthorizationEventsBotID; query != nil {
+		if err := _q.loadScopeMemoryAuthorizationEventsBotID(ctx, query, nodes,
+			func(n *BotAccount) { n.Edges.ScopeMemoryAuthorizationEventsBotID = []*ScopeMemoryAuthorizationEvent{} },
+			func(n *BotAccount, e *ScopeMemoryAuthorizationEvent) {
+				n.Edges.ScopeMemoryAuthorizationEventsBotID = append(n.Edges.ScopeMemoryAuthorizationEventsBotID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withMemoryExtractionCursorsBotID; query != nil {
+		if err := _q.loadMemoryExtractionCursorsBotID(ctx, query, nodes,
+			func(n *BotAccount) { n.Edges.MemoryExtractionCursorsBotID = []*MemoryExtractionCursor{} },
+			func(n *BotAccount, e *MemoryExtractionCursor) {
+				n.Edges.MemoryExtractionCursorsBotID = append(n.Edges.MemoryExtractionCursorsBotID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withMemoryExtractionJobsBotID; query != nil {
+		if err := _q.loadMemoryExtractionJobsBotID(ctx, query, nodes,
+			func(n *BotAccount) { n.Edges.MemoryExtractionJobsBotID = []*MemoryExtractionJob{} },
+			func(n *BotAccount, e *MemoryExtractionJob) {
+				n.Edges.MemoryExtractionJobsBotID = append(n.Edges.MemoryExtractionJobsBotID, e)
 			}); err != nil {
 			return nil, err
 		}
@@ -827,6 +965,96 @@ func (_q *BotAccountQuery) loadScopePoliciesBotID(ctx context.Context, query *Sc
 	}
 	query.Where(predicate.ScopePolicy(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(botaccount.ScopePoliciesBotIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.BotID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "bot_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *BotAccountQuery) loadScopeMemoryAuthorizationEventsBotID(ctx context.Context, query *ScopeMemoryAuthorizationEventQuery, nodes []*BotAccount, init func(*BotAccount), assign func(*BotAccount, *ScopeMemoryAuthorizationEvent)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*BotAccount)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(scopememoryauthorizationevent.FieldBotID)
+	}
+	query.Where(predicate.ScopeMemoryAuthorizationEvent(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(botaccount.ScopeMemoryAuthorizationEventsBotIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.BotID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "bot_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *BotAccountQuery) loadMemoryExtractionCursorsBotID(ctx context.Context, query *MemoryExtractionCursorQuery, nodes []*BotAccount, init func(*BotAccount), assign func(*BotAccount, *MemoryExtractionCursor)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*BotAccount)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(memoryextractioncursor.FieldBotID)
+	}
+	query.Where(predicate.MemoryExtractionCursor(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(botaccount.MemoryExtractionCursorsBotIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.BotID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "bot_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *BotAccountQuery) loadMemoryExtractionJobsBotID(ctx context.Context, query *MemoryExtractionJobQuery, nodes []*BotAccount, init func(*BotAccount), assign func(*BotAccount, *MemoryExtractionJob)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*BotAccount)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(memoryextractionjob.FieldBotID)
+	}
+	query.Where(predicate.MemoryExtractionJob(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(botaccount.MemoryExtractionJobsBotIDColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

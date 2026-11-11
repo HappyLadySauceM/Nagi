@@ -35,6 +35,8 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldOutboundID holds the string denoting the outbound_id field in the database.
 	FieldOutboundID = "outbound_id"
+	// FieldMemoryAuthorizationEventID holds the string denoting the memory_authorization_event_id field in the database.
+	FieldMemoryAuthorizationEventID = "memory_authorization_event_id"
 	// EdgeConversationIDRef holds the string denoting the conversation_id_ref edge name in mutations.
 	EdgeConversationIDRef = "conversation_id_ref"
 	// EdgeBotIDRef holds the string denoting the bot_id_ref edge name in mutations.
@@ -45,6 +47,8 @@ const (
 	EdgeOutboundIDRef = "outbound_id_ref"
 	// EdgeMemoriesSourceMessageID holds the string denoting the memories_source_message_id edge name in mutations.
 	EdgeMemoriesSourceMessageID = "memories_source_message_id"
+	// EdgeMemoryExtractionJobsMessageID holds the string denoting the memory_extraction_jobs_message_id edge name in mutations.
+	EdgeMemoryExtractionJobsMessageID = "memory_extraction_jobs_message_id"
 	// BotAccountFieldID holds the string denoting the ID field of the BotAccount.
 	BotAccountFieldID = "bot_id"
 	// MemoryFieldID holds the string denoting the ID field of the Memory.
@@ -86,6 +90,13 @@ const (
 	MemoriesSourceMessageIDInverseTable = "memories"
 	// MemoriesSourceMessageIDColumn is the table column denoting the memories_source_message_id relation/edge.
 	MemoriesSourceMessageIDColumn = "source_message_id"
+	// MemoryExtractionJobsMessageIDTable is the table that holds the memory_extraction_jobs_message_id relation/edge.
+	MemoryExtractionJobsMessageIDTable = "memory_extraction_jobs"
+	// MemoryExtractionJobsMessageIDInverseTable is the table name for the MemoryExtractionJob entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryextractionjob" package.
+	MemoryExtractionJobsMessageIDInverseTable = "memory_extraction_jobs"
+	// MemoryExtractionJobsMessageIDColumn is the table column denoting the memory_extraction_jobs_message_id relation/edge.
+	MemoryExtractionJobsMessageIDColumn = "message_id"
 )
 
 // Columns holds all SQL columns for message fields.
@@ -101,6 +112,7 @@ var Columns = []string{
 	FieldSentStatus,
 	FieldCreatedAt,
 	FieldOutboundID,
+	FieldMemoryAuthorizationEventID,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -175,6 +187,11 @@ func ByOutboundID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOutboundID, opts...).ToFunc()
 }
 
+// ByMemoryAuthorizationEventID orders the results by the memory_authorization_event_id field.
+func ByMemoryAuthorizationEventID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMemoryAuthorizationEventID, opts...).ToFunc()
+}
+
 // ByConversationIDRefField orders the results by conversation_id_ref field.
 func ByConversationIDRefField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -223,6 +240,20 @@ func ByMemoriesSourceMessageID(term sql.OrderTerm, terms ...sql.OrderTerm) Order
 		sqlgraph.OrderByNeighborTerms(s, newMemoriesSourceMessageIDStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByMemoryExtractionJobsMessageIDCount orders the results by memory_extraction_jobs_message_id count.
+func ByMemoryExtractionJobsMessageIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newMemoryExtractionJobsMessageIDStep(), opts...)
+	}
+}
+
+// ByMemoryExtractionJobsMessageID orders the results by memory_extraction_jobs_message_id terms.
+func ByMemoryExtractionJobsMessageID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newMemoryExtractionJobsMessageIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newConversationIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -256,5 +287,12 @@ func newMemoriesSourceMessageIDStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(MemoriesSourceMessageIDInverseTable, MemoryFieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, MemoriesSourceMessageIDTable, MemoriesSourceMessageIDColumn),
+	)
+}
+func newMemoryExtractionJobsMessageIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(MemoryExtractionJobsMessageIDInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionJobsMessageIDTable, MemoryExtractionJobsMessageIDColumn),
 	)
 }

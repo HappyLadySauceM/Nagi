@@ -16,6 +16,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/google/uuid"
@@ -24,14 +26,16 @@ import (
 // ConversationQuery is the builder for querying Conversation entities.
 type ConversationQuery struct {
 	config
-	ctx                                     *QueryContext
-	order                                   []conversation.OrderOption
-	inters                                  []Interceptor
-	predicates                              []predicate.Conversation
-	withBotIDRef                            *BotAccountQuery
-	withMessagesConversationID              *MessageQuery
-	withAgentOutboundMessagesConversationID *AgentOutboundMessageQuery
-	modifiers                               []func(*sql.Selector)
+	ctx                                       *QueryContext
+	order                                     []conversation.OrderOption
+	inters                                    []Interceptor
+	predicates                                []predicate.Conversation
+	withBotIDRef                              *BotAccountQuery
+	withMessagesConversationID                *MessageQuery
+	withAgentOutboundMessagesConversationID   *AgentOutboundMessageQuery
+	withMemoryExtractionCursorsConversationID *MemoryExtractionCursorQuery
+	withMemoryExtractionJobsConversationID    *MemoryExtractionJobQuery
+	modifiers                                 []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -127,6 +131,50 @@ func (_q *ConversationQuery) QueryAgentOutboundMessagesConversationID() *AgentOu
 			sqlgraph.From(conversation.Table, conversation.FieldID, selector),
 			sqlgraph.To(agentoutboundmessage.Table, agentoutboundmessage.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, conversation.AgentOutboundMessagesConversationIDTable, conversation.AgentOutboundMessagesConversationIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionCursorsConversationID chains the current query on the "memory_extraction_cursors_conversation_id" edge.
+func (_q *ConversationQuery) QueryMemoryExtractionCursorsConversationID() *MemoryExtractionCursorQuery {
+	query := (&MemoryExtractionCursorClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(conversation.Table, conversation.FieldID, selector),
+			sqlgraph.To(memoryextractioncursor.Table, memoryextractioncursor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, conversation.MemoryExtractionCursorsConversationIDTable, conversation.MemoryExtractionCursorsConversationIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionJobsConversationID chains the current query on the "memory_extraction_jobs_conversation_id" edge.
+func (_q *ConversationQuery) QueryMemoryExtractionJobsConversationID() *MemoryExtractionJobQuery {
+	query := (&MemoryExtractionJobClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(conversation.Table, conversation.FieldID, selector),
+			sqlgraph.To(memoryextractionjob.Table, memoryextractionjob.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, conversation.MemoryExtractionJobsConversationIDTable, conversation.MemoryExtractionJobsConversationIDColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -329,6 +377,8 @@ func (_q *ConversationQuery) Clone() *ConversationQuery {
 		withBotIDRef:                            _q.withBotIDRef.Clone(),
 		withMessagesConversationID:              _q.withMessagesConversationID.Clone(),
 		withAgentOutboundMessagesConversationID: _q.withAgentOutboundMessagesConversationID.Clone(),
+		withMemoryExtractionCursorsConversationID: _q.withMemoryExtractionCursorsConversationID.Clone(),
+		withMemoryExtractionJobsConversationID:    _q.withMemoryExtractionJobsConversationID.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -365,6 +415,28 @@ func (_q *ConversationQuery) WithAgentOutboundMessagesConversationID(opts ...fun
 		opt(query)
 	}
 	_q.withAgentOutboundMessagesConversationID = query
+	return _q
+}
+
+// WithMemoryExtractionCursorsConversationID tells the query-builder to eager-load the nodes that are connected to
+// the "memory_extraction_cursors_conversation_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ConversationQuery) WithMemoryExtractionCursorsConversationID(opts ...func(*MemoryExtractionCursorQuery)) *ConversationQuery {
+	query := (&MemoryExtractionCursorClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withMemoryExtractionCursorsConversationID = query
+	return _q
+}
+
+// WithMemoryExtractionJobsConversationID tells the query-builder to eager-load the nodes that are connected to
+// the "memory_extraction_jobs_conversation_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ConversationQuery) WithMemoryExtractionJobsConversationID(opts ...func(*MemoryExtractionJobQuery)) *ConversationQuery {
+	query := (&MemoryExtractionJobClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withMemoryExtractionJobsConversationID = query
 	return _q
 }
 
@@ -446,10 +518,12 @@ func (_q *ConversationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 	var (
 		nodes       = []*Conversation{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [5]bool{
 			_q.withBotIDRef != nil,
 			_q.withMessagesConversationID != nil,
 			_q.withAgentOutboundMessagesConversationID != nil,
+			_q.withMemoryExtractionCursorsConversationID != nil,
+			_q.withMemoryExtractionJobsConversationID != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -493,6 +567,24 @@ func (_q *ConversationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 			func(n *Conversation) { n.Edges.AgentOutboundMessagesConversationID = []*AgentOutboundMessage{} },
 			func(n *Conversation, e *AgentOutboundMessage) {
 				n.Edges.AgentOutboundMessagesConversationID = append(n.Edges.AgentOutboundMessagesConversationID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withMemoryExtractionCursorsConversationID; query != nil {
+		if err := _q.loadMemoryExtractionCursorsConversationID(ctx, query, nodes,
+			func(n *Conversation) { n.Edges.MemoryExtractionCursorsConversationID = []*MemoryExtractionCursor{} },
+			func(n *Conversation, e *MemoryExtractionCursor) {
+				n.Edges.MemoryExtractionCursorsConversationID = append(n.Edges.MemoryExtractionCursorsConversationID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withMemoryExtractionJobsConversationID; query != nil {
+		if err := _q.loadMemoryExtractionJobsConversationID(ctx, query, nodes,
+			func(n *Conversation) { n.Edges.MemoryExtractionJobsConversationID = []*MemoryExtractionJob{} },
+			func(n *Conversation, e *MemoryExtractionJob) {
+				n.Edges.MemoryExtractionJobsConversationID = append(n.Edges.MemoryExtractionJobsConversationID, e)
 			}); err != nil {
 			return nil, err
 		}
@@ -574,6 +666,66 @@ func (_q *ConversationQuery) loadAgentOutboundMessagesConversationID(ctx context
 	}
 	query.Where(predicate.AgentOutboundMessage(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(conversation.AgentOutboundMessagesConversationIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ConversationID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "conversation_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ConversationQuery) loadMemoryExtractionCursorsConversationID(ctx context.Context, query *MemoryExtractionCursorQuery, nodes []*Conversation, init func(*Conversation), assign func(*Conversation, *MemoryExtractionCursor)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[uuid.UUID]*Conversation)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(memoryextractioncursor.FieldConversationID)
+	}
+	query.Where(predicate.MemoryExtractionCursor(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(conversation.MemoryExtractionCursorsConversationIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ConversationID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "conversation_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ConversationQuery) loadMemoryExtractionJobsConversationID(ctx context.Context, query *MemoryExtractionJobQuery, nodes []*Conversation, init func(*Conversation), assign func(*Conversation, *MemoryExtractionJob)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[uuid.UUID]*Conversation)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(memoryextractionjob.FieldConversationID)
+	}
+	query.Where(predicate.MemoryExtractionJob(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(conversation.MemoryExtractionJobsConversationIDColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

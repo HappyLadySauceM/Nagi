@@ -33,6 +33,8 @@ const (
 	FieldAllowMemoryRead = "allow_memory_read"
 	// FieldAllowHistoryRead holds the string denoting the allow_history_read field in the database.
 	FieldAllowHistoryRead = "allow_history_read"
+	// FieldMemoryAuthorizationEventID holds the string denoting the memory_authorization_event_id field in the database.
+	FieldMemoryAuthorizationEventID = "memory_authorization_event_id"
 	// FieldMinReplyIntervalMs holds the string denoting the min_reply_interval_ms field in the database.
 	FieldMinReplyIntervalMs = "min_reply_interval_ms"
 	// FieldMaxRepliesPerHour holds the string denoting the max_replies_per_hour field in the database.
@@ -80,6 +82,7 @@ var Columns = []string{
 	FieldAllowMemoryWrite,
 	FieldAllowMemoryRead,
 	FieldAllowHistoryRead,
+	FieldMemoryAuthorizationEventID,
 	FieldMinReplyIntervalMs,
 	FieldMaxRepliesPerHour,
 	FieldUpdatedAt,
@@ -186,6 +189,11 @@ func ByAllowMemoryRead(opts ...sql.OrderTermOption) OrderOption {
 // ByAllowHistoryRead orders the results by the allow_history_read field.
 func ByAllowHistoryRead(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAllowHistoryRead, opts...).ToFunc()
+}
+
+// ByMemoryAuthorizationEventID orders the results by the memory_authorization_event_id field.
+func ByMemoryAuthorizationEventID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMemoryAuthorizationEventID, opts...).ToFunc()
 }
 
 // ByMinReplyIntervalMs orders the results by the min_reply_interval_ms field.
