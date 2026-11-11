@@ -100,6 +100,11 @@ func AllowHistoryRead(v bool) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldEQ(FieldAllowHistoryRead, v))
 }
 
+// MemoryAuthorizationEventID applies equality check predicate on the "memory_authorization_event_id" field. It's identical to MemoryAuthorizationEventIDEQ.
+func MemoryAuthorizationEventID(v int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldEQ(FieldMemoryAuthorizationEventID, v))
+}
+
 // MinReplyIntervalMs applies equality check predicate on the "min_reply_interval_ms" field. It's identical to MinReplyIntervalMsEQ.
 func MinReplyIntervalMs(v int) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldEQ(FieldMinReplyIntervalMs, v))
@@ -378,6 +383,56 @@ func AllowHistoryReadEQ(v bool) predicate.ScopePolicy {
 // AllowHistoryReadNEQ applies the NEQ predicate on the "allow_history_read" field.
 func AllowHistoryReadNEQ(v bool) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldNEQ(FieldAllowHistoryRead, v))
+}
+
+// MemoryAuthorizationEventIDEQ applies the EQ predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDEQ(v int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldEQ(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDNEQ applies the NEQ predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDNEQ(v int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldNEQ(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDIn applies the In predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDIn(vs ...int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldIn(FieldMemoryAuthorizationEventID, vs...))
+}
+
+// MemoryAuthorizationEventIDNotIn applies the NotIn predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDNotIn(vs ...int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldNotIn(FieldMemoryAuthorizationEventID, vs...))
+}
+
+// MemoryAuthorizationEventIDGT applies the GT predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDGT(v int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldGT(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDGTE applies the GTE predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDGTE(v int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldGTE(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDLT applies the LT predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDLT(v int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldLT(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDLTE applies the LTE predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDLTE(v int64) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldLTE(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDIsNil applies the IsNil predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDIsNil() predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldIsNull(FieldMemoryAuthorizationEventID))
+}
+
+// MemoryAuthorizationEventIDNotNil applies the NotNil predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDNotNil() predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldNotNull(FieldMemoryAuthorizationEventID))
 }
 
 // MinReplyIntervalMsEQ applies the EQ predicate on the "min_reply_interval_ms" field.

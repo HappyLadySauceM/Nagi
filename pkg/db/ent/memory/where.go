@@ -86,6 +86,36 @@ func Source(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldEQ(FieldSource, v))
 }
 
+// SourceSenderID applies equality check predicate on the "source_sender_id" field. It's identical to SourceSenderIDEQ.
+func SourceSenderID(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldSourceSenderID, v))
+}
+
+// Origin applies equality check predicate on the "origin" field. It's identical to OriginEQ.
+func Origin(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldOrigin, v))
+}
+
+// SubjectType applies equality check predicate on the "subject_type" field. It's identical to SubjectTypeEQ.
+func SubjectType(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldSubjectType, v))
+}
+
+// SubjectID applies equality check predicate on the "subject_id" field. It's identical to SubjectIDEQ.
+func SubjectID(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldSubjectID, v))
+}
+
+// DedupeKey applies equality check predicate on the "dedupe_key" field. It's identical to DedupeKeyEQ.
+func DedupeKey(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldDedupeKey, v))
+}
+
+// ReviewReason applies equality check predicate on the "review_reason" field. It's identical to ReviewReasonEQ.
+func ReviewReason(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldReviewReason, v))
+}
+
 // Confidence applies equality check predicate on the "confidence" field. It's identical to ConfidenceEQ.
 func Confidence(v float32) predicate.Memory {
 	return predicate.Memory(sql.FieldEQ(FieldConfidence, v))
@@ -424,6 +454,411 @@ func SourceEqualFold(v string) predicate.Memory {
 // SourceContainsFold applies the ContainsFold predicate on the "source" field.
 func SourceContainsFold(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldContainsFold(FieldSource, v))
+}
+
+// SourceSenderIDEQ applies the EQ predicate on the "source_sender_id" field.
+func SourceSenderIDEQ(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldSourceSenderID, v))
+}
+
+// SourceSenderIDNEQ applies the NEQ predicate on the "source_sender_id" field.
+func SourceSenderIDNEQ(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldSourceSenderID, v))
+}
+
+// SourceSenderIDIn applies the In predicate on the "source_sender_id" field.
+func SourceSenderIDIn(vs ...int64) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldSourceSenderID, vs...))
+}
+
+// SourceSenderIDNotIn applies the NotIn predicate on the "source_sender_id" field.
+func SourceSenderIDNotIn(vs ...int64) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldSourceSenderID, vs...))
+}
+
+// SourceSenderIDGT applies the GT predicate on the "source_sender_id" field.
+func SourceSenderIDGT(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldSourceSenderID, v))
+}
+
+// SourceSenderIDGTE applies the GTE predicate on the "source_sender_id" field.
+func SourceSenderIDGTE(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldSourceSenderID, v))
+}
+
+// SourceSenderIDLT applies the LT predicate on the "source_sender_id" field.
+func SourceSenderIDLT(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldSourceSenderID, v))
+}
+
+// SourceSenderIDLTE applies the LTE predicate on the "source_sender_id" field.
+func SourceSenderIDLTE(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldSourceSenderID, v))
+}
+
+// SourceSenderIDIsNil applies the IsNil predicate on the "source_sender_id" field.
+func SourceSenderIDIsNil() predicate.Memory {
+	return predicate.Memory(sql.FieldIsNull(FieldSourceSenderID))
+}
+
+// SourceSenderIDNotNil applies the NotNil predicate on the "source_sender_id" field.
+func SourceSenderIDNotNil() predicate.Memory {
+	return predicate.Memory(sql.FieldNotNull(FieldSourceSenderID))
+}
+
+// OriginEQ applies the EQ predicate on the "origin" field.
+func OriginEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldOrigin, v))
+}
+
+// OriginNEQ applies the NEQ predicate on the "origin" field.
+func OriginNEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldOrigin, v))
+}
+
+// OriginIn applies the In predicate on the "origin" field.
+func OriginIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldOrigin, vs...))
+}
+
+// OriginNotIn applies the NotIn predicate on the "origin" field.
+func OriginNotIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldOrigin, vs...))
+}
+
+// OriginGT applies the GT predicate on the "origin" field.
+func OriginGT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldOrigin, v))
+}
+
+// OriginGTE applies the GTE predicate on the "origin" field.
+func OriginGTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldOrigin, v))
+}
+
+// OriginLT applies the LT predicate on the "origin" field.
+func OriginLT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldOrigin, v))
+}
+
+// OriginLTE applies the LTE predicate on the "origin" field.
+func OriginLTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldOrigin, v))
+}
+
+// OriginContains applies the Contains predicate on the "origin" field.
+func OriginContains(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContains(FieldOrigin, v))
+}
+
+// OriginHasPrefix applies the HasPrefix predicate on the "origin" field.
+func OriginHasPrefix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasPrefix(FieldOrigin, v))
+}
+
+// OriginHasSuffix applies the HasSuffix predicate on the "origin" field.
+func OriginHasSuffix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasSuffix(FieldOrigin, v))
+}
+
+// OriginEqualFold applies the EqualFold predicate on the "origin" field.
+func OriginEqualFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEqualFold(FieldOrigin, v))
+}
+
+// OriginContainsFold applies the ContainsFold predicate on the "origin" field.
+func OriginContainsFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContainsFold(FieldOrigin, v))
+}
+
+// SubjectTypeEQ applies the EQ predicate on the "subject_type" field.
+func SubjectTypeEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldSubjectType, v))
+}
+
+// SubjectTypeNEQ applies the NEQ predicate on the "subject_type" field.
+func SubjectTypeNEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldSubjectType, v))
+}
+
+// SubjectTypeIn applies the In predicate on the "subject_type" field.
+func SubjectTypeIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldSubjectType, vs...))
+}
+
+// SubjectTypeNotIn applies the NotIn predicate on the "subject_type" field.
+func SubjectTypeNotIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldSubjectType, vs...))
+}
+
+// SubjectTypeGT applies the GT predicate on the "subject_type" field.
+func SubjectTypeGT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldSubjectType, v))
+}
+
+// SubjectTypeGTE applies the GTE predicate on the "subject_type" field.
+func SubjectTypeGTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldSubjectType, v))
+}
+
+// SubjectTypeLT applies the LT predicate on the "subject_type" field.
+func SubjectTypeLT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldSubjectType, v))
+}
+
+// SubjectTypeLTE applies the LTE predicate on the "subject_type" field.
+func SubjectTypeLTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldSubjectType, v))
+}
+
+// SubjectTypeContains applies the Contains predicate on the "subject_type" field.
+func SubjectTypeContains(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContains(FieldSubjectType, v))
+}
+
+// SubjectTypeHasPrefix applies the HasPrefix predicate on the "subject_type" field.
+func SubjectTypeHasPrefix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasPrefix(FieldSubjectType, v))
+}
+
+// SubjectTypeHasSuffix applies the HasSuffix predicate on the "subject_type" field.
+func SubjectTypeHasSuffix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasSuffix(FieldSubjectType, v))
+}
+
+// SubjectTypeIsNil applies the IsNil predicate on the "subject_type" field.
+func SubjectTypeIsNil() predicate.Memory {
+	return predicate.Memory(sql.FieldIsNull(FieldSubjectType))
+}
+
+// SubjectTypeNotNil applies the NotNil predicate on the "subject_type" field.
+func SubjectTypeNotNil() predicate.Memory {
+	return predicate.Memory(sql.FieldNotNull(FieldSubjectType))
+}
+
+// SubjectTypeEqualFold applies the EqualFold predicate on the "subject_type" field.
+func SubjectTypeEqualFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEqualFold(FieldSubjectType, v))
+}
+
+// SubjectTypeContainsFold applies the ContainsFold predicate on the "subject_type" field.
+func SubjectTypeContainsFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContainsFold(FieldSubjectType, v))
+}
+
+// SubjectIDEQ applies the EQ predicate on the "subject_id" field.
+func SubjectIDEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldSubjectID, v))
+}
+
+// SubjectIDNEQ applies the NEQ predicate on the "subject_id" field.
+func SubjectIDNEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldSubjectID, v))
+}
+
+// SubjectIDIn applies the In predicate on the "subject_id" field.
+func SubjectIDIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldSubjectID, vs...))
+}
+
+// SubjectIDNotIn applies the NotIn predicate on the "subject_id" field.
+func SubjectIDNotIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldSubjectID, vs...))
+}
+
+// SubjectIDGT applies the GT predicate on the "subject_id" field.
+func SubjectIDGT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldSubjectID, v))
+}
+
+// SubjectIDGTE applies the GTE predicate on the "subject_id" field.
+func SubjectIDGTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldSubjectID, v))
+}
+
+// SubjectIDLT applies the LT predicate on the "subject_id" field.
+func SubjectIDLT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldSubjectID, v))
+}
+
+// SubjectIDLTE applies the LTE predicate on the "subject_id" field.
+func SubjectIDLTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldSubjectID, v))
+}
+
+// SubjectIDContains applies the Contains predicate on the "subject_id" field.
+func SubjectIDContains(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContains(FieldSubjectID, v))
+}
+
+// SubjectIDHasPrefix applies the HasPrefix predicate on the "subject_id" field.
+func SubjectIDHasPrefix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasPrefix(FieldSubjectID, v))
+}
+
+// SubjectIDHasSuffix applies the HasSuffix predicate on the "subject_id" field.
+func SubjectIDHasSuffix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasSuffix(FieldSubjectID, v))
+}
+
+// SubjectIDIsNil applies the IsNil predicate on the "subject_id" field.
+func SubjectIDIsNil() predicate.Memory {
+	return predicate.Memory(sql.FieldIsNull(FieldSubjectID))
+}
+
+// SubjectIDNotNil applies the NotNil predicate on the "subject_id" field.
+func SubjectIDNotNil() predicate.Memory {
+	return predicate.Memory(sql.FieldNotNull(FieldSubjectID))
+}
+
+// SubjectIDEqualFold applies the EqualFold predicate on the "subject_id" field.
+func SubjectIDEqualFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEqualFold(FieldSubjectID, v))
+}
+
+// SubjectIDContainsFold applies the ContainsFold predicate on the "subject_id" field.
+func SubjectIDContainsFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContainsFold(FieldSubjectID, v))
+}
+
+// DedupeKeyEQ applies the EQ predicate on the "dedupe_key" field.
+func DedupeKeyEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldDedupeKey, v))
+}
+
+// DedupeKeyNEQ applies the NEQ predicate on the "dedupe_key" field.
+func DedupeKeyNEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldDedupeKey, v))
+}
+
+// DedupeKeyIn applies the In predicate on the "dedupe_key" field.
+func DedupeKeyIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldDedupeKey, vs...))
+}
+
+// DedupeKeyNotIn applies the NotIn predicate on the "dedupe_key" field.
+func DedupeKeyNotIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldDedupeKey, vs...))
+}
+
+// DedupeKeyGT applies the GT predicate on the "dedupe_key" field.
+func DedupeKeyGT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldDedupeKey, v))
+}
+
+// DedupeKeyGTE applies the GTE predicate on the "dedupe_key" field.
+func DedupeKeyGTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldDedupeKey, v))
+}
+
+// DedupeKeyLT applies the LT predicate on the "dedupe_key" field.
+func DedupeKeyLT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldDedupeKey, v))
+}
+
+// DedupeKeyLTE applies the LTE predicate on the "dedupe_key" field.
+func DedupeKeyLTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldDedupeKey, v))
+}
+
+// DedupeKeyContains applies the Contains predicate on the "dedupe_key" field.
+func DedupeKeyContains(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContains(FieldDedupeKey, v))
+}
+
+// DedupeKeyHasPrefix applies the HasPrefix predicate on the "dedupe_key" field.
+func DedupeKeyHasPrefix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasPrefix(FieldDedupeKey, v))
+}
+
+// DedupeKeyHasSuffix applies the HasSuffix predicate on the "dedupe_key" field.
+func DedupeKeyHasSuffix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasSuffix(FieldDedupeKey, v))
+}
+
+// DedupeKeyIsNil applies the IsNil predicate on the "dedupe_key" field.
+func DedupeKeyIsNil() predicate.Memory {
+	return predicate.Memory(sql.FieldIsNull(FieldDedupeKey))
+}
+
+// DedupeKeyNotNil applies the NotNil predicate on the "dedupe_key" field.
+func DedupeKeyNotNil() predicate.Memory {
+	return predicate.Memory(sql.FieldNotNull(FieldDedupeKey))
+}
+
+// DedupeKeyEqualFold applies the EqualFold predicate on the "dedupe_key" field.
+func DedupeKeyEqualFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEqualFold(FieldDedupeKey, v))
+}
+
+// DedupeKeyContainsFold applies the ContainsFold predicate on the "dedupe_key" field.
+func DedupeKeyContainsFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContainsFold(FieldDedupeKey, v))
+}
+
+// ReviewReasonEQ applies the EQ predicate on the "review_reason" field.
+func ReviewReasonEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldReviewReason, v))
+}
+
+// ReviewReasonNEQ applies the NEQ predicate on the "review_reason" field.
+func ReviewReasonNEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldReviewReason, v))
+}
+
+// ReviewReasonIn applies the In predicate on the "review_reason" field.
+func ReviewReasonIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldReviewReason, vs...))
+}
+
+// ReviewReasonNotIn applies the NotIn predicate on the "review_reason" field.
+func ReviewReasonNotIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldReviewReason, vs...))
+}
+
+// ReviewReasonGT applies the GT predicate on the "review_reason" field.
+func ReviewReasonGT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldReviewReason, v))
+}
+
+// ReviewReasonGTE applies the GTE predicate on the "review_reason" field.
+func ReviewReasonGTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldReviewReason, v))
+}
+
+// ReviewReasonLT applies the LT predicate on the "review_reason" field.
+func ReviewReasonLT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldReviewReason, v))
+}
+
+// ReviewReasonLTE applies the LTE predicate on the "review_reason" field.
+func ReviewReasonLTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldReviewReason, v))
+}
+
+// ReviewReasonContains applies the Contains predicate on the "review_reason" field.
+func ReviewReasonContains(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContains(FieldReviewReason, v))
+}
+
+// ReviewReasonHasPrefix applies the HasPrefix predicate on the "review_reason" field.
+func ReviewReasonHasPrefix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasPrefix(FieldReviewReason, v))
+}
+
+// ReviewReasonHasSuffix applies the HasSuffix predicate on the "review_reason" field.
+func ReviewReasonHasSuffix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasSuffix(FieldReviewReason, v))
+}
+
+// ReviewReasonEqualFold applies the EqualFold predicate on the "review_reason" field.
+func ReviewReasonEqualFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEqualFold(FieldReviewReason, v))
+}
+
+// ReviewReasonContainsFold applies the ContainsFold predicate on the "review_reason" field.
+func ReviewReasonContainsFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContainsFold(FieldReviewReason, v))
 }
 
 // ConfidenceEQ applies the EQ predicate on the "confidence" field.

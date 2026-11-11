@@ -101,6 +101,11 @@ func OutboundID(v uuid.UUID) predicate.Message {
 	return predicate.Message(sql.FieldEQ(FieldOutboundID, v))
 }
 
+// MemoryAuthorizationEventID applies equality check predicate on the "memory_authorization_event_id" field. It's identical to MemoryAuthorizationEventIDEQ.
+func MemoryAuthorizationEventID(v int64) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldMemoryAuthorizationEventID, v))
+}
+
 // ConversationIDEQ applies the EQ predicate on the "conversation_id" field.
 func ConversationIDEQ(v uuid.UUID) predicate.Message {
 	return predicate.Message(sql.FieldEQ(FieldConversationID, v))
@@ -506,6 +511,56 @@ func OutboundIDNotNil() predicate.Message {
 	return predicate.Message(sql.FieldNotNull(FieldOutboundID))
 }
 
+// MemoryAuthorizationEventIDEQ applies the EQ predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDEQ(v int64) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDNEQ applies the NEQ predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDNEQ(v int64) predicate.Message {
+	return predicate.Message(sql.FieldNEQ(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDIn applies the In predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDIn(vs ...int64) predicate.Message {
+	return predicate.Message(sql.FieldIn(FieldMemoryAuthorizationEventID, vs...))
+}
+
+// MemoryAuthorizationEventIDNotIn applies the NotIn predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDNotIn(vs ...int64) predicate.Message {
+	return predicate.Message(sql.FieldNotIn(FieldMemoryAuthorizationEventID, vs...))
+}
+
+// MemoryAuthorizationEventIDGT applies the GT predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDGT(v int64) predicate.Message {
+	return predicate.Message(sql.FieldGT(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDGTE applies the GTE predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDGTE(v int64) predicate.Message {
+	return predicate.Message(sql.FieldGTE(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDLT applies the LT predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDLT(v int64) predicate.Message {
+	return predicate.Message(sql.FieldLT(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDLTE applies the LTE predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDLTE(v int64) predicate.Message {
+	return predicate.Message(sql.FieldLTE(FieldMemoryAuthorizationEventID, v))
+}
+
+// MemoryAuthorizationEventIDIsNil applies the IsNil predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDIsNil() predicate.Message {
+	return predicate.Message(sql.FieldIsNull(FieldMemoryAuthorizationEventID))
+}
+
+// MemoryAuthorizationEventIDNotNil applies the NotNil predicate on the "memory_authorization_event_id" field.
+func MemoryAuthorizationEventIDNotNil() predicate.Message {
+	return predicate.Message(sql.FieldNotNull(FieldMemoryAuthorizationEventID))
+}
+
 // HasConversationIDRef applies the HasEdge predicate on the "conversation_id_ref" edge.
 func HasConversationIDRef() predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
@@ -613,6 +668,29 @@ func HasMemoriesSourceMessageID() predicate.Message {
 func HasMemoriesSourceMessageIDWith(preds ...predicate.Memory) predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
 		step := newMemoriesSourceMessageIDStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasMemoryExtractionJobsMessageID applies the HasEdge predicate on the "memory_extraction_jobs_message_id" edge.
+func HasMemoryExtractionJobsMessageID() predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, MemoryExtractionJobsMessageIDTable, MemoryExtractionJobsMessageIDColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMemoryExtractionJobsMessageIDWith applies the HasEdge predicate on the "memory_extraction_jobs_message_id" edge with a given conditions (other predicates).
+func HasMemoryExtractionJobsMessageIDWith(preds ...predicate.MemoryExtractionJob) predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := newMemoryExtractionJobsMessageIDStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

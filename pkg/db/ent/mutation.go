@@ -29,10 +29,13 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 	"github.com/google/uuid"
@@ -47,28 +50,31 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeAIAuditArtifact      = "AIAuditArtifact"
-	TypeAIAuditEvent         = "AIAuditEvent"
-	TypeAIAuditRun           = "AIAuditRun"
-	TypeAdminAuditLog        = "AdminAuditLog"
-	TypeAgentOutboundMessage = "AgentOutboundMessage"
-	TypeAgentRunBudget       = "AgentRunBudget"
-	TypeAgentSendingPolicy   = "AgentSendingPolicy"
-	TypeBotAccount           = "BotAccount"
-	TypeContact              = "Contact"
-	TypeConversation         = "Conversation"
-	TypeGroupMember          = "GroupMember"
-	TypeIntentDecision       = "IntentDecision"
-	TypeIntentDecisionStep   = "IntentDecisionStep"
-	TypeIntentRuleActivation = "IntentRuleActivation"
-	TypeIntentRuleEntry      = "IntentRuleEntry"
-	TypeIntentRuleset        = "IntentRuleset"
-	TypeMemory               = "Memory"
-	TypeMessage              = "Message"
-	TypeMessageJob           = "MessageJob"
-	TypeQQGroup              = "QQGroup"
-	TypeScopePolicy          = "ScopePolicy"
-	TypeSystemSetting        = "SystemSetting"
+	TypeAIAuditArtifact               = "AIAuditArtifact"
+	TypeAIAuditEvent                  = "AIAuditEvent"
+	TypeAIAuditRun                    = "AIAuditRun"
+	TypeAdminAuditLog                 = "AdminAuditLog"
+	TypeAgentOutboundMessage          = "AgentOutboundMessage"
+	TypeAgentRunBudget                = "AgentRunBudget"
+	TypeAgentSendingPolicy            = "AgentSendingPolicy"
+	TypeBotAccount                    = "BotAccount"
+	TypeContact                       = "Contact"
+	TypeConversation                  = "Conversation"
+	TypeGroupMember                   = "GroupMember"
+	TypeIntentDecision                = "IntentDecision"
+	TypeIntentDecisionStep            = "IntentDecisionStep"
+	TypeIntentRuleActivation          = "IntentRuleActivation"
+	TypeIntentRuleEntry               = "IntentRuleEntry"
+	TypeIntentRuleset                 = "IntentRuleset"
+	TypeMemory                        = "Memory"
+	TypeMemoryExtractionCursor        = "MemoryExtractionCursor"
+	TypeMemoryExtractionJob           = "MemoryExtractionJob"
+	TypeMessage                       = "Message"
+	TypeMessageJob                    = "MessageJob"
+	TypeQQGroup                       = "QQGroup"
+	TypeScopeMemoryAuthorizationEvent = "ScopeMemoryAuthorizationEvent"
+	TypeScopePolicy                   = "ScopePolicy"
+	TypeSystemSetting                 = "SystemSetting"
 )
 
 // AIAuditArtifactMutation represents an operation that mutates the AIAuditArtifact nodes in the graph.
@@ -7329,39 +7335,48 @@ func (m *AgentSendingPolicyMutation) ResetEdge(name string) error {
 // BotAccountMutation represents an operation that mutates the BotAccount nodes in the graph.
 type BotAccountMutation struct {
 	config
-	op                                    Op
-	typ                                   string
-	id                                    *int64
-	nickname                              *string
-	last_seen_at                          *time.Time
-	clearedFields                         map[string]struct{}
-	contacts_bot_id                       map[int64]struct{}
-	removedcontacts_bot_id                map[int64]struct{}
-	clearedcontacts_bot_id                bool
-	qq_groups_bot_id                      map[int64]struct{}
-	removedqq_groups_bot_id               map[int64]struct{}
-	clearedqq_groups_bot_id               bool
-	group_members_bot_id                  map[int64]struct{}
-	removedgroup_members_bot_id           map[int64]struct{}
-	clearedgroup_members_bot_id           bool
-	scope_policies_bot_id                 map[int64]struct{}
-	removedscope_policies_bot_id          map[int64]struct{}
-	clearedscope_policies_bot_id          bool
-	conversations_bot_id                  map[uuid.UUID]struct{}
-	removedconversations_bot_id           map[uuid.UUID]struct{}
-	clearedconversations_bot_id           bool
-	messages_bot_id                       map[int64]struct{}
-	removedmessages_bot_id                map[int64]struct{}
-	clearedmessages_bot_id                bool
-	memories_bot_id                       map[uuid.UUID]struct{}
-	removedmemories_bot_id                map[uuid.UUID]struct{}
-	clearedmemories_bot_id                bool
-	agent_outbound_messages_bot_id        map[uuid.UUID]struct{}
-	removedagent_outbound_messages_bot_id map[uuid.UUID]struct{}
-	clearedagent_outbound_messages_bot_id bool
-	done                                  bool
-	oldValue                              func(context.Context) (*BotAccount, error)
-	predicates                            []predicate.BotAccount
+	op                                              Op
+	typ                                             string
+	id                                              *int64
+	nickname                                        *string
+	last_seen_at                                    *time.Time
+	clearedFields                                   map[string]struct{}
+	contacts_bot_id                                 map[int64]struct{}
+	removedcontacts_bot_id                          map[int64]struct{}
+	clearedcontacts_bot_id                          bool
+	qq_groups_bot_id                                map[int64]struct{}
+	removedqq_groups_bot_id                         map[int64]struct{}
+	clearedqq_groups_bot_id                         bool
+	group_members_bot_id                            map[int64]struct{}
+	removedgroup_members_bot_id                     map[int64]struct{}
+	clearedgroup_members_bot_id                     bool
+	scope_policies_bot_id                           map[int64]struct{}
+	removedscope_policies_bot_id                    map[int64]struct{}
+	clearedscope_policies_bot_id                    bool
+	scope_memory_authorization_events_bot_id        map[int64]struct{}
+	removedscope_memory_authorization_events_bot_id map[int64]struct{}
+	clearedscope_memory_authorization_events_bot_id bool
+	memory_extraction_cursors_bot_id                map[int64]struct{}
+	removedmemory_extraction_cursors_bot_id         map[int64]struct{}
+	clearedmemory_extraction_cursors_bot_id         bool
+	memory_extraction_jobs_bot_id                   map[uuid.UUID]struct{}
+	removedmemory_extraction_jobs_bot_id            map[uuid.UUID]struct{}
+	clearedmemory_extraction_jobs_bot_id            bool
+	conversations_bot_id                            map[uuid.UUID]struct{}
+	removedconversations_bot_id                     map[uuid.UUID]struct{}
+	clearedconversations_bot_id                     bool
+	messages_bot_id                                 map[int64]struct{}
+	removedmessages_bot_id                          map[int64]struct{}
+	clearedmessages_bot_id                          bool
+	memories_bot_id                                 map[uuid.UUID]struct{}
+	removedmemories_bot_id                          map[uuid.UUID]struct{}
+	clearedmemories_bot_id                          bool
+	agent_outbound_messages_bot_id                  map[uuid.UUID]struct{}
+	removedagent_outbound_messages_bot_id           map[uuid.UUID]struct{}
+	clearedagent_outbound_messages_bot_id           bool
+	done                                            bool
+	oldValue                                        func(context.Context) (*BotAccount, error)
+	predicates                                      []predicate.BotAccount
 }
 
 var _ ent.Mutation = (*BotAccountMutation)(nil)
@@ -7769,6 +7784,168 @@ func (m *BotAccountMutation) ResetScopePoliciesBotID() {
 	m.removedscope_policies_bot_id = nil
 }
 
+// AddScopeMemoryAuthorizationEventsBotIDIDs adds the "scope_memory_authorization_events_bot_id" edge to the ScopeMemoryAuthorizationEvent entity by ids.
+func (m *BotAccountMutation) AddScopeMemoryAuthorizationEventsBotIDIDs(ids ...int64) {
+	if m.scope_memory_authorization_events_bot_id == nil {
+		m.scope_memory_authorization_events_bot_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.scope_memory_authorization_events_bot_id[ids[i]] = struct{}{}
+	}
+}
+
+// ClearScopeMemoryAuthorizationEventsBotID clears the "scope_memory_authorization_events_bot_id" edge to the ScopeMemoryAuthorizationEvent entity.
+func (m *BotAccountMutation) ClearScopeMemoryAuthorizationEventsBotID() {
+	m.clearedscope_memory_authorization_events_bot_id = true
+}
+
+// ScopeMemoryAuthorizationEventsBotIDCleared reports if the "scope_memory_authorization_events_bot_id" edge to the ScopeMemoryAuthorizationEvent entity was cleared.
+func (m *BotAccountMutation) ScopeMemoryAuthorizationEventsBotIDCleared() bool {
+	return m.clearedscope_memory_authorization_events_bot_id
+}
+
+// RemoveScopeMemoryAuthorizationEventsBotIDIDs removes the "scope_memory_authorization_events_bot_id" edge to the ScopeMemoryAuthorizationEvent entity by IDs.
+func (m *BotAccountMutation) RemoveScopeMemoryAuthorizationEventsBotIDIDs(ids ...int64) {
+	if m.removedscope_memory_authorization_events_bot_id == nil {
+		m.removedscope_memory_authorization_events_bot_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.scope_memory_authorization_events_bot_id, ids[i])
+		m.removedscope_memory_authorization_events_bot_id[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedScopeMemoryAuthorizationEventsBotID returns the removed IDs of the "scope_memory_authorization_events_bot_id" edge to the ScopeMemoryAuthorizationEvent entity.
+func (m *BotAccountMutation) RemovedScopeMemoryAuthorizationEventsBotIDIDs() (ids []int64) {
+	for id := range m.removedscope_memory_authorization_events_bot_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ScopeMemoryAuthorizationEventsBotIDIDs returns the "scope_memory_authorization_events_bot_id" edge IDs in the mutation.
+func (m *BotAccountMutation) ScopeMemoryAuthorizationEventsBotIDIDs() (ids []int64) {
+	for id := range m.scope_memory_authorization_events_bot_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetScopeMemoryAuthorizationEventsBotID resets all changes to the "scope_memory_authorization_events_bot_id" edge.
+func (m *BotAccountMutation) ResetScopeMemoryAuthorizationEventsBotID() {
+	m.scope_memory_authorization_events_bot_id = nil
+	m.clearedscope_memory_authorization_events_bot_id = false
+	m.removedscope_memory_authorization_events_bot_id = nil
+}
+
+// AddMemoryExtractionCursorsBotIDIDs adds the "memory_extraction_cursors_bot_id" edge to the MemoryExtractionCursor entity by ids.
+func (m *BotAccountMutation) AddMemoryExtractionCursorsBotIDIDs(ids ...int64) {
+	if m.memory_extraction_cursors_bot_id == nil {
+		m.memory_extraction_cursors_bot_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.memory_extraction_cursors_bot_id[ids[i]] = struct{}{}
+	}
+}
+
+// ClearMemoryExtractionCursorsBotID clears the "memory_extraction_cursors_bot_id" edge to the MemoryExtractionCursor entity.
+func (m *BotAccountMutation) ClearMemoryExtractionCursorsBotID() {
+	m.clearedmemory_extraction_cursors_bot_id = true
+}
+
+// MemoryExtractionCursorsBotIDCleared reports if the "memory_extraction_cursors_bot_id" edge to the MemoryExtractionCursor entity was cleared.
+func (m *BotAccountMutation) MemoryExtractionCursorsBotIDCleared() bool {
+	return m.clearedmemory_extraction_cursors_bot_id
+}
+
+// RemoveMemoryExtractionCursorsBotIDIDs removes the "memory_extraction_cursors_bot_id" edge to the MemoryExtractionCursor entity by IDs.
+func (m *BotAccountMutation) RemoveMemoryExtractionCursorsBotIDIDs(ids ...int64) {
+	if m.removedmemory_extraction_cursors_bot_id == nil {
+		m.removedmemory_extraction_cursors_bot_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.memory_extraction_cursors_bot_id, ids[i])
+		m.removedmemory_extraction_cursors_bot_id[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedMemoryExtractionCursorsBotID returns the removed IDs of the "memory_extraction_cursors_bot_id" edge to the MemoryExtractionCursor entity.
+func (m *BotAccountMutation) RemovedMemoryExtractionCursorsBotIDIDs() (ids []int64) {
+	for id := range m.removedmemory_extraction_cursors_bot_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// MemoryExtractionCursorsBotIDIDs returns the "memory_extraction_cursors_bot_id" edge IDs in the mutation.
+func (m *BotAccountMutation) MemoryExtractionCursorsBotIDIDs() (ids []int64) {
+	for id := range m.memory_extraction_cursors_bot_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetMemoryExtractionCursorsBotID resets all changes to the "memory_extraction_cursors_bot_id" edge.
+func (m *BotAccountMutation) ResetMemoryExtractionCursorsBotID() {
+	m.memory_extraction_cursors_bot_id = nil
+	m.clearedmemory_extraction_cursors_bot_id = false
+	m.removedmemory_extraction_cursors_bot_id = nil
+}
+
+// AddMemoryExtractionJobsBotIDIDs adds the "memory_extraction_jobs_bot_id" edge to the MemoryExtractionJob entity by ids.
+func (m *BotAccountMutation) AddMemoryExtractionJobsBotIDIDs(ids ...uuid.UUID) {
+	if m.memory_extraction_jobs_bot_id == nil {
+		m.memory_extraction_jobs_bot_id = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		m.memory_extraction_jobs_bot_id[ids[i]] = struct{}{}
+	}
+}
+
+// ClearMemoryExtractionJobsBotID clears the "memory_extraction_jobs_bot_id" edge to the MemoryExtractionJob entity.
+func (m *BotAccountMutation) ClearMemoryExtractionJobsBotID() {
+	m.clearedmemory_extraction_jobs_bot_id = true
+}
+
+// MemoryExtractionJobsBotIDCleared reports if the "memory_extraction_jobs_bot_id" edge to the MemoryExtractionJob entity was cleared.
+func (m *BotAccountMutation) MemoryExtractionJobsBotIDCleared() bool {
+	return m.clearedmemory_extraction_jobs_bot_id
+}
+
+// RemoveMemoryExtractionJobsBotIDIDs removes the "memory_extraction_jobs_bot_id" edge to the MemoryExtractionJob entity by IDs.
+func (m *BotAccountMutation) RemoveMemoryExtractionJobsBotIDIDs(ids ...uuid.UUID) {
+	if m.removedmemory_extraction_jobs_bot_id == nil {
+		m.removedmemory_extraction_jobs_bot_id = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		delete(m.memory_extraction_jobs_bot_id, ids[i])
+		m.removedmemory_extraction_jobs_bot_id[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedMemoryExtractionJobsBotID returns the removed IDs of the "memory_extraction_jobs_bot_id" edge to the MemoryExtractionJob entity.
+func (m *BotAccountMutation) RemovedMemoryExtractionJobsBotIDIDs() (ids []uuid.UUID) {
+	for id := range m.removedmemory_extraction_jobs_bot_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// MemoryExtractionJobsBotIDIDs returns the "memory_extraction_jobs_bot_id" edge IDs in the mutation.
+func (m *BotAccountMutation) MemoryExtractionJobsBotIDIDs() (ids []uuid.UUID) {
+	for id := range m.memory_extraction_jobs_bot_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetMemoryExtractionJobsBotID resets all changes to the "memory_extraction_jobs_bot_id" edge.
+func (m *BotAccountMutation) ResetMemoryExtractionJobsBotID() {
+	m.memory_extraction_jobs_bot_id = nil
+	m.clearedmemory_extraction_jobs_bot_id = false
+	m.removedmemory_extraction_jobs_bot_id = nil
+}
+
 // AddConversationsBotIDIDs adds the "conversations_bot_id" edge to the Conversation entity by ids.
 func (m *BotAccountMutation) AddConversationsBotIDIDs(ids ...uuid.UUID) {
 	if m.conversations_bot_id == nil {
@@ -8144,7 +8321,7 @@ func (m *BotAccountMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *BotAccountMutation) AddedEdges() []string {
-	edges := make([]string, 0, 8)
+	edges := make([]string, 0, 11)
 	if m.contacts_bot_id != nil {
 		edges = append(edges, botaccount.EdgeContactsBotID)
 	}
@@ -8156,6 +8333,15 @@ func (m *BotAccountMutation) AddedEdges() []string {
 	}
 	if m.scope_policies_bot_id != nil {
 		edges = append(edges, botaccount.EdgeScopePoliciesBotID)
+	}
+	if m.scope_memory_authorization_events_bot_id != nil {
+		edges = append(edges, botaccount.EdgeScopeMemoryAuthorizationEventsBotID)
+	}
+	if m.memory_extraction_cursors_bot_id != nil {
+		edges = append(edges, botaccount.EdgeMemoryExtractionCursorsBotID)
+	}
+	if m.memory_extraction_jobs_bot_id != nil {
+		edges = append(edges, botaccount.EdgeMemoryExtractionJobsBotID)
 	}
 	if m.conversations_bot_id != nil {
 		edges = append(edges, botaccount.EdgeConversationsBotID)
@@ -8200,6 +8386,24 @@ func (m *BotAccountMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case botaccount.EdgeScopeMemoryAuthorizationEventsBotID:
+		ids := make([]ent.Value, 0, len(m.scope_memory_authorization_events_bot_id))
+		for id := range m.scope_memory_authorization_events_bot_id {
+			ids = append(ids, id)
+		}
+		return ids
+	case botaccount.EdgeMemoryExtractionCursorsBotID:
+		ids := make([]ent.Value, 0, len(m.memory_extraction_cursors_bot_id))
+		for id := range m.memory_extraction_cursors_bot_id {
+			ids = append(ids, id)
+		}
+		return ids
+	case botaccount.EdgeMemoryExtractionJobsBotID:
+		ids := make([]ent.Value, 0, len(m.memory_extraction_jobs_bot_id))
+		for id := range m.memory_extraction_jobs_bot_id {
+			ids = append(ids, id)
+		}
+		return ids
 	case botaccount.EdgeConversationsBotID:
 		ids := make([]ent.Value, 0, len(m.conversations_bot_id))
 		for id := range m.conversations_bot_id {
@@ -8230,7 +8434,7 @@ func (m *BotAccountMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *BotAccountMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 8)
+	edges := make([]string, 0, 11)
 	if m.removedcontacts_bot_id != nil {
 		edges = append(edges, botaccount.EdgeContactsBotID)
 	}
@@ -8242,6 +8446,15 @@ func (m *BotAccountMutation) RemovedEdges() []string {
 	}
 	if m.removedscope_policies_bot_id != nil {
 		edges = append(edges, botaccount.EdgeScopePoliciesBotID)
+	}
+	if m.removedscope_memory_authorization_events_bot_id != nil {
+		edges = append(edges, botaccount.EdgeScopeMemoryAuthorizationEventsBotID)
+	}
+	if m.removedmemory_extraction_cursors_bot_id != nil {
+		edges = append(edges, botaccount.EdgeMemoryExtractionCursorsBotID)
+	}
+	if m.removedmemory_extraction_jobs_bot_id != nil {
+		edges = append(edges, botaccount.EdgeMemoryExtractionJobsBotID)
 	}
 	if m.removedconversations_bot_id != nil {
 		edges = append(edges, botaccount.EdgeConversationsBotID)
@@ -8286,6 +8499,24 @@ func (m *BotAccountMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case botaccount.EdgeScopeMemoryAuthorizationEventsBotID:
+		ids := make([]ent.Value, 0, len(m.removedscope_memory_authorization_events_bot_id))
+		for id := range m.removedscope_memory_authorization_events_bot_id {
+			ids = append(ids, id)
+		}
+		return ids
+	case botaccount.EdgeMemoryExtractionCursorsBotID:
+		ids := make([]ent.Value, 0, len(m.removedmemory_extraction_cursors_bot_id))
+		for id := range m.removedmemory_extraction_cursors_bot_id {
+			ids = append(ids, id)
+		}
+		return ids
+	case botaccount.EdgeMemoryExtractionJobsBotID:
+		ids := make([]ent.Value, 0, len(m.removedmemory_extraction_jobs_bot_id))
+		for id := range m.removedmemory_extraction_jobs_bot_id {
+			ids = append(ids, id)
+		}
+		return ids
 	case botaccount.EdgeConversationsBotID:
 		ids := make([]ent.Value, 0, len(m.removedconversations_bot_id))
 		for id := range m.removedconversations_bot_id {
@@ -8316,7 +8547,7 @@ func (m *BotAccountMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *BotAccountMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 8)
+	edges := make([]string, 0, 11)
 	if m.clearedcontacts_bot_id {
 		edges = append(edges, botaccount.EdgeContactsBotID)
 	}
@@ -8328,6 +8559,15 @@ func (m *BotAccountMutation) ClearedEdges() []string {
 	}
 	if m.clearedscope_policies_bot_id {
 		edges = append(edges, botaccount.EdgeScopePoliciesBotID)
+	}
+	if m.clearedscope_memory_authorization_events_bot_id {
+		edges = append(edges, botaccount.EdgeScopeMemoryAuthorizationEventsBotID)
+	}
+	if m.clearedmemory_extraction_cursors_bot_id {
+		edges = append(edges, botaccount.EdgeMemoryExtractionCursorsBotID)
+	}
+	if m.clearedmemory_extraction_jobs_bot_id {
+		edges = append(edges, botaccount.EdgeMemoryExtractionJobsBotID)
 	}
 	if m.clearedconversations_bot_id {
 		edges = append(edges, botaccount.EdgeConversationsBotID)
@@ -8356,6 +8596,12 @@ func (m *BotAccountMutation) EdgeCleared(name string) bool {
 		return m.clearedgroup_members_bot_id
 	case botaccount.EdgeScopePoliciesBotID:
 		return m.clearedscope_policies_bot_id
+	case botaccount.EdgeScopeMemoryAuthorizationEventsBotID:
+		return m.clearedscope_memory_authorization_events_bot_id
+	case botaccount.EdgeMemoryExtractionCursorsBotID:
+		return m.clearedmemory_extraction_cursors_bot_id
+	case botaccount.EdgeMemoryExtractionJobsBotID:
+		return m.clearedmemory_extraction_jobs_bot_id
 	case botaccount.EdgeConversationsBotID:
 		return m.clearedconversations_bot_id
 	case botaccount.EdgeMessagesBotID:
@@ -8391,6 +8637,15 @@ func (m *BotAccountMutation) ResetEdge(name string) error {
 		return nil
 	case botaccount.EdgeScopePoliciesBotID:
 		m.ResetScopePoliciesBotID()
+		return nil
+	case botaccount.EdgeScopeMemoryAuthorizationEventsBotID:
+		m.ResetScopeMemoryAuthorizationEventsBotID()
+		return nil
+	case botaccount.EdgeMemoryExtractionCursorsBotID:
+		m.ResetMemoryExtractionCursorsBotID()
+		return nil
+	case botaccount.EdgeMemoryExtractionJobsBotID:
+		m.ResetMemoryExtractionJobsBotID()
 		return nil
 	case botaccount.EdgeConversationsBotID:
 		m.ResetConversationsBotID()
@@ -9084,25 +9339,31 @@ func (m *ContactMutation) ResetEdge(name string) error {
 // ConversationMutation represents an operation that mutates the Conversation nodes in the graph.
 type ConversationMutation struct {
 	config
-	op                                             Op
-	typ                                            string
-	id                                             *uuid.UUID
-	kind                                           *string
-	target_id                                      *int64
-	addtarget_id                                   *int64
-	last_message_at                                *time.Time
-	clearedFields                                  map[string]struct{}
-	bot_id_ref                                     *int64
-	clearedbot_id_ref                              bool
-	messages_conversation_id                       map[int64]struct{}
-	removedmessages_conversation_id                map[int64]struct{}
-	clearedmessages_conversation_id                bool
-	agent_outbound_messages_conversation_id        map[uuid.UUID]struct{}
-	removedagent_outbound_messages_conversation_id map[uuid.UUID]struct{}
-	clearedagent_outbound_messages_conversation_id bool
-	done                                           bool
-	oldValue                                       func(context.Context) (*Conversation, error)
-	predicates                                     []predicate.Conversation
+	op                                               Op
+	typ                                              string
+	id                                               *uuid.UUID
+	kind                                             *string
+	target_id                                        *int64
+	addtarget_id                                     *int64
+	last_message_at                                  *time.Time
+	clearedFields                                    map[string]struct{}
+	bot_id_ref                                       *int64
+	clearedbot_id_ref                                bool
+	messages_conversation_id                         map[int64]struct{}
+	removedmessages_conversation_id                  map[int64]struct{}
+	clearedmessages_conversation_id                  bool
+	agent_outbound_messages_conversation_id          map[uuid.UUID]struct{}
+	removedagent_outbound_messages_conversation_id   map[uuid.UUID]struct{}
+	clearedagent_outbound_messages_conversation_id   bool
+	memory_extraction_cursors_conversation_id        map[int64]struct{}
+	removedmemory_extraction_cursors_conversation_id map[int64]struct{}
+	clearedmemory_extraction_cursors_conversation_id bool
+	memory_extraction_jobs_conversation_id           map[uuid.UUID]struct{}
+	removedmemory_extraction_jobs_conversation_id    map[uuid.UUID]struct{}
+	clearedmemory_extraction_jobs_conversation_id    bool
+	done                                             bool
+	oldValue                                         func(context.Context) (*Conversation, error)
+	predicates                                       []predicate.Conversation
 }
 
 var _ ent.Mutation = (*ConversationMutation)(nil)
@@ -9534,6 +9795,114 @@ func (m *ConversationMutation) ResetAgentOutboundMessagesConversationID() {
 	m.removedagent_outbound_messages_conversation_id = nil
 }
 
+// AddMemoryExtractionCursorsConversationIDIDs adds the "memory_extraction_cursors_conversation_id" edge to the MemoryExtractionCursor entity by ids.
+func (m *ConversationMutation) AddMemoryExtractionCursorsConversationIDIDs(ids ...int64) {
+	if m.memory_extraction_cursors_conversation_id == nil {
+		m.memory_extraction_cursors_conversation_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.memory_extraction_cursors_conversation_id[ids[i]] = struct{}{}
+	}
+}
+
+// ClearMemoryExtractionCursorsConversationID clears the "memory_extraction_cursors_conversation_id" edge to the MemoryExtractionCursor entity.
+func (m *ConversationMutation) ClearMemoryExtractionCursorsConversationID() {
+	m.clearedmemory_extraction_cursors_conversation_id = true
+}
+
+// MemoryExtractionCursorsConversationIDCleared reports if the "memory_extraction_cursors_conversation_id" edge to the MemoryExtractionCursor entity was cleared.
+func (m *ConversationMutation) MemoryExtractionCursorsConversationIDCleared() bool {
+	return m.clearedmemory_extraction_cursors_conversation_id
+}
+
+// RemoveMemoryExtractionCursorsConversationIDIDs removes the "memory_extraction_cursors_conversation_id" edge to the MemoryExtractionCursor entity by IDs.
+func (m *ConversationMutation) RemoveMemoryExtractionCursorsConversationIDIDs(ids ...int64) {
+	if m.removedmemory_extraction_cursors_conversation_id == nil {
+		m.removedmemory_extraction_cursors_conversation_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.memory_extraction_cursors_conversation_id, ids[i])
+		m.removedmemory_extraction_cursors_conversation_id[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedMemoryExtractionCursorsConversationID returns the removed IDs of the "memory_extraction_cursors_conversation_id" edge to the MemoryExtractionCursor entity.
+func (m *ConversationMutation) RemovedMemoryExtractionCursorsConversationIDIDs() (ids []int64) {
+	for id := range m.removedmemory_extraction_cursors_conversation_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// MemoryExtractionCursorsConversationIDIDs returns the "memory_extraction_cursors_conversation_id" edge IDs in the mutation.
+func (m *ConversationMutation) MemoryExtractionCursorsConversationIDIDs() (ids []int64) {
+	for id := range m.memory_extraction_cursors_conversation_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetMemoryExtractionCursorsConversationID resets all changes to the "memory_extraction_cursors_conversation_id" edge.
+func (m *ConversationMutation) ResetMemoryExtractionCursorsConversationID() {
+	m.memory_extraction_cursors_conversation_id = nil
+	m.clearedmemory_extraction_cursors_conversation_id = false
+	m.removedmemory_extraction_cursors_conversation_id = nil
+}
+
+// AddMemoryExtractionJobsConversationIDIDs adds the "memory_extraction_jobs_conversation_id" edge to the MemoryExtractionJob entity by ids.
+func (m *ConversationMutation) AddMemoryExtractionJobsConversationIDIDs(ids ...uuid.UUID) {
+	if m.memory_extraction_jobs_conversation_id == nil {
+		m.memory_extraction_jobs_conversation_id = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		m.memory_extraction_jobs_conversation_id[ids[i]] = struct{}{}
+	}
+}
+
+// ClearMemoryExtractionJobsConversationID clears the "memory_extraction_jobs_conversation_id" edge to the MemoryExtractionJob entity.
+func (m *ConversationMutation) ClearMemoryExtractionJobsConversationID() {
+	m.clearedmemory_extraction_jobs_conversation_id = true
+}
+
+// MemoryExtractionJobsConversationIDCleared reports if the "memory_extraction_jobs_conversation_id" edge to the MemoryExtractionJob entity was cleared.
+func (m *ConversationMutation) MemoryExtractionJobsConversationIDCleared() bool {
+	return m.clearedmemory_extraction_jobs_conversation_id
+}
+
+// RemoveMemoryExtractionJobsConversationIDIDs removes the "memory_extraction_jobs_conversation_id" edge to the MemoryExtractionJob entity by IDs.
+func (m *ConversationMutation) RemoveMemoryExtractionJobsConversationIDIDs(ids ...uuid.UUID) {
+	if m.removedmemory_extraction_jobs_conversation_id == nil {
+		m.removedmemory_extraction_jobs_conversation_id = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		delete(m.memory_extraction_jobs_conversation_id, ids[i])
+		m.removedmemory_extraction_jobs_conversation_id[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedMemoryExtractionJobsConversationID returns the removed IDs of the "memory_extraction_jobs_conversation_id" edge to the MemoryExtractionJob entity.
+func (m *ConversationMutation) RemovedMemoryExtractionJobsConversationIDIDs() (ids []uuid.UUID) {
+	for id := range m.removedmemory_extraction_jobs_conversation_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// MemoryExtractionJobsConversationIDIDs returns the "memory_extraction_jobs_conversation_id" edge IDs in the mutation.
+func (m *ConversationMutation) MemoryExtractionJobsConversationIDIDs() (ids []uuid.UUID) {
+	for id := range m.memory_extraction_jobs_conversation_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetMemoryExtractionJobsConversationID resets all changes to the "memory_extraction_jobs_conversation_id" edge.
+func (m *ConversationMutation) ResetMemoryExtractionJobsConversationID() {
+	m.memory_extraction_jobs_conversation_id = nil
+	m.clearedmemory_extraction_jobs_conversation_id = false
+	m.removedmemory_extraction_jobs_conversation_id = nil
+}
+
 // Where appends a list predicates to the ConversationMutation builder.
 func (m *ConversationMutation) Where(ps ...predicate.Conversation) {
 	m.predicates = append(m.predicates, ps...)
@@ -9742,7 +10111,7 @@ func (m *ConversationMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ConversationMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.bot_id_ref != nil {
 		edges = append(edges, conversation.EdgeBotIDRef)
 	}
@@ -9751,6 +10120,12 @@ func (m *ConversationMutation) AddedEdges() []string {
 	}
 	if m.agent_outbound_messages_conversation_id != nil {
 		edges = append(edges, conversation.EdgeAgentOutboundMessagesConversationID)
+	}
+	if m.memory_extraction_cursors_conversation_id != nil {
+		edges = append(edges, conversation.EdgeMemoryExtractionCursorsConversationID)
+	}
+	if m.memory_extraction_jobs_conversation_id != nil {
+		edges = append(edges, conversation.EdgeMemoryExtractionJobsConversationID)
 	}
 	return edges
 }
@@ -9775,18 +10150,36 @@ func (m *ConversationMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case conversation.EdgeMemoryExtractionCursorsConversationID:
+		ids := make([]ent.Value, 0, len(m.memory_extraction_cursors_conversation_id))
+		for id := range m.memory_extraction_cursors_conversation_id {
+			ids = append(ids, id)
+		}
+		return ids
+	case conversation.EdgeMemoryExtractionJobsConversationID:
+		ids := make([]ent.Value, 0, len(m.memory_extraction_jobs_conversation_id))
+		for id := range m.memory_extraction_jobs_conversation_id {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ConversationMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.removedmessages_conversation_id != nil {
 		edges = append(edges, conversation.EdgeMessagesConversationID)
 	}
 	if m.removedagent_outbound_messages_conversation_id != nil {
 		edges = append(edges, conversation.EdgeAgentOutboundMessagesConversationID)
+	}
+	if m.removedmemory_extraction_cursors_conversation_id != nil {
+		edges = append(edges, conversation.EdgeMemoryExtractionCursorsConversationID)
+	}
+	if m.removedmemory_extraction_jobs_conversation_id != nil {
+		edges = append(edges, conversation.EdgeMemoryExtractionJobsConversationID)
 	}
 	return edges
 }
@@ -9807,13 +10200,25 @@ func (m *ConversationMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case conversation.EdgeMemoryExtractionCursorsConversationID:
+		ids := make([]ent.Value, 0, len(m.removedmemory_extraction_cursors_conversation_id))
+		for id := range m.removedmemory_extraction_cursors_conversation_id {
+			ids = append(ids, id)
+		}
+		return ids
+	case conversation.EdgeMemoryExtractionJobsConversationID:
+		ids := make([]ent.Value, 0, len(m.removedmemory_extraction_jobs_conversation_id))
+		for id := range m.removedmemory_extraction_jobs_conversation_id {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ConversationMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.clearedbot_id_ref {
 		edges = append(edges, conversation.EdgeBotIDRef)
 	}
@@ -9822,6 +10227,12 @@ func (m *ConversationMutation) ClearedEdges() []string {
 	}
 	if m.clearedagent_outbound_messages_conversation_id {
 		edges = append(edges, conversation.EdgeAgentOutboundMessagesConversationID)
+	}
+	if m.clearedmemory_extraction_cursors_conversation_id {
+		edges = append(edges, conversation.EdgeMemoryExtractionCursorsConversationID)
+	}
+	if m.clearedmemory_extraction_jobs_conversation_id {
+		edges = append(edges, conversation.EdgeMemoryExtractionJobsConversationID)
 	}
 	return edges
 }
@@ -9836,6 +10247,10 @@ func (m *ConversationMutation) EdgeCleared(name string) bool {
 		return m.clearedmessages_conversation_id
 	case conversation.EdgeAgentOutboundMessagesConversationID:
 		return m.clearedagent_outbound_messages_conversation_id
+	case conversation.EdgeMemoryExtractionCursorsConversationID:
+		return m.clearedmemory_extraction_cursors_conversation_id
+	case conversation.EdgeMemoryExtractionJobsConversationID:
+		return m.clearedmemory_extraction_jobs_conversation_id
 	}
 	return false
 }
@@ -9863,6 +10278,12 @@ func (m *ConversationMutation) ResetEdge(name string) error {
 		return nil
 	case conversation.EdgeAgentOutboundMessagesConversationID:
 		m.ResetAgentOutboundMessagesConversationID()
+		return nil
+	case conversation.EdgeMemoryExtractionCursorsConversationID:
+		m.ResetMemoryExtractionCursorsConversationID()
+		return nil
+	case conversation.EdgeMemoryExtractionJobsConversationID:
+		m.ResetMemoryExtractionJobsConversationID()
 		return nil
 	}
 	return fmt.Errorf("unknown Conversation edge %s", name)
@@ -14971,6 +15392,13 @@ type MemoryMutation struct {
 	owner_key                    *string
 	content                      *string
 	source                       *string
+	source_sender_id             *int64
+	addsource_sender_id          *int64
+	origin                       *string
+	subject_type                 *string
+	subject_id                   *string
+	dedupe_key                   *string
+	review_reason                *string
 	confidence                   *float32
 	addconfidence                *float32
 	status                       *string
@@ -15319,6 +15747,295 @@ func (m *MemoryMutation) OldSource(ctx context.Context) (v string, err error) {
 // ResetSource resets all changes to the "source" field.
 func (m *MemoryMutation) ResetSource() {
 	m.source = nil
+}
+
+// SetSourceSenderID sets the "source_sender_id" field.
+func (m *MemoryMutation) SetSourceSenderID(i int64) {
+	m.source_sender_id = &i
+	m.addsource_sender_id = nil
+}
+
+// SourceSenderID returns the value of the "source_sender_id" field in the mutation.
+func (m *MemoryMutation) SourceSenderID() (r int64, exists bool) {
+	v := m.source_sender_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceSenderID returns the old "source_sender_id" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldSourceSenderID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceSenderID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceSenderID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceSenderID: %w", err)
+	}
+	return oldValue.SourceSenderID, nil
+}
+
+// AddSourceSenderID adds i to the "source_sender_id" field.
+func (m *MemoryMutation) AddSourceSenderID(i int64) {
+	if m.addsource_sender_id != nil {
+		*m.addsource_sender_id += i
+	} else {
+		m.addsource_sender_id = &i
+	}
+}
+
+// AddedSourceSenderID returns the value that was added to the "source_sender_id" field in this mutation.
+func (m *MemoryMutation) AddedSourceSenderID() (r int64, exists bool) {
+	v := m.addsource_sender_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearSourceSenderID clears the value of the "source_sender_id" field.
+func (m *MemoryMutation) ClearSourceSenderID() {
+	m.source_sender_id = nil
+	m.addsource_sender_id = nil
+	m.clearedFields[memory.FieldSourceSenderID] = struct{}{}
+}
+
+// SourceSenderIDCleared returns if the "source_sender_id" field was cleared in this mutation.
+func (m *MemoryMutation) SourceSenderIDCleared() bool {
+	_, ok := m.clearedFields[memory.FieldSourceSenderID]
+	return ok
+}
+
+// ResetSourceSenderID resets all changes to the "source_sender_id" field.
+func (m *MemoryMutation) ResetSourceSenderID() {
+	m.source_sender_id = nil
+	m.addsource_sender_id = nil
+	delete(m.clearedFields, memory.FieldSourceSenderID)
+}
+
+// SetOrigin sets the "origin" field.
+func (m *MemoryMutation) SetOrigin(s string) {
+	m.origin = &s
+}
+
+// Origin returns the value of the "origin" field in the mutation.
+func (m *MemoryMutation) Origin() (r string, exists bool) {
+	v := m.origin
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrigin returns the old "origin" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldOrigin(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrigin is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrigin requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrigin: %w", err)
+	}
+	return oldValue.Origin, nil
+}
+
+// ResetOrigin resets all changes to the "origin" field.
+func (m *MemoryMutation) ResetOrigin() {
+	m.origin = nil
+}
+
+// SetSubjectType sets the "subject_type" field.
+func (m *MemoryMutation) SetSubjectType(s string) {
+	m.subject_type = &s
+}
+
+// SubjectType returns the value of the "subject_type" field in the mutation.
+func (m *MemoryMutation) SubjectType() (r string, exists bool) {
+	v := m.subject_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubjectType returns the old "subject_type" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldSubjectType(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubjectType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubjectType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubjectType: %w", err)
+	}
+	return oldValue.SubjectType, nil
+}
+
+// ClearSubjectType clears the value of the "subject_type" field.
+func (m *MemoryMutation) ClearSubjectType() {
+	m.subject_type = nil
+	m.clearedFields[memory.FieldSubjectType] = struct{}{}
+}
+
+// SubjectTypeCleared returns if the "subject_type" field was cleared in this mutation.
+func (m *MemoryMutation) SubjectTypeCleared() bool {
+	_, ok := m.clearedFields[memory.FieldSubjectType]
+	return ok
+}
+
+// ResetSubjectType resets all changes to the "subject_type" field.
+func (m *MemoryMutation) ResetSubjectType() {
+	m.subject_type = nil
+	delete(m.clearedFields, memory.FieldSubjectType)
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (m *MemoryMutation) SetSubjectID(s string) {
+	m.subject_id = &s
+}
+
+// SubjectID returns the value of the "subject_id" field in the mutation.
+func (m *MemoryMutation) SubjectID() (r string, exists bool) {
+	v := m.subject_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubjectID returns the old "subject_id" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldSubjectID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubjectID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubjectID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubjectID: %w", err)
+	}
+	return oldValue.SubjectID, nil
+}
+
+// ClearSubjectID clears the value of the "subject_id" field.
+func (m *MemoryMutation) ClearSubjectID() {
+	m.subject_id = nil
+	m.clearedFields[memory.FieldSubjectID] = struct{}{}
+}
+
+// SubjectIDCleared returns if the "subject_id" field was cleared in this mutation.
+func (m *MemoryMutation) SubjectIDCleared() bool {
+	_, ok := m.clearedFields[memory.FieldSubjectID]
+	return ok
+}
+
+// ResetSubjectID resets all changes to the "subject_id" field.
+func (m *MemoryMutation) ResetSubjectID() {
+	m.subject_id = nil
+	delete(m.clearedFields, memory.FieldSubjectID)
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (m *MemoryMutation) SetDedupeKey(s string) {
+	m.dedupe_key = &s
+}
+
+// DedupeKey returns the value of the "dedupe_key" field in the mutation.
+func (m *MemoryMutation) DedupeKey() (r string, exists bool) {
+	v := m.dedupe_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDedupeKey returns the old "dedupe_key" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldDedupeKey(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDedupeKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDedupeKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDedupeKey: %w", err)
+	}
+	return oldValue.DedupeKey, nil
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (m *MemoryMutation) ClearDedupeKey() {
+	m.dedupe_key = nil
+	m.clearedFields[memory.FieldDedupeKey] = struct{}{}
+}
+
+// DedupeKeyCleared returns if the "dedupe_key" field was cleared in this mutation.
+func (m *MemoryMutation) DedupeKeyCleared() bool {
+	_, ok := m.clearedFields[memory.FieldDedupeKey]
+	return ok
+}
+
+// ResetDedupeKey resets all changes to the "dedupe_key" field.
+func (m *MemoryMutation) ResetDedupeKey() {
+	m.dedupe_key = nil
+	delete(m.clearedFields, memory.FieldDedupeKey)
+}
+
+// SetReviewReason sets the "review_reason" field.
+func (m *MemoryMutation) SetReviewReason(s string) {
+	m.review_reason = &s
+}
+
+// ReviewReason returns the value of the "review_reason" field in the mutation.
+func (m *MemoryMutation) ReviewReason() (r string, exists bool) {
+	v := m.review_reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReviewReason returns the old "review_reason" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldReviewReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReviewReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReviewReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReviewReason: %w", err)
+	}
+	return oldValue.ReviewReason, nil
+}
+
+// ResetReviewReason resets all changes to the "review_reason" field.
+func (m *MemoryMutation) ResetReviewReason() {
+	m.review_reason = nil
 }
 
 // SetConfidence sets the "confidence" field.
@@ -15684,7 +16401,7 @@ func (m *MemoryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MemoryMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 18)
 	if m.bot_id_ref != nil {
 		fields = append(fields, memory.FieldBotID)
 	}
@@ -15702,6 +16419,24 @@ func (m *MemoryMutation) Fields() []string {
 	}
 	if m.source != nil {
 		fields = append(fields, memory.FieldSource)
+	}
+	if m.source_sender_id != nil {
+		fields = append(fields, memory.FieldSourceSenderID)
+	}
+	if m.origin != nil {
+		fields = append(fields, memory.FieldOrigin)
+	}
+	if m.subject_type != nil {
+		fields = append(fields, memory.FieldSubjectType)
+	}
+	if m.subject_id != nil {
+		fields = append(fields, memory.FieldSubjectID)
+	}
+	if m.dedupe_key != nil {
+		fields = append(fields, memory.FieldDedupeKey)
+	}
+	if m.review_reason != nil {
+		fields = append(fields, memory.FieldReviewReason)
 	}
 	if m.confidence != nil {
 		fields = append(fields, memory.FieldConfidence)
@@ -15741,6 +16476,18 @@ func (m *MemoryMutation) Field(name string) (ent.Value, bool) {
 		return m.SourceMessageID()
 	case memory.FieldSource:
 		return m.Source()
+	case memory.FieldSourceSenderID:
+		return m.SourceSenderID()
+	case memory.FieldOrigin:
+		return m.Origin()
+	case memory.FieldSubjectType:
+		return m.SubjectType()
+	case memory.FieldSubjectID:
+		return m.SubjectID()
+	case memory.FieldDedupeKey:
+		return m.DedupeKey()
+	case memory.FieldReviewReason:
+		return m.ReviewReason()
 	case memory.FieldConfidence:
 		return m.Confidence()
 	case memory.FieldStatus:
@@ -15774,6 +16521,18 @@ func (m *MemoryMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldSourceMessageID(ctx)
 	case memory.FieldSource:
 		return m.OldSource(ctx)
+	case memory.FieldSourceSenderID:
+		return m.OldSourceSenderID(ctx)
+	case memory.FieldOrigin:
+		return m.OldOrigin(ctx)
+	case memory.FieldSubjectType:
+		return m.OldSubjectType(ctx)
+	case memory.FieldSubjectID:
+		return m.OldSubjectID(ctx)
+	case memory.FieldDedupeKey:
+		return m.OldDedupeKey(ctx)
+	case memory.FieldReviewReason:
+		return m.OldReviewReason(ctx)
 	case memory.FieldConfidence:
 		return m.OldConfidence(ctx)
 	case memory.FieldStatus:
@@ -15837,6 +16596,48 @@ func (m *MemoryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetSource(v)
 		return nil
+	case memory.FieldSourceSenderID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceSenderID(v)
+		return nil
+	case memory.FieldOrigin:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrigin(v)
+		return nil
+	case memory.FieldSubjectType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubjectType(v)
+		return nil
+	case memory.FieldSubjectID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubjectID(v)
+		return nil
+	case memory.FieldDedupeKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDedupeKey(v)
+		return nil
+	case memory.FieldReviewReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReviewReason(v)
+		return nil
 	case memory.FieldConfidence:
 		v, ok := value.(float32)
 		if !ok {
@@ -15887,6 +16688,9 @@ func (m *MemoryMutation) SetField(name string, value ent.Value) error {
 // this mutation.
 func (m *MemoryMutation) AddedFields() []string {
 	var fields []string
+	if m.addsource_sender_id != nil {
+		fields = append(fields, memory.FieldSourceSenderID)
+	}
 	if m.addconfidence != nil {
 		fields = append(fields, memory.FieldConfidence)
 	}
@@ -15898,6 +16702,8 @@ func (m *MemoryMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *MemoryMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case memory.FieldSourceSenderID:
+		return m.AddedSourceSenderID()
 	case memory.FieldConfidence:
 		return m.AddedConfidence()
 	}
@@ -15909,6 +16715,13 @@ func (m *MemoryMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *MemoryMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case memory.FieldSourceSenderID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSourceSenderID(v)
+		return nil
 	case memory.FieldConfidence:
 		v, ok := value.(float32)
 		if !ok {
@@ -15926,6 +16739,18 @@ func (m *MemoryMutation) ClearedFields() []string {
 	var fields []string
 	if m.FieldCleared(memory.FieldSourceMessageID) {
 		fields = append(fields, memory.FieldSourceMessageID)
+	}
+	if m.FieldCleared(memory.FieldSourceSenderID) {
+		fields = append(fields, memory.FieldSourceSenderID)
+	}
+	if m.FieldCleared(memory.FieldSubjectType) {
+		fields = append(fields, memory.FieldSubjectType)
+	}
+	if m.FieldCleared(memory.FieldSubjectID) {
+		fields = append(fields, memory.FieldSubjectID)
+	}
+	if m.FieldCleared(memory.FieldDedupeKey) {
+		fields = append(fields, memory.FieldDedupeKey)
 	}
 	if m.FieldCleared(memory.FieldExpiresAt) {
 		fields = append(fields, memory.FieldExpiresAt)
@@ -15946,6 +16771,18 @@ func (m *MemoryMutation) ClearField(name string) error {
 	switch name {
 	case memory.FieldSourceMessageID:
 		m.ClearSourceMessageID()
+		return nil
+	case memory.FieldSourceSenderID:
+		m.ClearSourceSenderID()
+		return nil
+	case memory.FieldSubjectType:
+		m.ClearSubjectType()
+		return nil
+	case memory.FieldSubjectID:
+		m.ClearSubjectID()
+		return nil
+	case memory.FieldDedupeKey:
+		m.ClearDedupeKey()
 		return nil
 	case memory.FieldExpiresAt:
 		m.ClearExpiresAt()
@@ -15975,6 +16812,24 @@ func (m *MemoryMutation) ResetField(name string) error {
 		return nil
 	case memory.FieldSource:
 		m.ResetSource()
+		return nil
+	case memory.FieldSourceSenderID:
+		m.ResetSourceSenderID()
+		return nil
+	case memory.FieldOrigin:
+		m.ResetOrigin()
+		return nil
+	case memory.FieldSubjectType:
+		m.ResetSubjectType()
+		return nil
+	case memory.FieldSubjectID:
+		m.ResetSubjectID()
+		return nil
+	case memory.FieldDedupeKey:
+		m.ResetDedupeKey()
+		return nil
+	case memory.FieldReviewReason:
+		m.ResetReviewReason()
 		return nil
 	case memory.FieldConfidence:
 		m.ResetConfidence()
@@ -16090,38 +16945,2600 @@ func (m *MemoryMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown Memory edge %s", name)
 }
 
+// MemoryExtractionCursorMutation represents an operation that mutates the MemoryExtractionCursor nodes in the graph.
+type MemoryExtractionCursorMutation struct {
+	config
+	op                             Op
+	typ                            string
+	id                             *int64
+	last_message_id                *int64
+	addlast_message_id             *int64
+	last_authorization_event_id    *int64
+	addlast_authorization_event_id *int64
+	last_scanned_at                *time.Time
+	created_at                     *time.Time
+	updated_at                     *time.Time
+	clearedFields                  map[string]struct{}
+	bot_id_ref                     *int64
+	clearedbot_id_ref              bool
+	conversation_id_ref            *uuid.UUID
+	clearedconversation_id_ref     bool
+	done                           bool
+	oldValue                       func(context.Context) (*MemoryExtractionCursor, error)
+	predicates                     []predicate.MemoryExtractionCursor
+}
+
+var _ ent.Mutation = (*MemoryExtractionCursorMutation)(nil)
+
+// memoryextractioncursorOption allows management of the mutation configuration using functional options.
+type memoryextractioncursorOption func(*MemoryExtractionCursorMutation)
+
+// newMemoryExtractionCursorMutation creates new mutation for the MemoryExtractionCursor entity.
+func newMemoryExtractionCursorMutation(c config, op Op, opts ...memoryextractioncursorOption) *MemoryExtractionCursorMutation {
+	m := &MemoryExtractionCursorMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMemoryExtractionCursor,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMemoryExtractionCursorID sets the ID field of the mutation.
+func withMemoryExtractionCursorID(id int64) memoryextractioncursorOption {
+	return func(m *MemoryExtractionCursorMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MemoryExtractionCursor
+		)
+		m.oldValue = func(ctx context.Context) (*MemoryExtractionCursor, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MemoryExtractionCursor.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMemoryExtractionCursor sets the old MemoryExtractionCursor of the mutation.
+func withMemoryExtractionCursor(node *MemoryExtractionCursor) memoryextractioncursorOption {
+	return func(m *MemoryExtractionCursorMutation) {
+		m.oldValue = func(context.Context) (*MemoryExtractionCursor, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MemoryExtractionCursorMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MemoryExtractionCursorMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of MemoryExtractionCursor entities.
+func (m *MemoryExtractionCursorMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MemoryExtractionCursorMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MemoryExtractionCursorMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MemoryExtractionCursor.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *MemoryExtractionCursorMutation) SetBotID(i int64) {
+	m.bot_id_ref = &i
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *MemoryExtractionCursorMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the MemoryExtractionCursor entity.
+// If the MemoryExtractionCursor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionCursorMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *MemoryExtractionCursorMutation) ResetBotID() {
+	m.bot_id_ref = nil
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *MemoryExtractionCursorMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id_ref = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *MemoryExtractionCursorMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the MemoryExtractionCursor entity.
+// If the MemoryExtractionCursor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionCursorMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *MemoryExtractionCursorMutation) ResetConversationID() {
+	m.conversation_id_ref = nil
+}
+
+// SetLastMessageID sets the "last_message_id" field.
+func (m *MemoryExtractionCursorMutation) SetLastMessageID(i int64) {
+	m.last_message_id = &i
+	m.addlast_message_id = nil
+}
+
+// LastMessageID returns the value of the "last_message_id" field in the mutation.
+func (m *MemoryExtractionCursorMutation) LastMessageID() (r int64, exists bool) {
+	v := m.last_message_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastMessageID returns the old "last_message_id" field's value of the MemoryExtractionCursor entity.
+// If the MemoryExtractionCursor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionCursorMutation) OldLastMessageID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastMessageID: %w", err)
+	}
+	return oldValue.LastMessageID, nil
+}
+
+// AddLastMessageID adds i to the "last_message_id" field.
+func (m *MemoryExtractionCursorMutation) AddLastMessageID(i int64) {
+	if m.addlast_message_id != nil {
+		*m.addlast_message_id += i
+	} else {
+		m.addlast_message_id = &i
+	}
+}
+
+// AddedLastMessageID returns the value that was added to the "last_message_id" field in this mutation.
+func (m *MemoryExtractionCursorMutation) AddedLastMessageID() (r int64, exists bool) {
+	v := m.addlast_message_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetLastMessageID resets all changes to the "last_message_id" field.
+func (m *MemoryExtractionCursorMutation) ResetLastMessageID() {
+	m.last_message_id = nil
+	m.addlast_message_id = nil
+}
+
+// SetLastAuthorizationEventID sets the "last_authorization_event_id" field.
+func (m *MemoryExtractionCursorMutation) SetLastAuthorizationEventID(i int64) {
+	m.last_authorization_event_id = &i
+	m.addlast_authorization_event_id = nil
+}
+
+// LastAuthorizationEventID returns the value of the "last_authorization_event_id" field in the mutation.
+func (m *MemoryExtractionCursorMutation) LastAuthorizationEventID() (r int64, exists bool) {
+	v := m.last_authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastAuthorizationEventID returns the old "last_authorization_event_id" field's value of the MemoryExtractionCursor entity.
+// If the MemoryExtractionCursor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionCursorMutation) OldLastAuthorizationEventID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastAuthorizationEventID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastAuthorizationEventID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastAuthorizationEventID: %w", err)
+	}
+	return oldValue.LastAuthorizationEventID, nil
+}
+
+// AddLastAuthorizationEventID adds i to the "last_authorization_event_id" field.
+func (m *MemoryExtractionCursorMutation) AddLastAuthorizationEventID(i int64) {
+	if m.addlast_authorization_event_id != nil {
+		*m.addlast_authorization_event_id += i
+	} else {
+		m.addlast_authorization_event_id = &i
+	}
+}
+
+// AddedLastAuthorizationEventID returns the value that was added to the "last_authorization_event_id" field in this mutation.
+func (m *MemoryExtractionCursorMutation) AddedLastAuthorizationEventID() (r int64, exists bool) {
+	v := m.addlast_authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearLastAuthorizationEventID clears the value of the "last_authorization_event_id" field.
+func (m *MemoryExtractionCursorMutation) ClearLastAuthorizationEventID() {
+	m.last_authorization_event_id = nil
+	m.addlast_authorization_event_id = nil
+	m.clearedFields[memoryextractioncursor.FieldLastAuthorizationEventID] = struct{}{}
+}
+
+// LastAuthorizationEventIDCleared returns if the "last_authorization_event_id" field was cleared in this mutation.
+func (m *MemoryExtractionCursorMutation) LastAuthorizationEventIDCleared() bool {
+	_, ok := m.clearedFields[memoryextractioncursor.FieldLastAuthorizationEventID]
+	return ok
+}
+
+// ResetLastAuthorizationEventID resets all changes to the "last_authorization_event_id" field.
+func (m *MemoryExtractionCursorMutation) ResetLastAuthorizationEventID() {
+	m.last_authorization_event_id = nil
+	m.addlast_authorization_event_id = nil
+	delete(m.clearedFields, memoryextractioncursor.FieldLastAuthorizationEventID)
+}
+
+// SetLastScannedAt sets the "last_scanned_at" field.
+func (m *MemoryExtractionCursorMutation) SetLastScannedAt(t time.Time) {
+	m.last_scanned_at = &t
+}
+
+// LastScannedAt returns the value of the "last_scanned_at" field in the mutation.
+func (m *MemoryExtractionCursorMutation) LastScannedAt() (r time.Time, exists bool) {
+	v := m.last_scanned_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastScannedAt returns the old "last_scanned_at" field's value of the MemoryExtractionCursor entity.
+// If the MemoryExtractionCursor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionCursorMutation) OldLastScannedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastScannedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastScannedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastScannedAt: %w", err)
+	}
+	return oldValue.LastScannedAt, nil
+}
+
+// ClearLastScannedAt clears the value of the "last_scanned_at" field.
+func (m *MemoryExtractionCursorMutation) ClearLastScannedAt() {
+	m.last_scanned_at = nil
+	m.clearedFields[memoryextractioncursor.FieldLastScannedAt] = struct{}{}
+}
+
+// LastScannedAtCleared returns if the "last_scanned_at" field was cleared in this mutation.
+func (m *MemoryExtractionCursorMutation) LastScannedAtCleared() bool {
+	_, ok := m.clearedFields[memoryextractioncursor.FieldLastScannedAt]
+	return ok
+}
+
+// ResetLastScannedAt resets all changes to the "last_scanned_at" field.
+func (m *MemoryExtractionCursorMutation) ResetLastScannedAt() {
+	m.last_scanned_at = nil
+	delete(m.clearedFields, memoryextractioncursor.FieldLastScannedAt)
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *MemoryExtractionCursorMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *MemoryExtractionCursorMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the MemoryExtractionCursor entity.
+// If the MemoryExtractionCursor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionCursorMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *MemoryExtractionCursorMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *MemoryExtractionCursorMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *MemoryExtractionCursorMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the MemoryExtractionCursor entity.
+// If the MemoryExtractionCursor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionCursorMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *MemoryExtractionCursorMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetBotIDRefID sets the "bot_id_ref" edge to the BotAccount entity by id.
+func (m *MemoryExtractionCursorMutation) SetBotIDRefID(id int64) {
+	m.bot_id_ref = &id
+}
+
+// ClearBotIDRef clears the "bot_id_ref" edge to the BotAccount entity.
+func (m *MemoryExtractionCursorMutation) ClearBotIDRef() {
+	m.clearedbot_id_ref = true
+	m.clearedFields[memoryextractioncursor.FieldBotID] = struct{}{}
+}
+
+// BotIDRefCleared reports if the "bot_id_ref" edge to the BotAccount entity was cleared.
+func (m *MemoryExtractionCursorMutation) BotIDRefCleared() bool {
+	return m.clearedbot_id_ref
+}
+
+// BotIDRefID returns the "bot_id_ref" edge ID in the mutation.
+func (m *MemoryExtractionCursorMutation) BotIDRefID() (id int64, exists bool) {
+	if m.bot_id_ref != nil {
+		return *m.bot_id_ref, true
+	}
+	return
+}
+
+// BotIDRefIDs returns the "bot_id_ref" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// BotIDRefID instead. It exists only for internal usage by the builders.
+func (m *MemoryExtractionCursorMutation) BotIDRefIDs() (ids []int64) {
+	if id := m.bot_id_ref; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetBotIDRef resets all changes to the "bot_id_ref" edge.
+func (m *MemoryExtractionCursorMutation) ResetBotIDRef() {
+	m.bot_id_ref = nil
+	m.clearedbot_id_ref = false
+}
+
+// SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by id.
+func (m *MemoryExtractionCursorMutation) SetConversationIDRefID(id uuid.UUID) {
+	m.conversation_id_ref = &id
+}
+
+// ClearConversationIDRef clears the "conversation_id_ref" edge to the Conversation entity.
+func (m *MemoryExtractionCursorMutation) ClearConversationIDRef() {
+	m.clearedconversation_id_ref = true
+	m.clearedFields[memoryextractioncursor.FieldConversationID] = struct{}{}
+}
+
+// ConversationIDRefCleared reports if the "conversation_id_ref" edge to the Conversation entity was cleared.
+func (m *MemoryExtractionCursorMutation) ConversationIDRefCleared() bool {
+	return m.clearedconversation_id_ref
+}
+
+// ConversationIDRefID returns the "conversation_id_ref" edge ID in the mutation.
+func (m *MemoryExtractionCursorMutation) ConversationIDRefID() (id uuid.UUID, exists bool) {
+	if m.conversation_id_ref != nil {
+		return *m.conversation_id_ref, true
+	}
+	return
+}
+
+// ConversationIDRefIDs returns the "conversation_id_ref" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ConversationIDRefID instead. It exists only for internal usage by the builders.
+func (m *MemoryExtractionCursorMutation) ConversationIDRefIDs() (ids []uuid.UUID) {
+	if id := m.conversation_id_ref; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetConversationIDRef resets all changes to the "conversation_id_ref" edge.
+func (m *MemoryExtractionCursorMutation) ResetConversationIDRef() {
+	m.conversation_id_ref = nil
+	m.clearedconversation_id_ref = false
+}
+
+// Where appends a list predicates to the MemoryExtractionCursorMutation builder.
+func (m *MemoryExtractionCursorMutation) Where(ps ...predicate.MemoryExtractionCursor) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MemoryExtractionCursorMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MemoryExtractionCursorMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MemoryExtractionCursor, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MemoryExtractionCursorMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MemoryExtractionCursorMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MemoryExtractionCursor).
+func (m *MemoryExtractionCursorMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MemoryExtractionCursorMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.bot_id_ref != nil {
+		fields = append(fields, memoryextractioncursor.FieldBotID)
+	}
+	if m.conversation_id_ref != nil {
+		fields = append(fields, memoryextractioncursor.FieldConversationID)
+	}
+	if m.last_message_id != nil {
+		fields = append(fields, memoryextractioncursor.FieldLastMessageID)
+	}
+	if m.last_authorization_event_id != nil {
+		fields = append(fields, memoryextractioncursor.FieldLastAuthorizationEventID)
+	}
+	if m.last_scanned_at != nil {
+		fields = append(fields, memoryextractioncursor.FieldLastScannedAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, memoryextractioncursor.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, memoryextractioncursor.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MemoryExtractionCursorMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case memoryextractioncursor.FieldBotID:
+		return m.BotID()
+	case memoryextractioncursor.FieldConversationID:
+		return m.ConversationID()
+	case memoryextractioncursor.FieldLastMessageID:
+		return m.LastMessageID()
+	case memoryextractioncursor.FieldLastAuthorizationEventID:
+		return m.LastAuthorizationEventID()
+	case memoryextractioncursor.FieldLastScannedAt:
+		return m.LastScannedAt()
+	case memoryextractioncursor.FieldCreatedAt:
+		return m.CreatedAt()
+	case memoryextractioncursor.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MemoryExtractionCursorMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case memoryextractioncursor.FieldBotID:
+		return m.OldBotID(ctx)
+	case memoryextractioncursor.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case memoryextractioncursor.FieldLastMessageID:
+		return m.OldLastMessageID(ctx)
+	case memoryextractioncursor.FieldLastAuthorizationEventID:
+		return m.OldLastAuthorizationEventID(ctx)
+	case memoryextractioncursor.FieldLastScannedAt:
+		return m.OldLastScannedAt(ctx)
+	case memoryextractioncursor.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case memoryextractioncursor.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown MemoryExtractionCursor field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryExtractionCursorMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case memoryextractioncursor.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case memoryextractioncursor.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case memoryextractioncursor.FieldLastMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastMessageID(v)
+		return nil
+	case memoryextractioncursor.FieldLastAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastAuthorizationEventID(v)
+		return nil
+	case memoryextractioncursor.FieldLastScannedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastScannedAt(v)
+		return nil
+	case memoryextractioncursor.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case memoryextractioncursor.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionCursor field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MemoryExtractionCursorMutation) AddedFields() []string {
+	var fields []string
+	if m.addlast_message_id != nil {
+		fields = append(fields, memoryextractioncursor.FieldLastMessageID)
+	}
+	if m.addlast_authorization_event_id != nil {
+		fields = append(fields, memoryextractioncursor.FieldLastAuthorizationEventID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MemoryExtractionCursorMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case memoryextractioncursor.FieldLastMessageID:
+		return m.AddedLastMessageID()
+	case memoryextractioncursor.FieldLastAuthorizationEventID:
+		return m.AddedLastAuthorizationEventID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryExtractionCursorMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case memoryextractioncursor.FieldLastMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLastMessageID(v)
+		return nil
+	case memoryextractioncursor.FieldLastAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLastAuthorizationEventID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionCursor numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MemoryExtractionCursorMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(memoryextractioncursor.FieldLastAuthorizationEventID) {
+		fields = append(fields, memoryextractioncursor.FieldLastAuthorizationEventID)
+	}
+	if m.FieldCleared(memoryextractioncursor.FieldLastScannedAt) {
+		fields = append(fields, memoryextractioncursor.FieldLastScannedAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MemoryExtractionCursorMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MemoryExtractionCursorMutation) ClearField(name string) error {
+	switch name {
+	case memoryextractioncursor.FieldLastAuthorizationEventID:
+		m.ClearLastAuthorizationEventID()
+		return nil
+	case memoryextractioncursor.FieldLastScannedAt:
+		m.ClearLastScannedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionCursor nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MemoryExtractionCursorMutation) ResetField(name string) error {
+	switch name {
+	case memoryextractioncursor.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case memoryextractioncursor.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case memoryextractioncursor.FieldLastMessageID:
+		m.ResetLastMessageID()
+		return nil
+	case memoryextractioncursor.FieldLastAuthorizationEventID:
+		m.ResetLastAuthorizationEventID()
+		return nil
+	case memoryextractioncursor.FieldLastScannedAt:
+		m.ResetLastScannedAt()
+		return nil
+	case memoryextractioncursor.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case memoryextractioncursor.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionCursor field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MemoryExtractionCursorMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.bot_id_ref != nil {
+		edges = append(edges, memoryextractioncursor.EdgeBotIDRef)
+	}
+	if m.conversation_id_ref != nil {
+		edges = append(edges, memoryextractioncursor.EdgeConversationIDRef)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MemoryExtractionCursorMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case memoryextractioncursor.EdgeBotIDRef:
+		if id := m.bot_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	case memoryextractioncursor.EdgeConversationIDRef:
+		if id := m.conversation_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MemoryExtractionCursorMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MemoryExtractionCursorMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MemoryExtractionCursorMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedbot_id_ref {
+		edges = append(edges, memoryextractioncursor.EdgeBotIDRef)
+	}
+	if m.clearedconversation_id_ref {
+		edges = append(edges, memoryextractioncursor.EdgeConversationIDRef)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MemoryExtractionCursorMutation) EdgeCleared(name string) bool {
+	switch name {
+	case memoryextractioncursor.EdgeBotIDRef:
+		return m.clearedbot_id_ref
+	case memoryextractioncursor.EdgeConversationIDRef:
+		return m.clearedconversation_id_ref
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MemoryExtractionCursorMutation) ClearEdge(name string) error {
+	switch name {
+	case memoryextractioncursor.EdgeBotIDRef:
+		m.ClearBotIDRef()
+		return nil
+	case memoryextractioncursor.EdgeConversationIDRef:
+		m.ClearConversationIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionCursor unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MemoryExtractionCursorMutation) ResetEdge(name string) error {
+	switch name {
+	case memoryextractioncursor.EdgeBotIDRef:
+		m.ResetBotIDRef()
+		return nil
+	case memoryextractioncursor.EdgeConversationIDRef:
+		m.ResetConversationIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionCursor edge %s", name)
+}
+
+// MemoryExtractionJobMutation represents an operation that mutates the MemoryExtractionJob nodes in the graph.
+type MemoryExtractionJobMutation struct {
+	config
+	op                         Op
+	typ                        string
+	id                         *uuid.UUID
+	scope_type                 *string
+	scope_id                   *int64
+	addscope_id                *int64
+	authorization_event_id     *int64
+	addauthorization_event_id  *int64
+	status                     *string
+	attempts                   *int
+	addattempts                *int
+	round_attempts             *int
+	addround_attempts          *int
+	next_run_at                *time.Time
+	claim_token                *uuid.UUID
+	lease_expires_at           *time.Time
+	last_error_code            *string
+	extraction_payload         *jsontext.Value
+	appendextraction_payload   jsontext.Value
+	manual_retries             *int
+	addmanual_retries          *int
+	created_at                 *time.Time
+	updated_at                 *time.Time
+	clearedFields              map[string]struct{}
+	bot_id_ref                 *int64
+	clearedbot_id_ref          bool
+	conversation_id_ref        *uuid.UUID
+	clearedconversation_id_ref bool
+	message_id_ref             *int64
+	clearedmessage_id_ref      bool
+	done                       bool
+	oldValue                   func(context.Context) (*MemoryExtractionJob, error)
+	predicates                 []predicate.MemoryExtractionJob
+}
+
+var _ ent.Mutation = (*MemoryExtractionJobMutation)(nil)
+
+// memoryextractionjobOption allows management of the mutation configuration using functional options.
+type memoryextractionjobOption func(*MemoryExtractionJobMutation)
+
+// newMemoryExtractionJobMutation creates new mutation for the MemoryExtractionJob entity.
+func newMemoryExtractionJobMutation(c config, op Op, opts ...memoryextractionjobOption) *MemoryExtractionJobMutation {
+	m := &MemoryExtractionJobMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMemoryExtractionJob,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMemoryExtractionJobID sets the ID field of the mutation.
+func withMemoryExtractionJobID(id uuid.UUID) memoryextractionjobOption {
+	return func(m *MemoryExtractionJobMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MemoryExtractionJob
+		)
+		m.oldValue = func(ctx context.Context) (*MemoryExtractionJob, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MemoryExtractionJob.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMemoryExtractionJob sets the old MemoryExtractionJob of the mutation.
+func withMemoryExtractionJob(node *MemoryExtractionJob) memoryextractionjobOption {
+	return func(m *MemoryExtractionJobMutation) {
+		m.oldValue = func(context.Context) (*MemoryExtractionJob, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MemoryExtractionJobMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MemoryExtractionJobMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of MemoryExtractionJob entities.
+func (m *MemoryExtractionJobMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MemoryExtractionJobMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MemoryExtractionJobMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MemoryExtractionJob.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *MemoryExtractionJobMutation) SetBotID(i int64) {
+	m.bot_id_ref = &i
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *MemoryExtractionJobMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *MemoryExtractionJobMutation) ResetBotID() {
+	m.bot_id_ref = nil
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *MemoryExtractionJobMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id_ref = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *MemoryExtractionJobMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *MemoryExtractionJobMutation) ResetConversationID() {
+	m.conversation_id_ref = nil
+}
+
+// SetScopeType sets the "scope_type" field.
+func (m *MemoryExtractionJobMutation) SetScopeType(s string) {
+	m.scope_type = &s
+}
+
+// ScopeType returns the value of the "scope_type" field in the mutation.
+func (m *MemoryExtractionJobMutation) ScopeType() (r string, exists bool) {
+	v := m.scope_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeType returns the old "scope_type" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldScopeType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeType: %w", err)
+	}
+	return oldValue.ScopeType, nil
+}
+
+// ResetScopeType resets all changes to the "scope_type" field.
+func (m *MemoryExtractionJobMutation) ResetScopeType() {
+	m.scope_type = nil
+}
+
+// SetScopeID sets the "scope_id" field.
+func (m *MemoryExtractionJobMutation) SetScopeID(i int64) {
+	m.scope_id = &i
+	m.addscope_id = nil
+}
+
+// ScopeID returns the value of the "scope_id" field in the mutation.
+func (m *MemoryExtractionJobMutation) ScopeID() (r int64, exists bool) {
+	v := m.scope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeID returns the old "scope_id" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldScopeID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeID: %w", err)
+	}
+	return oldValue.ScopeID, nil
+}
+
+// AddScopeID adds i to the "scope_id" field.
+func (m *MemoryExtractionJobMutation) AddScopeID(i int64) {
+	if m.addscope_id != nil {
+		*m.addscope_id += i
+	} else {
+		m.addscope_id = &i
+	}
+}
+
+// AddedScopeID returns the value that was added to the "scope_id" field in this mutation.
+func (m *MemoryExtractionJobMutation) AddedScopeID() (r int64, exists bool) {
+	v := m.addscope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetScopeID resets all changes to the "scope_id" field.
+func (m *MemoryExtractionJobMutation) ResetScopeID() {
+	m.scope_id = nil
+	m.addscope_id = nil
+}
+
+// SetMessageID sets the "message_id" field.
+func (m *MemoryExtractionJobMutation) SetMessageID(i int64) {
+	m.message_id_ref = &i
+}
+
+// MessageID returns the value of the "message_id" field in the mutation.
+func (m *MemoryExtractionJobMutation) MessageID() (r int64, exists bool) {
+	v := m.message_id_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMessageID returns the old "message_id" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldMessageID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMessageID: %w", err)
+	}
+	return oldValue.MessageID, nil
+}
+
+// ClearMessageID clears the value of the "message_id" field.
+func (m *MemoryExtractionJobMutation) ClearMessageID() {
+	m.message_id_ref = nil
+	m.clearedFields[memoryextractionjob.FieldMessageID] = struct{}{}
+}
+
+// MessageIDCleared returns if the "message_id" field was cleared in this mutation.
+func (m *MemoryExtractionJobMutation) MessageIDCleared() bool {
+	_, ok := m.clearedFields[memoryextractionjob.FieldMessageID]
+	return ok
+}
+
+// ResetMessageID resets all changes to the "message_id" field.
+func (m *MemoryExtractionJobMutation) ResetMessageID() {
+	m.message_id_ref = nil
+	delete(m.clearedFields, memoryextractionjob.FieldMessageID)
+}
+
+// SetAuthorizationEventID sets the "authorization_event_id" field.
+func (m *MemoryExtractionJobMutation) SetAuthorizationEventID(i int64) {
+	m.authorization_event_id = &i
+	m.addauthorization_event_id = nil
+}
+
+// AuthorizationEventID returns the value of the "authorization_event_id" field in the mutation.
+func (m *MemoryExtractionJobMutation) AuthorizationEventID() (r int64, exists bool) {
+	v := m.authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthorizationEventID returns the old "authorization_event_id" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldAuthorizationEventID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthorizationEventID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthorizationEventID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthorizationEventID: %w", err)
+	}
+	return oldValue.AuthorizationEventID, nil
+}
+
+// AddAuthorizationEventID adds i to the "authorization_event_id" field.
+func (m *MemoryExtractionJobMutation) AddAuthorizationEventID(i int64) {
+	if m.addauthorization_event_id != nil {
+		*m.addauthorization_event_id += i
+	} else {
+		m.addauthorization_event_id = &i
+	}
+}
+
+// AddedAuthorizationEventID returns the value that was added to the "authorization_event_id" field in this mutation.
+func (m *MemoryExtractionJobMutation) AddedAuthorizationEventID() (r int64, exists bool) {
+	v := m.addauthorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAuthorizationEventID resets all changes to the "authorization_event_id" field.
+func (m *MemoryExtractionJobMutation) ResetAuthorizationEventID() {
+	m.authorization_event_id = nil
+	m.addauthorization_event_id = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *MemoryExtractionJobMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *MemoryExtractionJobMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *MemoryExtractionJobMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetAttempts sets the "attempts" field.
+func (m *MemoryExtractionJobMutation) SetAttempts(i int) {
+	m.attempts = &i
+	m.addattempts = nil
+}
+
+// Attempts returns the value of the "attempts" field in the mutation.
+func (m *MemoryExtractionJobMutation) Attempts() (r int, exists bool) {
+	v := m.attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAttempts returns the old "attempts" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAttempts: %w", err)
+	}
+	return oldValue.Attempts, nil
+}
+
+// AddAttempts adds i to the "attempts" field.
+func (m *MemoryExtractionJobMutation) AddAttempts(i int) {
+	if m.addattempts != nil {
+		*m.addattempts += i
+	} else {
+		m.addattempts = &i
+	}
+}
+
+// AddedAttempts returns the value that was added to the "attempts" field in this mutation.
+func (m *MemoryExtractionJobMutation) AddedAttempts() (r int, exists bool) {
+	v := m.addattempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAttempts resets all changes to the "attempts" field.
+func (m *MemoryExtractionJobMutation) ResetAttempts() {
+	m.attempts = nil
+	m.addattempts = nil
+}
+
+// SetRoundAttempts sets the "round_attempts" field.
+func (m *MemoryExtractionJobMutation) SetRoundAttempts(i int) {
+	m.round_attempts = &i
+	m.addround_attempts = nil
+}
+
+// RoundAttempts returns the value of the "round_attempts" field in the mutation.
+func (m *MemoryExtractionJobMutation) RoundAttempts() (r int, exists bool) {
+	v := m.round_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRoundAttempts returns the old "round_attempts" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldRoundAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRoundAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRoundAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRoundAttempts: %w", err)
+	}
+	return oldValue.RoundAttempts, nil
+}
+
+// AddRoundAttempts adds i to the "round_attempts" field.
+func (m *MemoryExtractionJobMutation) AddRoundAttempts(i int) {
+	if m.addround_attempts != nil {
+		*m.addround_attempts += i
+	} else {
+		m.addround_attempts = &i
+	}
+}
+
+// AddedRoundAttempts returns the value that was added to the "round_attempts" field in this mutation.
+func (m *MemoryExtractionJobMutation) AddedRoundAttempts() (r int, exists bool) {
+	v := m.addround_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRoundAttempts resets all changes to the "round_attempts" field.
+func (m *MemoryExtractionJobMutation) ResetRoundAttempts() {
+	m.round_attempts = nil
+	m.addround_attempts = nil
+}
+
+// SetNextRunAt sets the "next_run_at" field.
+func (m *MemoryExtractionJobMutation) SetNextRunAt(t time.Time) {
+	m.next_run_at = &t
+}
+
+// NextRunAt returns the value of the "next_run_at" field in the mutation.
+func (m *MemoryExtractionJobMutation) NextRunAt() (r time.Time, exists bool) {
+	v := m.next_run_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNextRunAt returns the old "next_run_at" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldNextRunAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNextRunAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNextRunAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNextRunAt: %w", err)
+	}
+	return oldValue.NextRunAt, nil
+}
+
+// ResetNextRunAt resets all changes to the "next_run_at" field.
+func (m *MemoryExtractionJobMutation) ResetNextRunAt() {
+	m.next_run_at = nil
+}
+
+// SetClaimToken sets the "claim_token" field.
+func (m *MemoryExtractionJobMutation) SetClaimToken(u uuid.UUID) {
+	m.claim_token = &u
+}
+
+// ClaimToken returns the value of the "claim_token" field in the mutation.
+func (m *MemoryExtractionJobMutation) ClaimToken() (r uuid.UUID, exists bool) {
+	v := m.claim_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClaimToken returns the old "claim_token" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldClaimToken(ctx context.Context) (v *uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClaimToken is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClaimToken requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClaimToken: %w", err)
+	}
+	return oldValue.ClaimToken, nil
+}
+
+// ClearClaimToken clears the value of the "claim_token" field.
+func (m *MemoryExtractionJobMutation) ClearClaimToken() {
+	m.claim_token = nil
+	m.clearedFields[memoryextractionjob.FieldClaimToken] = struct{}{}
+}
+
+// ClaimTokenCleared returns if the "claim_token" field was cleared in this mutation.
+func (m *MemoryExtractionJobMutation) ClaimTokenCleared() bool {
+	_, ok := m.clearedFields[memoryextractionjob.FieldClaimToken]
+	return ok
+}
+
+// ResetClaimToken resets all changes to the "claim_token" field.
+func (m *MemoryExtractionJobMutation) ResetClaimToken() {
+	m.claim_token = nil
+	delete(m.clearedFields, memoryextractionjob.FieldClaimToken)
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (m *MemoryExtractionJobMutation) SetLeaseExpiresAt(t time.Time) {
+	m.lease_expires_at = &t
+}
+
+// LeaseExpiresAt returns the value of the "lease_expires_at" field in the mutation.
+func (m *MemoryExtractionJobMutation) LeaseExpiresAt() (r time.Time, exists bool) {
+	v := m.lease_expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseExpiresAt returns the old "lease_expires_at" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldLeaseExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseExpiresAt: %w", err)
+	}
+	return oldValue.LeaseExpiresAt, nil
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (m *MemoryExtractionJobMutation) ClearLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	m.clearedFields[memoryextractionjob.FieldLeaseExpiresAt] = struct{}{}
+}
+
+// LeaseExpiresAtCleared returns if the "lease_expires_at" field was cleared in this mutation.
+func (m *MemoryExtractionJobMutation) LeaseExpiresAtCleared() bool {
+	_, ok := m.clearedFields[memoryextractionjob.FieldLeaseExpiresAt]
+	return ok
+}
+
+// ResetLeaseExpiresAt resets all changes to the "lease_expires_at" field.
+func (m *MemoryExtractionJobMutation) ResetLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	delete(m.clearedFields, memoryextractionjob.FieldLeaseExpiresAt)
+}
+
+// SetLastErrorCode sets the "last_error_code" field.
+func (m *MemoryExtractionJobMutation) SetLastErrorCode(s string) {
+	m.last_error_code = &s
+}
+
+// LastErrorCode returns the value of the "last_error_code" field in the mutation.
+func (m *MemoryExtractionJobMutation) LastErrorCode() (r string, exists bool) {
+	v := m.last_error_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastErrorCode returns the old "last_error_code" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldLastErrorCode(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastErrorCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastErrorCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastErrorCode: %w", err)
+	}
+	return oldValue.LastErrorCode, nil
+}
+
+// ClearLastErrorCode clears the value of the "last_error_code" field.
+func (m *MemoryExtractionJobMutation) ClearLastErrorCode() {
+	m.last_error_code = nil
+	m.clearedFields[memoryextractionjob.FieldLastErrorCode] = struct{}{}
+}
+
+// LastErrorCodeCleared returns if the "last_error_code" field was cleared in this mutation.
+func (m *MemoryExtractionJobMutation) LastErrorCodeCleared() bool {
+	_, ok := m.clearedFields[memoryextractionjob.FieldLastErrorCode]
+	return ok
+}
+
+// ResetLastErrorCode resets all changes to the "last_error_code" field.
+func (m *MemoryExtractionJobMutation) ResetLastErrorCode() {
+	m.last_error_code = nil
+	delete(m.clearedFields, memoryextractionjob.FieldLastErrorCode)
+}
+
+// SetExtractionPayload sets the "extraction_payload" field.
+func (m *MemoryExtractionJobMutation) SetExtractionPayload(j jsontext.Value) {
+	m.extraction_payload = &j
+	m.appendextraction_payload = nil
+}
+
+// ExtractionPayload returns the value of the "extraction_payload" field in the mutation.
+func (m *MemoryExtractionJobMutation) ExtractionPayload() (r jsontext.Value, exists bool) {
+	v := m.extraction_payload
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExtractionPayload returns the old "extraction_payload" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldExtractionPayload(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExtractionPayload is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExtractionPayload requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExtractionPayload: %w", err)
+	}
+	return oldValue.ExtractionPayload, nil
+}
+
+// AppendExtractionPayload adds j to the "extraction_payload" field.
+func (m *MemoryExtractionJobMutation) AppendExtractionPayload(j jsontext.Value) {
+	m.appendextraction_payload = append(m.appendextraction_payload, j...)
+}
+
+// AppendedExtractionPayload returns the list of values that were appended to the "extraction_payload" field in this mutation.
+func (m *MemoryExtractionJobMutation) AppendedExtractionPayload() (jsontext.Value, bool) {
+	if len(m.appendextraction_payload) == 0 {
+		return nil, false
+	}
+	return m.appendextraction_payload, true
+}
+
+// ClearExtractionPayload clears the value of the "extraction_payload" field.
+func (m *MemoryExtractionJobMutation) ClearExtractionPayload() {
+	m.extraction_payload = nil
+	m.appendextraction_payload = nil
+	m.clearedFields[memoryextractionjob.FieldExtractionPayload] = struct{}{}
+}
+
+// ExtractionPayloadCleared returns if the "extraction_payload" field was cleared in this mutation.
+func (m *MemoryExtractionJobMutation) ExtractionPayloadCleared() bool {
+	_, ok := m.clearedFields[memoryextractionjob.FieldExtractionPayload]
+	return ok
+}
+
+// ResetExtractionPayload resets all changes to the "extraction_payload" field.
+func (m *MemoryExtractionJobMutation) ResetExtractionPayload() {
+	m.extraction_payload = nil
+	m.appendextraction_payload = nil
+	delete(m.clearedFields, memoryextractionjob.FieldExtractionPayload)
+}
+
+// SetManualRetries sets the "manual_retries" field.
+func (m *MemoryExtractionJobMutation) SetManualRetries(i int) {
+	m.manual_retries = &i
+	m.addmanual_retries = nil
+}
+
+// ManualRetries returns the value of the "manual_retries" field in the mutation.
+func (m *MemoryExtractionJobMutation) ManualRetries() (r int, exists bool) {
+	v := m.manual_retries
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldManualRetries returns the old "manual_retries" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldManualRetries(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldManualRetries is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldManualRetries requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldManualRetries: %w", err)
+	}
+	return oldValue.ManualRetries, nil
+}
+
+// AddManualRetries adds i to the "manual_retries" field.
+func (m *MemoryExtractionJobMutation) AddManualRetries(i int) {
+	if m.addmanual_retries != nil {
+		*m.addmanual_retries += i
+	} else {
+		m.addmanual_retries = &i
+	}
+}
+
+// AddedManualRetries returns the value that was added to the "manual_retries" field in this mutation.
+func (m *MemoryExtractionJobMutation) AddedManualRetries() (r int, exists bool) {
+	v := m.addmanual_retries
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetManualRetries resets all changes to the "manual_retries" field.
+func (m *MemoryExtractionJobMutation) ResetManualRetries() {
+	m.manual_retries = nil
+	m.addmanual_retries = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *MemoryExtractionJobMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *MemoryExtractionJobMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *MemoryExtractionJobMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *MemoryExtractionJobMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *MemoryExtractionJobMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the MemoryExtractionJob entity.
+// If the MemoryExtractionJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryExtractionJobMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *MemoryExtractionJobMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetBotIDRefID sets the "bot_id_ref" edge to the BotAccount entity by id.
+func (m *MemoryExtractionJobMutation) SetBotIDRefID(id int64) {
+	m.bot_id_ref = &id
+}
+
+// ClearBotIDRef clears the "bot_id_ref" edge to the BotAccount entity.
+func (m *MemoryExtractionJobMutation) ClearBotIDRef() {
+	m.clearedbot_id_ref = true
+	m.clearedFields[memoryextractionjob.FieldBotID] = struct{}{}
+}
+
+// BotIDRefCleared reports if the "bot_id_ref" edge to the BotAccount entity was cleared.
+func (m *MemoryExtractionJobMutation) BotIDRefCleared() bool {
+	return m.clearedbot_id_ref
+}
+
+// BotIDRefID returns the "bot_id_ref" edge ID in the mutation.
+func (m *MemoryExtractionJobMutation) BotIDRefID() (id int64, exists bool) {
+	if m.bot_id_ref != nil {
+		return *m.bot_id_ref, true
+	}
+	return
+}
+
+// BotIDRefIDs returns the "bot_id_ref" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// BotIDRefID instead. It exists only for internal usage by the builders.
+func (m *MemoryExtractionJobMutation) BotIDRefIDs() (ids []int64) {
+	if id := m.bot_id_ref; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetBotIDRef resets all changes to the "bot_id_ref" edge.
+func (m *MemoryExtractionJobMutation) ResetBotIDRef() {
+	m.bot_id_ref = nil
+	m.clearedbot_id_ref = false
+}
+
+// SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by id.
+func (m *MemoryExtractionJobMutation) SetConversationIDRefID(id uuid.UUID) {
+	m.conversation_id_ref = &id
+}
+
+// ClearConversationIDRef clears the "conversation_id_ref" edge to the Conversation entity.
+func (m *MemoryExtractionJobMutation) ClearConversationIDRef() {
+	m.clearedconversation_id_ref = true
+	m.clearedFields[memoryextractionjob.FieldConversationID] = struct{}{}
+}
+
+// ConversationIDRefCleared reports if the "conversation_id_ref" edge to the Conversation entity was cleared.
+func (m *MemoryExtractionJobMutation) ConversationIDRefCleared() bool {
+	return m.clearedconversation_id_ref
+}
+
+// ConversationIDRefID returns the "conversation_id_ref" edge ID in the mutation.
+func (m *MemoryExtractionJobMutation) ConversationIDRefID() (id uuid.UUID, exists bool) {
+	if m.conversation_id_ref != nil {
+		return *m.conversation_id_ref, true
+	}
+	return
+}
+
+// ConversationIDRefIDs returns the "conversation_id_ref" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ConversationIDRefID instead. It exists only for internal usage by the builders.
+func (m *MemoryExtractionJobMutation) ConversationIDRefIDs() (ids []uuid.UUID) {
+	if id := m.conversation_id_ref; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetConversationIDRef resets all changes to the "conversation_id_ref" edge.
+func (m *MemoryExtractionJobMutation) ResetConversationIDRef() {
+	m.conversation_id_ref = nil
+	m.clearedconversation_id_ref = false
+}
+
+// SetMessageIDRefID sets the "message_id_ref" edge to the Message entity by id.
+func (m *MemoryExtractionJobMutation) SetMessageIDRefID(id int64) {
+	m.message_id_ref = &id
+}
+
+// ClearMessageIDRef clears the "message_id_ref" edge to the Message entity.
+func (m *MemoryExtractionJobMutation) ClearMessageIDRef() {
+	m.clearedmessage_id_ref = true
+	m.clearedFields[memoryextractionjob.FieldMessageID] = struct{}{}
+}
+
+// MessageIDRefCleared reports if the "message_id_ref" edge to the Message entity was cleared.
+func (m *MemoryExtractionJobMutation) MessageIDRefCleared() bool {
+	return m.MessageIDCleared() || m.clearedmessage_id_ref
+}
+
+// MessageIDRefID returns the "message_id_ref" edge ID in the mutation.
+func (m *MemoryExtractionJobMutation) MessageIDRefID() (id int64, exists bool) {
+	if m.message_id_ref != nil {
+		return *m.message_id_ref, true
+	}
+	return
+}
+
+// MessageIDRefIDs returns the "message_id_ref" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// MessageIDRefID instead. It exists only for internal usage by the builders.
+func (m *MemoryExtractionJobMutation) MessageIDRefIDs() (ids []int64) {
+	if id := m.message_id_ref; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetMessageIDRef resets all changes to the "message_id_ref" edge.
+func (m *MemoryExtractionJobMutation) ResetMessageIDRef() {
+	m.message_id_ref = nil
+	m.clearedmessage_id_ref = false
+}
+
+// Where appends a list predicates to the MemoryExtractionJobMutation builder.
+func (m *MemoryExtractionJobMutation) Where(ps ...predicate.MemoryExtractionJob) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MemoryExtractionJobMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MemoryExtractionJobMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MemoryExtractionJob, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MemoryExtractionJobMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MemoryExtractionJobMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MemoryExtractionJob).
+func (m *MemoryExtractionJobMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MemoryExtractionJobMutation) Fields() []string {
+	fields := make([]string, 0, 17)
+	if m.bot_id_ref != nil {
+		fields = append(fields, memoryextractionjob.FieldBotID)
+	}
+	if m.conversation_id_ref != nil {
+		fields = append(fields, memoryextractionjob.FieldConversationID)
+	}
+	if m.scope_type != nil {
+		fields = append(fields, memoryextractionjob.FieldScopeType)
+	}
+	if m.scope_id != nil {
+		fields = append(fields, memoryextractionjob.FieldScopeID)
+	}
+	if m.message_id_ref != nil {
+		fields = append(fields, memoryextractionjob.FieldMessageID)
+	}
+	if m.authorization_event_id != nil {
+		fields = append(fields, memoryextractionjob.FieldAuthorizationEventID)
+	}
+	if m.status != nil {
+		fields = append(fields, memoryextractionjob.FieldStatus)
+	}
+	if m.attempts != nil {
+		fields = append(fields, memoryextractionjob.FieldAttempts)
+	}
+	if m.round_attempts != nil {
+		fields = append(fields, memoryextractionjob.FieldRoundAttempts)
+	}
+	if m.next_run_at != nil {
+		fields = append(fields, memoryextractionjob.FieldNextRunAt)
+	}
+	if m.claim_token != nil {
+		fields = append(fields, memoryextractionjob.FieldClaimToken)
+	}
+	if m.lease_expires_at != nil {
+		fields = append(fields, memoryextractionjob.FieldLeaseExpiresAt)
+	}
+	if m.last_error_code != nil {
+		fields = append(fields, memoryextractionjob.FieldLastErrorCode)
+	}
+	if m.extraction_payload != nil {
+		fields = append(fields, memoryextractionjob.FieldExtractionPayload)
+	}
+	if m.manual_retries != nil {
+		fields = append(fields, memoryextractionjob.FieldManualRetries)
+	}
+	if m.created_at != nil {
+		fields = append(fields, memoryextractionjob.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, memoryextractionjob.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MemoryExtractionJobMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case memoryextractionjob.FieldBotID:
+		return m.BotID()
+	case memoryextractionjob.FieldConversationID:
+		return m.ConversationID()
+	case memoryextractionjob.FieldScopeType:
+		return m.ScopeType()
+	case memoryextractionjob.FieldScopeID:
+		return m.ScopeID()
+	case memoryextractionjob.FieldMessageID:
+		return m.MessageID()
+	case memoryextractionjob.FieldAuthorizationEventID:
+		return m.AuthorizationEventID()
+	case memoryextractionjob.FieldStatus:
+		return m.Status()
+	case memoryextractionjob.FieldAttempts:
+		return m.Attempts()
+	case memoryextractionjob.FieldRoundAttempts:
+		return m.RoundAttempts()
+	case memoryextractionjob.FieldNextRunAt:
+		return m.NextRunAt()
+	case memoryextractionjob.FieldClaimToken:
+		return m.ClaimToken()
+	case memoryextractionjob.FieldLeaseExpiresAt:
+		return m.LeaseExpiresAt()
+	case memoryextractionjob.FieldLastErrorCode:
+		return m.LastErrorCode()
+	case memoryextractionjob.FieldExtractionPayload:
+		return m.ExtractionPayload()
+	case memoryextractionjob.FieldManualRetries:
+		return m.ManualRetries()
+	case memoryextractionjob.FieldCreatedAt:
+		return m.CreatedAt()
+	case memoryextractionjob.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MemoryExtractionJobMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case memoryextractionjob.FieldBotID:
+		return m.OldBotID(ctx)
+	case memoryextractionjob.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case memoryextractionjob.FieldScopeType:
+		return m.OldScopeType(ctx)
+	case memoryextractionjob.FieldScopeID:
+		return m.OldScopeID(ctx)
+	case memoryextractionjob.FieldMessageID:
+		return m.OldMessageID(ctx)
+	case memoryextractionjob.FieldAuthorizationEventID:
+		return m.OldAuthorizationEventID(ctx)
+	case memoryextractionjob.FieldStatus:
+		return m.OldStatus(ctx)
+	case memoryextractionjob.FieldAttempts:
+		return m.OldAttempts(ctx)
+	case memoryextractionjob.FieldRoundAttempts:
+		return m.OldRoundAttempts(ctx)
+	case memoryextractionjob.FieldNextRunAt:
+		return m.OldNextRunAt(ctx)
+	case memoryextractionjob.FieldClaimToken:
+		return m.OldClaimToken(ctx)
+	case memoryextractionjob.FieldLeaseExpiresAt:
+		return m.OldLeaseExpiresAt(ctx)
+	case memoryextractionjob.FieldLastErrorCode:
+		return m.OldLastErrorCode(ctx)
+	case memoryextractionjob.FieldExtractionPayload:
+		return m.OldExtractionPayload(ctx)
+	case memoryextractionjob.FieldManualRetries:
+		return m.OldManualRetries(ctx)
+	case memoryextractionjob.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case memoryextractionjob.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown MemoryExtractionJob field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryExtractionJobMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case memoryextractionjob.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case memoryextractionjob.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case memoryextractionjob.FieldScopeType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeType(v)
+		return nil
+	case memoryextractionjob.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeID(v)
+		return nil
+	case memoryextractionjob.FieldMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMessageID(v)
+		return nil
+	case memoryextractionjob.FieldAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthorizationEventID(v)
+		return nil
+	case memoryextractionjob.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case memoryextractionjob.FieldAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAttempts(v)
+		return nil
+	case memoryextractionjob.FieldRoundAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRoundAttempts(v)
+		return nil
+	case memoryextractionjob.FieldNextRunAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNextRunAt(v)
+		return nil
+	case memoryextractionjob.FieldClaimToken:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClaimToken(v)
+		return nil
+	case memoryextractionjob.FieldLeaseExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseExpiresAt(v)
+		return nil
+	case memoryextractionjob.FieldLastErrorCode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastErrorCode(v)
+		return nil
+	case memoryextractionjob.FieldExtractionPayload:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExtractionPayload(v)
+		return nil
+	case memoryextractionjob.FieldManualRetries:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetManualRetries(v)
+		return nil
+	case memoryextractionjob.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case memoryextractionjob.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionJob field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MemoryExtractionJobMutation) AddedFields() []string {
+	var fields []string
+	if m.addscope_id != nil {
+		fields = append(fields, memoryextractionjob.FieldScopeID)
+	}
+	if m.addauthorization_event_id != nil {
+		fields = append(fields, memoryextractionjob.FieldAuthorizationEventID)
+	}
+	if m.addattempts != nil {
+		fields = append(fields, memoryextractionjob.FieldAttempts)
+	}
+	if m.addround_attempts != nil {
+		fields = append(fields, memoryextractionjob.FieldRoundAttempts)
+	}
+	if m.addmanual_retries != nil {
+		fields = append(fields, memoryextractionjob.FieldManualRetries)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MemoryExtractionJobMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case memoryextractionjob.FieldScopeID:
+		return m.AddedScopeID()
+	case memoryextractionjob.FieldAuthorizationEventID:
+		return m.AddedAuthorizationEventID()
+	case memoryextractionjob.FieldAttempts:
+		return m.AddedAttempts()
+	case memoryextractionjob.FieldRoundAttempts:
+		return m.AddedRoundAttempts()
+	case memoryextractionjob.FieldManualRetries:
+		return m.AddedManualRetries()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryExtractionJobMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case memoryextractionjob.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddScopeID(v)
+		return nil
+	case memoryextractionjob.FieldAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAuthorizationEventID(v)
+		return nil
+	case memoryextractionjob.FieldAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAttempts(v)
+		return nil
+	case memoryextractionjob.FieldRoundAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRoundAttempts(v)
+		return nil
+	case memoryextractionjob.FieldManualRetries:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddManualRetries(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionJob numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MemoryExtractionJobMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(memoryextractionjob.FieldMessageID) {
+		fields = append(fields, memoryextractionjob.FieldMessageID)
+	}
+	if m.FieldCleared(memoryextractionjob.FieldClaimToken) {
+		fields = append(fields, memoryextractionjob.FieldClaimToken)
+	}
+	if m.FieldCleared(memoryextractionjob.FieldLeaseExpiresAt) {
+		fields = append(fields, memoryextractionjob.FieldLeaseExpiresAt)
+	}
+	if m.FieldCleared(memoryextractionjob.FieldLastErrorCode) {
+		fields = append(fields, memoryextractionjob.FieldLastErrorCode)
+	}
+	if m.FieldCleared(memoryextractionjob.FieldExtractionPayload) {
+		fields = append(fields, memoryextractionjob.FieldExtractionPayload)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MemoryExtractionJobMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MemoryExtractionJobMutation) ClearField(name string) error {
+	switch name {
+	case memoryextractionjob.FieldMessageID:
+		m.ClearMessageID()
+		return nil
+	case memoryextractionjob.FieldClaimToken:
+		m.ClearClaimToken()
+		return nil
+	case memoryextractionjob.FieldLeaseExpiresAt:
+		m.ClearLeaseExpiresAt()
+		return nil
+	case memoryextractionjob.FieldLastErrorCode:
+		m.ClearLastErrorCode()
+		return nil
+	case memoryextractionjob.FieldExtractionPayload:
+		m.ClearExtractionPayload()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionJob nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MemoryExtractionJobMutation) ResetField(name string) error {
+	switch name {
+	case memoryextractionjob.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case memoryextractionjob.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case memoryextractionjob.FieldScopeType:
+		m.ResetScopeType()
+		return nil
+	case memoryextractionjob.FieldScopeID:
+		m.ResetScopeID()
+		return nil
+	case memoryextractionjob.FieldMessageID:
+		m.ResetMessageID()
+		return nil
+	case memoryextractionjob.FieldAuthorizationEventID:
+		m.ResetAuthorizationEventID()
+		return nil
+	case memoryextractionjob.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case memoryextractionjob.FieldAttempts:
+		m.ResetAttempts()
+		return nil
+	case memoryextractionjob.FieldRoundAttempts:
+		m.ResetRoundAttempts()
+		return nil
+	case memoryextractionjob.FieldNextRunAt:
+		m.ResetNextRunAt()
+		return nil
+	case memoryextractionjob.FieldClaimToken:
+		m.ResetClaimToken()
+		return nil
+	case memoryextractionjob.FieldLeaseExpiresAt:
+		m.ResetLeaseExpiresAt()
+		return nil
+	case memoryextractionjob.FieldLastErrorCode:
+		m.ResetLastErrorCode()
+		return nil
+	case memoryextractionjob.FieldExtractionPayload:
+		m.ResetExtractionPayload()
+		return nil
+	case memoryextractionjob.FieldManualRetries:
+		m.ResetManualRetries()
+		return nil
+	case memoryextractionjob.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case memoryextractionjob.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionJob field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MemoryExtractionJobMutation) AddedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.bot_id_ref != nil {
+		edges = append(edges, memoryextractionjob.EdgeBotIDRef)
+	}
+	if m.conversation_id_ref != nil {
+		edges = append(edges, memoryextractionjob.EdgeConversationIDRef)
+	}
+	if m.message_id_ref != nil {
+		edges = append(edges, memoryextractionjob.EdgeMessageIDRef)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MemoryExtractionJobMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case memoryextractionjob.EdgeBotIDRef:
+		if id := m.bot_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	case memoryextractionjob.EdgeConversationIDRef:
+		if id := m.conversation_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	case memoryextractionjob.EdgeMessageIDRef:
+		if id := m.message_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MemoryExtractionJobMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 3)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MemoryExtractionJobMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MemoryExtractionJobMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.clearedbot_id_ref {
+		edges = append(edges, memoryextractionjob.EdgeBotIDRef)
+	}
+	if m.clearedconversation_id_ref {
+		edges = append(edges, memoryextractionjob.EdgeConversationIDRef)
+	}
+	if m.clearedmessage_id_ref {
+		edges = append(edges, memoryextractionjob.EdgeMessageIDRef)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MemoryExtractionJobMutation) EdgeCleared(name string) bool {
+	switch name {
+	case memoryextractionjob.EdgeBotIDRef:
+		return m.clearedbot_id_ref
+	case memoryextractionjob.EdgeConversationIDRef:
+		return m.clearedconversation_id_ref
+	case memoryextractionjob.EdgeMessageIDRef:
+		return m.clearedmessage_id_ref
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MemoryExtractionJobMutation) ClearEdge(name string) error {
+	switch name {
+	case memoryextractionjob.EdgeBotIDRef:
+		m.ClearBotIDRef()
+		return nil
+	case memoryextractionjob.EdgeConversationIDRef:
+		m.ClearConversationIDRef()
+		return nil
+	case memoryextractionjob.EdgeMessageIDRef:
+		m.ClearMessageIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionJob unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MemoryExtractionJobMutation) ResetEdge(name string) error {
+	switch name {
+	case memoryextractionjob.EdgeBotIDRef:
+		m.ResetBotIDRef()
+		return nil
+	case memoryextractionjob.EdgeConversationIDRef:
+		m.ResetConversationIDRef()
+		return nil
+	case memoryextractionjob.EdgeMessageIDRef:
+		m.ResetMessageIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryExtractionJob edge %s", name)
+}
+
 // MessageMutation represents an operation that mutates the Message nodes in the graph.
 type MessageMutation struct {
 	config
-	op                                      Op
-	typ                                     string
-	id                                      *int64
-	direction                               *string
-	platform_message_id                     *int64
-	addplatform_message_id                  *int64
-	sender_id                               *int64
-	addsender_id                            *int64
-	text_content                            *string
-	segments                                *jsontext.Value
-	appendsegments                          jsontext.Value
-	sent_status                             *string
-	created_at                              *time.Time
-	clearedFields                           map[string]struct{}
-	conversation_id_ref                     *uuid.UUID
-	clearedconversation_id_ref              bool
-	bot_id_ref                              *int64
-	clearedbot_id_ref                       bool
-	message_jobs_incoming_message_id        map[int64]struct{}
-	removedmessage_jobs_incoming_message_id map[int64]struct{}
-	clearedmessage_jobs_incoming_message_id bool
-	outbound_id_ref                         *uuid.UUID
-	clearedoutbound_id_ref                  bool
-	memories_source_message_id              map[uuid.UUID]struct{}
-	removedmemories_source_message_id       map[uuid.UUID]struct{}
-	clearedmemories_source_message_id       bool
-	done                                    bool
-	oldValue                                func(context.Context) (*Message, error)
-	predicates                              []predicate.Message
+	op                                       Op
+	typ                                      string
+	id                                       *int64
+	direction                                *string
+	platform_message_id                      *int64
+	addplatform_message_id                   *int64
+	sender_id                                *int64
+	addsender_id                             *int64
+	text_content                             *string
+	segments                                 *jsontext.Value
+	appendsegments                           jsontext.Value
+	sent_status                              *string
+	created_at                               *time.Time
+	memory_authorization_event_id            *int64
+	addmemory_authorization_event_id         *int64
+	clearedFields                            map[string]struct{}
+	conversation_id_ref                      *uuid.UUID
+	clearedconversation_id_ref               bool
+	bot_id_ref                               *int64
+	clearedbot_id_ref                        bool
+	message_jobs_incoming_message_id         map[int64]struct{}
+	removedmessage_jobs_incoming_message_id  map[int64]struct{}
+	clearedmessage_jobs_incoming_message_id  bool
+	outbound_id_ref                          *uuid.UUID
+	clearedoutbound_id_ref                   bool
+	memories_source_message_id               map[uuid.UUID]struct{}
+	removedmemories_source_message_id        map[uuid.UUID]struct{}
+	clearedmemories_source_message_id        bool
+	memory_extraction_jobs_message_id        map[uuid.UUID]struct{}
+	removedmemory_extraction_jobs_message_id map[uuid.UUID]struct{}
+	clearedmemory_extraction_jobs_message_id bool
+	done                                     bool
+	oldValue                                 func(context.Context) (*Message, error)
+	predicates                               []predicate.Message
 }
 
 var _ ent.Mutation = (*MessageMutation)(nil)
@@ -16683,6 +20100,76 @@ func (m *MessageMutation) ResetOutboundID() {
 	delete(m.clearedFields, message.FieldOutboundID)
 }
 
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (m *MessageMutation) SetMemoryAuthorizationEventID(i int64) {
+	m.memory_authorization_event_id = &i
+	m.addmemory_authorization_event_id = nil
+}
+
+// MemoryAuthorizationEventID returns the value of the "memory_authorization_event_id" field in the mutation.
+func (m *MessageMutation) MemoryAuthorizationEventID() (r int64, exists bool) {
+	v := m.memory_authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMemoryAuthorizationEventID returns the old "memory_authorization_event_id" field's value of the Message entity.
+// If the Message object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageMutation) OldMemoryAuthorizationEventID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMemoryAuthorizationEventID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMemoryAuthorizationEventID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMemoryAuthorizationEventID: %w", err)
+	}
+	return oldValue.MemoryAuthorizationEventID, nil
+}
+
+// AddMemoryAuthorizationEventID adds i to the "memory_authorization_event_id" field.
+func (m *MessageMutation) AddMemoryAuthorizationEventID(i int64) {
+	if m.addmemory_authorization_event_id != nil {
+		*m.addmemory_authorization_event_id += i
+	} else {
+		m.addmemory_authorization_event_id = &i
+	}
+}
+
+// AddedMemoryAuthorizationEventID returns the value that was added to the "memory_authorization_event_id" field in this mutation.
+func (m *MessageMutation) AddedMemoryAuthorizationEventID() (r int64, exists bool) {
+	v := m.addmemory_authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (m *MessageMutation) ClearMemoryAuthorizationEventID() {
+	m.memory_authorization_event_id = nil
+	m.addmemory_authorization_event_id = nil
+	m.clearedFields[message.FieldMemoryAuthorizationEventID] = struct{}{}
+}
+
+// MemoryAuthorizationEventIDCleared returns if the "memory_authorization_event_id" field was cleared in this mutation.
+func (m *MessageMutation) MemoryAuthorizationEventIDCleared() bool {
+	_, ok := m.clearedFields[message.FieldMemoryAuthorizationEventID]
+	return ok
+}
+
+// ResetMemoryAuthorizationEventID resets all changes to the "memory_authorization_event_id" field.
+func (m *MessageMutation) ResetMemoryAuthorizationEventID() {
+	m.memory_authorization_event_id = nil
+	m.addmemory_authorization_event_id = nil
+	delete(m.clearedFields, message.FieldMemoryAuthorizationEventID)
+}
+
 // SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by id.
 func (m *MessageMutation) SetConversationIDRefID(id uuid.UUID) {
 	m.conversation_id_ref = &id
@@ -16911,6 +20398,60 @@ func (m *MessageMutation) ResetMemoriesSourceMessageID() {
 	m.removedmemories_source_message_id = nil
 }
 
+// AddMemoryExtractionJobsMessageIDIDs adds the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity by ids.
+func (m *MessageMutation) AddMemoryExtractionJobsMessageIDIDs(ids ...uuid.UUID) {
+	if m.memory_extraction_jobs_message_id == nil {
+		m.memory_extraction_jobs_message_id = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		m.memory_extraction_jobs_message_id[ids[i]] = struct{}{}
+	}
+}
+
+// ClearMemoryExtractionJobsMessageID clears the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity.
+func (m *MessageMutation) ClearMemoryExtractionJobsMessageID() {
+	m.clearedmemory_extraction_jobs_message_id = true
+}
+
+// MemoryExtractionJobsMessageIDCleared reports if the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity was cleared.
+func (m *MessageMutation) MemoryExtractionJobsMessageIDCleared() bool {
+	return m.clearedmemory_extraction_jobs_message_id
+}
+
+// RemoveMemoryExtractionJobsMessageIDIDs removes the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity by IDs.
+func (m *MessageMutation) RemoveMemoryExtractionJobsMessageIDIDs(ids ...uuid.UUID) {
+	if m.removedmemory_extraction_jobs_message_id == nil {
+		m.removedmemory_extraction_jobs_message_id = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		delete(m.memory_extraction_jobs_message_id, ids[i])
+		m.removedmemory_extraction_jobs_message_id[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedMemoryExtractionJobsMessageID returns the removed IDs of the "memory_extraction_jobs_message_id" edge to the MemoryExtractionJob entity.
+func (m *MessageMutation) RemovedMemoryExtractionJobsMessageIDIDs() (ids []uuid.UUID) {
+	for id := range m.removedmemory_extraction_jobs_message_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// MemoryExtractionJobsMessageIDIDs returns the "memory_extraction_jobs_message_id" edge IDs in the mutation.
+func (m *MessageMutation) MemoryExtractionJobsMessageIDIDs() (ids []uuid.UUID) {
+	for id := range m.memory_extraction_jobs_message_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetMemoryExtractionJobsMessageID resets all changes to the "memory_extraction_jobs_message_id" edge.
+func (m *MessageMutation) ResetMemoryExtractionJobsMessageID() {
+	m.memory_extraction_jobs_message_id = nil
+	m.clearedmemory_extraction_jobs_message_id = false
+	m.removedmemory_extraction_jobs_message_id = nil
+}
+
 // Where appends a list predicates to the MessageMutation builder.
 func (m *MessageMutation) Where(ps ...predicate.Message) {
 	m.predicates = append(m.predicates, ps...)
@@ -16945,7 +20486,7 @@ func (m *MessageMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MessageMutation) Fields() []string {
-	fields := make([]string, 0, 10)
+	fields := make([]string, 0, 11)
 	if m.conversation_id_ref != nil {
 		fields = append(fields, message.FieldConversationID)
 	}
@@ -16976,6 +20517,9 @@ func (m *MessageMutation) Fields() []string {
 	if m.outbound_id_ref != nil {
 		fields = append(fields, message.FieldOutboundID)
 	}
+	if m.memory_authorization_event_id != nil {
+		fields = append(fields, message.FieldMemoryAuthorizationEventID)
+	}
 	return fields
 }
 
@@ -17004,6 +20548,8 @@ func (m *MessageMutation) Field(name string) (ent.Value, bool) {
 		return m.CreatedAt()
 	case message.FieldOutboundID:
 		return m.OutboundID()
+	case message.FieldMemoryAuthorizationEventID:
+		return m.MemoryAuthorizationEventID()
 	}
 	return nil, false
 }
@@ -17033,6 +20579,8 @@ func (m *MessageMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldCreatedAt(ctx)
 	case message.FieldOutboundID:
 		return m.OldOutboundID(ctx)
+	case message.FieldMemoryAuthorizationEventID:
+		return m.OldMemoryAuthorizationEventID(ctx)
 	}
 	return nil, fmt.Errorf("unknown Message field %s", name)
 }
@@ -17112,6 +20660,13 @@ func (m *MessageMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetOutboundID(v)
 		return nil
+	case message.FieldMemoryAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMemoryAuthorizationEventID(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Message field %s", name)
 }
@@ -17126,6 +20681,9 @@ func (m *MessageMutation) AddedFields() []string {
 	if m.addsender_id != nil {
 		fields = append(fields, message.FieldSenderID)
 	}
+	if m.addmemory_authorization_event_id != nil {
+		fields = append(fields, message.FieldMemoryAuthorizationEventID)
+	}
 	return fields
 }
 
@@ -17138,6 +20696,8 @@ func (m *MessageMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedPlatformMessageID()
 	case message.FieldSenderID:
 		return m.AddedSenderID()
+	case message.FieldMemoryAuthorizationEventID:
+		return m.AddedMemoryAuthorizationEventID()
 	}
 	return nil, false
 }
@@ -17161,6 +20721,13 @@ func (m *MessageMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddSenderID(v)
 		return nil
+	case message.FieldMemoryAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMemoryAuthorizationEventID(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Message numeric field %s", name)
 }
@@ -17177,6 +20744,9 @@ func (m *MessageMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(message.FieldOutboundID) {
 		fields = append(fields, message.FieldOutboundID)
+	}
+	if m.FieldCleared(message.FieldMemoryAuthorizationEventID) {
+		fields = append(fields, message.FieldMemoryAuthorizationEventID)
 	}
 	return fields
 }
@@ -17200,6 +20770,9 @@ func (m *MessageMutation) ClearField(name string) error {
 		return nil
 	case message.FieldOutboundID:
 		m.ClearOutboundID()
+		return nil
+	case message.FieldMemoryAuthorizationEventID:
+		m.ClearMemoryAuthorizationEventID()
 		return nil
 	}
 	return fmt.Errorf("unknown Message nullable field %s", name)
@@ -17239,13 +20812,16 @@ func (m *MessageMutation) ResetField(name string) error {
 	case message.FieldOutboundID:
 		m.ResetOutboundID()
 		return nil
+	case message.FieldMemoryAuthorizationEventID:
+		m.ResetMemoryAuthorizationEventID()
+		return nil
 	}
 	return fmt.Errorf("unknown Message field %s", name)
 }
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *MessageMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.conversation_id_ref != nil {
 		edges = append(edges, message.EdgeConversationIDRef)
 	}
@@ -17260,6 +20836,9 @@ func (m *MessageMutation) AddedEdges() []string {
 	}
 	if m.memories_source_message_id != nil {
 		edges = append(edges, message.EdgeMemoriesSourceMessageID)
+	}
+	if m.memory_extraction_jobs_message_id != nil {
+		edges = append(edges, message.EdgeMemoryExtractionJobsMessageID)
 	}
 	return edges
 }
@@ -17292,18 +20871,27 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case message.EdgeMemoryExtractionJobsMessageID:
+		ids := make([]ent.Value, 0, len(m.memory_extraction_jobs_message_id))
+		for id := range m.memory_extraction_jobs_message_id {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MessageMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.removedmessage_jobs_incoming_message_id != nil {
 		edges = append(edges, message.EdgeMessageJobsIncomingMessageID)
 	}
 	if m.removedmemories_source_message_id != nil {
 		edges = append(edges, message.EdgeMemoriesSourceMessageID)
+	}
+	if m.removedmemory_extraction_jobs_message_id != nil {
+		edges = append(edges, message.EdgeMemoryExtractionJobsMessageID)
 	}
 	return edges
 }
@@ -17324,13 +20912,19 @@ func (m *MessageMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case message.EdgeMemoryExtractionJobsMessageID:
+		ids := make([]ent.Value, 0, len(m.removedmemory_extraction_jobs_message_id))
+		for id := range m.removedmemory_extraction_jobs_message_id {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *MessageMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.clearedconversation_id_ref {
 		edges = append(edges, message.EdgeConversationIDRef)
 	}
@@ -17345,6 +20939,9 @@ func (m *MessageMutation) ClearedEdges() []string {
 	}
 	if m.clearedmemories_source_message_id {
 		edges = append(edges, message.EdgeMemoriesSourceMessageID)
+	}
+	if m.clearedmemory_extraction_jobs_message_id {
+		edges = append(edges, message.EdgeMemoryExtractionJobsMessageID)
 	}
 	return edges
 }
@@ -17363,6 +20960,8 @@ func (m *MessageMutation) EdgeCleared(name string) bool {
 		return m.clearedoutbound_id_ref
 	case message.EdgeMemoriesSourceMessageID:
 		return m.clearedmemories_source_message_id
+	case message.EdgeMemoryExtractionJobsMessageID:
+		return m.clearedmemory_extraction_jobs_message_id
 	}
 	return false
 }
@@ -17402,6 +21001,9 @@ func (m *MessageMutation) ResetEdge(name string) error {
 		return nil
 	case message.EdgeMemoriesSourceMessageID:
 		m.ResetMemoriesSourceMessageID()
+		return nil
+	case message.EdgeMemoryExtractionJobsMessageID:
+		m.ResetMemoryExtractionJobsMessageID()
 		return nil
 	}
 	return fmt.Errorf("unknown Message edge %s", name)
@@ -19540,46 +23142,840 @@ func (m *QQGroupMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown QQGroup edge %s", name)
 }
 
+// ScopeMemoryAuthorizationEventMutation represents an operation that mutates the ScopeMemoryAuthorizationEvent nodes in the graph.
+type ScopeMemoryAuthorizationEventMutation struct {
+	config
+	op                Op
+	typ               string
+	id                *int64
+	scope_type        *string
+	scope_id          *int64
+	addscope_id       *int64
+	event_kind        *string
+	authorized        *bool
+	policy_version    *int64
+	addpolicy_version *int64
+	created_at        *time.Time
+	clearedFields     map[string]struct{}
+	bot_id_ref        *int64
+	clearedbot_id_ref bool
+	done              bool
+	oldValue          func(context.Context) (*ScopeMemoryAuthorizationEvent, error)
+	predicates        []predicate.ScopeMemoryAuthorizationEvent
+}
+
+var _ ent.Mutation = (*ScopeMemoryAuthorizationEventMutation)(nil)
+
+// scopememoryauthorizationeventOption allows management of the mutation configuration using functional options.
+type scopememoryauthorizationeventOption func(*ScopeMemoryAuthorizationEventMutation)
+
+// newScopeMemoryAuthorizationEventMutation creates new mutation for the ScopeMemoryAuthorizationEvent entity.
+func newScopeMemoryAuthorizationEventMutation(c config, op Op, opts ...scopememoryauthorizationeventOption) *ScopeMemoryAuthorizationEventMutation {
+	m := &ScopeMemoryAuthorizationEventMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeScopeMemoryAuthorizationEvent,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withScopeMemoryAuthorizationEventID sets the ID field of the mutation.
+func withScopeMemoryAuthorizationEventID(id int64) scopememoryauthorizationeventOption {
+	return func(m *ScopeMemoryAuthorizationEventMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ScopeMemoryAuthorizationEvent
+		)
+		m.oldValue = func(ctx context.Context) (*ScopeMemoryAuthorizationEvent, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ScopeMemoryAuthorizationEvent.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withScopeMemoryAuthorizationEvent sets the old ScopeMemoryAuthorizationEvent of the mutation.
+func withScopeMemoryAuthorizationEvent(node *ScopeMemoryAuthorizationEvent) scopememoryauthorizationeventOption {
+	return func(m *ScopeMemoryAuthorizationEventMutation) {
+		m.oldValue = func(context.Context) (*ScopeMemoryAuthorizationEvent, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ScopeMemoryAuthorizationEventMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ScopeMemoryAuthorizationEventMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of ScopeMemoryAuthorizationEvent entities.
+func (m *ScopeMemoryAuthorizationEventMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ScopeMemoryAuthorizationEventMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ScopeMemoryAuthorizationEvent.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *ScopeMemoryAuthorizationEventMutation) SetBotID(i int64) {
+	m.bot_id_ref = &i
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the ScopeMemoryAuthorizationEvent entity.
+// If the ScopeMemoryAuthorizationEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopeMemoryAuthorizationEventMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetBotID() {
+	m.bot_id_ref = nil
+}
+
+// SetScopeType sets the "scope_type" field.
+func (m *ScopeMemoryAuthorizationEventMutation) SetScopeType(s string) {
+	m.scope_type = &s
+}
+
+// ScopeType returns the value of the "scope_type" field in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) ScopeType() (r string, exists bool) {
+	v := m.scope_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeType returns the old "scope_type" field's value of the ScopeMemoryAuthorizationEvent entity.
+// If the ScopeMemoryAuthorizationEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopeMemoryAuthorizationEventMutation) OldScopeType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeType: %w", err)
+	}
+	return oldValue.ScopeType, nil
+}
+
+// ResetScopeType resets all changes to the "scope_type" field.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetScopeType() {
+	m.scope_type = nil
+}
+
+// SetScopeID sets the "scope_id" field.
+func (m *ScopeMemoryAuthorizationEventMutation) SetScopeID(i int64) {
+	m.scope_id = &i
+	m.addscope_id = nil
+}
+
+// ScopeID returns the value of the "scope_id" field in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) ScopeID() (r int64, exists bool) {
+	v := m.scope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeID returns the old "scope_id" field's value of the ScopeMemoryAuthorizationEvent entity.
+// If the ScopeMemoryAuthorizationEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopeMemoryAuthorizationEventMutation) OldScopeID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeID: %w", err)
+	}
+	return oldValue.ScopeID, nil
+}
+
+// AddScopeID adds i to the "scope_id" field.
+func (m *ScopeMemoryAuthorizationEventMutation) AddScopeID(i int64) {
+	if m.addscope_id != nil {
+		*m.addscope_id += i
+	} else {
+		m.addscope_id = &i
+	}
+}
+
+// AddedScopeID returns the value that was added to the "scope_id" field in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) AddedScopeID() (r int64, exists bool) {
+	v := m.addscope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetScopeID resets all changes to the "scope_id" field.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetScopeID() {
+	m.scope_id = nil
+	m.addscope_id = nil
+}
+
+// SetEventKind sets the "event_kind" field.
+func (m *ScopeMemoryAuthorizationEventMutation) SetEventKind(s string) {
+	m.event_kind = &s
+}
+
+// EventKind returns the value of the "event_kind" field in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) EventKind() (r string, exists bool) {
+	v := m.event_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEventKind returns the old "event_kind" field's value of the ScopeMemoryAuthorizationEvent entity.
+// If the ScopeMemoryAuthorizationEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopeMemoryAuthorizationEventMutation) OldEventKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEventKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEventKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEventKind: %w", err)
+	}
+	return oldValue.EventKind, nil
+}
+
+// ResetEventKind resets all changes to the "event_kind" field.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetEventKind() {
+	m.event_kind = nil
+}
+
+// SetAuthorized sets the "authorized" field.
+func (m *ScopeMemoryAuthorizationEventMutation) SetAuthorized(b bool) {
+	m.authorized = &b
+}
+
+// Authorized returns the value of the "authorized" field in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) Authorized() (r bool, exists bool) {
+	v := m.authorized
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthorized returns the old "authorized" field's value of the ScopeMemoryAuthorizationEvent entity.
+// If the ScopeMemoryAuthorizationEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopeMemoryAuthorizationEventMutation) OldAuthorized(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthorized is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthorized requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthorized: %w", err)
+	}
+	return oldValue.Authorized, nil
+}
+
+// ResetAuthorized resets all changes to the "authorized" field.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetAuthorized() {
+	m.authorized = nil
+}
+
+// SetPolicyVersion sets the "policy_version" field.
+func (m *ScopeMemoryAuthorizationEventMutation) SetPolicyVersion(i int64) {
+	m.policy_version = &i
+	m.addpolicy_version = nil
+}
+
+// PolicyVersion returns the value of the "policy_version" field in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) PolicyVersion() (r int64, exists bool) {
+	v := m.policy_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPolicyVersion returns the old "policy_version" field's value of the ScopeMemoryAuthorizationEvent entity.
+// If the ScopeMemoryAuthorizationEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopeMemoryAuthorizationEventMutation) OldPolicyVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPolicyVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPolicyVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPolicyVersion: %w", err)
+	}
+	return oldValue.PolicyVersion, nil
+}
+
+// AddPolicyVersion adds i to the "policy_version" field.
+func (m *ScopeMemoryAuthorizationEventMutation) AddPolicyVersion(i int64) {
+	if m.addpolicy_version != nil {
+		*m.addpolicy_version += i
+	} else {
+		m.addpolicy_version = &i
+	}
+}
+
+// AddedPolicyVersion returns the value that was added to the "policy_version" field in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) AddedPolicyVersion() (r int64, exists bool) {
+	v := m.addpolicy_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPolicyVersion resets all changes to the "policy_version" field.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetPolicyVersion() {
+	m.policy_version = nil
+	m.addpolicy_version = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ScopeMemoryAuthorizationEventMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ScopeMemoryAuthorizationEvent entity.
+// If the ScopeMemoryAuthorizationEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopeMemoryAuthorizationEventMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetBotIDRefID sets the "bot_id_ref" edge to the BotAccount entity by id.
+func (m *ScopeMemoryAuthorizationEventMutation) SetBotIDRefID(id int64) {
+	m.bot_id_ref = &id
+}
+
+// ClearBotIDRef clears the "bot_id_ref" edge to the BotAccount entity.
+func (m *ScopeMemoryAuthorizationEventMutation) ClearBotIDRef() {
+	m.clearedbot_id_ref = true
+	m.clearedFields[scopememoryauthorizationevent.FieldBotID] = struct{}{}
+}
+
+// BotIDRefCleared reports if the "bot_id_ref" edge to the BotAccount entity was cleared.
+func (m *ScopeMemoryAuthorizationEventMutation) BotIDRefCleared() bool {
+	return m.clearedbot_id_ref
+}
+
+// BotIDRefID returns the "bot_id_ref" edge ID in the mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) BotIDRefID() (id int64, exists bool) {
+	if m.bot_id_ref != nil {
+		return *m.bot_id_ref, true
+	}
+	return
+}
+
+// BotIDRefIDs returns the "bot_id_ref" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// BotIDRefID instead. It exists only for internal usage by the builders.
+func (m *ScopeMemoryAuthorizationEventMutation) BotIDRefIDs() (ids []int64) {
+	if id := m.bot_id_ref; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetBotIDRef resets all changes to the "bot_id_ref" edge.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetBotIDRef() {
+	m.bot_id_ref = nil
+	m.clearedbot_id_ref = false
+}
+
+// Where appends a list predicates to the ScopeMemoryAuthorizationEventMutation builder.
+func (m *ScopeMemoryAuthorizationEventMutation) Where(ps ...predicate.ScopeMemoryAuthorizationEvent) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ScopeMemoryAuthorizationEventMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ScopeMemoryAuthorizationEventMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ScopeMemoryAuthorizationEvent, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ScopeMemoryAuthorizationEventMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ScopeMemoryAuthorizationEventMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ScopeMemoryAuthorizationEvent).
+func (m *ScopeMemoryAuthorizationEventMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ScopeMemoryAuthorizationEventMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.bot_id_ref != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldBotID)
+	}
+	if m.scope_type != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldScopeType)
+	}
+	if m.scope_id != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldScopeID)
+	}
+	if m.event_kind != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldEventKind)
+	}
+	if m.authorized != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldAuthorized)
+	}
+	if m.policy_version != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldPolicyVersion)
+	}
+	if m.created_at != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ScopeMemoryAuthorizationEventMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case scopememoryauthorizationevent.FieldBotID:
+		return m.BotID()
+	case scopememoryauthorizationevent.FieldScopeType:
+		return m.ScopeType()
+	case scopememoryauthorizationevent.FieldScopeID:
+		return m.ScopeID()
+	case scopememoryauthorizationevent.FieldEventKind:
+		return m.EventKind()
+	case scopememoryauthorizationevent.FieldAuthorized:
+		return m.Authorized()
+	case scopememoryauthorizationevent.FieldPolicyVersion:
+		return m.PolicyVersion()
+	case scopememoryauthorizationevent.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ScopeMemoryAuthorizationEventMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case scopememoryauthorizationevent.FieldBotID:
+		return m.OldBotID(ctx)
+	case scopememoryauthorizationevent.FieldScopeType:
+		return m.OldScopeType(ctx)
+	case scopememoryauthorizationevent.FieldScopeID:
+		return m.OldScopeID(ctx)
+	case scopememoryauthorizationevent.FieldEventKind:
+		return m.OldEventKind(ctx)
+	case scopememoryauthorizationevent.FieldAuthorized:
+		return m.OldAuthorized(ctx)
+	case scopememoryauthorizationevent.FieldPolicyVersion:
+		return m.OldPolicyVersion(ctx)
+	case scopememoryauthorizationevent.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown ScopeMemoryAuthorizationEvent field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ScopeMemoryAuthorizationEventMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case scopememoryauthorizationevent.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case scopememoryauthorizationevent.FieldScopeType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeType(v)
+		return nil
+	case scopememoryauthorizationevent.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeID(v)
+		return nil
+	case scopememoryauthorizationevent.FieldEventKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEventKind(v)
+		return nil
+	case scopememoryauthorizationevent.FieldAuthorized:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthorized(v)
+		return nil
+	case scopememoryauthorizationevent.FieldPolicyVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPolicyVersion(v)
+		return nil
+	case scopememoryauthorizationevent.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ScopeMemoryAuthorizationEvent field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) AddedFields() []string {
+	var fields []string
+	if m.addscope_id != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldScopeID)
+	}
+	if m.addpolicy_version != nil {
+		fields = append(fields, scopememoryauthorizationevent.FieldPolicyVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ScopeMemoryAuthorizationEventMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case scopememoryauthorizationevent.FieldScopeID:
+		return m.AddedScopeID()
+	case scopememoryauthorizationevent.FieldPolicyVersion:
+		return m.AddedPolicyVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ScopeMemoryAuthorizationEventMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case scopememoryauthorizationevent.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddScopeID(v)
+		return nil
+	case scopememoryauthorizationevent.FieldPolicyVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPolicyVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ScopeMemoryAuthorizationEvent numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ScopeMemoryAuthorizationEventMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ScopeMemoryAuthorizationEvent nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetField(name string) error {
+	switch name {
+	case scopememoryauthorizationevent.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case scopememoryauthorizationevent.FieldScopeType:
+		m.ResetScopeType()
+		return nil
+	case scopememoryauthorizationevent.FieldScopeID:
+		m.ResetScopeID()
+		return nil
+	case scopememoryauthorizationevent.FieldEventKind:
+		m.ResetEventKind()
+		return nil
+	case scopememoryauthorizationevent.FieldAuthorized:
+		m.ResetAuthorized()
+		return nil
+	case scopememoryauthorizationevent.FieldPolicyVersion:
+		m.ResetPolicyVersion()
+		return nil
+	case scopememoryauthorizationevent.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ScopeMemoryAuthorizationEvent field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.bot_id_ref != nil {
+		edges = append(edges, scopememoryauthorizationevent.EdgeBotIDRef)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case scopememoryauthorizationevent.EdgeBotIDRef:
+		if id := m.bot_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedbot_id_ref {
+		edges = append(edges, scopememoryauthorizationevent.EdgeBotIDRef)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ScopeMemoryAuthorizationEventMutation) EdgeCleared(name string) bool {
+	switch name {
+	case scopememoryauthorizationevent.EdgeBotIDRef:
+		return m.clearedbot_id_ref
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ScopeMemoryAuthorizationEventMutation) ClearEdge(name string) error {
+	switch name {
+	case scopememoryauthorizationevent.EdgeBotIDRef:
+		m.ClearBotIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown ScopeMemoryAuthorizationEvent unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ScopeMemoryAuthorizationEventMutation) ResetEdge(name string) error {
+	switch name {
+	case scopememoryauthorizationevent.EdgeBotIDRef:
+		m.ResetBotIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown ScopeMemoryAuthorizationEvent edge %s", name)
+}
+
 // ScopePolicyMutation represents an operation that mutates the ScopePolicy nodes in the graph.
 type ScopePolicyMutation struct {
 	config
-	op                              Op
-	typ                             string
-	id                              *int64
-	scope_type                      *string
-	scope_id                        *int64
-	addscope_id                     *int64
-	enabled                         *bool
-	reply_mode                      *string
-	store_messages                  *bool
-	allow_memory_write              *bool
-	allow_memory_read               *bool
-	allow_history_read              *bool
-	min_reply_interval_ms           *int
-	addmin_reply_interval_ms        *int
-	max_replies_per_hour            *int
-	addmax_replies_per_hour         *int
-	updated_at                      *time.Time
-	tool_permissions                *jsontext.Value
-	appendtool_permissions          jsontext.Value
-	version                         *int64
-	addversion                      *int64
-	previous_reply_permission       *jsontext.Value
-	appendprevious_reply_permission jsontext.Value
-	max_messages_per_run            *int
-	addmax_messages_per_run         *int
-	max_chars_per_message           *int
-	addmax_chars_per_message        *int
-	max_total_chars_per_run         *int
-	addmax_total_chars_per_run      *int
-	message_interval_ms             *int
-	addmessage_interval_ms          *int
-	clearedFields                   map[string]struct{}
-	bot_id_ref                      *int64
-	clearedbot_id_ref               bool
-	done                            bool
-	oldValue                        func(context.Context) (*ScopePolicy, error)
-	predicates                      []predicate.ScopePolicy
+	op                               Op
+	typ                              string
+	id                               *int64
+	scope_type                       *string
+	scope_id                         *int64
+	addscope_id                      *int64
+	enabled                          *bool
+	reply_mode                       *string
+	store_messages                   *bool
+	allow_memory_write               *bool
+	allow_memory_read                *bool
+	allow_history_read               *bool
+	memory_authorization_event_id    *int64
+	addmemory_authorization_event_id *int64
+	min_reply_interval_ms            *int
+	addmin_reply_interval_ms         *int
+	max_replies_per_hour             *int
+	addmax_replies_per_hour          *int
+	updated_at                       *time.Time
+	tool_permissions                 *jsontext.Value
+	appendtool_permissions           jsontext.Value
+	version                          *int64
+	addversion                       *int64
+	previous_reply_permission        *jsontext.Value
+	appendprevious_reply_permission  jsontext.Value
+	max_messages_per_run             *int
+	addmax_messages_per_run          *int
+	max_chars_per_message            *int
+	addmax_chars_per_message         *int
+	max_total_chars_per_run          *int
+	addmax_total_chars_per_run       *int
+	message_interval_ms              *int
+	addmessage_interval_ms           *int
+	clearedFields                    map[string]struct{}
+	bot_id_ref                       *int64
+	clearedbot_id_ref                bool
+	done                             bool
+	oldValue                         func(context.Context) (*ScopePolicy, error)
+	predicates                       []predicate.ScopePolicy
 }
 
 var _ ent.Mutation = (*ScopePolicyMutation)(nil)
@@ -20028,6 +24424,76 @@ func (m *ScopePolicyMutation) OldAllowHistoryRead(ctx context.Context) (v bool, 
 // ResetAllowHistoryRead resets all changes to the "allow_history_read" field.
 func (m *ScopePolicyMutation) ResetAllowHistoryRead() {
 	m.allow_history_read = nil
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (m *ScopePolicyMutation) SetMemoryAuthorizationEventID(i int64) {
+	m.memory_authorization_event_id = &i
+	m.addmemory_authorization_event_id = nil
+}
+
+// MemoryAuthorizationEventID returns the value of the "memory_authorization_event_id" field in the mutation.
+func (m *ScopePolicyMutation) MemoryAuthorizationEventID() (r int64, exists bool) {
+	v := m.memory_authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMemoryAuthorizationEventID returns the old "memory_authorization_event_id" field's value of the ScopePolicy entity.
+// If the ScopePolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopePolicyMutation) OldMemoryAuthorizationEventID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMemoryAuthorizationEventID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMemoryAuthorizationEventID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMemoryAuthorizationEventID: %w", err)
+	}
+	return oldValue.MemoryAuthorizationEventID, nil
+}
+
+// AddMemoryAuthorizationEventID adds i to the "memory_authorization_event_id" field.
+func (m *ScopePolicyMutation) AddMemoryAuthorizationEventID(i int64) {
+	if m.addmemory_authorization_event_id != nil {
+		*m.addmemory_authorization_event_id += i
+	} else {
+		m.addmemory_authorization_event_id = &i
+	}
+}
+
+// AddedMemoryAuthorizationEventID returns the value that was added to the "memory_authorization_event_id" field in this mutation.
+func (m *ScopePolicyMutation) AddedMemoryAuthorizationEventID() (r int64, exists bool) {
+	v := m.addmemory_authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (m *ScopePolicyMutation) ClearMemoryAuthorizationEventID() {
+	m.memory_authorization_event_id = nil
+	m.addmemory_authorization_event_id = nil
+	m.clearedFields[scopepolicy.FieldMemoryAuthorizationEventID] = struct{}{}
+}
+
+// MemoryAuthorizationEventIDCleared returns if the "memory_authorization_event_id" field was cleared in this mutation.
+func (m *ScopePolicyMutation) MemoryAuthorizationEventIDCleared() bool {
+	_, ok := m.clearedFields[scopepolicy.FieldMemoryAuthorizationEventID]
+	return ok
+}
+
+// ResetMemoryAuthorizationEventID resets all changes to the "memory_authorization_event_id" field.
+func (m *ScopePolicyMutation) ResetMemoryAuthorizationEventID() {
+	m.memory_authorization_event_id = nil
+	m.addmemory_authorization_event_id = nil
+	delete(m.clearedFields, scopepolicy.FieldMemoryAuthorizationEventID)
 }
 
 // SetMinReplyIntervalMs sets the "min_reply_interval_ms" field.
@@ -20648,7 +25114,7 @@ func (m *ScopePolicyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ScopePolicyMutation) Fields() []string {
-	fields := make([]string, 0, 19)
+	fields := make([]string, 0, 20)
 	if m.bot_id_ref != nil {
 		fields = append(fields, scopepolicy.FieldBotID)
 	}
@@ -20675,6 +25141,9 @@ func (m *ScopePolicyMutation) Fields() []string {
 	}
 	if m.allow_history_read != nil {
 		fields = append(fields, scopepolicy.FieldAllowHistoryRead)
+	}
+	if m.memory_authorization_event_id != nil {
+		fields = append(fields, scopepolicy.FieldMemoryAuthorizationEventID)
 	}
 	if m.min_reply_interval_ms != nil {
 		fields = append(fields, scopepolicy.FieldMinReplyIntervalMs)
@@ -20732,6 +25201,8 @@ func (m *ScopePolicyMutation) Field(name string) (ent.Value, bool) {
 		return m.AllowMemoryRead()
 	case scopepolicy.FieldAllowHistoryRead:
 		return m.AllowHistoryRead()
+	case scopepolicy.FieldMemoryAuthorizationEventID:
+		return m.MemoryAuthorizationEventID()
 	case scopepolicy.FieldMinReplyIntervalMs:
 		return m.MinReplyIntervalMs()
 	case scopepolicy.FieldMaxRepliesPerHour:
@@ -20779,6 +25250,8 @@ func (m *ScopePolicyMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldAllowMemoryRead(ctx)
 	case scopepolicy.FieldAllowHistoryRead:
 		return m.OldAllowHistoryRead(ctx)
+	case scopepolicy.FieldMemoryAuthorizationEventID:
+		return m.OldMemoryAuthorizationEventID(ctx)
 	case scopepolicy.FieldMinReplyIntervalMs:
 		return m.OldMinReplyIntervalMs(ctx)
 	case scopepolicy.FieldMaxRepliesPerHour:
@@ -20871,6 +25344,13 @@ func (m *ScopePolicyMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetAllowHistoryRead(v)
 		return nil
+	case scopepolicy.FieldMemoryAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMemoryAuthorizationEventID(v)
+		return nil
 	case scopepolicy.FieldMinReplyIntervalMs:
 		v, ok := value.(int)
 		if !ok {
@@ -20952,6 +25432,9 @@ func (m *ScopePolicyMutation) AddedFields() []string {
 	if m.addscope_id != nil {
 		fields = append(fields, scopepolicy.FieldScopeID)
 	}
+	if m.addmemory_authorization_event_id != nil {
+		fields = append(fields, scopepolicy.FieldMemoryAuthorizationEventID)
+	}
 	if m.addmin_reply_interval_ms != nil {
 		fields = append(fields, scopepolicy.FieldMinReplyIntervalMs)
 	}
@@ -20983,6 +25466,8 @@ func (m *ScopePolicyMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case scopepolicy.FieldScopeID:
 		return m.AddedScopeID()
+	case scopepolicy.FieldMemoryAuthorizationEventID:
+		return m.AddedMemoryAuthorizationEventID()
 	case scopepolicy.FieldMinReplyIntervalMs:
 		return m.AddedMinReplyIntervalMs()
 	case scopepolicy.FieldMaxRepliesPerHour:
@@ -21012,6 +25497,13 @@ func (m *ScopePolicyMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddScopeID(v)
+		return nil
+	case scopepolicy.FieldMemoryAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMemoryAuthorizationEventID(v)
 		return nil
 	case scopepolicy.FieldMinReplyIntervalMs:
 		v, ok := value.(int)
@@ -21070,6 +25562,9 @@ func (m *ScopePolicyMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *ScopePolicyMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(scopepolicy.FieldMemoryAuthorizationEventID) {
+		fields = append(fields, scopepolicy.FieldMemoryAuthorizationEventID)
+	}
 	if m.FieldCleared(scopepolicy.FieldPreviousReplyPermission) {
 		fields = append(fields, scopepolicy.FieldPreviousReplyPermission)
 	}
@@ -21087,6 +25582,9 @@ func (m *ScopePolicyMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *ScopePolicyMutation) ClearField(name string) error {
 	switch name {
+	case scopepolicy.FieldMemoryAuthorizationEventID:
+		m.ClearMemoryAuthorizationEventID()
+		return nil
 	case scopepolicy.FieldPreviousReplyPermission:
 		m.ClearPreviousReplyPermission()
 		return nil
@@ -21124,6 +25622,9 @@ func (m *ScopePolicyMutation) ResetField(name string) error {
 		return nil
 	case scopepolicy.FieldAllowHistoryRead:
 		m.ResetAllowHistoryRead()
+		return nil
+	case scopepolicy.FieldMemoryAuthorizationEventID:
+		m.ResetMemoryAuthorizationEventID()
 		return nil
 	case scopepolicy.FieldMinReplyIntervalMs:
 		m.ResetMinReplyIntervalMs()

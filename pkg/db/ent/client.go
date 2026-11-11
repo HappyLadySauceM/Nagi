@@ -33,9 +33,12 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 
@@ -81,12 +84,18 @@ type Client struct {
 	IntentRuleset *IntentRulesetClient
 	// Memory is the client for interacting with the Memory builders.
 	Memory *MemoryClient
+	// MemoryExtractionCursor is the client for interacting with the MemoryExtractionCursor builders.
+	MemoryExtractionCursor *MemoryExtractionCursorClient
+	// MemoryExtractionJob is the client for interacting with the MemoryExtractionJob builders.
+	MemoryExtractionJob *MemoryExtractionJobClient
 	// Message is the client for interacting with the Message builders.
 	Message *MessageClient
 	// MessageJob is the client for interacting with the MessageJob builders.
 	MessageJob *MessageJobClient
 	// QQGroup is the client for interacting with the QQGroup builders.
 	QQGroup *QQGroupClient
+	// ScopeMemoryAuthorizationEvent is the client for interacting with the ScopeMemoryAuthorizationEvent builders.
+	ScopeMemoryAuthorizationEvent *ScopeMemoryAuthorizationEventClient
 	// ScopePolicy is the client for interacting with the ScopePolicy builders.
 	ScopePolicy *ScopePolicyClient
 	// SystemSetting is the client for interacting with the SystemSetting builders.
@@ -119,9 +128,12 @@ func (c *Client) init() {
 	c.IntentRuleEntry = NewIntentRuleEntryClient(c.config)
 	c.IntentRuleset = NewIntentRulesetClient(c.config)
 	c.Memory = NewMemoryClient(c.config)
+	c.MemoryExtractionCursor = NewMemoryExtractionCursorClient(c.config)
+	c.MemoryExtractionJob = NewMemoryExtractionJobClient(c.config)
 	c.Message = NewMessageClient(c.config)
 	c.MessageJob = NewMessageJobClient(c.config)
 	c.QQGroup = NewQQGroupClient(c.config)
+	c.ScopeMemoryAuthorizationEvent = NewScopeMemoryAuthorizationEventClient(c.config)
 	c.ScopePolicy = NewScopePolicyClient(c.config)
 	c.SystemSetting = NewSystemSettingClient(c.config)
 }
@@ -214,30 +226,33 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                  ctx,
-		config:               cfg,
-		AIAuditArtifact:      NewAIAuditArtifactClient(cfg),
-		AIAuditEvent:         NewAIAuditEventClient(cfg),
-		AIAuditRun:           NewAIAuditRunClient(cfg),
-		AdminAuditLog:        NewAdminAuditLogClient(cfg),
-		AgentOutboundMessage: NewAgentOutboundMessageClient(cfg),
-		AgentRunBudget:       NewAgentRunBudgetClient(cfg),
-		AgentSendingPolicy:   NewAgentSendingPolicyClient(cfg),
-		BotAccount:           NewBotAccountClient(cfg),
-		Contact:              NewContactClient(cfg),
-		Conversation:         NewConversationClient(cfg),
-		GroupMember:          NewGroupMemberClient(cfg),
-		IntentDecision:       NewIntentDecisionClient(cfg),
-		IntentDecisionStep:   NewIntentDecisionStepClient(cfg),
-		IntentRuleActivation: NewIntentRuleActivationClient(cfg),
-		IntentRuleEntry:      NewIntentRuleEntryClient(cfg),
-		IntentRuleset:        NewIntentRulesetClient(cfg),
-		Memory:               NewMemoryClient(cfg),
-		Message:              NewMessageClient(cfg),
-		MessageJob:           NewMessageJobClient(cfg),
-		QQGroup:              NewQQGroupClient(cfg),
-		ScopePolicy:          NewScopePolicyClient(cfg),
-		SystemSetting:        NewSystemSettingClient(cfg),
+		ctx:                           ctx,
+		config:                        cfg,
+		AIAuditArtifact:               NewAIAuditArtifactClient(cfg),
+		AIAuditEvent:                  NewAIAuditEventClient(cfg),
+		AIAuditRun:                    NewAIAuditRunClient(cfg),
+		AdminAuditLog:                 NewAdminAuditLogClient(cfg),
+		AgentOutboundMessage:          NewAgentOutboundMessageClient(cfg),
+		AgentRunBudget:                NewAgentRunBudgetClient(cfg),
+		AgentSendingPolicy:            NewAgentSendingPolicyClient(cfg),
+		BotAccount:                    NewBotAccountClient(cfg),
+		Contact:                       NewContactClient(cfg),
+		Conversation:                  NewConversationClient(cfg),
+		GroupMember:                   NewGroupMemberClient(cfg),
+		IntentDecision:                NewIntentDecisionClient(cfg),
+		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
+		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
+		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
+		IntentRuleset:                 NewIntentRulesetClient(cfg),
+		Memory:                        NewMemoryClient(cfg),
+		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
+		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
+		Message:                       NewMessageClient(cfg),
+		MessageJob:                    NewMessageJobClient(cfg),
+		QQGroup:                       NewQQGroupClient(cfg),
+		ScopeMemoryAuthorizationEvent: NewScopeMemoryAuthorizationEventClient(cfg),
+		ScopePolicy:                   NewScopePolicyClient(cfg),
+		SystemSetting:                 NewSystemSettingClient(cfg),
 	}, nil
 }
 
@@ -255,30 +270,33 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                  ctx,
-		config:               cfg,
-		AIAuditArtifact:      NewAIAuditArtifactClient(cfg),
-		AIAuditEvent:         NewAIAuditEventClient(cfg),
-		AIAuditRun:           NewAIAuditRunClient(cfg),
-		AdminAuditLog:        NewAdminAuditLogClient(cfg),
-		AgentOutboundMessage: NewAgentOutboundMessageClient(cfg),
-		AgentRunBudget:       NewAgentRunBudgetClient(cfg),
-		AgentSendingPolicy:   NewAgentSendingPolicyClient(cfg),
-		BotAccount:           NewBotAccountClient(cfg),
-		Contact:              NewContactClient(cfg),
-		Conversation:         NewConversationClient(cfg),
-		GroupMember:          NewGroupMemberClient(cfg),
-		IntentDecision:       NewIntentDecisionClient(cfg),
-		IntentDecisionStep:   NewIntentDecisionStepClient(cfg),
-		IntentRuleActivation: NewIntentRuleActivationClient(cfg),
-		IntentRuleEntry:      NewIntentRuleEntryClient(cfg),
-		IntentRuleset:        NewIntentRulesetClient(cfg),
-		Memory:               NewMemoryClient(cfg),
-		Message:              NewMessageClient(cfg),
-		MessageJob:           NewMessageJobClient(cfg),
-		QQGroup:              NewQQGroupClient(cfg),
-		ScopePolicy:          NewScopePolicyClient(cfg),
-		SystemSetting:        NewSystemSettingClient(cfg),
+		ctx:                           ctx,
+		config:                        cfg,
+		AIAuditArtifact:               NewAIAuditArtifactClient(cfg),
+		AIAuditEvent:                  NewAIAuditEventClient(cfg),
+		AIAuditRun:                    NewAIAuditRunClient(cfg),
+		AdminAuditLog:                 NewAdminAuditLogClient(cfg),
+		AgentOutboundMessage:          NewAgentOutboundMessageClient(cfg),
+		AgentRunBudget:                NewAgentRunBudgetClient(cfg),
+		AgentSendingPolicy:            NewAgentSendingPolicyClient(cfg),
+		BotAccount:                    NewBotAccountClient(cfg),
+		Contact:                       NewContactClient(cfg),
+		Conversation:                  NewConversationClient(cfg),
+		GroupMember:                   NewGroupMemberClient(cfg),
+		IntentDecision:                NewIntentDecisionClient(cfg),
+		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
+		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
+		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
+		IntentRuleset:                 NewIntentRulesetClient(cfg),
+		Memory:                        NewMemoryClient(cfg),
+		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
+		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
+		Message:                       NewMessageClient(cfg),
+		MessageJob:                    NewMessageJobClient(cfg),
+		QQGroup:                       NewQQGroupClient(cfg),
+		ScopeMemoryAuthorizationEvent: NewScopeMemoryAuthorizationEventClient(cfg),
+		ScopePolicy:                   NewScopePolicyClient(cfg),
+		SystemSetting:                 NewSystemSettingClient(cfg),
 	}, nil
 }
 
@@ -312,8 +330,9 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
 		c.IntentDecisionStep, c.IntentRuleActivation, c.IntentRuleEntry,
-		c.IntentRuleset, c.Memory, c.Message, c.MessageJob, c.QQGroup, c.ScopePolicy,
-		c.SystemSetting,
+		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
+		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
+		c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Use(hooks...)
 	}
@@ -327,8 +346,9 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
 		c.IntentDecisionStep, c.IntentRuleActivation, c.IntentRuleEntry,
-		c.IntentRuleset, c.Memory, c.Message, c.MessageJob, c.QQGroup, c.ScopePolicy,
-		c.SystemSetting,
+		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
+		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
+		c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -371,12 +391,18 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.IntentRuleset.mutate(ctx, m)
 	case *MemoryMutation:
 		return c.Memory.mutate(ctx, m)
+	case *MemoryExtractionCursorMutation:
+		return c.MemoryExtractionCursor.mutate(ctx, m)
+	case *MemoryExtractionJobMutation:
+		return c.MemoryExtractionJob.mutate(ctx, m)
 	case *MessageMutation:
 		return c.Message.mutate(ctx, m)
 	case *MessageJobMutation:
 		return c.MessageJob.mutate(ctx, m)
 	case *QQGroupMutation:
 		return c.QQGroup.mutate(ctx, m)
+	case *ScopeMemoryAuthorizationEventMutation:
+		return c.ScopeMemoryAuthorizationEvent.mutate(ctx, m)
 	case *ScopePolicyMutation:
 		return c.ScopePolicy.mutate(ctx, m)
 	case *SystemSettingMutation:
@@ -1569,6 +1595,54 @@ func (c *BotAccountClient) QueryScopePoliciesBotID(_m *BotAccount) *ScopePolicyQ
 	return query
 }
 
+// QueryScopeMemoryAuthorizationEventsBotID queries the scope_memory_authorization_events_bot_id edge of a BotAccount.
+func (c *BotAccountClient) QueryScopeMemoryAuthorizationEventsBotID(_m *BotAccount) *ScopeMemoryAuthorizationEventQuery {
+	query := (&ScopeMemoryAuthorizationEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(botaccount.Table, botaccount.FieldID, id),
+			sqlgraph.To(scopememoryauthorizationevent.Table, scopememoryauthorizationevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, botaccount.ScopeMemoryAuthorizationEventsBotIDTable, botaccount.ScopeMemoryAuthorizationEventsBotIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionCursorsBotID queries the memory_extraction_cursors_bot_id edge of a BotAccount.
+func (c *BotAccountClient) QueryMemoryExtractionCursorsBotID(_m *BotAccount) *MemoryExtractionCursorQuery {
+	query := (&MemoryExtractionCursorClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(botaccount.Table, botaccount.FieldID, id),
+			sqlgraph.To(memoryextractioncursor.Table, memoryextractioncursor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, botaccount.MemoryExtractionCursorsBotIDTable, botaccount.MemoryExtractionCursorsBotIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionJobsBotID queries the memory_extraction_jobs_bot_id edge of a BotAccount.
+func (c *BotAccountClient) QueryMemoryExtractionJobsBotID(_m *BotAccount) *MemoryExtractionJobQuery {
+	query := (&MemoryExtractionJobClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(botaccount.Table, botaccount.FieldID, id),
+			sqlgraph.To(memoryextractionjob.Table, memoryextractionjob.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, botaccount.MemoryExtractionJobsBotIDTable, botaccount.MemoryExtractionJobsBotIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryConversationsBotID queries the conversations_bot_id edge of a BotAccount.
 func (c *BotAccountClient) QueryConversationsBotID(_m *BotAccount) *ConversationQuery {
 	query := (&ConversationClient{config: c.config}).Query()
@@ -1956,6 +2030,38 @@ func (c *ConversationClient) QueryAgentOutboundMessagesConversationID(_m *Conver
 			sqlgraph.From(conversation.Table, conversation.FieldID, id),
 			sqlgraph.To(agentoutboundmessage.Table, agentoutboundmessage.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, conversation.AgentOutboundMessagesConversationIDTable, conversation.AgentOutboundMessagesConversationIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionCursorsConversationID queries the memory_extraction_cursors_conversation_id edge of a Conversation.
+func (c *ConversationClient) QueryMemoryExtractionCursorsConversationID(_m *Conversation) *MemoryExtractionCursorQuery {
+	query := (&MemoryExtractionCursorClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(conversation.Table, conversation.FieldID, id),
+			sqlgraph.To(memoryextractioncursor.Table, memoryextractioncursor.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, conversation.MemoryExtractionCursorsConversationIDTable, conversation.MemoryExtractionCursorsConversationIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionJobsConversationID queries the memory_extraction_jobs_conversation_id edge of a Conversation.
+func (c *ConversationClient) QueryMemoryExtractionJobsConversationID(_m *Conversation) *MemoryExtractionJobQuery {
+	query := (&MemoryExtractionJobClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(conversation.Table, conversation.FieldID, id),
+			sqlgraph.To(memoryextractionjob.Table, memoryextractionjob.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, conversation.MemoryExtractionJobsConversationIDTable, conversation.MemoryExtractionJobsConversationIDColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -3079,6 +3185,352 @@ func (c *MemoryClient) mutate(ctx context.Context, m *MemoryMutation) (Value, er
 	}
 }
 
+// MemoryExtractionCursorClient is a client for the MemoryExtractionCursor schema.
+type MemoryExtractionCursorClient struct {
+	config
+}
+
+// NewMemoryExtractionCursorClient returns a client for the MemoryExtractionCursor from the given config.
+func NewMemoryExtractionCursorClient(c config) *MemoryExtractionCursorClient {
+	return &MemoryExtractionCursorClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `memoryextractioncursor.Hooks(f(g(h())))`.
+func (c *MemoryExtractionCursorClient) Use(hooks ...Hook) {
+	c.hooks.MemoryExtractionCursor = append(c.hooks.MemoryExtractionCursor, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `memoryextractioncursor.Intercept(f(g(h())))`.
+func (c *MemoryExtractionCursorClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MemoryExtractionCursor = append(c.inters.MemoryExtractionCursor, interceptors...)
+}
+
+// Create returns a builder for creating a MemoryExtractionCursor entity.
+func (c *MemoryExtractionCursorClient) Create() *MemoryExtractionCursorCreate {
+	mutation := newMemoryExtractionCursorMutation(c.config, OpCreate)
+	return &MemoryExtractionCursorCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MemoryExtractionCursor entities.
+func (c *MemoryExtractionCursorClient) CreateBulk(builders ...*MemoryExtractionCursorCreate) *MemoryExtractionCursorCreateBulk {
+	return &MemoryExtractionCursorCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MemoryExtractionCursorClient) MapCreateBulk(slice any, setFunc func(*MemoryExtractionCursorCreate, int)) *MemoryExtractionCursorCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MemoryExtractionCursorCreateBulk{err: fmt.Errorf("calling to MemoryExtractionCursorClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MemoryExtractionCursorCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MemoryExtractionCursorCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MemoryExtractionCursor.
+func (c *MemoryExtractionCursorClient) Update() *MemoryExtractionCursorUpdate {
+	mutation := newMemoryExtractionCursorMutation(c.config, OpUpdate)
+	return &MemoryExtractionCursorUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MemoryExtractionCursorClient) UpdateOne(_m *MemoryExtractionCursor) *MemoryExtractionCursorUpdateOne {
+	mutation := newMemoryExtractionCursorMutation(c.config, OpUpdateOne, withMemoryExtractionCursor(_m))
+	return &MemoryExtractionCursorUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MemoryExtractionCursorClient) UpdateOneID(id int64) *MemoryExtractionCursorUpdateOne {
+	mutation := newMemoryExtractionCursorMutation(c.config, OpUpdateOne, withMemoryExtractionCursorID(id))
+	return &MemoryExtractionCursorUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MemoryExtractionCursor.
+func (c *MemoryExtractionCursorClient) Delete() *MemoryExtractionCursorDelete {
+	mutation := newMemoryExtractionCursorMutation(c.config, OpDelete)
+	return &MemoryExtractionCursorDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MemoryExtractionCursorClient) DeleteOne(_m *MemoryExtractionCursor) *MemoryExtractionCursorDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MemoryExtractionCursorClient) DeleteOneID(id int64) *MemoryExtractionCursorDeleteOne {
+	builder := c.Delete().Where(memoryextractioncursor.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MemoryExtractionCursorDeleteOne{builder}
+}
+
+// Query returns a query builder for MemoryExtractionCursor.
+func (c *MemoryExtractionCursorClient) Query() *MemoryExtractionCursorQuery {
+	return &MemoryExtractionCursorQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMemoryExtractionCursor},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MemoryExtractionCursor entity by its id.
+func (c *MemoryExtractionCursorClient) Get(ctx context.Context, id int64) (*MemoryExtractionCursor, error) {
+	return c.Query().Where(memoryextractioncursor.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MemoryExtractionCursorClient) GetX(ctx context.Context, id int64) *MemoryExtractionCursor {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryBotIDRef queries the bot_id_ref edge of a MemoryExtractionCursor.
+func (c *MemoryExtractionCursorClient) QueryBotIDRef(_m *MemoryExtractionCursor) *BotAccountQuery {
+	query := (&BotAccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryextractioncursor.Table, memoryextractioncursor.FieldID, id),
+			sqlgraph.To(botaccount.Table, botaccount.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryextractioncursor.BotIDRefTable, memoryextractioncursor.BotIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryConversationIDRef queries the conversation_id_ref edge of a MemoryExtractionCursor.
+func (c *MemoryExtractionCursorClient) QueryConversationIDRef(_m *MemoryExtractionCursor) *ConversationQuery {
+	query := (&ConversationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryextractioncursor.Table, memoryextractioncursor.FieldID, id),
+			sqlgraph.To(conversation.Table, conversation.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryextractioncursor.ConversationIDRefTable, memoryextractioncursor.ConversationIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *MemoryExtractionCursorClient) Hooks() []Hook {
+	return c.hooks.MemoryExtractionCursor
+}
+
+// Interceptors returns the client interceptors.
+func (c *MemoryExtractionCursorClient) Interceptors() []Interceptor {
+	return c.inters.MemoryExtractionCursor
+}
+
+func (c *MemoryExtractionCursorClient) mutate(ctx context.Context, m *MemoryExtractionCursorMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MemoryExtractionCursorCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MemoryExtractionCursorUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MemoryExtractionCursorUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MemoryExtractionCursorDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MemoryExtractionCursor mutation op: %q", m.Op())
+	}
+}
+
+// MemoryExtractionJobClient is a client for the MemoryExtractionJob schema.
+type MemoryExtractionJobClient struct {
+	config
+}
+
+// NewMemoryExtractionJobClient returns a client for the MemoryExtractionJob from the given config.
+func NewMemoryExtractionJobClient(c config) *MemoryExtractionJobClient {
+	return &MemoryExtractionJobClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `memoryextractionjob.Hooks(f(g(h())))`.
+func (c *MemoryExtractionJobClient) Use(hooks ...Hook) {
+	c.hooks.MemoryExtractionJob = append(c.hooks.MemoryExtractionJob, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `memoryextractionjob.Intercept(f(g(h())))`.
+func (c *MemoryExtractionJobClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MemoryExtractionJob = append(c.inters.MemoryExtractionJob, interceptors...)
+}
+
+// Create returns a builder for creating a MemoryExtractionJob entity.
+func (c *MemoryExtractionJobClient) Create() *MemoryExtractionJobCreate {
+	mutation := newMemoryExtractionJobMutation(c.config, OpCreate)
+	return &MemoryExtractionJobCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MemoryExtractionJob entities.
+func (c *MemoryExtractionJobClient) CreateBulk(builders ...*MemoryExtractionJobCreate) *MemoryExtractionJobCreateBulk {
+	return &MemoryExtractionJobCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MemoryExtractionJobClient) MapCreateBulk(slice any, setFunc func(*MemoryExtractionJobCreate, int)) *MemoryExtractionJobCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MemoryExtractionJobCreateBulk{err: fmt.Errorf("calling to MemoryExtractionJobClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MemoryExtractionJobCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MemoryExtractionJobCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MemoryExtractionJob.
+func (c *MemoryExtractionJobClient) Update() *MemoryExtractionJobUpdate {
+	mutation := newMemoryExtractionJobMutation(c.config, OpUpdate)
+	return &MemoryExtractionJobUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MemoryExtractionJobClient) UpdateOne(_m *MemoryExtractionJob) *MemoryExtractionJobUpdateOne {
+	mutation := newMemoryExtractionJobMutation(c.config, OpUpdateOne, withMemoryExtractionJob(_m))
+	return &MemoryExtractionJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MemoryExtractionJobClient) UpdateOneID(id uuid.UUID) *MemoryExtractionJobUpdateOne {
+	mutation := newMemoryExtractionJobMutation(c.config, OpUpdateOne, withMemoryExtractionJobID(id))
+	return &MemoryExtractionJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MemoryExtractionJob.
+func (c *MemoryExtractionJobClient) Delete() *MemoryExtractionJobDelete {
+	mutation := newMemoryExtractionJobMutation(c.config, OpDelete)
+	return &MemoryExtractionJobDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MemoryExtractionJobClient) DeleteOne(_m *MemoryExtractionJob) *MemoryExtractionJobDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MemoryExtractionJobClient) DeleteOneID(id uuid.UUID) *MemoryExtractionJobDeleteOne {
+	builder := c.Delete().Where(memoryextractionjob.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MemoryExtractionJobDeleteOne{builder}
+}
+
+// Query returns a query builder for MemoryExtractionJob.
+func (c *MemoryExtractionJobClient) Query() *MemoryExtractionJobQuery {
+	return &MemoryExtractionJobQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMemoryExtractionJob},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MemoryExtractionJob entity by its id.
+func (c *MemoryExtractionJobClient) Get(ctx context.Context, id uuid.UUID) (*MemoryExtractionJob, error) {
+	return c.Query().Where(memoryextractionjob.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MemoryExtractionJobClient) GetX(ctx context.Context, id uuid.UUID) *MemoryExtractionJob {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryBotIDRef queries the bot_id_ref edge of a MemoryExtractionJob.
+func (c *MemoryExtractionJobClient) QueryBotIDRef(_m *MemoryExtractionJob) *BotAccountQuery {
+	query := (&BotAccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryextractionjob.Table, memoryextractionjob.FieldID, id),
+			sqlgraph.To(botaccount.Table, botaccount.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryextractionjob.BotIDRefTable, memoryextractionjob.BotIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryConversationIDRef queries the conversation_id_ref edge of a MemoryExtractionJob.
+func (c *MemoryExtractionJobClient) QueryConversationIDRef(_m *MemoryExtractionJob) *ConversationQuery {
+	query := (&ConversationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryextractionjob.Table, memoryextractionjob.FieldID, id),
+			sqlgraph.To(conversation.Table, conversation.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryextractionjob.ConversationIDRefTable, memoryextractionjob.ConversationIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMessageIDRef queries the message_id_ref edge of a MemoryExtractionJob.
+func (c *MemoryExtractionJobClient) QueryMessageIDRef(_m *MemoryExtractionJob) *MessageQuery {
+	query := (&MessageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryextractionjob.Table, memoryextractionjob.FieldID, id),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryextractionjob.MessageIDRefTable, memoryextractionjob.MessageIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *MemoryExtractionJobClient) Hooks() []Hook {
+	return c.hooks.MemoryExtractionJob
+}
+
+// Interceptors returns the client interceptors.
+func (c *MemoryExtractionJobClient) Interceptors() []Interceptor {
+	return c.inters.MemoryExtractionJob
+}
+
+func (c *MemoryExtractionJobClient) mutate(ctx context.Context, m *MemoryExtractionJobMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MemoryExtractionJobCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MemoryExtractionJobUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MemoryExtractionJobUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MemoryExtractionJobDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MemoryExtractionJob mutation op: %q", m.Op())
+	}
+}
+
 // MessageClient is a client for the Message schema.
 type MessageClient struct {
 	config
@@ -3260,6 +3712,22 @@ func (c *MessageClient) QueryMemoriesSourceMessageID(_m *Message) *MemoryQuery {
 			sqlgraph.From(message.Table, message.FieldID, id),
 			sqlgraph.To(memory.Table, memory.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, message.MemoriesSourceMessageIDTable, message.MemoriesSourceMessageIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMemoryExtractionJobsMessageID queries the memory_extraction_jobs_message_id edge of a Message.
+func (c *MessageClient) QueryMemoryExtractionJobsMessageID(_m *Message) *MemoryExtractionJobQuery {
+	query := (&MemoryExtractionJobClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, id),
+			sqlgraph.To(memoryextractionjob.Table, memoryextractionjob.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, message.MemoryExtractionJobsMessageIDTable, message.MemoryExtractionJobsMessageIDColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -3638,6 +4106,155 @@ func (c *QQGroupClient) mutate(ctx context.Context, m *QQGroupMutation) (Value, 
 	}
 }
 
+// ScopeMemoryAuthorizationEventClient is a client for the ScopeMemoryAuthorizationEvent schema.
+type ScopeMemoryAuthorizationEventClient struct {
+	config
+}
+
+// NewScopeMemoryAuthorizationEventClient returns a client for the ScopeMemoryAuthorizationEvent from the given config.
+func NewScopeMemoryAuthorizationEventClient(c config) *ScopeMemoryAuthorizationEventClient {
+	return &ScopeMemoryAuthorizationEventClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `scopememoryauthorizationevent.Hooks(f(g(h())))`.
+func (c *ScopeMemoryAuthorizationEventClient) Use(hooks ...Hook) {
+	c.hooks.ScopeMemoryAuthorizationEvent = append(c.hooks.ScopeMemoryAuthorizationEvent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `scopememoryauthorizationevent.Intercept(f(g(h())))`.
+func (c *ScopeMemoryAuthorizationEventClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ScopeMemoryAuthorizationEvent = append(c.inters.ScopeMemoryAuthorizationEvent, interceptors...)
+}
+
+// Create returns a builder for creating a ScopeMemoryAuthorizationEvent entity.
+func (c *ScopeMemoryAuthorizationEventClient) Create() *ScopeMemoryAuthorizationEventCreate {
+	mutation := newScopeMemoryAuthorizationEventMutation(c.config, OpCreate)
+	return &ScopeMemoryAuthorizationEventCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ScopeMemoryAuthorizationEvent entities.
+func (c *ScopeMemoryAuthorizationEventClient) CreateBulk(builders ...*ScopeMemoryAuthorizationEventCreate) *ScopeMemoryAuthorizationEventCreateBulk {
+	return &ScopeMemoryAuthorizationEventCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ScopeMemoryAuthorizationEventClient) MapCreateBulk(slice any, setFunc func(*ScopeMemoryAuthorizationEventCreate, int)) *ScopeMemoryAuthorizationEventCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ScopeMemoryAuthorizationEventCreateBulk{err: fmt.Errorf("calling to ScopeMemoryAuthorizationEventClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ScopeMemoryAuthorizationEventCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ScopeMemoryAuthorizationEventCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ScopeMemoryAuthorizationEvent.
+func (c *ScopeMemoryAuthorizationEventClient) Update() *ScopeMemoryAuthorizationEventUpdate {
+	mutation := newScopeMemoryAuthorizationEventMutation(c.config, OpUpdate)
+	return &ScopeMemoryAuthorizationEventUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ScopeMemoryAuthorizationEventClient) UpdateOne(_m *ScopeMemoryAuthorizationEvent) *ScopeMemoryAuthorizationEventUpdateOne {
+	mutation := newScopeMemoryAuthorizationEventMutation(c.config, OpUpdateOne, withScopeMemoryAuthorizationEvent(_m))
+	return &ScopeMemoryAuthorizationEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ScopeMemoryAuthorizationEventClient) UpdateOneID(id int64) *ScopeMemoryAuthorizationEventUpdateOne {
+	mutation := newScopeMemoryAuthorizationEventMutation(c.config, OpUpdateOne, withScopeMemoryAuthorizationEventID(id))
+	return &ScopeMemoryAuthorizationEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ScopeMemoryAuthorizationEvent.
+func (c *ScopeMemoryAuthorizationEventClient) Delete() *ScopeMemoryAuthorizationEventDelete {
+	mutation := newScopeMemoryAuthorizationEventMutation(c.config, OpDelete)
+	return &ScopeMemoryAuthorizationEventDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ScopeMemoryAuthorizationEventClient) DeleteOne(_m *ScopeMemoryAuthorizationEvent) *ScopeMemoryAuthorizationEventDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ScopeMemoryAuthorizationEventClient) DeleteOneID(id int64) *ScopeMemoryAuthorizationEventDeleteOne {
+	builder := c.Delete().Where(scopememoryauthorizationevent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ScopeMemoryAuthorizationEventDeleteOne{builder}
+}
+
+// Query returns a query builder for ScopeMemoryAuthorizationEvent.
+func (c *ScopeMemoryAuthorizationEventClient) Query() *ScopeMemoryAuthorizationEventQuery {
+	return &ScopeMemoryAuthorizationEventQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeScopeMemoryAuthorizationEvent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ScopeMemoryAuthorizationEvent entity by its id.
+func (c *ScopeMemoryAuthorizationEventClient) Get(ctx context.Context, id int64) (*ScopeMemoryAuthorizationEvent, error) {
+	return c.Query().Where(scopememoryauthorizationevent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ScopeMemoryAuthorizationEventClient) GetX(ctx context.Context, id int64) *ScopeMemoryAuthorizationEvent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryBotIDRef queries the bot_id_ref edge of a ScopeMemoryAuthorizationEvent.
+func (c *ScopeMemoryAuthorizationEventClient) QueryBotIDRef(_m *ScopeMemoryAuthorizationEvent) *BotAccountQuery {
+	query := (&BotAccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(scopememoryauthorizationevent.Table, scopememoryauthorizationevent.FieldID, id),
+			sqlgraph.To(botaccount.Table, botaccount.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, scopememoryauthorizationevent.BotIDRefTable, scopememoryauthorizationevent.BotIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ScopeMemoryAuthorizationEventClient) Hooks() []Hook {
+	return c.hooks.ScopeMemoryAuthorizationEvent
+}
+
+// Interceptors returns the client interceptors.
+func (c *ScopeMemoryAuthorizationEventClient) Interceptors() []Interceptor {
+	return c.inters.ScopeMemoryAuthorizationEvent
+}
+
+func (c *ScopeMemoryAuthorizationEventClient) mutate(ctx context.Context, m *ScopeMemoryAuthorizationEventMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ScopeMemoryAuthorizationEventCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ScopeMemoryAuthorizationEventUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ScopeMemoryAuthorizationEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ScopeMemoryAuthorizationEventDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ScopeMemoryAuthorizationEvent mutation op: %q", m.Op())
+	}
+}
+
 // ScopePolicyClient is a client for the ScopePolicy schema.
 type ScopePolicyClient struct {
 	config
@@ -3926,15 +4543,17 @@ type (
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
 		GroupMember, IntentDecision, IntentDecisionStep, IntentRuleActivation,
-		IntentRuleEntry, IntentRuleset, Memory, Message, MessageJob, QQGroup,
-		ScopePolicy, SystemSetting []ent.Hook
+		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
+		MemoryExtractionJob, Message, MessageJob, QQGroup,
+		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Hook
 	}
 	inters struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
 		GroupMember, IntentDecision, IntentDecisionStep, IntentRuleActivation,
-		IntentRuleEntry, IntentRuleset, Memory, Message, MessageJob, QQGroup,
-		ScopePolicy, SystemSetting []ent.Interceptor
+		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
+		MemoryExtractionJob, Message, MessageJob, QQGroup,
+		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Interceptor
 	}
 )
 

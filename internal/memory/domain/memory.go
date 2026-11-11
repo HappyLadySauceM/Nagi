@@ -3,7 +3,10 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -45,6 +48,35 @@ const (
 	StatusDeleted    Status = "deleted"
 )
 
+// Origin marks whether a memory was entered manually or extracted automatically.
+// Origin 标记记忆来自人工录入还是自动提取。
+type Origin string
+
+const (
+	OriginManual     Origin = "manual"
+	OriginExtraction Origin = "extraction"
+)
+
+// Valid reports whether the origin is supported.
+// Valid 报告来源类型是否受支持。
+func (o Origin) Valid() bool { return o == OriginManual || o == OriginExtraction }
+
+// SubjectType identifies what a memory's subject id refers to.
+// SubjectType 标识记忆主体 ID 指代的对象。
+type SubjectType string
+
+const (
+	SubjectUser    SubjectType = "user"
+	SubjectGroup   SubjectType = "group"
+	SubjectUnknown SubjectType = "unknown"
+)
+
+// Valid reports whether the subject type is supported.
+// Valid 报告主体类型是否受支持。
+func (t SubjectType) Valid() bool {
+	return t == SubjectUser || t == SubjectGroup || t == SubjectUnknown
+}
+
 // Valid reports whether the status is supported.
 // Valid 报告状态是否受支持。
 func (s Status) Valid() bool {
@@ -65,6 +97,12 @@ type Memory struct {
 	Content         string
 	SourceMessageID int64
 	Source          string
+	SourceSenderID  int64
+	Origin          Origin
+	SubjectType     SubjectType
+	SubjectID       string
+	DedupeKey       string
+	ReviewReason    string
 	Confidence      float64
 	Status          Status
 	ApprovedBy      string
@@ -96,7 +134,52 @@ func (m Memory) Validate() error {
 	if m.Confidence < 0 || m.Confidence > 1 {
 		return fmt.Errorf("memory: confidence must be within [0,1]")
 	}
+	if m.Origin != "" && !m.Origin.Valid() {
+		return fmt.Errorf("memory: invalid origin %q", m.Origin)
+	}
+	if m.SubjectType != "" && !m.SubjectType.Valid() {
+		return fmt.Errorf("memory: invalid subject type %q", m.SubjectType)
+	}
+	if (m.SubjectType == SubjectUser || m.SubjectType == SubjectGroup) && strings.TrimSpace(m.SubjectID) == "" {
+		return fmt.Errorf("memory: subject id is required for subject type %s", m.SubjectType)
+	}
+	if m.Visibility == VisibilityPrivateUser && m.SubjectType == SubjectGroup {
+		return fmt.Errorf("memory: private memory cannot have a group subject")
+	}
 	return nil
+}
+
+// ComputeDedupeKey builds a structured, length-prefixed key from the complete
+// scope, subject and exact stored content. It deliberately does not case-fold
+// or collapse interior whitespace, and length prefixes prevent delimiter
+// collisions between fields.
+// ComputeDedupeKey 使用完整作用域、主体与精确存储内容生成长度前缀去重键；
+// 刻意不做大小写折叠或内部空白折叠，长度前缀避免字段分隔符碰撞。
+func ComputeDedupeKey(botID int64, visibility Visibility, ownerKey string, subjectType SubjectType, subjectID, content string) string {
+	var builder strings.Builder
+	writeField := func(value string) {
+		builder.WriteString(strconv.Itoa(len(value)))
+		builder.WriteByte(':')
+		builder.WriteString(value)
+	}
+	writeField("v1")
+	writeField(strconv.FormatInt(botID, 10))
+	writeField(string(visibility))
+	writeField(ownerKey)
+	writeField(string(subjectType))
+	writeField(subjectID)
+	writeField(strings.TrimSpace(content))
+	sum := sha256.Sum256([]byte(builder.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+// ExtractionUnknownSubjectID returns a stable provenance identity for an
+// unknown extraction subject. The source message and sender are kept together
+// so unrelated speakers with identical text cannot collapse into one subject.
+// ExtractionUnknownSubjectID 返回未知提取主体的稳定出处标识；来源消息与发送者
+// 一同参与，避免不同发送者的相同文本被合并为同一主体。
+func ExtractionUnknownSubjectID(sourceMessageID, sourceSenderID int64) string {
+	return "source:" + strconv.FormatInt(sourceMessageID, 10) + ":" + strconv.FormatInt(sourceSenderID, 10)
 }
 
 // VisibleTo reports whether the memory may be read by the given conversation.

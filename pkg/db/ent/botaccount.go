@@ -37,6 +37,12 @@ type BotAccountEdges struct {
 	GroupMembersBotID []*GroupMember `json:"group_members_bot_id,omitempty"`
 	// ScopePoliciesBotID holds the value of the scope_policies_bot_id edge.
 	ScopePoliciesBotID []*ScopePolicy `json:"scope_policies_bot_id,omitempty"`
+	// ScopeMemoryAuthorizationEventsBotID holds the value of the scope_memory_authorization_events_bot_id edge.
+	ScopeMemoryAuthorizationEventsBotID []*ScopeMemoryAuthorizationEvent `json:"scope_memory_authorization_events_bot_id,omitempty"`
+	// MemoryExtractionCursorsBotID holds the value of the memory_extraction_cursors_bot_id edge.
+	MemoryExtractionCursorsBotID []*MemoryExtractionCursor `json:"memory_extraction_cursors_bot_id,omitempty"`
+	// MemoryExtractionJobsBotID holds the value of the memory_extraction_jobs_bot_id edge.
+	MemoryExtractionJobsBotID []*MemoryExtractionJob `json:"memory_extraction_jobs_bot_id,omitempty"`
 	// ConversationsBotID holds the value of the conversations_bot_id edge.
 	ConversationsBotID []*Conversation `json:"conversations_bot_id,omitempty"`
 	// MessagesBotID holds the value of the messages_bot_id edge.
@@ -47,7 +53,7 @@ type BotAccountEdges struct {
 	AgentOutboundMessagesBotID []*AgentOutboundMessage `json:"agent_outbound_messages_bot_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [8]bool
+	loadedTypes [11]bool
 }
 
 // ContactsBotIDOrErr returns the ContactsBotID value or an error if the edge
@@ -86,10 +92,37 @@ func (e BotAccountEdges) ScopePoliciesBotIDOrErr() ([]*ScopePolicy, error) {
 	return nil, &NotLoadedError{edge: "scope_policies_bot_id"}
 }
 
+// ScopeMemoryAuthorizationEventsBotIDOrErr returns the ScopeMemoryAuthorizationEventsBotID value or an error if the edge
+// was not loaded in eager-loading.
+func (e BotAccountEdges) ScopeMemoryAuthorizationEventsBotIDOrErr() ([]*ScopeMemoryAuthorizationEvent, error) {
+	if e.loadedTypes[4] {
+		return e.ScopeMemoryAuthorizationEventsBotID, nil
+	}
+	return nil, &NotLoadedError{edge: "scope_memory_authorization_events_bot_id"}
+}
+
+// MemoryExtractionCursorsBotIDOrErr returns the MemoryExtractionCursorsBotID value or an error if the edge
+// was not loaded in eager-loading.
+func (e BotAccountEdges) MemoryExtractionCursorsBotIDOrErr() ([]*MemoryExtractionCursor, error) {
+	if e.loadedTypes[5] {
+		return e.MemoryExtractionCursorsBotID, nil
+	}
+	return nil, &NotLoadedError{edge: "memory_extraction_cursors_bot_id"}
+}
+
+// MemoryExtractionJobsBotIDOrErr returns the MemoryExtractionJobsBotID value or an error if the edge
+// was not loaded in eager-loading.
+func (e BotAccountEdges) MemoryExtractionJobsBotIDOrErr() ([]*MemoryExtractionJob, error) {
+	if e.loadedTypes[6] {
+		return e.MemoryExtractionJobsBotID, nil
+	}
+	return nil, &NotLoadedError{edge: "memory_extraction_jobs_bot_id"}
+}
+
 // ConversationsBotIDOrErr returns the ConversationsBotID value or an error if the edge
 // was not loaded in eager-loading.
 func (e BotAccountEdges) ConversationsBotIDOrErr() ([]*Conversation, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[7] {
 		return e.ConversationsBotID, nil
 	}
 	return nil, &NotLoadedError{edge: "conversations_bot_id"}
@@ -98,7 +131,7 @@ func (e BotAccountEdges) ConversationsBotIDOrErr() ([]*Conversation, error) {
 // MessagesBotIDOrErr returns the MessagesBotID value or an error if the edge
 // was not loaded in eager-loading.
 func (e BotAccountEdges) MessagesBotIDOrErr() ([]*Message, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[8] {
 		return e.MessagesBotID, nil
 	}
 	return nil, &NotLoadedError{edge: "messages_bot_id"}
@@ -107,7 +140,7 @@ func (e BotAccountEdges) MessagesBotIDOrErr() ([]*Message, error) {
 // MemoriesBotIDOrErr returns the MemoriesBotID value or an error if the edge
 // was not loaded in eager-loading.
 func (e BotAccountEdges) MemoriesBotIDOrErr() ([]*Memory, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[9] {
 		return e.MemoriesBotID, nil
 	}
 	return nil, &NotLoadedError{edge: "memories_bot_id"}
@@ -116,7 +149,7 @@ func (e BotAccountEdges) MemoriesBotIDOrErr() ([]*Memory, error) {
 // AgentOutboundMessagesBotIDOrErr returns the AgentOutboundMessagesBotID value or an error if the edge
 // was not loaded in eager-loading.
 func (e BotAccountEdges) AgentOutboundMessagesBotIDOrErr() ([]*AgentOutboundMessage, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[10] {
 		return e.AgentOutboundMessagesBotID, nil
 	}
 	return nil, &NotLoadedError{edge: "agent_outbound_messages_bot_id"}
@@ -198,6 +231,21 @@ func (_m *BotAccount) QueryGroupMembersBotID() *GroupMemberQuery {
 // QueryScopePoliciesBotID queries the "scope_policies_bot_id" edge of the BotAccount entity.
 func (_m *BotAccount) QueryScopePoliciesBotID() *ScopePolicyQuery {
 	return NewBotAccountClient(_m.config).QueryScopePoliciesBotID(_m)
+}
+
+// QueryScopeMemoryAuthorizationEventsBotID queries the "scope_memory_authorization_events_bot_id" edge of the BotAccount entity.
+func (_m *BotAccount) QueryScopeMemoryAuthorizationEventsBotID() *ScopeMemoryAuthorizationEventQuery {
+	return NewBotAccountClient(_m.config).QueryScopeMemoryAuthorizationEventsBotID(_m)
+}
+
+// QueryMemoryExtractionCursorsBotID queries the "memory_extraction_cursors_bot_id" edge of the BotAccount entity.
+func (_m *BotAccount) QueryMemoryExtractionCursorsBotID() *MemoryExtractionCursorQuery {
+	return NewBotAccountClient(_m.config).QueryMemoryExtractionCursorsBotID(_m)
+}
+
+// QueryMemoryExtractionJobsBotID queries the "memory_extraction_jobs_bot_id" edge of the BotAccount entity.
+func (_m *BotAccount) QueryMemoryExtractionJobsBotID() *MemoryExtractionJobQuery {
+	return NewBotAccountClient(_m.config).QueryMemoryExtractionJobsBotID(_m)
 }
 
 // QueryConversationsBotID queries the "conversations_bot_id" edge of the BotAccount entity.

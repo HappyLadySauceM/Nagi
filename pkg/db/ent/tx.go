@@ -48,12 +48,18 @@ type Tx struct {
 	IntentRuleset *IntentRulesetClient
 	// Memory is the client for interacting with the Memory builders.
 	Memory *MemoryClient
+	// MemoryExtractionCursor is the client for interacting with the MemoryExtractionCursor builders.
+	MemoryExtractionCursor *MemoryExtractionCursorClient
+	// MemoryExtractionJob is the client for interacting with the MemoryExtractionJob builders.
+	MemoryExtractionJob *MemoryExtractionJobClient
 	// Message is the client for interacting with the Message builders.
 	Message *MessageClient
 	// MessageJob is the client for interacting with the MessageJob builders.
 	MessageJob *MessageJobClient
 	// QQGroup is the client for interacting with the QQGroup builders.
 	QQGroup *QQGroupClient
+	// ScopeMemoryAuthorizationEvent is the client for interacting with the ScopeMemoryAuthorizationEvent builders.
+	ScopeMemoryAuthorizationEvent *ScopeMemoryAuthorizationEventClient
 	// ScopePolicy is the client for interacting with the ScopePolicy builders.
 	ScopePolicy *ScopePolicyClient
 	// SystemSetting is the client for interacting with the SystemSetting builders.
@@ -206,9 +212,12 @@ func (tx *Tx) init() {
 	tx.IntentRuleEntry = NewIntentRuleEntryClient(tx.config)
 	tx.IntentRuleset = NewIntentRulesetClient(tx.config)
 	tx.Memory = NewMemoryClient(tx.config)
+	tx.MemoryExtractionCursor = NewMemoryExtractionCursorClient(tx.config)
+	tx.MemoryExtractionJob = NewMemoryExtractionJobClient(tx.config)
 	tx.Message = NewMessageClient(tx.config)
 	tx.MessageJob = NewMessageJobClient(tx.config)
 	tx.QQGroup = NewQQGroupClient(tx.config)
+	tx.ScopeMemoryAuthorizationEvent = NewScopeMemoryAuthorizationEventClient(tx.config)
 	tx.ScopePolicy = NewScopePolicyClient(tx.config)
 	tx.SystemSetting = NewSystemSettingClient(tx.config)
 }

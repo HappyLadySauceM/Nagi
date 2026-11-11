@@ -118,6 +118,47 @@ type Worker struct {
 	PollInterval Duration `yaml:"poll-interval"`
 }
 
+// Extraction 是长期记忆候选抽取配置域。
+// Extraction configures asynchronous long-term-memory candidate extraction.
+type Extraction struct {
+	// Enabled 缺省关闭；显式开启后只处理同时获得 enabled/store_messages/
+	// allow_memory_write 三个作用域授权的会话。
+	// Enabled defaults off; when explicitly enabled only scopes with all three
+	// grants (enabled, store_messages and allow_memory_write) are processed.
+	Enabled bool `yaml:"enabled"`
+	// Concurrency 是抽取批次独立于回复链路的全局并发上限。
+	// Concurrency bounds extraction batches independently of reply generation.
+	Concurrency int `yaml:"concurrency"`
+	// BatchMaxMessages 是单批最多合并的入站消息条数。
+	// BatchMaxMessages is the maximum number of inbound messages coalesced into one batch.
+	BatchMaxMessages int `yaml:"batch-max-messages"`
+	// BatchMaxRunes 是单批消息正文的总字符预算；单条超长消息仍可独立成批。
+	// BatchMaxRunes bounds the total text budget of one batch; one oversized
+	// message still forms a batch on its own.
+	BatchMaxRunes int `yaml:"batch-max-runes"`
+	// MaxWait 是消息建任务后等待合并的最长时间。
+	// MaxWait is the longest time a message waits for batch coalescing.
+	MaxWait Duration `yaml:"max-wait"`
+	// PollInterval 是 worker 轮询间隔。
+	// PollInterval is the worker polling interval.
+	PollInterval Duration `yaml:"poll-interval"`
+	// LeaseDuration 限制单次处理租约时长。
+	// LeaseDuration bounds one processing lease.
+	LeaseDuration Duration `yaml:"lease-duration"`
+	// MaxAttempts 是包含首次尝试的总尝试次数。
+	// MaxAttempts is the total attempts including the first try.
+	MaxAttempts int `yaml:"max-attempts"`
+	// RetryDelays 是各次重试前的等待时间；最后一项可重复使用。
+	// RetryDelays are the delays between attempts; the last value is reused.
+	RetryDelays []Duration `yaml:"retry-delays"`
+}
+
+// Memory is the long-term memory configuration section.
+// Memory 是长期记忆配置分区。
+type Memory struct {
+	Extraction Extraction `yaml:"extraction"`
+}
+
 // AI supplies the initial generation settings; credentials are imported into the model catalogue once.
 // AI 提供初始生成配置；凭证仅导入模型目录一次。
 type AI struct {
@@ -269,6 +310,7 @@ type Config struct {
 	Worker        Worker        `yaml:"worker"`
 	AI            AI            `yaml:"ai"`
 	Agent         Agent         `yaml:"agent"`
+	Memory        Memory        `yaml:"memory"`
 	Messages      Messages      `yaml:"messages"`
 	Tools         Tools         `yaml:"tools"`
 	Intent        Intent        `yaml:"intent"`
@@ -312,6 +354,17 @@ func defaults() Config {
 				MaxTotalCharsPerRun: 0,
 			},
 		},
+		Memory: Memory{Extraction: Extraction{
+			Enabled:          false,
+			Concurrency:      1,
+			BatchMaxMessages: 10,
+			BatchMaxRunes:    4000,
+			MaxWait:          Duration(5 * time.Second),
+			PollInterval:     Duration(time.Second),
+			LeaseDuration:    Duration(2 * time.Minute),
+			MaxAttempts:      3,
+			RetryDelays:      []Duration{Duration(30 * time.Second), Duration(2 * time.Minute)},
+		}},
 		Messages: Messages{
 			RetentionDays: 30,
 		},
@@ -409,6 +462,11 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
 			cfg.Observability.RawIdentifiers = enabled
 		}
 	}
+	if v, ok := lookup("NAGI_MEMORY_EXTRACTION_ENABLED"); ok && strings.TrimSpace(v) != "" {
+		if enabled, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
+			cfg.Memory.Extraction.Enabled = enabled
+		}
+	}
 	if v, ok := lookup("NAGI_MEDIA_ARCHIVE_ENDPOINT"); ok && strings.TrimSpace(v) != "" {
 		cfg.Observability.MediaArchive.Endpoint = strings.TrimSpace(v)
 	}
@@ -482,6 +540,35 @@ func (c *Config) Validate() error {
 	}
 	if c.Worker.PollInterval.D() <= 0 {
 		return fmt.Errorf("config: worker.poll-interval 必须为正数")
+	}
+	if c.Memory.Extraction.Concurrency < 1 || c.Memory.Extraction.Concurrency > 16 {
+		return fmt.Errorf("config: memory.extraction.concurrency 必须在 1-16 之间")
+	}
+	if c.Memory.Extraction.BatchMaxMessages < 1 || c.Memory.Extraction.BatchMaxMessages > 1000 {
+		return fmt.Errorf("config: memory.extraction.batch-max-messages 必须在 1-1000 之间")
+	}
+	if c.Memory.Extraction.BatchMaxRunes < 1 || c.Memory.Extraction.BatchMaxRunes > 1000000 {
+		return fmt.Errorf("config: memory.extraction.batch-max-runes 必须在 1-1000000 之间")
+	}
+	if c.Memory.Extraction.MaxWait.D() < 0 || c.Memory.Extraction.MaxWait.D() > 10*time.Minute {
+		return fmt.Errorf("config: memory.extraction.max-wait 必须在 0-10m 之间")
+	}
+	if c.Memory.Extraction.PollInterval.D() <= 0 || c.Memory.Extraction.PollInterval.D() > time.Minute {
+		return fmt.Errorf("config: memory.extraction.poll-interval 必须在 (0,1m] 之间")
+	}
+	if c.Memory.Extraction.LeaseDuration.D() <= 0 || c.Memory.Extraction.LeaseDuration.D() > 30*time.Minute {
+		return fmt.Errorf("config: memory.extraction.lease-duration 必须在 (0,30m] 之间")
+	}
+	if c.Memory.Extraction.MaxAttempts < 1 || c.Memory.Extraction.MaxAttempts > 10 {
+		return fmt.Errorf("config: memory.extraction.max-attempts 必须在 1-10 之间")
+	}
+	if len(c.Memory.Extraction.RetryDelays) == 0 {
+		return fmt.Errorf("config: memory.extraction.retry-delays 至少需要一项")
+	}
+	for _, delay := range c.Memory.Extraction.RetryDelays {
+		if delay.D() <= 0 {
+			return fmt.Errorf("config: memory.extraction.retry-delays 必须为正数")
+		}
 	}
 	if c.AI.Enabled {
 		// AI replies are dispatched by the intent worker, so generation alone

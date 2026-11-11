@@ -30,9 +30,25 @@ func (r *Repo) Insert(ctx context.Context, v domain.Memory) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	b := r.pool.Client.Memory.Create().SetID(key).SetBotID(v.BotID).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetContent(v.Content).SetSource(v.Source).SetConfidence(float32(v.Confidence)).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy)
+	origin := v.Origin
+	if origin == "" {
+		origin = domain.OriginManual
+	}
+	b := r.pool.Client.Memory.Create().SetID(key).SetBotID(v.BotID).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetContent(v.Content).SetSource(v.Source).SetConfidence(float32(v.Confidence)).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy).SetOrigin(string(origin)).SetReviewReason(v.ReviewReason)
 	if v.SourceMessageID != 0 {
 		b.SetSourceMessageID(v.SourceMessageID)
+	}
+	if v.SourceSenderID != 0 {
+		b.SetSourceSenderID(v.SourceSenderID)
+	}
+	if v.SubjectType != "" {
+		b.SetSubjectType(string(v.SubjectType))
+	}
+	if v.SubjectID != "" {
+		b.SetSubjectID(v.SubjectID)
+	}
+	if v.DedupeKey != "" {
+		b.SetDedupeKey(v.DedupeKey)
 	}
 	if !v.ExpiresAt.IsZero() {
 		b.SetExpiresAt(v.ExpiresAt)
@@ -61,7 +77,31 @@ func (r *Repo) Update(ctx context.Context, v domain.Memory) error {
 	if err != nil {
 		return err
 	}
-	b := r.pool.Client.Memory.UpdateOneID(key).SetContent(v.Content).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy).SetUpdatedAt(time.Now())
+	origin := v.Origin
+	if origin == "" {
+		origin = domain.OriginManual
+	}
+	b := r.pool.Client.Memory.UpdateOneID(key).SetContent(v.Content).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy).SetOrigin(string(origin)).SetReviewReason(v.ReviewReason).SetUpdatedAt(time.Now())
+	if v.SourceSenderID != 0 {
+		b.SetSourceSenderID(v.SourceSenderID)
+	} else {
+		b.ClearSourceSenderID()
+	}
+	if v.SubjectType != "" {
+		b.SetSubjectType(string(v.SubjectType))
+	} else {
+		b.ClearSubjectType()
+	}
+	if v.SubjectID != "" {
+		b.SetSubjectID(v.SubjectID)
+	} else {
+		b.ClearSubjectID()
+	}
+	if v.DedupeKey != "" {
+		b.SetDedupeKey(v.DedupeKey)
+	} else {
+		b.ClearDedupeKey()
+	}
 	if v.ExpiresAt.IsZero() {
 		b.ClearExpiresAt()
 	} else {
@@ -101,6 +141,21 @@ func (r *Repo) List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, 
 	rows, err := q.Order(ent.Desc(m.FieldUpdatedAt)).Limit(f.Limit).Offset(f.Offset()).All(ctx)
 	return memoryModels(rows), int64(n), err
 }
+
+// FindByDedupeKey returns an existing candidate or active memory sharing the
+// complete structured key.
+// FindByDedupeKey 返回共享完整结构化键的既有候选或激活记忆。
+func (r *Repo) FindByDedupeKey(ctx context.Context, key string) (domain.Memory, bool, error) {
+	v, err := r.pool.Client.Memory.Query().Where(m.DedupeKey(key), m.StatusIn("candidate", "active")).First(ctx)
+	if ent.IsNotFound(err) {
+		return domain.Memory{}, false, nil
+	}
+	if err != nil {
+		return domain.Memory{}, false, err
+	}
+	return memoryModel(v), true, nil
+}
+
 func (r *Repo) FindSame(ctx context.Context, bot int64, visibility domain.Visibility, owner, content string) (domain.Memory, bool, error) {
 	v, err := r.pool.Client.Memory.Query().Where(m.BotID(bot), m.Visibility(string(visibility)), m.OwnerKey(owner), m.Content(content), m.StatusIn("candidate", "active")).Order(ent.Desc(m.FieldCreatedAt)).First(ctx)
 	if ent.IsNotFound(err) {
@@ -139,9 +194,21 @@ func (r *Repo) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]do
 	return memoryModels(rows), err
 }
 func memoryModel(v *ent.Memory) domain.Memory {
-	out := domain.Memory{ID: v.ID.String(), BotID: v.BotID, Visibility: domain.Visibility(v.Visibility), OwnerKey: v.OwnerKey, Content: v.Content, Source: v.Source, Confidence: float64(v.Confidence), Status: domain.Status(v.Status), ApprovedBy: v.ApprovedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	out := domain.Memory{ID: v.ID.String(), BotID: v.BotID, Visibility: domain.Visibility(v.Visibility), OwnerKey: v.OwnerKey, Content: v.Content, Source: v.Source, Origin: domain.Origin(v.Origin), ReviewReason: v.ReviewReason, Confidence: float64(v.Confidence), Status: domain.Status(v.Status), ApprovedBy: v.ApprovedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 	if v.SourceMessageID != nil {
 		out.SourceMessageID = *v.SourceMessageID
+	}
+	if v.SourceSenderID != nil {
+		out.SourceSenderID = *v.SourceSenderID
+	}
+	if v.SubjectType != nil {
+		out.SubjectType = domain.SubjectType(*v.SubjectType)
+	}
+	if v.SubjectID != nil {
+		out.SubjectID = *v.SubjectID
+	}
+	if v.DedupeKey != nil {
+		out.DedupeKey = *v.DedupeKey
 	}
 	if v.ExpiresAt != nil {
 		out.ExpiresAt = *v.ExpiresAt

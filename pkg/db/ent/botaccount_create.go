@@ -17,8 +17,11 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 	"github.com/google/uuid"
 )
@@ -123,6 +126,51 @@ func (_c *BotAccountCreate) AddScopePoliciesBotID(v ...*ScopePolicy) *BotAccount
 		ids[i] = v[i].ID
 	}
 	return _c.AddScopePoliciesBotIDIDs(ids...)
+}
+
+// AddScopeMemoryAuthorizationEventsBotIDIDs adds the "scope_memory_authorization_events_bot_id" edge to the ScopeMemoryAuthorizationEvent entity by IDs.
+func (_c *BotAccountCreate) AddScopeMemoryAuthorizationEventsBotIDIDs(ids ...int64) *BotAccountCreate {
+	_c.mutation.AddScopeMemoryAuthorizationEventsBotIDIDs(ids...)
+	return _c
+}
+
+// AddScopeMemoryAuthorizationEventsBotID adds the "scope_memory_authorization_events_bot_id" edges to the ScopeMemoryAuthorizationEvent entity.
+func (_c *BotAccountCreate) AddScopeMemoryAuthorizationEventsBotID(v ...*ScopeMemoryAuthorizationEvent) *BotAccountCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddScopeMemoryAuthorizationEventsBotIDIDs(ids...)
+}
+
+// AddMemoryExtractionCursorsBotIDIDs adds the "memory_extraction_cursors_bot_id" edge to the MemoryExtractionCursor entity by IDs.
+func (_c *BotAccountCreate) AddMemoryExtractionCursorsBotIDIDs(ids ...int64) *BotAccountCreate {
+	_c.mutation.AddMemoryExtractionCursorsBotIDIDs(ids...)
+	return _c
+}
+
+// AddMemoryExtractionCursorsBotID adds the "memory_extraction_cursors_bot_id" edges to the MemoryExtractionCursor entity.
+func (_c *BotAccountCreate) AddMemoryExtractionCursorsBotID(v ...*MemoryExtractionCursor) *BotAccountCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMemoryExtractionCursorsBotIDIDs(ids...)
+}
+
+// AddMemoryExtractionJobsBotIDIDs adds the "memory_extraction_jobs_bot_id" edge to the MemoryExtractionJob entity by IDs.
+func (_c *BotAccountCreate) AddMemoryExtractionJobsBotIDIDs(ids ...uuid.UUID) *BotAccountCreate {
+	_c.mutation.AddMemoryExtractionJobsBotIDIDs(ids...)
+	return _c
+}
+
+// AddMemoryExtractionJobsBotID adds the "memory_extraction_jobs_bot_id" edges to the MemoryExtractionJob entity.
+func (_c *BotAccountCreate) AddMemoryExtractionJobsBotID(v ...*MemoryExtractionJob) *BotAccountCreate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMemoryExtractionJobsBotIDIDs(ids...)
 }
 
 // AddConversationsBotIDIDs adds the "conversations_bot_id" edge to the Conversation entity by IDs.
@@ -326,6 +374,54 @@ func (_c *BotAccountCreate) createSpec() (*BotAccount, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(scopepolicy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ScopeMemoryAuthorizationEventsBotIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   botaccount.ScopeMemoryAuthorizationEventsBotIDTable,
+			Columns: []string{botaccount.ScopeMemoryAuthorizationEventsBotIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(scopememoryauthorizationevent.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MemoryExtractionCursorsBotIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   botaccount.MemoryExtractionCursorsBotIDTable,
+			Columns: []string{botaccount.MemoryExtractionCursorsBotIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractioncursor.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.MemoryExtractionJobsBotIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   botaccount.MemoryExtractionJobsBotIDTable,
+			Columns: []string{botaccount.MemoryExtractionJobsBotIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryextractionjob.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {

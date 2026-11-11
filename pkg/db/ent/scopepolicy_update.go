@@ -164,6 +164,33 @@ func (_u *ScopePolicyUpdate) SetNillableAllowHistoryRead(v *bool) *ScopePolicyUp
 	return _u
 }
 
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (_u *ScopePolicyUpdate) SetMemoryAuthorizationEventID(v int64) *ScopePolicyUpdate {
+	_u.mutation.ResetMemoryAuthorizationEventID()
+	_u.mutation.SetMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// SetNillableMemoryAuthorizationEventID sets the "memory_authorization_event_id" field if the given value is not nil.
+func (_u *ScopePolicyUpdate) SetNillableMemoryAuthorizationEventID(v *int64) *ScopePolicyUpdate {
+	if v != nil {
+		_u.SetMemoryAuthorizationEventID(*v)
+	}
+	return _u
+}
+
+// AddMemoryAuthorizationEventID adds value to the "memory_authorization_event_id" field.
+func (_u *ScopePolicyUpdate) AddMemoryAuthorizationEventID(v int64) *ScopePolicyUpdate {
+	_u.mutation.AddMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (_u *ScopePolicyUpdate) ClearMemoryAuthorizationEventID() *ScopePolicyUpdate {
+	_u.mutation.ClearMemoryAuthorizationEventID()
+	return _u
+}
+
 // SetMinReplyIntervalMs sets the "min_reply_interval_ms" field.
 func (_u *ScopePolicyUpdate) SetMinReplyIntervalMs(v int) *ScopePolicyUpdate {
 	_u.mutation.ResetMinReplyIntervalMs()
@@ -451,6 +478,15 @@ func (_u *ScopePolicyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	if value, ok := _u.mutation.AllowHistoryRead(); ok {
 		_spec.SetField(scopepolicy.FieldAllowHistoryRead, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.MemoryAuthorizationEventID(); ok {
+		_spec.SetField(scopepolicy.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedMemoryAuthorizationEventID(); ok {
+		_spec.AddField(scopepolicy.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if _u.mutation.MemoryAuthorizationEventIDCleared() {
+		_spec.ClearField(scopepolicy.FieldMemoryAuthorizationEventID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.MinReplyIntervalMs(); ok {
 		_spec.SetField(scopepolicy.FieldMinReplyIntervalMs, field.TypeInt, value)
 	}
@@ -694,6 +730,33 @@ func (_u *ScopePolicyUpdateOne) SetNillableAllowHistoryRead(v *bool) *ScopePolic
 	if v != nil {
 		_u.SetAllowHistoryRead(*v)
 	}
+	return _u
+}
+
+// SetMemoryAuthorizationEventID sets the "memory_authorization_event_id" field.
+func (_u *ScopePolicyUpdateOne) SetMemoryAuthorizationEventID(v int64) *ScopePolicyUpdateOne {
+	_u.mutation.ResetMemoryAuthorizationEventID()
+	_u.mutation.SetMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// SetNillableMemoryAuthorizationEventID sets the "memory_authorization_event_id" field if the given value is not nil.
+func (_u *ScopePolicyUpdateOne) SetNillableMemoryAuthorizationEventID(v *int64) *ScopePolicyUpdateOne {
+	if v != nil {
+		_u.SetMemoryAuthorizationEventID(*v)
+	}
+	return _u
+}
+
+// AddMemoryAuthorizationEventID adds value to the "memory_authorization_event_id" field.
+func (_u *ScopePolicyUpdateOne) AddMemoryAuthorizationEventID(v int64) *ScopePolicyUpdateOne {
+	_u.mutation.AddMemoryAuthorizationEventID(v)
+	return _u
+}
+
+// ClearMemoryAuthorizationEventID clears the value of the "memory_authorization_event_id" field.
+func (_u *ScopePolicyUpdateOne) ClearMemoryAuthorizationEventID() *ScopePolicyUpdateOne {
+	_u.mutation.ClearMemoryAuthorizationEventID()
 	return _u
 }
 
@@ -1013,6 +1076,15 @@ func (_u *ScopePolicyUpdateOne) sqlSave(ctx context.Context) (_node *ScopePolicy
 	}
 	if value, ok := _u.mutation.AllowHistoryRead(); ok {
 		_spec.SetField(scopepolicy.FieldAllowHistoryRead, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.MemoryAuthorizationEventID(); ok {
+		_spec.SetField(scopepolicy.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedMemoryAuthorizationEventID(); ok {
+		_spec.AddField(scopepolicy.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
+	}
+	if _u.mutation.MemoryAuthorizationEventIDCleared() {
+		_spec.ClearField(scopepolicy.FieldMemoryAuthorizationEventID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.MinReplyIntervalMs(); ok {
 		_spec.SetField(scopepolicy.FieldMinReplyIntervalMs, field.TypeInt, value)

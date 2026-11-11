@@ -29,9 +29,12 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 )
@@ -94,28 +97,31 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			aiauditartifact.Table:      aiauditartifact.ValidColumn,
-			aiauditevent.Table:         aiauditevent.ValidColumn,
-			aiauditrun.Table:           aiauditrun.ValidColumn,
-			adminauditlog.Table:        adminauditlog.ValidColumn,
-			agentoutboundmessage.Table: agentoutboundmessage.ValidColumn,
-			agentrunbudget.Table:       agentrunbudget.ValidColumn,
-			agentsendingpolicy.Table:   agentsendingpolicy.ValidColumn,
-			botaccount.Table:           botaccount.ValidColumn,
-			contact.Table:              contact.ValidColumn,
-			conversation.Table:         conversation.ValidColumn,
-			groupmember.Table:          groupmember.ValidColumn,
-			intentdecision.Table:       intentdecision.ValidColumn,
-			intentdecisionstep.Table:   intentdecisionstep.ValidColumn,
-			intentruleactivation.Table: intentruleactivation.ValidColumn,
-			intentruleentry.Table:      intentruleentry.ValidColumn,
-			intentruleset.Table:        intentruleset.ValidColumn,
-			memory.Table:               memory.ValidColumn,
-			message.Table:              message.ValidColumn,
-			messagejob.Table:           messagejob.ValidColumn,
-			qqgroup.Table:              qqgroup.ValidColumn,
-			scopepolicy.Table:          scopepolicy.ValidColumn,
-			systemsetting.Table:        systemsetting.ValidColumn,
+			aiauditartifact.Table:               aiauditartifact.ValidColumn,
+			aiauditevent.Table:                  aiauditevent.ValidColumn,
+			aiauditrun.Table:                    aiauditrun.ValidColumn,
+			adminauditlog.Table:                 adminauditlog.ValidColumn,
+			agentoutboundmessage.Table:          agentoutboundmessage.ValidColumn,
+			agentrunbudget.Table:                agentrunbudget.ValidColumn,
+			agentsendingpolicy.Table:            agentsendingpolicy.ValidColumn,
+			botaccount.Table:                    botaccount.ValidColumn,
+			contact.Table:                       contact.ValidColumn,
+			conversation.Table:                  conversation.ValidColumn,
+			groupmember.Table:                   groupmember.ValidColumn,
+			intentdecision.Table:                intentdecision.ValidColumn,
+			intentdecisionstep.Table:            intentdecisionstep.ValidColumn,
+			intentruleactivation.Table:          intentruleactivation.ValidColumn,
+			intentruleentry.Table:               intentruleentry.ValidColumn,
+			intentruleset.Table:                 intentruleset.ValidColumn,
+			memory.Table:                        memory.ValidColumn,
+			memoryextractioncursor.Table:        memoryextractioncursor.ValidColumn,
+			memoryextractionjob.Table:           memoryextractionjob.ValidColumn,
+			message.Table:                       message.ValidColumn,
+			messagejob.Table:                    messagejob.ValidColumn,
+			qqgroup.Table:                       qqgroup.ValidColumn,
+			scopememoryauthorizationevent.Table: scopememoryauthorizationevent.ValidColumn,
+			scopepolicy.Table:                   scopepolicy.ValidColumn,
+			systemsetting.Table:                 systemsetting.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)
