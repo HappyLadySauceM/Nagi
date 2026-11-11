@@ -114,7 +114,10 @@ export function useUpdateMemory() {
   })
 }
 
-/** Soft delete: the row stays in the database but disappears from retrieval. */
+/**
+ * Permanently deletes the memory row; the list is invalidated on success.
+ * 永久删除该记忆行；成功后刷新列表。
+ */
 export function useDeleteMemory() {
   const invalidate = useInvalidateMemories()
   return useMutation({
