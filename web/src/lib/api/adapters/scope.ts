@@ -31,6 +31,7 @@ export const DEFAULT_SCOPE_FORM: ScopeForm = {
   replyMode: 'mention_only',
   storeMessages: true,
   allowHistoryRead: false,
+  allowMemoryRead: false,
   allowMemoryWrite: false,
   minReplyIntervalMs: 10_000,
   maxRepliesPerHour: 0,
@@ -157,6 +158,7 @@ export function toScopePolicy(raw: unknown): ScopePolicy {
     // 消息存储已是产品基线；陈旧的 false 行不得让会话消息被静默丢弃。
     storeMessages: true,
     allowMemoryWrite: readBoolean(record, 'AllowMemoryWrite', SCOPE_ENDPOINT),
+    allowMemoryRead: readBoolean(record, 'AllowMemoryRead', SCOPE_ENDPOINT),
     allowHistoryRead: readBoolean(record, 'AllowHistoryRead', SCOPE_ENDPOINT),
     minReplyIntervalMs: policyNumber('MinReplyIntervalMS',DEFAULT_MIN_REPLY_INTERVAL_MS),
     maxRepliesPerHour: policyNumber('MaxRepliesPerHour',DEFAULT_MAX_REPLIES_PER_HOUR),
@@ -178,6 +180,7 @@ export function toScopeForm(policy: ScopePolicy): ScopeForm {
     replyMode: policy.replyMode,
     storeMessages: true,
     allowHistoryRead: policy.allowHistoryRead,
+    allowMemoryRead: policy.allowMemoryRead,
     allowMemoryWrite: policy.allowMemoryWrite,
     minReplyIntervalMs: policy.minReplyIntervalMs,
     maxRepliesPerHour: policy.maxRepliesPerHour,
@@ -198,6 +201,7 @@ export function toScopePutBody(form: ScopeForm): Record<string, unknown> {
     // 存储恒为开启提交；该开关已从界面移除。
     store_messages: true,
     allow_history_read: form.allowHistoryRead,
+    allow_memory_read: form.allowMemoryRead,
     allow_memory_write: form.allowMemoryWrite,
     min_reply_interval_ms: form.minReplyIntervalMs,
     max_replies_per_hour: form.maxRepliesPerHour,
@@ -220,6 +224,7 @@ export function isScopeEqual(left: ScopeForm, right: ScopeForm): boolean {
     left.replyMode === right.replyMode &&
     left.storeMessages === right.storeMessages &&
     left.allowHistoryRead === right.allowHistoryRead &&
+    left.allowMemoryRead === right.allowMemoryRead &&
     left.allowMemoryWrite === right.allowMemoryWrite &&
     left.minReplyIntervalMs === right.minReplyIntervalMs &&
     left.maxRepliesPerHour === right.maxRepliesPerHour &&

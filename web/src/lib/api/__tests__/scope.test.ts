@@ -15,6 +15,7 @@ const POLICY = {
   ReplyMode: 'mention_only',
   StoreMessages: true,
   AllowMemoryWrite: false,
+  AllowMemoryRead: false,
   AllowHistoryRead: true,
   MinReplyIntervalMS: 10000,
   MaxRepliesPerHour: 0,
@@ -40,6 +41,7 @@ describe('scope adapter', () => {
       replyMode: 'mention_only',
       storeMessages: true,
       allowMemoryWrite: false,
+      allowMemoryRead: false,
       allowHistoryRead: true,
       minReplyIntervalMs: 10000,
       maxRepliesPerHour: 0,
@@ -115,6 +117,7 @@ describe('scope adapter', () => {
       replyMode: 'observe_only',
       storeMessages: false,
       allowHistoryRead: false,
+      allowMemoryRead: false,
       allowMemoryWrite: false,
       minReplyIntervalMs: 10000,
       maxRepliesPerHour: 0,
@@ -124,6 +127,7 @@ describe('scope adapter', () => {
     expect(Object.keys(body).sort()).toEqual(
       [
         'allow_history_read',
+        'allow_memory_read',
         'allow_memory_write',
         'enabled',
         'max_replies_per_hour',

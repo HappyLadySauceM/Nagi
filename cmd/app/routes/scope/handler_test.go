@@ -3,6 +3,7 @@
 package scope
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -41,5 +42,24 @@ func TestRejectablePermissionsAllowsStoredKeys(t *testing.T) {
 	}
 	if got := rejectablePermissions(unknown, nil); len(got) != len(unknown) {
 		t.Fatalf("a missing stored policy must reject every unknown key, got %v", got)
+	}
+}
+
+// TestPolicyUpdateMemoryReadDefaultsOff verifies an older client that omits the
+// new allow_memory_read field keeps long-term memory disabled.
+// TestPolicyUpdateMemoryReadDefaultsOff 验证旧客户端省略 allow_memory_read 时保持长期记忆关闭。
+func TestPolicyUpdateMemoryReadDefaultsOff(t *testing.T) {
+	var body policyUpdate
+	if err := json.Unmarshal([]byte(`{"enabled":true,"reply_mode":"mention_only"}`), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.AllowMemoryRead {
+		t.Fatal("missing allow_memory_read must default to false")
+	}
+	if err := json.Unmarshal([]byte(`{"allow_memory_read":true}`), &body); err != nil {
+		t.Fatalf("decode explicit: %v", err)
+	}
+	if !body.AllowMemoryRead {
+		t.Fatal("explicit allow_memory_read=true was lost")
 	}
 }

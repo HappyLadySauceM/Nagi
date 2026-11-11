@@ -7,7 +7,7 @@ import { ScopeEditDialog } from '../components/scope-edit-dialog'
 const response = (data: unknown) => new Response(JSON.stringify({ code: 200, message: 'success', data }), { headers: { 'Content-Type': 'application/json' } })
 const policy = {
   ScopeType: 'private', ScopeID: 123, Source: 'default', TemplateVersion: 1, Version: 1,
-  Enabled: false, ReplyMode: 'mention_only', StoreMessages: false, AllowHistoryRead: false, AllowMemoryWrite: false,
+  Enabled: false, ReplyMode: 'mention_only', StoreMessages: false, AllowHistoryRead: false, AllowMemoryRead: false, AllowMemoryWrite: false,
   MinReplyIntervalMS: 10000, MaxRepliesPerHour: 20, ToolPermissions: {},
   MaxMessagesPerRun: 3, MaxCharsPerMessage: 500, MaxTotalCharsPerRun: 1500, MessageIntervalMS: 700,
 }

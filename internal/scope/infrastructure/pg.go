@@ -32,7 +32,7 @@ func NewRepo(pool *db.Pool) (*Repo, error) {
 	return &Repo{pool: pool}, nil
 }
 
-const policyColumns = `enabled, reply_mode, store_messages, allow_memory_write, allow_history_read,
+const policyColumns = `enabled, reply_mode, store_messages, allow_memory_write, allow_memory_read, allow_history_read,
 	min_reply_interval_ms, max_replies_per_hour, tool_permissions, version, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms`
 
 // Get loads one stored policy; found is false when the scope has no row.
@@ -79,7 +79,7 @@ func scanPolicy(scan rowScanner) (domain.Policy, error) {
 	var p domain.Policy
 	var replyMode string
 	var rawPermissions []byte
-	dest := []any{&p.Enabled, &replyMode, &p.StoreMessages, &p.AllowMemoryWrite, &p.AllowHistoryRead,
+	dest := []any{&p.Enabled, &replyMode, &p.StoreMessages, &p.AllowMemoryWrite, &p.AllowMemoryRead, &p.AllowHistoryRead,
 		&p.MinReplyIntervalMS, &p.MaxRepliesPerHour, &rawPermissions, &p.Version, &p.MaxMessagesPerRun, &p.MaxCharsPerMessage, &p.MaxTotalCharsPerRun, &p.MessageIntervalMS}
 	if err := scan(dest...); err != nil {
 		return domain.Policy{}, err
@@ -156,11 +156,12 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 			return domain.ErrTemplateConflict
 		}
 	}
-	err = client.ScopePolicy.Create().SetBotID(botID).SetScopeType(string(policy.ScopeType)).SetScopeID(policy.ScopeID).SetEnabled(policy.Enabled).SetReplyMode(string(policy.ReplyMode)).SetStoreMessages(policy.StoreMessages).SetAllowMemoryWrite(policy.AllowMemoryWrite).SetAllowHistoryRead(policy.AllowHistoryRead).SetMinReplyIntervalMs(policy.MinReplyIntervalMS).SetMaxRepliesPerHour(policy.MaxRepliesPerHour).SetMaxMessagesPerRun(policy.MaxMessagesPerRun).SetMaxCharsPerMessage(policy.MaxCharsPerMessage).SetMaxTotalCharsPerRun(policy.MaxTotalCharsPerRun).SetMessageIntervalMs(policy.MessageIntervalMS).SetToolPermissions(permissions).SetUpdatedAt(time.Now()).OnConflict(entsql.ConflictColumns("bot_id", "scope_type", "scope_id")).Update(func(u *ent.ScopePolicyUpsert) {
+	err = client.ScopePolicy.Create().SetBotID(botID).SetScopeType(string(policy.ScopeType)).SetScopeID(policy.ScopeID).SetEnabled(policy.Enabled).SetReplyMode(string(policy.ReplyMode)).SetStoreMessages(policy.StoreMessages).SetAllowMemoryWrite(policy.AllowMemoryWrite).SetAllowMemoryRead(policy.AllowMemoryRead).SetAllowHistoryRead(policy.AllowHistoryRead).SetMinReplyIntervalMs(policy.MinReplyIntervalMS).SetMaxRepliesPerHour(policy.MaxRepliesPerHour).SetMaxMessagesPerRun(policy.MaxMessagesPerRun).SetMaxCharsPerMessage(policy.MaxCharsPerMessage).SetMaxTotalCharsPerRun(policy.MaxTotalCharsPerRun).SetMessageIntervalMs(policy.MessageIntervalMS).SetToolPermissions(permissions).SetUpdatedAt(time.Now()).OnConflict(entsql.ConflictColumns("bot_id", "scope_type", "scope_id")).Update(func(u *ent.ScopePolicyUpsert) {
 		u.UpdateEnabled()
 		u.UpdateReplyMode()
 		u.UpdateStoreMessages()
 		u.UpdateAllowMemoryWrite()
+		u.UpdateAllowMemoryRead()
 		u.UpdateAllowHistoryRead()
 		u.UpdateMinReplyIntervalMs()
 		u.UpdateMaxRepliesPerHour()
@@ -186,7 +187,7 @@ func (r *Repo) Delete(ctx context.Context, botID int64, scopeType domain.ScopeTy
 }
 
 func policyModel(v *ent.ScopePolicy) (domain.Policy, error) {
-	p := domain.Policy{ScopeType: domain.ScopeType(v.ScopeType), ScopeID: v.ScopeID, Version: v.Version, Enabled: v.Enabled, ReplyMode: domain.ReplyMode(v.ReplyMode), StoreMessages: v.StoreMessages, AllowMemoryWrite: v.AllowMemoryWrite, AllowHistoryRead: v.AllowHistoryRead, MinReplyIntervalMS: v.MinReplyIntervalMs, MaxRepliesPerHour: v.MaxRepliesPerHour, MaxMessagesPerRun: v.MaxMessagesPerRun, MaxCharsPerMessage: v.MaxCharsPerMessage, MaxTotalCharsPerRun: v.MaxTotalCharsPerRun, MessageIntervalMS: v.MessageIntervalMs}
+	p := domain.Policy{ScopeType: domain.ScopeType(v.ScopeType), ScopeID: v.ScopeID, Version: v.Version, Enabled: v.Enabled, ReplyMode: domain.ReplyMode(v.ReplyMode), StoreMessages: v.StoreMessages, AllowMemoryWrite: v.AllowMemoryWrite, AllowMemoryRead: v.AllowMemoryRead, AllowHistoryRead: v.AllowHistoryRead, MinReplyIntervalMS: v.MinReplyIntervalMs, MaxRepliesPerHour: v.MaxRepliesPerHour, MaxMessagesPerRun: v.MaxMessagesPerRun, MaxCharsPerMessage: v.MaxCharsPerMessage, MaxTotalCharsPerRun: v.MaxTotalCharsPerRun, MessageIntervalMS: v.MessageIntervalMs}
 	permissions, err := decodeToolPermissions(v.ToolPermissions)
 	p.ToolPermissions = permissions
 	return p, err

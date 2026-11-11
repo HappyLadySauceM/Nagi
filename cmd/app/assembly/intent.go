@@ -30,6 +30,7 @@ import (
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
@@ -328,14 +329,16 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 
 // buildReplyExecutor wires the Eino-backed reply executor. The runtime is built
 // lazily from the live settings so enabling generation or switching the model in
-// the console needs no restart; long-term memory is deliberately out of scope.
+// the console needs no restart. Long-term memory reads through the separate
+// allow_memory_read scope grant; it never reuses allow_history_read.
 // buildReplyExecutor 装配 Eino 驱动的回复执行器。运行时按实时配置惰性构建，
-// 控制台开启生成或切换模型因此无需重启；本阶段刻意不接入长期记忆。
+// 控制台开启生成或切换模型因此无需重启。长期记忆通过独立的
+// allow_memory_read 作用域授权读取，绝不复用 allow_history_read。
 func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
 	catalog *settingsapp.Service,
 	mediaService media.MessageReader,
-	scope *scopeapp.Service, conv *conversationapp.Service, senders agentapp.SenderResolver,
+	scope *scopeapp.Service, conv *conversationapp.Service, memory memorycontracts.Reader, senders agentapp.SenderResolver,
 	handler *langfusecb.CallbackHandler, sensitiveHandler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
 	limits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits,
 	tools func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool,
@@ -364,7 +367,7 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			}
 			return true
 		},
-		Media: mediaService, Runtime: runtime,
+		Media: mediaService, Memory: memory, Runtime: runtime,
 		Scopes:   scope,
 		Senders:  senders,
 		Recorder: conv,

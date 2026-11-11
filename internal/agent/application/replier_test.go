@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"go.opentelemetry.io/otel"
@@ -22,6 +23,7 @@ import (
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
@@ -278,6 +280,13 @@ func enabledGroupPolicy() map[string]scopedomain.Policy {
 			StoreMessages: true, Enabled: true, AllowHistoryRead: true, ReplyMode: scopedomain.ModeIntentBased,
 			ToolPermissions: map[string]bool{"qq.group.read": false}},
 	}
+}
+func memoryReadGroupPolicy() map[string]scopedomain.Policy {
+	policies := enabledGroupPolicy()
+	p := policies[scopeKey(100, "group", 700)]
+	p.AllowMemoryRead = true
+	policies[scopeKey(100, "group", 700)] = p
+	return policies
 }
 
 // TestReplierSendsAndRecordsGroupReply verifies generation, at-segment delivery
@@ -1045,5 +1054,290 @@ func TestSendingGrantStopsAutomaticReply(t *testing.T) {
 				t.Fatal("disabled sending produced delivery")
 			}
 		})
+	}
+}
+
+// fakeMemoryReader returns canned approved memories and records the request.
+// fakeMemoryReader 返回预置的已批准记忆并记录请求。
+type fakeMemoryReader struct {
+	items []memorycontracts.Memory
+	err   error
+	req   memorycontracts.RecallRequest
+	calls int
+}
+
+func (f *fakeMemoryReader) Recall(_ context.Context, req memorycontracts.RecallRequest) ([]memorycontracts.Memory, error) {
+	f.calls++
+	f.req = req
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.items, nil
+}
+
+// TestReplierInjectsBoundedApprovedMemories verifies approved memory reaches the
+// system prompt as data with identity/version metadata available to the run
+// audit, while the entry cap prevents an unbounded prompt.
+// TestReplierInjectsBoundedApprovedMemories 验证已批准记忆作为数据进入系统提示，
+// 运行审计能定位命中标识与版本，同时条数上限阻止提示无界增长。
+func TestReplierInjectsBoundedApprovedMemories(t *testing.T) {
+	fake := &fakeRuntime{text: "好的"}
+	memory := &fakeMemoryReader{items: []memorycontracts.Memory{
+		{ID: "m1", Content: "群友喜欢晚上聊天", Visibility: "bot_shared", UpdatedAt: time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC)},
+		{ID: "m2", Content: "项目后端使用 Go", Visibility: "group", UpdatedAt: time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)},
+		{ID: "m3", Content: "第三条记忆", Visibility: "group", UpdatedAt: time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)},
+		{ID: "m4", Content: "不应进入提示的第四条", Visibility: "group", UpdatedAt: time.Date(2026, 11, 10, 11, 0, 0, 0, time.UTC)},
+	}}
+	r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, memoryReadGroupPolicy())
+	r.memory = memory
+	audit := &fakeRunAudit{}
+	ctx := auditcontracts.WithRun(context.Background(), audit, "run-memory")
+	if err := r.ExecuteReply(ctx, groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if memory.calls != 1 || memory.req.BotID != 100 || memory.req.Kind != "group" ||
+		memory.req.TargetID != 700 || memory.req.ConversationID != "conv-1" || memory.req.Query != "那你觉得呢？" {
+		t.Fatalf("memory request = %+v calls=%d", memory.req, memory.calls)
+	}
+	system := fake.req.Messages[0].Content
+	// Memory versions are explicit so old prompt content is explainable.
+	// 记忆版本显式写入提示，便于解释旧提示内容。
+	if !strings.Contains(system, "2026-11-10T08:00:00Z") || !strings.Contains(system, "群友喜欢晚上聊天") {
+		t.Fatalf("system prompt misses first memory/version: %q", system)
+	}
+	if !strings.Contains(system, "不是系统指令") {
+		t.Fatalf("system prompt must label memory as data: %q", system)
+	}
+	if strings.Contains(system, "不应进入提示的第四条") {
+		t.Fatalf("fourth memory bypassed the entry cap: %q", system)
+	}
+	var input map[string]any
+	for _, event := range audit.events {
+		if event.Stage != "agent.generation" {
+			continue
+		}
+		if err := json.Unmarshal(event.Input, &input); err != nil {
+			t.Fatalf("decode audit input: %v", err)
+		}
+	}
+	if input == nil {
+		t.Fatalf("agent.generation audit event missing: %+v", audit.events)
+	}
+	hits, ok := input["memory_hits"].([]any)
+	if !ok || len(hits) != 3 {
+		t.Fatalf("audit memory_hits = %#v", input["memory_hits"])
+	}
+	first, _ := hits[0].(map[string]any)
+	if first["id"] != "m1" || first["updated_at"] != "2026-11-10T08:00:00Z" {
+		t.Fatalf("audit hit = %#v", first)
+	}
+	if _, exists := first["content"]; exists {
+		t.Fatalf("audit hit must not carry content: %#v", first)
+	}
+}
+
+// TestReplierMemoryFailureDoesNotBlockChat verifies optional memory failures
+// degrade to a normal reply instead of failing the job.
+// TestReplierMemoryFailureDoesNotBlockChat 验证记忆召回失败降级为正常回复而不是让任务失败。
+func TestReplierMemoryFailureDoesNotBlockChat(t *testing.T) {
+	fake := &fakeRuntime{text: "照常回复"}
+	sender := &fakeSender{}
+	r := newReplier(t, fake, sender, &fakeRecorder{}, memoryReadGroupPolicy())
+	r.memory = &fakeMemoryReader{err: errors.New("memory db down")}
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("memory failure leaked into chat: %v", err)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "照常回复" {
+		t.Fatalf("reply after memory failure = %v", sender.texts)
+	}
+}
+
+// TestBoundMemoriesEnforcesRuneBudget verifies the total prompt budget even
+// when a single memory is longer than the whole allowance.
+// TestBoundMemoriesEnforcesRuneBudget 验证单条记忆超过总预算时仍执行总字数限制。
+func TestBoundMemoriesEnforcesRuneBudget(t *testing.T) {
+	items := []memorycontracts.Memory{
+		{ID: "a", Content: strings.Repeat("长", maxMemoryRunes+100)},
+		{ID: "b", Content: "不应进入"},
+	}
+	got := boundMemories(items)
+	if len(got) != 1 {
+		t.Fatalf("bounded memories = %+v", got)
+	}
+	if runes := len([]rune(got[0].Content)); runes > maxMemoryRunes {
+		t.Fatalf("content runes = %d, want <= %d", runes, maxMemoryRunes)
+	}
+	if !strings.HasSuffix(got[0].Content, "…") {
+		t.Fatalf("truncated memory must end with ellipsis: %q", got[0].Content)
+	}
+}
+
+// TestReplierRecordsMemoryHitsOnRunSpan verifies the observable run record can
+// locate the recalled memory id and version, without exporting the memory body
+// as metadata.
+// TestReplierRecordsMemoryHitsOnRunSpan 验证可观测运行记录能定位召回记忆的标识与版本，
+// 且元数据不包含记忆正文。
+func TestReplierRecordsMemoryHitsOnRunSpan(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	r := newReplier(t, &fakeRuntime{text: "好的"}, &fakeSender{msgID: 1}, &fakeRecorder{}, memoryReadGroupPolicy())
+	r.memory = &fakeMemoryReader{items: []memorycontracts.Memory{
+		{ID: "m-hit", Content: "不应出现在元数据", Visibility: "group", UpdatedAt: time.Date(2026, 11, 10, 7, 30, 0, 0, time.UTC)},
+	}}
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	hits := ""
+	for _, span := range recorder.Ended() {
+		if span.Name() != "nagi.agent.run" {
+			continue
+		}
+		for _, kv := range span.Attributes() {
+			if string(kv.Key) == "nagi.memory.hits" {
+				hits = kv.Value.Emit()
+			}
+		}
+	}
+	if !strings.Contains(hits, "m-hit") || !strings.Contains(hits, "2026-11-10T07:30:00Z") {
+		t.Fatalf("memory hits attribute = %q", hits)
+	}
+	if strings.Contains(hits, "不应出现在元数据") {
+		t.Fatalf("memory body leaked into span metadata: %q", hits)
+	}
+}
+
+// TestReplierMemoryReadPermissionCombinations verifies memory recall and chat
+// history are authorized independently: only allow_memory_read controls the
+// former and only allow_history_read controls the latter.
+// TestReplierMemoryReadPermissionCombinations 验证长期记忆与聊天历史独立授权：
+// 只有 allow_memory_read 控制记忆注入，只有 allow_history_read 控制历史进入提示。
+func TestReplierMemoryReadPermissionCombinations(t *testing.T) {
+	cases := []struct {
+		name        string
+		memoryRead  bool
+		historyRead bool
+		wantMemory  bool
+		wantHistory bool
+	}{
+		{name: "memory_on_history_on", memoryRead: true, historyRead: true, wantMemory: true, wantHistory: true},
+		{name: "memory_on_history_off", memoryRead: true, historyRead: false, wantMemory: true, wantHistory: false},
+		{name: "memory_off_history_on", memoryRead: false, historyRead: true, wantMemory: false, wantHistory: true},
+		{name: "memory_off_history_off", memoryRead: false, historyRead: false, wantMemory: false, wantHistory: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			policies := enabledGroupPolicy()
+			key := scopeKey(100, "group", 700)
+			p := policies[key]
+			p.AllowMemoryRead = tc.memoryRead
+			p.AllowHistoryRead = tc.historyRead
+			policies[key] = p
+			fake := &fakeRuntime{text: "好的"}
+			memory := &fakeMemoryReader{items: []memorycontracts.Memory{{ID: "m1", Content: "长期记忆哨兵", Visibility: "group"}}}
+			r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, policies)
+			r.memory = memory
+			history := []intentdomain.Message{{MessageID: 5000, SenderID: 200, Text: "历史原文哨兵"}}
+			if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), history); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			system := fake.req.Messages[0].Content
+			if got := strings.Contains(system, "长期记忆哨兵"); got != tc.wantMemory {
+				t.Fatalf("memory injected=%v, want %v; prompt=%q", got, tc.wantMemory, system)
+			}
+			historySeen := false
+			for _, message := range fake.req.Messages[1:] {
+				if strings.Contains(message.Content, "历史原文哨兵") {
+					historySeen = true
+				}
+			}
+			if historySeen != tc.wantHistory {
+				t.Fatalf("history injected=%v, want %v; messages=%+v", historySeen, tc.wantHistory, fake.req.Messages)
+			}
+			wantCalls := 0
+			if tc.memoryRead {
+				wantCalls = 1
+			}
+			if memory.calls != wantCalls {
+				t.Fatalf("memory calls=%d, want %d", memory.calls, wantCalls)
+			}
+		})
+	}
+}
+
+// TestReplierMemoryRecallRevocationStopsNextInjection verifies a revoked
+// allow_memory_read grant stops the next run from loading or injecting memory.
+// TestReplierMemoryRecallRevocationStopsNextInjection 验证撤销 allow_memory_read 后，
+// 下一次运行不再加载或注入长期记忆。
+func TestReplierMemoryRecallRevocationStopsNextInjection(t *testing.T) {
+	policies := memoryReadGroupPolicy()
+	key := scopeKey(100, "group", 700)
+	memory := &fakeMemoryReader{items: []memorycontracts.Memory{{ID: "m1", Content: "不应再次注入", Visibility: "group"}}}
+	r := newReplier(t, &fakeRuntime{text: "好的"}, &fakeSender{}, &fakeRecorder{}, policies)
+	r.memory = memory
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("first execute: %v", err)
+	}
+	if memory.calls != 1 {
+		t.Fatalf("first run memory calls = %d", memory.calls)
+	}
+	p := policies[key]
+	p.AllowMemoryRead = false
+	policies[key] = p
+	fake2 := &fakeRuntime{text: "好的"}
+	r2 := newReplier(t, fake2, &fakeSender{}, &fakeRecorder{}, policies)
+	r2.memory = memory
+	if err := r2.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("second execute: %v", err)
+	}
+	if memory.calls != 1 {
+		t.Fatalf("revoked memory was still read: calls=%d", memory.calls)
+	}
+	if strings.Contains(fake2.req.Messages[0].Content, "不应再次注入") {
+		t.Fatalf("revoked memory was injected: %q", fake2.req.Messages[0].Content)
+	}
+}
+
+// TestReplierRendersExactMemorySource verifies a stored source is shown only
+// when present and is also included in the audit hit metadata.
+// TestReplierRendersExactMemorySource 验证仅在已存来源存在时展示来源，
+// 并将来源写入审计命中元数据。
+func TestReplierRendersExactMemorySource(t *testing.T) {
+	fake := &fakeRuntime{text: "好的"}
+	memory := &fakeMemoryReader{items: []memorycontracts.Memory{{
+		ID: "m-source", Content: "项目部署在 Docker", Visibility: "group",
+		Source: "群文件", SourceMessageID: 42,
+		UpdatedAt: time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC),
+	}}}
+	r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, memoryReadGroupPolicy())
+	r.memory = memory
+	audit := &fakeRunAudit{}
+	if err := r.ExecuteReply(auditcontracts.WithRun(context.Background(), audit, "run-source"), groupTaskForAgent(), nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if system := fake.req.Messages[0].Content; !strings.Contains(system, "来源：消息#42，群文件") {
+		t.Fatalf("source missing from prompt: %q", system)
+	}
+	var input map[string]any
+	for _, event := range audit.events {
+		if event.Stage == "agent.generation" {
+			if err := json.Unmarshal(event.Input, &input); err != nil {
+				t.Fatalf("decode audit input: %v", err)
+			}
+		}
+	}
+	hits, ok := input["memory_hits"].([]any)
+	if !ok || len(hits) != 1 {
+		t.Fatalf("memory_hits = %#v", input["memory_hits"])
+	}
+	hit, _ := hits[0].(map[string]any)
+	if hit["source"] != "群文件" || hit["source_message_id"] != float64(42) {
+		t.Fatalf("hit source = %#v", hit)
 	}
 }

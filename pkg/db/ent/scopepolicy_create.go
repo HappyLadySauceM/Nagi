@@ -98,6 +98,20 @@ func (_c *ScopePolicyCreate) SetNillableAllowMemoryWrite(v *bool) *ScopePolicyCr
 	return _c
 }
 
+// SetAllowMemoryRead sets the "allow_memory_read" field.
+func (_c *ScopePolicyCreate) SetAllowMemoryRead(v bool) *ScopePolicyCreate {
+	_c.mutation.SetAllowMemoryRead(v)
+	return _c
+}
+
+// SetNillableAllowMemoryRead sets the "allow_memory_read" field if the given value is not nil.
+func (_c *ScopePolicyCreate) SetNillableAllowMemoryRead(v *bool) *ScopePolicyCreate {
+	if v != nil {
+		_c.SetAllowMemoryRead(*v)
+	}
+	return _c
+}
+
 // SetAllowHistoryRead sets the "allow_history_read" field.
 func (_c *ScopePolicyCreate) SetAllowHistoryRead(v bool) *ScopePolicyCreate {
 	_c.mutation.SetAllowHistoryRead(v)
@@ -304,6 +318,10 @@ func (_c *ScopePolicyCreate) defaults() {
 		v := scopepolicy.DefaultAllowMemoryWrite
 		_c.mutation.SetAllowMemoryWrite(v)
 	}
+	if _, ok := _c.mutation.AllowMemoryRead(); !ok {
+		v := scopepolicy.DefaultAllowMemoryRead
+		_c.mutation.SetAllowMemoryRead(v)
+	}
 	if _, ok := _c.mutation.AllowHistoryRead(); !ok {
 		v := scopepolicy.DefaultAllowHistoryRead
 		_c.mutation.SetAllowHistoryRead(v)
@@ -416,6 +434,10 @@ func (_c *ScopePolicyCreate) createSpec() (*ScopePolicy, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.AllowMemoryWrite(); ok {
 		_spec.SetField(scopepolicy.FieldAllowMemoryWrite, field.TypeBool, value)
 		_node.AllowMemoryWrite = value
+	}
+	if value, ok := _c.mutation.AllowMemoryRead(); ok {
+		_spec.SetField(scopepolicy.FieldAllowMemoryRead, field.TypeBool, value)
+		_node.AllowMemoryRead = value
 	}
 	if value, ok := _c.mutation.AllowHistoryRead(); ok {
 		_spec.SetField(scopepolicy.FieldAllowHistoryRead, field.TypeBool, value)
@@ -617,6 +639,18 @@ func (u *ScopePolicyUpsert) SetAllowMemoryWrite(v bool) *ScopePolicyUpsert {
 // UpdateAllowMemoryWrite sets the "allow_memory_write" field to the value that was provided on create.
 func (u *ScopePolicyUpsert) UpdateAllowMemoryWrite() *ScopePolicyUpsert {
 	u.SetExcluded(scopepolicy.FieldAllowMemoryWrite)
+	return u
+}
+
+// SetAllowMemoryRead sets the "allow_memory_read" field.
+func (u *ScopePolicyUpsert) SetAllowMemoryRead(v bool) *ScopePolicyUpsert {
+	u.Set(scopepolicy.FieldAllowMemoryRead, v)
+	return u
+}
+
+// UpdateAllowMemoryRead sets the "allow_memory_read" field to the value that was provided on create.
+func (u *ScopePolicyUpsert) UpdateAllowMemoryRead() *ScopePolicyUpsert {
+	u.SetExcluded(scopepolicy.FieldAllowMemoryRead)
 	return u
 }
 
@@ -950,6 +984,20 @@ func (u *ScopePolicyUpsertOne) SetAllowMemoryWrite(v bool) *ScopePolicyUpsertOne
 func (u *ScopePolicyUpsertOne) UpdateAllowMemoryWrite() *ScopePolicyUpsertOne {
 	return u.Update(func(s *ScopePolicyUpsert) {
 		s.UpdateAllowMemoryWrite()
+	})
+}
+
+// SetAllowMemoryRead sets the "allow_memory_read" field.
+func (u *ScopePolicyUpsertOne) SetAllowMemoryRead(v bool) *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetAllowMemoryRead(v)
+	})
+}
+
+// UpdateAllowMemoryRead sets the "allow_memory_read" field to the value that was provided on create.
+func (u *ScopePolicyUpsertOne) UpdateAllowMemoryRead() *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateAllowMemoryRead()
 	})
 }
 
@@ -1479,6 +1527,20 @@ func (u *ScopePolicyUpsertBulk) SetAllowMemoryWrite(v bool) *ScopePolicyUpsertBu
 func (u *ScopePolicyUpsertBulk) UpdateAllowMemoryWrite() *ScopePolicyUpsertBulk {
 	return u.Update(func(s *ScopePolicyUpsert) {
 		s.UpdateAllowMemoryWrite()
+	})
+}
+
+// SetAllowMemoryRead sets the "allow_memory_read" field.
+func (u *ScopePolicyUpsertBulk) SetAllowMemoryRead(v bool) *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetAllowMemoryRead(v)
+	})
+}
+
+// UpdateAllowMemoryRead sets the "allow_memory_read" field to the value that was provided on create.
+func (u *ScopePolicyUpsertBulk) UpdateAllowMemoryRead() *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateAllowMemoryRead()
 	})
 }
 

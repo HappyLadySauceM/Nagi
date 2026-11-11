@@ -297,6 +297,7 @@ export interface ScopeForm {
   replyMode: ReplyMode
   storeMessages: boolean
   allowHistoryRead: boolean
+  allowMemoryRead: boolean
   allowMemoryWrite: boolean
   minReplyIntervalMs: number
   maxRepliesPerHour: number

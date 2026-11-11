@@ -718,6 +718,7 @@ var (
 		{Name: "reply_mode", Type: field.TypeString, Default: schema.Expr("'mention_only'::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "store_messages", Type: field.TypeBool, Default: schema.Expr("true")},
 		{Name: "allow_memory_write", Type: field.TypeBool, Default: schema.Expr("false")},
+		{Name: "allow_memory_read", Type: field.TypeBool, Default: schema.Expr("false")},
 		{Name: "allow_history_read", Type: field.TypeBool, Default: schema.Expr("false")},
 		{Name: "min_reply_interval_ms", Type: field.TypeInt, Default: schema.Expr("10000"), SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "max_replies_per_hour", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
@@ -739,7 +740,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "scope_policies_bot_accounts_scope_policies_bot_id",
-				Columns:    []*schema.Column{ScopePoliciesColumns[18]},
+				Columns:    []*schema.Column{ScopePoliciesColumns[19]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -748,7 +749,7 @@ var (
 			{
 				Name:    "scope_policies_business_key",
 				Unique:  true,
-				Columns: []*schema.Column{ScopePoliciesColumns[18], ScopePoliciesColumns[1], ScopePoliciesColumns[2]},
+				Columns: []*schema.Column{ScopePoliciesColumns[19], ScopePoliciesColumns[1], ScopePoliciesColumns[2]},
 			},
 		},
 	}

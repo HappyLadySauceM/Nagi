@@ -678,6 +678,17 @@ export function ScopeFormFields({
           warning="机器人将读取开启前的历史消息，可能包含未预期内容。"
         />
         <SwitchRow
+          id="allowMemoryRead"
+          label="允许读取长期记忆"
+          description="回复时可以使用管理员已批准且当前会话可见的长期记忆。"
+          checked={watch('allowMemoryRead')}
+          disabled={disabled}
+          onChange={(checked) =>
+            setValue('allowMemoryRead', checked, { shouldDirty: true })
+          }
+          warning="只会注入已批准、未过期的记忆，不包含原始聊天记录。"
+        />
+        <SwitchRow
           id="allowMemoryWrite"
           label="允许写入长期记忆"
           description="该会话中的信息可被提取为长期记忆，影响后续回复。"

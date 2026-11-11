@@ -19553,6 +19553,7 @@ type ScopePolicyMutation struct {
 	reply_mode                      *string
 	store_messages                  *bool
 	allow_memory_write              *bool
+	allow_memory_read               *bool
 	allow_history_read              *bool
 	min_reply_interval_ms           *int
 	addmin_reply_interval_ms        *int
@@ -19955,6 +19956,42 @@ func (m *ScopePolicyMutation) OldAllowMemoryWrite(ctx context.Context) (v bool, 
 // ResetAllowMemoryWrite resets all changes to the "allow_memory_write" field.
 func (m *ScopePolicyMutation) ResetAllowMemoryWrite() {
 	m.allow_memory_write = nil
+}
+
+// SetAllowMemoryRead sets the "allow_memory_read" field.
+func (m *ScopePolicyMutation) SetAllowMemoryRead(b bool) {
+	m.allow_memory_read = &b
+}
+
+// AllowMemoryRead returns the value of the "allow_memory_read" field in the mutation.
+func (m *ScopePolicyMutation) AllowMemoryRead() (r bool, exists bool) {
+	v := m.allow_memory_read
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAllowMemoryRead returns the old "allow_memory_read" field's value of the ScopePolicy entity.
+// If the ScopePolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopePolicyMutation) OldAllowMemoryRead(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAllowMemoryRead is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAllowMemoryRead requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAllowMemoryRead: %w", err)
+	}
+	return oldValue.AllowMemoryRead, nil
+}
+
+// ResetAllowMemoryRead resets all changes to the "allow_memory_read" field.
+func (m *ScopePolicyMutation) ResetAllowMemoryRead() {
+	m.allow_memory_read = nil
 }
 
 // SetAllowHistoryRead sets the "allow_history_read" field.
@@ -20611,7 +20648,7 @@ func (m *ScopePolicyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ScopePolicyMutation) Fields() []string {
-	fields := make([]string, 0, 18)
+	fields := make([]string, 0, 19)
 	if m.bot_id_ref != nil {
 		fields = append(fields, scopepolicy.FieldBotID)
 	}
@@ -20632,6 +20669,9 @@ func (m *ScopePolicyMutation) Fields() []string {
 	}
 	if m.allow_memory_write != nil {
 		fields = append(fields, scopepolicy.FieldAllowMemoryWrite)
+	}
+	if m.allow_memory_read != nil {
+		fields = append(fields, scopepolicy.FieldAllowMemoryRead)
 	}
 	if m.allow_history_read != nil {
 		fields = append(fields, scopepolicy.FieldAllowHistoryRead)
@@ -20688,6 +20728,8 @@ func (m *ScopePolicyMutation) Field(name string) (ent.Value, bool) {
 		return m.StoreMessages()
 	case scopepolicy.FieldAllowMemoryWrite:
 		return m.AllowMemoryWrite()
+	case scopepolicy.FieldAllowMemoryRead:
+		return m.AllowMemoryRead()
 	case scopepolicy.FieldAllowHistoryRead:
 		return m.AllowHistoryRead()
 	case scopepolicy.FieldMinReplyIntervalMs:
@@ -20733,6 +20775,8 @@ func (m *ScopePolicyMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldStoreMessages(ctx)
 	case scopepolicy.FieldAllowMemoryWrite:
 		return m.OldAllowMemoryWrite(ctx)
+	case scopepolicy.FieldAllowMemoryRead:
+		return m.OldAllowMemoryRead(ctx)
 	case scopepolicy.FieldAllowHistoryRead:
 		return m.OldAllowHistoryRead(ctx)
 	case scopepolicy.FieldMinReplyIntervalMs:
@@ -20812,6 +20856,13 @@ func (m *ScopePolicyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAllowMemoryWrite(v)
+		return nil
+	case scopepolicy.FieldAllowMemoryRead:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAllowMemoryRead(v)
 		return nil
 	case scopepolicy.FieldAllowHistoryRead:
 		v, ok := value.(bool)
@@ -21067,6 +21118,9 @@ func (m *ScopePolicyMutation) ResetField(name string) error {
 		return nil
 	case scopepolicy.FieldAllowMemoryWrite:
 		m.ResetAllowMemoryWrite()
+		return nil
+	case scopepolicy.FieldAllowMemoryRead:
+		m.ResetAllowMemoryRead()
 		return nil
 	case scopepolicy.FieldAllowHistoryRead:
 		m.ResetAllowHistoryRead()

@@ -34,6 +34,8 @@ type ScopePolicy struct {
 	StoreMessages bool `json:"store_messages,omitempty"`
 	// AllowMemoryWrite holds the value of the "allow_memory_write" field.
 	AllowMemoryWrite bool `json:"allow_memory_write,omitempty"`
+	// AllowMemoryRead holds the value of the "allow_memory_read" field.
+	AllowMemoryRead bool `json:"allow_memory_read,omitempty"`
 	// AllowHistoryRead holds the value of the "allow_history_read" field.
 	AllowHistoryRead bool `json:"allow_history_read,omitempty"`
 	// MinReplyIntervalMs holds the value of the "min_reply_interval_ms" field.
@@ -89,7 +91,7 @@ func (*ScopePolicy) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case scopepolicy.FieldToolPermissions, scopepolicy.FieldPreviousReplyPermission:
 			values[i] = new([]byte)
-		case scopepolicy.FieldEnabled, scopepolicy.FieldStoreMessages, scopepolicy.FieldAllowMemoryWrite, scopepolicy.FieldAllowHistoryRead:
+		case scopepolicy.FieldEnabled, scopepolicy.FieldStoreMessages, scopepolicy.FieldAllowMemoryWrite, scopepolicy.FieldAllowMemoryRead, scopepolicy.FieldAllowHistoryRead:
 			values[i] = new(sql.NullBool)
 		case scopepolicy.FieldID, scopepolicy.FieldBotID, scopepolicy.FieldScopeID, scopepolicy.FieldMinReplyIntervalMs, scopepolicy.FieldMaxRepliesPerHour, scopepolicy.FieldVersion, scopepolicy.FieldMaxMessagesPerRun, scopepolicy.FieldMaxCharsPerMessage, scopepolicy.FieldMaxTotalCharsPerRun, scopepolicy.FieldMessageIntervalMs:
 			values[i] = new(sql.NullInt64)
@@ -159,6 +161,12 @@ func (_m *ScopePolicy) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field allow_memory_write", values[i])
 			} else if value.Valid {
 				_m.AllowMemoryWrite = value.Bool
+			}
+		case scopepolicy.FieldAllowMemoryRead:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field allow_memory_read", values[i])
+			} else if value.Valid {
+				_m.AllowMemoryRead = value.Bool
 			}
 		case scopepolicy.FieldAllowHistoryRead:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -291,6 +299,9 @@ func (_m *ScopePolicy) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("allow_memory_write=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AllowMemoryWrite))
+	builder.WriteString(", ")
+	builder.WriteString("allow_memory_read=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AllowMemoryRead))
 	builder.WriteString(", ")
 	builder.WriteString("allow_history_read=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AllowHistoryRead))

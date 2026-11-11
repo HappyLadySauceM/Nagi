@@ -35,6 +35,7 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	if err := repo.Upsert(ctx, botID, domain.Policy{
 		ScopeType: domain.ScopeGroup, ScopeID: groupID,
 		Enabled: true, ReplyMode: domain.ModeIntentBased, StoreMessages: true,
+		AllowMemoryRead: true, AllowMemoryWrite: true, AllowHistoryRead: true,
 		ToolPermissions: map[string]bool{"qq.group.read": false, "qq.message.write": true},
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -44,7 +45,8 @@ func TestScopePolicyRoundTrip(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("get: found=%v err=%v", found, err)
 	}
-	if !stored.Enabled || stored.ReplyMode != domain.ModeIntentBased || !stored.StoreMessages {
+	if !stored.Enabled || stored.ReplyMode != domain.ModeIntentBased || !stored.StoreMessages ||
+		!stored.AllowMemoryRead || !stored.AllowMemoryWrite || !stored.AllowHistoryRead {
 		t.Fatalf("stored policy = %+v", stored)
 	}
 	// Overrides must survive the JSONB round trip; dropping a false entry would
