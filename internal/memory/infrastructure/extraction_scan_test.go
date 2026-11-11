@@ -60,7 +60,7 @@ func TestListUnregisteredMessagesSkipsQueuedAndUnauthorized(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM scope_memory_authorization_events WHERE bot_id=$1`, botID)
 	}()
 
-	items, err := repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), 10)
+	items, err := repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), lowEventID, 10)
 	if err != nil {
 		t.Fatalf("list unregistered: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestListUnregisteredMessagesIncludesTemplateAuthorization(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM scope_memory_authorization_events WHERE bot_id=$1`, botID)
 	}()
 
-	items, err := repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), 10)
+	items, err := repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), eventID, 10)
 	if err != nil {
 		t.Fatalf("list unregistered: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestListUnregisteredMessagesFindsLateCommitWithoutWatermark(t *testing.T) {
 		t.Fatalf("seed early job: %v", err)
 	}
 
-	items, err := repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), 10)
+	items, err := repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), eventID, 10)
 	if err != nil {
 		t.Fatalf("scan before late commit: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestListUnregisteredMessagesFindsLateCommitWithoutWatermark(t *testing.T) {
 	if err := lateTx.Commit(ctx); err != nil {
 		t.Fatalf("commit late message: %v", err)
 	}
-	items, err = repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), 10)
+	items, err = repo.ListUnregisteredMessages(ctx, botID, conversationID.String(), eventID, 10)
 	if err != nil {
 		t.Fatalf("scan after late commit: %v", err)
 	}
