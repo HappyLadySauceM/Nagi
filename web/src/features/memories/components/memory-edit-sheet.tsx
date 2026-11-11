@@ -93,7 +93,7 @@ export function MemoryEditSheet({ memory, onOpenChange }: MemoryEditSheetProps) 
           <div className="border-b border-border px-5 py-4">
             <SheetTitle>编辑记忆</SheetTitle>
             <SheetDescription className="mt-1">
-              只会提交内容、可见性与归属；状态请通过审批或删除操作变更。
+              只会提交内容、可见性与归属；删除操作会从数据库中永久移除该条记忆。
             </SheetDescription>
           </div>
 

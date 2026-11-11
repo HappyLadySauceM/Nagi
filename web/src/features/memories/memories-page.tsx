@@ -96,13 +96,13 @@ export function MemoriesPage() {
     }
     remove.mutate(deleting.id, {
       onSuccess: () => {
-        toast.success('记忆已从检索中移除', {
-          description: '状态标记为 deleted，历史数据仍保留在数据库中。',
+        toast.success('记忆已永久删除', {
+          description: '该记忆已从数据库中删除，无法恢复。',
         })
         setDeleting(null)
       },
       onError: (error) =>
-        toast.error('删除失败', { description: describeError(error).description }),
+        toast.error('永久删除失败', { description: describeError(error).description }),
     })
   }
 
@@ -256,8 +256,8 @@ export function MemoriesPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label="删除记忆"
-                        title="删除"
+                        aria-label="永久删除记忆"
+                        title="永久删除"
                         className="text-muted-foreground hover:text-destructive"
                         onClick={() => setDeleting(memory)}
                         disabled={memory.status === 'deleted'}
@@ -317,9 +317,9 @@ export function MemoriesPage() {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title="删除该记忆？"
-        description="删除是软删除：记录会标记为 deleted 并从检索中移除，但不会立即从数据库物理清除。"
-        confirmLabel="删除"
+        title="永久删除该记忆？"
+        description="该记忆将从数据库中永久删除，无法恢复。"
+        confirmLabel="永久删除"
         destructive
         pending={remove.isPending}
         onConfirm={runDelete}
