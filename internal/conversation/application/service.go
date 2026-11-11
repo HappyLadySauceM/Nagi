@@ -92,6 +92,30 @@ func (s *Service) RecentMessages(ctx context.Context, conversationID string, lim
 	return s.repo.RecentMessages(ctx, conversationID, limit)
 }
 
+// MessageSourceRepository is an optional narrow capability for source-message
+// reads; repositories that do not implement it simply cannot support source
+// lookup.
+// MessageSourceRepository 是来源消息读取的可选窄能力；未实现的仓库不支持来源查询。
+type MessageSourceRepository interface {
+	MessageByID(ctx context.Context, botID, messageID int64) (domain.SourceMessage, bool, error)
+}
+
+// MessageSource returns one stored message only for its own bot account. It is
+// intentionally not a general chat-history API: callers must already have a
+// memory's exact source message id and a separate history grant.
+// MessageSource 仅返回属于该机器人账号的一条已存消息。它刻意不是通用聊天历史接口：
+// 调用方必须已持有记忆的确切来源消息 ID，并另行获得历史读取授权。
+func (s *Service) MessageSource(ctx context.Context, botID, messageID int64) (domain.SourceMessage, bool, error) {
+	if botID <= 0 || messageID == 0 {
+		return domain.SourceMessage{}, false, fmt.Errorf("conversation: source message requires bot and message id")
+	}
+	repo, ok := s.repo.(MessageSourceRepository)
+	if !ok {
+		return domain.SourceMessage{}, false, nil
+	}
+	return repo.MessageByID(ctx, botID, messageID)
+}
+
 // GetConversation returns one conversation when it exists.
 // GetConversation 返回已存在的会话。
 func (s *Service) GetConversation(ctx context.Context, botID int64, kind domain.Kind, targetID int64) (domain.Conversation, bool, error) {

@@ -59,6 +59,17 @@ type Message struct {
 	CreatedAt         time.Time
 }
 
+// SourceMessage is the narrow read model used to verify a memory's original
+// source without opening a general chat-history API.
+// SourceMessage 是用于核验记忆原始来源的窄读模型，不开放通用聊天历史接口。
+type SourceMessage struct {
+	ID             int64
+	ConversationID string
+	BotID          int64
+	Text           string
+	CreatedAt      time.Time
+}
+
 // IngestInput is the input for persisting one authorized inbound message.
 // IngestInput 是持久化一条已授权入站消息的输入。
 type IngestInput struct {

@@ -287,6 +287,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		toolRegistry := pluginsapp.NewRegistry()
 		providers := []pluginscontracts.ToolProvider{
 			builtin.NewTimeProvider(),
+			builtin.NewMemoryProvider(rt.Memory, conversationSourceAdapter{svc: rt.Conversation}),
 			&mediainfra.VideoProvider{Service: mediaService, Attachments: attachmentRepo},
 			builtin.WithoutPublicDuplicates(builtin.NewQQProvider(groupInfoResolver{accounts: rt.Registry})),
 			builtin.WithoutPublicDuplicates(builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry})),
@@ -496,6 +497,19 @@ func buildBuiltins(cfg *config.Config, accounts *svc.Accounts) ([]botcontracts.H
 		handlers = append(handlers, echoinfra.NewHandler(service, cfg.Echo.Prefix))
 	}
 	return handlers, nil
+}
+
+// conversationSourceAdapter exposes only exact stored message text to the
+// built-in memory source tool.
+// conversationSourceAdapter 只向内置记忆来源工具暴露确切已存消息文本。
+type conversationSourceAdapter struct{ svc *conversationapp.Service }
+
+func (a conversationSourceAdapter) MessageSource(ctx context.Context, botID, messageID int64) (string, string, bool, error) {
+	if a.svc == nil {
+		return "", "", false, nil
+	}
+	message, found, err := a.svc.MessageSource(ctx, botID, messageID)
+	return message.ConversationID, message.Text, found, err
 }
 
 // groupInfoResolver adapts the account registry to the tool's narrow port.

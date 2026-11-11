@@ -4,8 +4,11 @@ package memory
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/google/uuid"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
@@ -53,6 +56,13 @@ func (h *Handler) requireDB(w http.ResponseWriter) bool {
 	return true
 }
 
+// validMemoryID rejects malformed path identifiers before any storage call.
+// validMemoryID 在进入存储层前拒绝格式非法的路径 ID。
+func validMemoryID(id string) bool {
+	_, err := uuid.Parse(id)
+	return err == nil
+}
+
 // List returns one page of memories filtered by visibility, owner, status or search.
 // List 返回按可见性、归属、状态或搜索过滤的一页记忆。
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -82,12 +92,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get returns one memory only when it is active and visible to the requested
-// bot and conversation scope. Source metadata is returned only when stored on
-// the entry; the handler never invents or resolves message bodies.
+// bot and conversation scope. This is an administrator management endpoint: it
+// deliberately does not apply the conversation-level allow_memory_read grant.
+// Source metadata is returned only when stored on the entry; the handler never
+// invents or resolves message bodies.
 // Get 仅在记忆激活且对请求账号、会话可见时返回该条记忆。
+// 这是管理员管理接口，刻意不套用会话级 allow_memory_read 授权。
 // 只有条目自身已存来源信息时才返回来源；处理器不编造、也不展开原始消息正文。
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
+		return
+	}
+	if !validMemoryID(r.PathValue("id")) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
 		return
 	}
 	q := r.URL.Query()
@@ -107,6 +124,10 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		ConversationID: q.Get("conversation_id"), MemoryID: r.PathValue("id"),
 	})
 	if err != nil {
+		if errors.Is(err, memoryapp.ErrInvalidID) {
+			common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+			return
+		}
 		common.WriteFailure(w, http.StatusInternalServerError, "read memory failed")
 		return
 	}
@@ -209,6 +230,10 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if !validMemoryID(id) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+		return
+	}
 	var body patchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
@@ -253,7 +278,12 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
-	if err := h.svcCtx.Memory.Delete(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if !validMemoryID(id) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+		return
+	}
+	if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "delete memory failed")
 		return
 	}

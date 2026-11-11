@@ -109,6 +109,22 @@ func (r *Repo) RecentMessages(ctx context.Context, conversationID string, limit 
 	return out, nil
 }
 
+// MessageByID returns one stored message scoped to its bot account. A missing
+// row is reported as not found, which is also the observable result after the
+// retention sweep deletes an expired message.
+// MessageByID 返回属于指定机器人账号的一条已存消息。行不存在返回未找到，
+// 这也是留存清理删除过期消息后的可观察结果。
+func (r *Repo) MessageByID(ctx context.Context, botID, messageID int64) (domain.SourceMessage, bool, error) {
+	v, err := r.pool.Client.Message.Query().Where(em.ID(messageID), em.BotID(botID)).Only(ctx)
+	if ent.IsNotFound(err) {
+		return domain.SourceMessage{}, false, nil
+	}
+	if err != nil {
+		return domain.SourceMessage{}, false, err
+	}
+	return domain.SourceMessage{ID: v.ID, ConversationID: v.ConversationID.String(), BotID: v.BotID, Text: v.TextContent, CreatedAt: v.CreatedAt}, true, nil
+}
+
 // GetConversation returns one conversation when it exists.
 // GetConversation 返回已存在的会话。
 func (r *Repo) GetConversation(ctx context.Context, botID int64, kind domain.Kind, targetID int64) (domain.Conversation, bool, error) {
