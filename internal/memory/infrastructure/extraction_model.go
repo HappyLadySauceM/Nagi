@@ -77,10 +77,6 @@ func (e *ModelExtractor) Extract(ctx context.Context, request domain.ExtractionR
 	if len(request.Messages) == 0 {
 		return nil, fmt.Errorf("memory extraction: messages required")
 	}
-	resolved, err := e.resolver.ResolveModel(ctx, "generation", request.Scope.BotID, request.Scope.ScopeType, request.Scope.ScopeID)
-	if err != nil {
-		return nil, err
-	}
 	input := extractionInput{
 		BotID:          request.Scope.BotID,
 		ConversationID: request.Scope.ConversationID,
@@ -95,7 +91,14 @@ func (e *ModelExtractor) Extract(ctx context.Context, request domain.ExtractionR
 			Text:      message.Text,
 		})
 	}
-	input = fitExtractionInput(input, request.MaxRunes)
+	input, err := fitExtractionInput(input, request.MaxRunes)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := e.resolver.ResolveModel(ctx, "generation", request.Scope.BotID, request.Scope.ScopeType, request.Scope.ScopeID)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(input)
 	if err != nil {
 		return nil, fmt.Errorf("memory extraction: marshal input: %w", err)
@@ -185,43 +188,53 @@ const extractionTruncationMarker = "\n[内容已截断]"
 
 // fitExtractionInput trims message text until the serialized model input fits
 // the configured rune budget. Labels, message ids and sender ids stay in the
-// serialized input and therefore count against the budget.
+// serialized input and therefore count against the budget. If even the
+// metadata cannot fit, it returns an explicit error instead of calling the
+// model with an over-budget input.
 // fitExtractionInput 缩小消息正文直到序列化模型输入满足字符预算；来源标签、
-// 消息 ID 与发送者 ID 始终保留并计入预算。
-func fitExtractionInput(input extractionInput, maxRunes int) extractionInput {
+// 消息 ID 与发送者 ID 始终保留并计入预算。若仅元数据就无法满足预算，则返回
+// 明确错误，不会带超预算输入调用模型。
+func fitExtractionInput(input extractionInput, maxRunes int) (extractionInput, error) {
 	if maxRunes <= 0 {
 		maxRunes = 4000
 	}
+	markerRunes := utf8.RuneCountInString(extractionTruncationMarker)
 	for {
 		payload, err := json.Marshal(input)
 		if err != nil {
-			return input
+			return input, fmt.Errorf("memory extraction: marshal bounded input: %w", err)
 		}
 		excess := utf8.RuneCount(payload) - maxRunes
 		if excess <= 0 {
-			return input
+			return input, nil
 		}
-		reduced := false
+		// Always trim the longest remaining message first. This keeps short
+		// messages intact when one oversized message can absorb the whole cut.
+		// 每次优先裁剪最长的消息，避免长消息尚未裁够时误伤短消息。
+		longest := -1
+		longestLen := 1
 		for index := range input.Messages {
 			text := strings.TrimSuffix(input.Messages[index].Text, extractionTruncationMarker)
-			runes := []rune(text)
-			if len(runes) <= 1 {
-				continue
-			}
-			cut := excess
-			if cut > len(runes)-1 {
-				cut = len(runes) - 1
-			}
-			input.Messages[index].Text = string(runes[:len(runes)-cut]) + extractionTruncationMarker
-			excess -= cut
-			reduced = true
-			if excess <= 0 {
-				break
+			length := len([]rune(text))
+			if length > longestLen {
+				longest = index
+				longestLen = length
 			}
 		}
-		if !reduced {
-			return input
+		if longest < 0 {
+			payload, err := json.Marshal(input)
+			if err != nil {
+				return input, fmt.Errorf("memory extraction: marshal bounded input: %w", err)
+			}
+			return input, fmt.Errorf("memory extraction: serialized input exceeds rune budget (%d > %d)", utf8.RuneCount(payload), maxRunes)
 		}
+		text := strings.TrimSuffix(input.Messages[longest].Text, extractionTruncationMarker)
+		runes := []rune(text)
+		cut := excess + markerRunes
+		if cut > len(runes)-1 {
+			cut = len(runes) - 1
+		}
+		input.Messages[longest].Text = string(runes[:len(runes)-cut]) + extractionTruncationMarker
 	}
 }
 
