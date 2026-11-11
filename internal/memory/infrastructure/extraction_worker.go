@@ -102,6 +102,23 @@ func (r *Repo) CreateExtractionJobs(ctx context.Context, scope domain.Extraction
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
+	// Lock the conversation row before the authorization lock. Ingest upserts
+	// the conversation and then stamps authorization in the same transaction, so
+	// both paths must use conversation -> authorization order to avoid a
+	// cross-transaction deadlock.
+	// 先锁会话行再取授权锁；Ingest 在同一事务内先锁会话、后盖章，
+	// 两条路径保持 conversation -> authorization 的统一顺序以避免死锁。
+	var lockedBotID, lockedTargetID int64
+	var lockedScopeType string
+	if err := tx.QueryRow(ctx, `SELECT bot_id, kind, target_id FROM conversations WHERE id=$1::uuid FOR UPDATE`, scope.ConversationID).Scan(&lockedBotID, &lockedScopeType, &lockedTargetID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if lockedBotID != scope.BotID || lockedScopeType != scope.ScopeType || lockedTargetID != scope.ScopeID {
+		return 0, nil
+	}
 	if err := scopeinfra.LockMemoryAuthorization(ctx, tx, scope.BotID, scope.ScopeType, scope.ScopeID); err != nil {
 		return 0, err
 	}
@@ -204,12 +221,12 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 		return domain.ExtractionBatch{}, false, err
 	}
 	defer tx.Rollback(ctx)
-	// Authorization lock precedes the conversation/job locks. The candidate
-	// row is re-read under its row lock after the authorization lock is held.
-	// 授权锁先于会话/任务锁；持有授权锁后再按行锁重读候选会话。
-	if err := scopeinfra.LockMemoryAuthorization(ctx, tx, botID, scopeType, targetID); err != nil {
-		return domain.ExtractionBatch{}, false, err
-	}
+	// Lock the conversation row before the authorization lock. Ingest upserts
+	// the conversation and then stamps authorization in the same transaction, so
+	// both paths must use conversation -> authorization order to avoid a
+	// cross-transaction deadlock.
+	// 先锁会话行再取授权锁；Ingest 在同一事务内先锁会话、后盖章，
+	// 两条路径保持 conversation -> authorization 的统一顺序以避免死锁。
 	var lockedBotID, lockedTargetID int64
 	var lockedScopeType string
 	err = tx.QueryRow(ctx, `SELECT bot_id, kind, target_id FROM conversations WHERE id=$1::uuid FOR UPDATE`, conversationID).Scan(&lockedBotID, &lockedScopeType, &lockedTargetID)
@@ -217,6 +234,12 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 		return domain.ExtractionBatch{}, false, nil
 	}
 	if err != nil {
+		return domain.ExtractionBatch{}, false, err
+	}
+	if lockedBotID != botID || lockedScopeType != scopeType || lockedTargetID != targetID {
+		return domain.ExtractionBatch{}, false, nil
+	}
+	if err := scopeinfra.LockMemoryAuthorization(ctx, tx, botID, scopeType, targetID); err != nil {
 		return domain.ExtractionBatch{}, false, err
 	}
 	var busy bool
