@@ -32,6 +32,9 @@ func TestMemoryRepositoryRoundTrip(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed bot account: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `DELETE FROM memories WHERE bot_id=$1`, botID); err != nil {
+		t.Fatalf("clean previous memories: %v", err)
+	}
 
 	shared := domain.Memory{BotID: botID, Visibility: domain.VisibilityBotShared,
 		Content: "机器人共享知识：测试用", Status: domain.StatusCandidate, Confidence: 0.9}
@@ -57,14 +60,26 @@ func TestMemoryRepositoryRoundTrip(t *testing.T) {
 		t.Fatalf("search visible: got=%+v err=%v", got, err)
 	}
 
-	// Deleted memories leave the retrieval set.
-	// 已删除记忆离开检索集合。
-	if err := repo.SoftDelete(ctx, id); err != nil {
-		t.Fatalf("soft delete: %v", err)
+	// Physical deletion removes the row from direct reads, search and listing.
+	// 物理删除会让按 ID 读取、检索和列表都不再命中。
+	deleted, err := repo.Delete(ctx, id)
+	if err != nil || !deleted {
+		t.Fatalf("delete: deleted=%v err=%v", deleted, err)
+	}
+	if _, found, err := repo.Get(ctx, id); err != nil || found {
+		t.Fatalf("get after delete: found=%v err=%v", found, err)
+	}
+	if missingDeleted, err := repo.Delete(ctx, "11111111-1111-4111-8111-111111111111"); err != nil || missingDeleted {
+		t.Fatalf("delete missing: deleted=%v err=%v", missingDeleted, err)
 	}
 	got, err = repo.SearchVisible(ctx, domain.SearchRequest{BotID: botID, Kind: "group", TargetID: 700, Limit: 5})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("after delete: got=%d err=%v", len(got), err)
+	}
+	botIDValue := int64(botID)
+	items, total, err := repo.List(ctx, domain.ListFilter{BotID: &botIDValue, Page: 1, Limit: 10})
+	if err != nil || total != 0 || len(items) != 0 {
+		t.Fatalf("list after delete: total=%d items=%d err=%v", total, len(items), err)
 	}
 
 	// Expired active memories are invisible too.

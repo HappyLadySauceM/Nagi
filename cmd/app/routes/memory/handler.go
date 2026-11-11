@@ -213,10 +213,10 @@ const (
 )
 
 // parseStatusAction validates the requested transition. Only "" (keep the
-// current status), "active" (approve) and "deleted" (soft delete) are supported:
+// current status), "active" (approve) and "deleted" (physical delete) are supported:
 // the management API cannot move a memory back to candidate or superseded, and
 // silently accepting those values would report success without any effect.
-// parseStatusAction 校验状态变更：只支持 ""（保持不变）、active（审批）与 deleted（软删除）。
+// parseStatusAction 校验状态变更：只支持 ""（保持不变）、active（审批）与 deleted（物理删除）。
 // 管理接口无法把记忆改回 candidate 或 superseded，静默接受会谎报成功。
 func parseStatusAction(status string) (statusAction, bool) {
 	switch status {
@@ -347,8 +347,8 @@ func (h *Handler) RetryExtractionJob(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Delete removes one memory from retrieval.
-// Delete 将一条记忆从检索中移除。
+// Delete permanently removes one memory.
+// Delete 永久删除一条记忆。
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
@@ -359,6 +359,10 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, memoryapp.ErrMemoryNotFound) {
+			common.WriteFailure(w, http.StatusNotFound, "memory not found")
+			return
+		}
 		common.WriteFailure(w, http.StatusInternalServerError, "delete memory failed")
 		return
 	}

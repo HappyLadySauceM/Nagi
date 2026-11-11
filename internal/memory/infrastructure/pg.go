@@ -109,13 +109,16 @@ func (r *Repo) Update(ctx context.Context, v domain.Memory) error {
 	}
 	return b.Exec(ctx)
 }
-func (r *Repo) SoftDelete(ctx context.Context, id string) error {
+func (r *Repo) Delete(ctx context.Context, id string) (bool, error) {
 	key, err := uuid.Parse(id)
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = r.pool.Client.Memory.Update().Where(m.ID(key)).SetStatus("deleted").SetUpdatedAt(time.Now()).Save(ctx)
-	return err
+	count, err := r.pool.Client.Memory.Delete().Where(m.ID(key)).Exec(ctx)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 func (r *Repo) List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, int64, error) {
 	q := r.pool.Client.Memory.Query()

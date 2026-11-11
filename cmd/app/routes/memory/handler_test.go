@@ -28,7 +28,7 @@ func TestParseStatusAction(t *testing.T) {
 	}{
 		{name: "keep current status", status: "", want: statusNone, ok: true},
 		{name: "approve", status: "active", want: statusApprove, ok: true},
-		{name: "soft delete", status: "deleted", want: statusDelete, ok: true},
+		{name: "delete", status: "deleted", want: statusDelete, ok: true},
 		{name: "candidate is not reachable", status: "candidate", want: statusNone, ok: false},
 		{name: "superseded is not reachable", status: "superseded", want: statusNone, ok: false},
 		{name: "unknown status", status: "archived", want: statusNone, ok: false},
@@ -44,14 +44,14 @@ func TestParseStatusAction(t *testing.T) {
 	}
 }
 
-type handlerMemoryRepo struct{}
+type handlerMemoryRepo struct{ deleteFound bool }
 
 func (handlerMemoryRepo) Insert(context.Context, domain.Memory) (string, error) { return "", nil }
 func (handlerMemoryRepo) Get(context.Context, string) (domain.Memory, bool, error) {
 	return domain.Memory{}, false, nil
 }
-func (handlerMemoryRepo) Update(context.Context, domain.Memory) error { return nil }
-func (handlerMemoryRepo) SoftDelete(context.Context, string) error    { return nil }
+func (handlerMemoryRepo) Update(context.Context, domain.Memory) error    { return nil }
+func (f handlerMemoryRepo) Delete(context.Context, string) (bool, error) { return f.deleteFound, nil }
 func (handlerMemoryRepo) List(context.Context, domain.ListFilter) ([]domain.Memory, int64, error) {
 	return nil, 0, nil
 }
@@ -101,6 +101,40 @@ func TestDeleteRejectsMalformedMemoryID(t *testing.T) {
 	h.Delete(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestDeleteReturnsNotFound verifies a valid but absent memory id maps to 404.
+// TestDeleteReturnsNotFound 验证合法但不存在的记忆 ID 返回 404。
+func TestDeleteReturnsNotFound(t *testing.T) {
+	service, err := memoryapp.NewService(handlerMemoryRepo{})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/memories/11111111-1111-4111-8111-111111111111", nil)
+	req.SetPathValue("id", "11111111-1111-4111-8111-111111111111")
+	rec := httptest.NewRecorder()
+	h.Delete(rec, req)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "memory not found") {
+		t.Fatalf("status = %d body=%s, want 404 memory not found", rec.Code, rec.Body.String())
+	}
+}
+
+// TestDeleteReturnsSuccess verifies a successful physical delete maps to 200.
+// TestDeleteReturnsSuccess 验证成功的物理删除返回 200。
+func TestDeleteReturnsSuccess(t *testing.T) {
+	service, err := memoryapp.NewService(handlerMemoryRepo{deleteFound: true})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/memories/11111111-1111-4111-8111-111111111111", nil)
+	req.SetPathValue("id", "11111111-1111-4111-8111-111111111111")
+	rec := httptest.NewRecorder()
+	h.Delete(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "deleted") {
+		t.Fatalf("status = %d body=%s, want 200 deleted", rec.Code, rec.Body.String())
 	}
 }
 
