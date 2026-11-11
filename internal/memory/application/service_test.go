@@ -44,11 +44,12 @@ func (f *fakeMemoryRepo) Update(_ context.Context, m domain.Memory) error {
 	return nil
 }
 
-func (f *fakeMemoryRepo) SoftDelete(_ context.Context, id string) error {
-	m := f.items[id]
-	m.Status = domain.StatusDeleted
-	f.items[id] = m
-	return nil
+func (f *fakeMemoryRepo) Delete(_ context.Context, id string) (bool, error) {
+	if _, ok := f.items[id]; !ok {
+		return false, nil
+	}
+	delete(f.items, id)
+	return true, nil
 }
 
 func (f *fakeMemoryRepo) List(_ context.Context, _ domain.ListFilter) ([]domain.Memory, int64, error) {
@@ -199,9 +200,24 @@ func TestDeleteRemovesFromSearch(t *testing.T) {
 	if err := svc.Delete(ctx, id); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
+	if _, found, err := svc.Get(ctx, id); err != nil || found {
+		t.Fatalf("deleted memory get: found=%v err=%v", found, err)
+	}
 	got, err := svc.SearchVisible(ctx, domain.SearchRequest{BotID: 1, Kind: "group", TargetID: 700, Limit: 5})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("deleted memory still visible: got=%d err=%v", len(got), err)
+	}
+}
+
+// TestDeleteMissingReturnsNotFound verifies deleting an absent row reports the
+// stable not-found error instead of silently succeeding.
+// TestDeleteMissingReturnsNotFound 验证删除不存在的行返回稳定的 not-found 错误，
+// 而不是静默成功。
+func TestDeleteMissingReturnsNotFound(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	err := svc.Delete(context.Background(), "missing")
+	if !errors.Is(err, ErrMemoryNotFound) {
+		t.Fatalf("delete missing error = %v, want ErrMemoryNotFound", err)
 	}
 }
 

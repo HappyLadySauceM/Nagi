@@ -20,6 +20,10 @@ import (
 // ErrInvalidID 表示记忆 ID 格式非法，避免把解析错误当成内部错误返回。
 var ErrInvalidID = errors.New("memory: invalid memory id")
 
+// ErrMemoryNotFound reports that a memory row does not exist.
+// ErrMemoryNotFound 表示记忆行不存在。
+var ErrMemoryNotFound = errors.New("memory: memory not found")
+
 // Extraction management errors are stable, safe messages for the HTTP layer.
 // 提取管理错误是提供给 HTTP 层的稳定安全消息。
 var (
@@ -45,7 +49,7 @@ type Repository interface {
 	Insert(ctx context.Context, m domain.Memory) (string, error)
 	Get(ctx context.Context, memoryID string) (domain.Memory, bool, error)
 	Update(ctx context.Context, m domain.Memory) error
-	SoftDelete(ctx context.Context, memoryID string) error
+	Delete(ctx context.Context, memoryID string) (bool, error)
 	List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, int64, error)
 	FindSame(ctx context.Context, botID int64, visibility domain.Visibility, ownerKey, content string) (domain.Memory, bool, error)
 	SearchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error)
@@ -223,10 +227,17 @@ func (s *Service) Revise(ctx context.Context, memoryID string, content string, v
 	return s.repo.Update(ctx, m)
 }
 
-// Delete removes a memory from retrieval by marking it deleted.
-// Delete 将记忆标记为删除，使其从检索结果中消失。
+// Delete permanently removes one memory row.
+// Delete 永久删除一条记忆行。
 func (s *Service) Delete(ctx context.Context, memoryID string) error {
-	return s.repo.SoftDelete(ctx, memoryID)
+	deleted, err := s.repo.Delete(ctx, memoryID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return ErrMemoryNotFound
+	}
+	return nil
 }
 
 // Get returns one memory when it exists.
