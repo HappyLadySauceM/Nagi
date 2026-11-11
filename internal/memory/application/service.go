@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,10 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
+
+// ErrInvalidID reports a malformed memory identifier before it reaches storage.
+// ErrInvalidID 表示记忆 ID 格式非法，避免把解析错误当成内部错误返回。
+var ErrInvalidID = errors.New("memory: invalid memory id")
 
 // Service implements the read-only recall port used by reply generation.
 // Service 实现回复生成使用的只读召回端口。
@@ -221,6 +226,9 @@ func (s *Service) RecallDetail(ctx context.Context, in contracts.DetailRequest) 
 	}
 	if in.TargetID <= 0 || strings.TrimSpace(in.MemoryID) == "" {
 		return contracts.Memory{}, false, fmt.Errorf("memory: target id and memory id are required")
+	}
+	if _, err := uuid.Parse(in.MemoryID); err != nil {
+		return contracts.Memory{}, false, fmt.Errorf("%w: %q", ErrInvalidID, in.MemoryID)
 	}
 	item, found, err := s.repo.Get(ctx, in.MemoryID)
 	if err != nil || !found {

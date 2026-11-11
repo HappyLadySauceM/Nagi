@@ -19,6 +19,7 @@ import (
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
@@ -288,5 +289,173 @@ func TestReplyRunStaysStoppedAfterRefusal(t *testing.T) {
 	}
 	if calls != 2 || len(runs) != 3 || runs[2].Status != "denied" || runs[2].ErrorCode != "authorization_revoked" {
 		t.Fatalf("run resumed after refusal: calls=%d runs=%+v", calls, runs)
+	}
+}
+
+// TestBuildToolsResolverGatesMemoryTools verifies memory tools are exposed only
+// when their separate run grants are present, and source additionally requires
+// history read.
+// TestBuildToolsResolverGatesMemoryTools 验证记忆工具仅在独立运行授权存在时暴露，
+// 来源工具还额外要求历史读取授权。
+func TestBuildToolsResolverGatesMemoryTools(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemoryDetailToolID, Description: "记忆详情", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "detail", nil },
+		},
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemorySourceToolID, Description: "记忆来源", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "source", nil },
+		},
+	}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+	resolver := buildToolsResolver(settingsForTest(&config.Config{}), registry)
+	cases := []struct {
+		name        string
+		memoryRead  bool
+		historyRead bool
+		want        []string
+	}{
+		{name: "memory_on_history_on", memoryRead: true, historyRead: true, want: []string{"memory_detail", "memory_source"}},
+		{name: "memory_on_history_off", memoryRead: true, historyRead: false, want: []string{"memory_detail"}},
+		{name: "memory_off_history_on", memoryRead: false, historyRead: true, want: []string{}},
+		{name: "memory_off_history_off", memoryRead: false, historyRead: false, want: []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exposed := resolver(context.Background(), agentcontracts.Request{
+				Kind: plugincontracts.ScopeKindGroup, AllowMemoryRead: tc.memoryRead, AllowHistoryRead: tc.historyRead,
+			})
+			got := exposedToolNames(t, exposed)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("tools = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// mutableScopeRepo is a one-row scope repository used to simulate an
+// administrator revoking a permission while a run is in progress.
+// mutableScopeRepo 是单行作用域仓库，用于模拟运行中管理员撤销权限。
+type mutableScopeRepo struct{ policy scopedomain.Policy }
+
+func (r *mutableScopeRepo) Get(context.Context, int64, scopedomain.ScopeType, int64) (scopedomain.Policy, bool, error) {
+	return r.policy, true, nil
+}
+func (r *mutableScopeRepo) List(context.Context, *int64) ([]scopedomain.Policy, error) {
+	return []scopedomain.Policy{r.policy}, nil
+}
+func (r *mutableScopeRepo) Upsert(_ context.Context, _ int64, p scopedomain.Policy) error {
+	r.policy = p
+	return nil
+}
+func (r *mutableScopeRepo) Delete(context.Context, int64, scopedomain.ScopeType, int64) (bool, error) {
+	return false, nil
+}
+
+// TestMemoryToolReauthorizationBlocksAfterRevocation verifies the tool guard
+// re-reads the scope and denies a memory tool after allow_memory_read is
+// revoked mid-run.
+// TestMemoryToolReauthorizationBlocksAfterRevocation 验证工具守卫重新读取作用域，
+// 运行中撤销 allow_memory_read 后拒绝记忆工具。
+func TestMemoryToolReauthorizationBlocksAfterRevocation(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{{
+		Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemoryDetailToolID, Description: "记忆详情", ReadOnly: true},
+		Invoke:     func(context.Context, string) (string, error) { return "detail", nil },
+	}}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+	repo := &mutableScopeRepo{policy: scopedomain.Policy{
+		ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, AllowMemoryRead: true,
+	}}
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatalf("new scope service: %v", err)
+	}
+	resolver := buildToolsResolver(settingsForTest(&config.Config{}), registry, scopeService)
+	ctx := context.Background()
+	tools := resolver(ctx, agentcontracts.Request{
+		BotID: 1, Kind: plugincontracts.ScopeKindGroup, TargetID: 700,
+		ConversationID: "conv-1", AllowMemoryRead: true,
+	})
+	if len(tools) != 1 {
+		t.Fatalf("exposed tools = %d, want 1", len(tools))
+	}
+	invokable, ok := tools[0].(tool.InvokableTool)
+	if !ok {
+		t.Fatalf("tool type = %T", tools[0])
+	}
+	if out, err := invokable.InvokableRun(ctx, "{}"); err != nil || out != "detail" {
+		t.Fatalf("first call = %q, %v", out, err)
+	}
+	repo.policy.AllowMemoryRead = false
+	out, err := invokable.InvokableRun(ctx, "{}")
+	if err != nil || !strings.Contains(out, "authorization denied") {
+		t.Fatalf("revoked call = %q, %v", out, err)
+	}
+}
+
+// TestMemorySourceReauthorizationBlocksAfterHistoryRevocation verifies history
+// revocation blocks the source tool while leaving metadata detail available.
+// TestMemorySourceReauthorizationBlocksAfterHistoryRevocation 验证撤销历史读取后
+// 来源工具被拒绝，而元数据详情仍可用。
+func TestMemorySourceReauthorizationBlocksAfterHistoryRevocation(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	provider := fakeProvider{tools: []plugincontracts.RegisteredTool{
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemoryDetailToolID, Description: "记忆详情", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "detail", nil },
+		},
+		{
+			Descriptor: plugincontracts.ToolDescriptor{ID: plugincontracts.MemorySourceToolID, Description: "记忆来源", ReadOnly: true},
+			Invoke:     func(context.Context, string) (string, error) { return "source", nil },
+		},
+	}}
+	if err := registry.Register(context.Background(), provider); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { _ = registry.Close(context.Background()) })
+	repo := &mutableScopeRepo{policy: scopedomain.Policy{
+		ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, AllowMemoryRead: true, AllowHistoryRead: true,
+	}}
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatalf("new scope service: %v", err)
+	}
+	resolver := buildToolsResolver(settingsForTest(&config.Config{}), registry, scopeService)
+	ctx := context.Background()
+	tools := resolver(ctx, agentcontracts.Request{
+		BotID: 1, Kind: plugincontracts.ScopeKindGroup, TargetID: 700,
+		ConversationID: "conv-1", AllowMemoryRead: true, AllowHistoryRead: true,
+	})
+	if len(tools) != 2 {
+		t.Fatalf("exposed tools = %d, want 2", len(tools))
+	}
+	detail, ok := tools[0].(tool.InvokableTool)
+	if !ok {
+		t.Fatalf("detail tool type = %T", tools[0])
+	}
+	source, ok := tools[1].(tool.InvokableTool)
+	if !ok {
+		t.Fatalf("source tool type = %T", tools[1])
+	}
+	if out, err := source.InvokableRun(ctx, "{}"); err != nil || out != "source" {
+		t.Fatalf("first source call = %q, %v", out, err)
+	}
+	repo.policy.AllowHistoryRead = false
+	if out, err := source.InvokableRun(ctx, "{}"); err != nil || !strings.Contains(out, "authorization denied") {
+		t.Fatalf("revoked source call = %q, %v", out, err)
+	}
+	if out, err := detail.InvokableRun(ctx, "{}"); err != nil || out != "detail" {
+		t.Fatalf("detail after history revocation = %q, %v", out, err)
 	}
 }
