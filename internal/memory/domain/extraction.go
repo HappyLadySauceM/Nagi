@@ -58,3 +58,66 @@ func (f ExtractionJobFilter) Normalized() ExtractionJobFilter {
 // Offset is the SQL offset for the normalized filter.
 // Offset 返回规范化过滤条件的 SQL 偏移量。
 func (f ExtractionJobFilter) Offset() int { return (f.Page - 1) * f.Limit }
+
+// ExtractionScope is one authorized conversation and its current memory
+// authorization generation.
+// ExtractionScope 是一个已授权会话及其当前记忆授权代际。
+type ExtractionScope struct {
+	BotID                int64
+	ConversationID       string
+	ScopeType            string
+	ScopeID              int64
+	AuthorizationEventID int64
+}
+
+// ExtractionBatch is a claimed set of one-message jobs coalesced for one model
+// call. All jobs share the same bot, conversation and authorization generation.
+// ExtractionBatch 是为一次模型调用合并的一组单消息任务；同批任务共享同一
+// bot、会话与授权代际。
+type ExtractionBatch struct {
+	Scope          ExtractionScope
+	Jobs           []ExtractionJob
+	Messages       []ExtractionSourceMessage
+	ClaimToken     string
+	LeaseExpiresAt time.Time
+}
+
+// ExtractionClaimOptions bounds one claimed batch.
+// ExtractionClaimOptions 限定一次认领批次的大小与租约。
+type ExtractionClaimOptions struct {
+	MaxMessages int
+	MaxRunes    int
+	Lease       time.Duration
+}
+
+// ExtractionCandidate is one candidate returned by the extractor. Subject is
+// the model's asserted relation: "sender", "group" or "unknown"; the worker
+// validates it against the source message before persistence.
+// ExtractionCandidate 是抽取器返回的一条候选。Subject 是模型断言的主体关系：
+// "sender"、"group" 或 "unknown"；工作器在落库前按来源消息校验。
+type ExtractionCandidate struct {
+	Content         string
+	Confidence      float64
+	SourceMessageID int64
+	Subject         string
+	SubjectLabel    string
+	ReviewReason    string
+}
+
+// ExtractionRequest is the bounded input of one model extraction call.
+// ExtractionRequest 是一次模型抽取调用的有界输入。
+type ExtractionRequest struct {
+	Scope    ExtractionScope
+	Messages []ExtractionSourceMessage
+	// MaxRunes bounds the serialized prompt including source labels, IDs and senders.
+	// MaxRunes 限制序列化提示词的总字符数（含来源标签、ID 与发送者）。
+	MaxRunes int
+}
+
+// FinalizeResult reports the candidate persistence outcome of one batch.
+// FinalizeResult 报告一个批次的候选落库结果。
+type FinalizeResult struct {
+	Created    int
+	Duplicates int
+	Suppressed int
+}

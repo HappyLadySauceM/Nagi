@@ -16,8 +16,8 @@ import (
 // ListUnregisteredMessages 返回一批有持久授权戳且尚未建立提取任务的入站消息。
 // NOT EXISTS 是持久去重条件，刻意不设 id 或时间下界，因此晚于上次扫描才提交的
 // 消息仍然可被发现；LIMIT 控制每页大小，避免无界扫描。
-func (r *Repo) ListUnregisteredMessages(ctx context.Context, botID int64, conversationID string, limit int) ([]domain.ExtractionSourceMessage, error) {
-	if botID <= 0 || conversationID == "" || limit <= 0 {
+func (r *Repo) ListUnregisteredMessages(ctx context.Context, botID int64, conversationID string, authorizationEventID int64, limit int) ([]domain.ExtractionSourceMessage, error) {
+	if botID <= 0 || conversationID == "" || authorizationEventID <= 0 || limit <= 0 {
 		return nil, fmt.Errorf("memory: invalid extraction scan input")
 	}
 	rows, err := r.pool.Query(ctx, `
@@ -31,10 +31,11 @@ func (r *Repo) ListUnregisteredMessages(ctx context.Context, botID int64, conver
 			AND e.scope_type = c.kind
 			AND (e.scope_id = c.target_id OR e.scope_id = 0)
 		WHERE m.bot_id=$1 AND m.conversation_id=$2 AND m.direction='incoming'
+			AND m.memory_authorization_event_id=$3
 			AND e.authorized = true
 			AND NOT EXISTS (SELECT 1 FROM memory_extraction_jobs j WHERE j.message_id=m.id)
 		ORDER BY m.id
-		LIMIT $3`, botID, conversationID, limit)
+		LIMIT $4`, botID, conversationID, authorizationEventID, limit)
 	if err != nil {
 		return nil, err
 	}

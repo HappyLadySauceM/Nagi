@@ -132,6 +132,10 @@ type Runtime struct {
 	// SettingsProvider is the live snapshot every run reads.
 	// SettingsProvider 是每次运行读取的实时快照。
 	SettingsProvider *settingsapp.Provider
+	// ExtractionWorker runs asynchronous memory candidate extraction; nil when
+	// memory.extraction.enabled is false.
+	// ExtractionWorker 运行异步记忆候选提取；memory.extraction.enabled 为 false 时为 nil。
+	ExtractionWorker *memoryapp.ExtractionWorker
 }
 
 // Assemble wires one connection per configured endpoint, registers the shared
@@ -379,6 +383,37 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		})
 		rt.Settings = settingsService
 		rt.SettingsProvider = settingsProvider
+		if cfg.Memory.Extraction.Enabled {
+			extractionRepo, extractionRepoErr := memoryinfra.NewRepo(pool)
+			if extractionRepoErr != nil {
+				return nil, extractionRepoErr
+			}
+			extractionRetryDelays := make([]time.Duration, 0, len(cfg.Memory.Extraction.RetryDelays))
+			for _, delay := range cfg.Memory.Extraction.RetryDelays {
+				extractionRetryDelays = append(extractionRetryDelays, delay.D())
+			}
+			extractionWorker, extractionWorkerErr := memoryapp.NewExtractionWorker(
+				extractionRepo,
+				memoryinfra.NewModelExtractor(settingsService),
+				rt.Scope,
+				memoryapp.ExtractionWorkerOptions{
+					Enabled:          func() bool { return cfg.Memory.Extraction.Enabled },
+					Concurrency:      cfg.Memory.Extraction.Concurrency,
+					BatchMaxMessages: cfg.Memory.Extraction.BatchMaxMessages,
+					BatchMaxRunes:    cfg.Memory.Extraction.BatchMaxRunes,
+					MaxWait:          cfg.Memory.Extraction.MaxWait.D(),
+					PollInterval:     cfg.Memory.Extraction.PollInterval.D(),
+					MaxAttempts:      cfg.Memory.Extraction.MaxAttempts,
+					RetryDelays:      extractionRetryDelays,
+					Lease:            cfg.Memory.Extraction.LeaseDuration.D(),
+				},
+				logger,
+			)
+			if extractionWorkerErr != nil {
+				return nil, extractionWorkerErr
+			}
+			rt.ExtractionWorker = extractionWorker
+		}
 		logger.Info("tools registered",
 			"count", len(toolRegistry.Snapshot()),
 			"providers", len(toolRegistry.Manifests()))
