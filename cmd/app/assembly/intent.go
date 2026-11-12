@@ -479,7 +479,11 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	replayService := intentapp.NewReplayService(decider, decisionsRepo, decisionsRepo)
+	replayRepo, err := intentinfra.NewReplayEvaluationsRepo(pool)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	replayService := intentapp.NewReplayService(decider, decisionsRepo, decisionsRepo, replayRepo)
 	repo, err := conversationinfra.NewRepo(pool)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err

@@ -189,6 +189,18 @@ func (f IntentPromptVersionFunc) Mutate(ctx context.Context, m ent.Mutation) (en
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentPromptVersionMutation", m)
 }
 
+// The IntentReplayEvaluationFunc type is an adapter to allow the use of ordinary
+// function as IntentReplayEvaluation mutator.
+type IntentReplayEvaluationFunc func(context.Context, *ent.IntentReplayEvaluationMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f IntentReplayEvaluationFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.IntentReplayEvaluationMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentReplayEvaluationMutation", m)
+}
+
 // The IntentRuleActivationFunc type is an adapter to allow the use of ordinary
 // function as IntentRuleActivation mutator.
 type IntentRuleActivationFunc func(context.Context, *ent.IntentRuleActivationMutation) (ent.Value, error)

@@ -15,6 +15,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 )
 
@@ -157,6 +158,21 @@ func (_c *IntentDecisionCreate) AddIntentDecisionSnapshotsDecisionID(v ...*Inten
 		ids[i] = v[i].ID
 	}
 	return _c.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
+}
+
+// AddIntentReplayEvaluationsDecisionIDIDs adds the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity by IDs.
+func (_c *IntentDecisionCreate) AddIntentReplayEvaluationsDecisionIDIDs(ids ...int64) *IntentDecisionCreate {
+	_c.mutation.AddIntentReplayEvaluationsDecisionIDIDs(ids...)
+	return _c
+}
+
+// AddIntentReplayEvaluationsDecisionID adds the "intent_replay_evaluations_decision_id" edges to the IntentReplayEvaluation entity.
+func (_c *IntentDecisionCreate) AddIntentReplayEvaluationsDecisionID(v ...*IntentReplayEvaluation) *IntentDecisionCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddIntentReplayEvaluationsDecisionIDIDs(ids...)
 }
 
 // Mutation returns the IntentDecisionMutation object of the builder.
@@ -340,6 +356,22 @@ func (_c *IntentDecisionCreate) createSpec() (*IntentDecision, *sqlgraph.CreateS
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.IntentReplayEvaluationsDecisionIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentReplayEvaluationsDecisionIDTable,
+			Columns: []string{intentdecision.IntentReplayEvaluationsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentreplayevaluation.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

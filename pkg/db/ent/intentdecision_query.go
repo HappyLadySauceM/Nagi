@@ -16,6 +16,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 )
@@ -30,6 +31,7 @@ type IntentDecisionQuery struct {
 	withJobIDRef                          *MessageJobQuery
 	withIntentDecisionStepsDecisionID     *IntentDecisionStepQuery
 	withIntentDecisionSnapshotsDecisionID *IntentDecisionSnapshotQuery
+	withIntentReplayEvaluationsDecisionID *IntentReplayEvaluationQuery
 	modifiers                             []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -126,6 +128,28 @@ func (_q *IntentDecisionQuery) QueryIntentDecisionSnapshotsDecisionID() *IntentD
 			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, selector),
 			sqlgraph.To(intentdecisionsnapshot.Table, intentdecisionsnapshot.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, intentdecision.IntentDecisionSnapshotsDecisionIDTable, intentdecision.IntentDecisionSnapshotsDecisionIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryIntentReplayEvaluationsDecisionID chains the current query on the "intent_replay_evaluations_decision_id" edge.
+func (_q *IntentDecisionQuery) QueryIntentReplayEvaluationsDecisionID() *IntentReplayEvaluationQuery {
+	query := (&IntentReplayEvaluationClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, selector),
+			sqlgraph.To(intentreplayevaluation.Table, intentreplayevaluation.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, intentdecision.IntentReplayEvaluationsDecisionIDTable, intentdecision.IntentReplayEvaluationsDecisionIDColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -328,6 +352,7 @@ func (_q *IntentDecisionQuery) Clone() *IntentDecisionQuery {
 		withJobIDRef:                          _q.withJobIDRef.Clone(),
 		withIntentDecisionStepsDecisionID:     _q.withIntentDecisionStepsDecisionID.Clone(),
 		withIntentDecisionSnapshotsDecisionID: _q.withIntentDecisionSnapshotsDecisionID.Clone(),
+		withIntentReplayEvaluationsDecisionID: _q.withIntentReplayEvaluationsDecisionID.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -364,6 +389,17 @@ func (_q *IntentDecisionQuery) WithIntentDecisionSnapshotsDecisionID(opts ...fun
 		opt(query)
 	}
 	_q.withIntentDecisionSnapshotsDecisionID = query
+	return _q
+}
+
+// WithIntentReplayEvaluationsDecisionID tells the query-builder to eager-load the nodes that are connected to
+// the "intent_replay_evaluations_decision_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *IntentDecisionQuery) WithIntentReplayEvaluationsDecisionID(opts ...func(*IntentReplayEvaluationQuery)) *IntentDecisionQuery {
+	query := (&IntentReplayEvaluationClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withIntentReplayEvaluationsDecisionID = query
 	return _q
 }
 
@@ -445,10 +481,11 @@ func (_q *IntentDecisionQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	var (
 		nodes       = []*IntentDecision{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withJobIDRef != nil,
 			_q.withIntentDecisionStepsDecisionID != nil,
 			_q.withIntentDecisionSnapshotsDecisionID != nil,
+			_q.withIntentReplayEvaluationsDecisionID != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -492,6 +529,15 @@ func (_q *IntentDecisionQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 			func(n *IntentDecision) { n.Edges.IntentDecisionSnapshotsDecisionID = []*IntentDecisionSnapshot{} },
 			func(n *IntentDecision, e *IntentDecisionSnapshot) {
 				n.Edges.IntentDecisionSnapshotsDecisionID = append(n.Edges.IntentDecisionSnapshotsDecisionID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withIntentReplayEvaluationsDecisionID; query != nil {
+		if err := _q.loadIntentReplayEvaluationsDecisionID(ctx, query, nodes,
+			func(n *IntentDecision) { n.Edges.IntentReplayEvaluationsDecisionID = []*IntentReplayEvaluation{} },
+			func(n *IntentDecision, e *IntentReplayEvaluation) {
+				n.Edges.IntentReplayEvaluationsDecisionID = append(n.Edges.IntentReplayEvaluationsDecisionID, e)
 			}); err != nil {
 			return nil, err
 		}
@@ -573,6 +619,36 @@ func (_q *IntentDecisionQuery) loadIntentDecisionSnapshotsDecisionID(ctx context
 	}
 	query.Where(predicate.IntentDecisionSnapshot(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(intentdecision.IntentDecisionSnapshotsDecisionIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.DecisionID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "decision_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *IntentDecisionQuery) loadIntentReplayEvaluationsDecisionID(ctx context.Context, query *IntentReplayEvaluationQuery, nodes []*IntentDecision, init func(*IntentDecision), assign func(*IntentDecision, *IntentReplayEvaluation)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*IntentDecision)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(intentreplayevaluation.FieldDecisionID)
+	}
+	query.Where(predicate.IntentReplayEvaluation(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(intentdecision.IntentReplayEvaluationsDecisionIDColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

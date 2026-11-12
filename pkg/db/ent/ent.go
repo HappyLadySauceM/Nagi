@@ -27,6 +27,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
@@ -114,6 +115,7 @@ func checkColumn(t, c string) error {
 			intentdecisionsnapshot.Table:        intentdecisionsnapshot.ValidColumn,
 			intentdecisionstep.Table:            intentdecisionstep.ValidColumn,
 			intentpromptversion.Table:           intentpromptversion.ValidColumn,
+			intentreplayevaluation.Table:        intentreplayevaluation.ValidColumn,
 			intentruleactivation.Table:          intentruleactivation.ValidColumn,
 			intentruleentry.Table:               intentruleentry.ValidColumn,
 			intentruleset.Table:                 intentruleset.ValidColumn,

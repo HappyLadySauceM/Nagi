@@ -16,6 +16,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 )
@@ -205,6 +206,21 @@ func (_u *IntentDecisionUpdate) AddIntentDecisionSnapshotsDecisionID(v ...*Inten
 	return _u.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
 }
 
+// AddIntentReplayEvaluationsDecisionIDIDs adds the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity by IDs.
+func (_u *IntentDecisionUpdate) AddIntentReplayEvaluationsDecisionIDIDs(ids ...int64) *IntentDecisionUpdate {
+	_u.mutation.AddIntentReplayEvaluationsDecisionIDIDs(ids...)
+	return _u
+}
+
+// AddIntentReplayEvaluationsDecisionID adds the "intent_replay_evaluations_decision_id" edges to the IntentReplayEvaluation entity.
+func (_u *IntentDecisionUpdate) AddIntentReplayEvaluationsDecisionID(v ...*IntentReplayEvaluation) *IntentDecisionUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIntentReplayEvaluationsDecisionIDIDs(ids...)
+}
+
 // Mutation returns the IntentDecisionMutation object of the builder.
 func (_u *IntentDecisionUpdate) Mutation() *IntentDecisionMutation {
 	return _u.mutation
@@ -256,6 +272,27 @@ func (_u *IntentDecisionUpdate) RemoveIntentDecisionSnapshotsDecisionID(v ...*In
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveIntentDecisionSnapshotsDecisionIDIDs(ids...)
+}
+
+// ClearIntentReplayEvaluationsDecisionID clears all "intent_replay_evaluations_decision_id" edges to the IntentReplayEvaluation entity.
+func (_u *IntentDecisionUpdate) ClearIntentReplayEvaluationsDecisionID() *IntentDecisionUpdate {
+	_u.mutation.ClearIntentReplayEvaluationsDecisionID()
+	return _u
+}
+
+// RemoveIntentReplayEvaluationsDecisionIDIDs removes the "intent_replay_evaluations_decision_id" edge to IntentReplayEvaluation entities by IDs.
+func (_u *IntentDecisionUpdate) RemoveIntentReplayEvaluationsDecisionIDIDs(ids ...int64) *IntentDecisionUpdate {
+	_u.mutation.RemoveIntentReplayEvaluationsDecisionIDIDs(ids...)
+	return _u
+}
+
+// RemoveIntentReplayEvaluationsDecisionID removes "intent_replay_evaluations_decision_id" edges to IntentReplayEvaluation entities.
+func (_u *IntentDecisionUpdate) RemoveIntentReplayEvaluationsDecisionID(v ...*IntentReplayEvaluation) *IntentDecisionUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIntentReplayEvaluationsDecisionIDIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -456,6 +493,51 @@ func (_u *IntentDecisionUpdate) sqlSave(ctx context.Context) (_node int, err err
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.IntentReplayEvaluationsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentReplayEvaluationsDecisionIDTable,
+			Columns: []string{intentdecision.IntentReplayEvaluationsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentreplayevaluation.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIntentReplayEvaluationsDecisionIDIDs(); len(nodes) > 0 && !_u.mutation.IntentReplayEvaluationsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentReplayEvaluationsDecisionIDTable,
+			Columns: []string{intentdecision.IntentReplayEvaluationsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentreplayevaluation.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentReplayEvaluationsDecisionIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentReplayEvaluationsDecisionIDTable,
+			Columns: []string{intentdecision.IntentReplayEvaluationsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentreplayevaluation.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{intentdecision.Label}
@@ -648,6 +730,21 @@ func (_u *IntentDecisionUpdateOne) AddIntentDecisionSnapshotsDecisionID(v ...*In
 	return _u.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
 }
 
+// AddIntentReplayEvaluationsDecisionIDIDs adds the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity by IDs.
+func (_u *IntentDecisionUpdateOne) AddIntentReplayEvaluationsDecisionIDIDs(ids ...int64) *IntentDecisionUpdateOne {
+	_u.mutation.AddIntentReplayEvaluationsDecisionIDIDs(ids...)
+	return _u
+}
+
+// AddIntentReplayEvaluationsDecisionID adds the "intent_replay_evaluations_decision_id" edges to the IntentReplayEvaluation entity.
+func (_u *IntentDecisionUpdateOne) AddIntentReplayEvaluationsDecisionID(v ...*IntentReplayEvaluation) *IntentDecisionUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIntentReplayEvaluationsDecisionIDIDs(ids...)
+}
+
 // Mutation returns the IntentDecisionMutation object of the builder.
 func (_u *IntentDecisionUpdateOne) Mutation() *IntentDecisionMutation {
 	return _u.mutation
@@ -699,6 +796,27 @@ func (_u *IntentDecisionUpdateOne) RemoveIntentDecisionSnapshotsDecisionID(v ...
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveIntentDecisionSnapshotsDecisionIDIDs(ids...)
+}
+
+// ClearIntentReplayEvaluationsDecisionID clears all "intent_replay_evaluations_decision_id" edges to the IntentReplayEvaluation entity.
+func (_u *IntentDecisionUpdateOne) ClearIntentReplayEvaluationsDecisionID() *IntentDecisionUpdateOne {
+	_u.mutation.ClearIntentReplayEvaluationsDecisionID()
+	return _u
+}
+
+// RemoveIntentReplayEvaluationsDecisionIDIDs removes the "intent_replay_evaluations_decision_id" edge to IntentReplayEvaluation entities by IDs.
+func (_u *IntentDecisionUpdateOne) RemoveIntentReplayEvaluationsDecisionIDIDs(ids ...int64) *IntentDecisionUpdateOne {
+	_u.mutation.RemoveIntentReplayEvaluationsDecisionIDIDs(ids...)
+	return _u
+}
+
+// RemoveIntentReplayEvaluationsDecisionID removes "intent_replay_evaluations_decision_id" edges to IntentReplayEvaluation entities.
+func (_u *IntentDecisionUpdateOne) RemoveIntentReplayEvaluationsDecisionID(v ...*IntentReplayEvaluation) *IntentDecisionUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIntentReplayEvaluationsDecisionIDIDs(ids...)
 }
 
 // Where appends a list predicates to the IntentDecisionUpdate builder.
@@ -922,6 +1040,51 @@ func (_u *IntentDecisionUpdateOne) sqlSave(ctx context.Context) (_node *IntentDe
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IntentReplayEvaluationsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentReplayEvaluationsDecisionIDTable,
+			Columns: []string{intentdecision.IntentReplayEvaluationsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentreplayevaluation.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIntentReplayEvaluationsDecisionIDIDs(); len(nodes) > 0 && !_u.mutation.IntentReplayEvaluationsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentReplayEvaluationsDecisionIDTable,
+			Columns: []string{intentdecision.IntentReplayEvaluationsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentreplayevaluation.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentReplayEvaluationsDecisionIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentReplayEvaluationsDecisionIDTable,
+			Columns: []string{intentdecision.IntentReplayEvaluationsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentreplayevaluation.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
