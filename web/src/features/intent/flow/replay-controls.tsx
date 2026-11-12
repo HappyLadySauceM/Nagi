@@ -89,7 +89,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
           <p>{summaryLabel(replay.data.run)}</p>
           <ReplaySourcePanel replay={replay.data.run.replay} />
           <p className="text-xs text-muted-foreground">
-            费用提示：{replay.data.costEstimate || '一次语义模型请求'}
+            费用提示：{replay.data.costEstimate || '一次语义判定，可能包含多次模型请求，费用依提供方'}
           </p>
         </div>
       ) : null}

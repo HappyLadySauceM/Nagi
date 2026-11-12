@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toIntentFlow, toIntentRun } from '../../../../lib/api/adapters/flow'
+import { toIntentFlow, toIntentRun, toRecalculateResult } from '../../../../lib/api/adapters/flow'
 
 const flow = {
   FlowVersion: 'intent-flow-v1',
@@ -84,6 +84,26 @@ describe('flow adapters', () => {
       persisted: false,
     })
     expect(toIntentRun(run).replay).toBeUndefined()
+  })
+
+  it('keeps replay markers on the recalculated run and none on the stored before run', () => {
+    const parsed = toRecalculateResult({
+      Before: run,
+      After: {
+        ...run,
+        Replay: {
+          Input: 'snapshot',
+          Semantic: 'snapshot',
+          Prompt: 'snapshot',
+          Policy: 'current',
+          Rules: 'current',
+          Persisted: false,
+        },
+      },
+      Changed: false,
+    })
+    expect(parsed.before.replay).toBeUndefined()
+    expect(parsed.after.replay).toMatchObject({ input: 'snapshot', policy: 'current', persisted: false })
   })
 
   it('parses node statuses, evidence, delivery and snapshot completeness', () => {
