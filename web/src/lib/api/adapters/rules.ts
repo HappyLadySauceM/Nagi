@@ -1,5 +1,6 @@
 import type { RuleActionType, RuleEntry, RuleSimulation, Ruleset, ScopeType } from '../contracts'
 import { asArray, asRecord, readBoolean, readNumber, readOptionalString, readString } from './guard'
+import { toIntentCost, toIntentRun } from './flow'
 
 const RULES_ENDPOINT = '/api/v1/intent/rulesets'
 
@@ -82,6 +83,8 @@ export function toRuleSimulation(raw: unknown): RuleSimulation {
     forceReply: readBoolean(record, 'ForceReply', '/api/v1/intent/simulate'),
     reasonCode: final ? readString(final, 'ReasonCode', '/api/v1/intent/simulate', '') : readString(record, 'ReasonCode', '/api/v1/intent/simulate', ''),
     rulesetVersion: readString(record, 'RulesetVersion', '/api/v1/intent/simulate', ''),
+    run: record.Run == null ? undefined : toIntentRun(record.Run),
+    cost: toIntentCost(record.Cost),
   }
 }
 

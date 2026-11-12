@@ -9,8 +9,9 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { FeedbackState } from '../../components/feedback-state'
 import { useEditGuard } from './edit-guard'
+import { PromptVersionPanel } from './flow/prompt-version-panel'
 
-export function IntentConfig() {
+function IntentConfigForm() {
   const query = useSystemSettings()
   const client = useQueryClient()
   const [draft, setDraft] = useState<SettingsIntent | null>(null)
@@ -74,6 +75,7 @@ export function IntentConfig() {
   if (!draft) return <p role="status">正在加载意图配置…</p>
   const patch = (p: Partial<SettingsIntent>) => setDraft({ ...draft, ...p })
   return (
+    <div className="space-y-6">
     <form
       className="max-w-2xl space-y-5"
       onSubmit={(e) => {
@@ -140,5 +142,16 @@ export function IntentConfig() {
         {change.isPending ? '保存中…' : '保存意图配置'}
       </Button>
     </form>
+    </div>
+  )
+}
+
+
+export function IntentConfig() {
+  return (
+    <div className="space-y-6">
+      <IntentConfigForm />
+      <PromptVersionPanel />
+    </div>
   )
 }

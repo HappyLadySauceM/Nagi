@@ -400,6 +400,7 @@ export interface DecisionEntry {
 export interface DecisionDetailEntry extends DecisionEntry {
   scores: Record<string, number>
   steps: DecisionStepEntry[]
+  run?: IntentRun
 }
 
 export const DECISION_KIND_LABELS: Record<IntentDecisionKind, string> = {
@@ -464,6 +465,146 @@ export interface RuleSimulation {
   forceReply: boolean
   reasonCode: string
   rulesetVersion: string
+  run?: IntentRun
+  cost?: IntentCost
+}
+
+export type IntentNodeStatus = 'executed' | 'skipped' | 'failed' | 'degraded' | 'unknown'
+export type IntentEdgeStatus = 'taken' | 'not_taken' | 'unknown'
+export type IntentSnapshotStatus = 'complete' | 'partial' | 'missing' | 'legacy'
+
+export interface IntentFlowNode {
+  nodeId: string
+  kind: string
+  title: string
+  description: string
+  stageIndex: number
+  version: number
+}
+
+export interface IntentFlowEdge {
+  edgeId: string
+  fromNodeId: string
+  toNodeId: string
+  label: string
+  condition: string
+}
+
+export interface IntentFlow {
+  flowVersion: string
+  nodes: IntentFlowNode[]
+  edges: IntentFlowEdge[]
+}
+
+export interface IntentEvidence {
+  kind: string
+  text: string
+}
+
+export interface IntentRunNode {
+  nodeId: string
+  version: number
+  status: IntentNodeStatus
+  branch: string
+  reasonCode: string
+  summary: string
+  detail: Record<string, unknown>
+  evidence: IntentEvidence[]
+  durationMs: number
+}
+
+export interface IntentRunEdge {
+  edgeId: string
+  status: IntentEdgeStatus
+}
+
+export interface IntentDeliveryItem {
+  id: string
+  sequence: number
+  status: string
+  text: string
+  platformMessageId: number
+  errorCode: string
+}
+
+export interface IntentDelivery {
+  outcome: string
+  reason: string
+  denied: number
+  items: IntentDeliveryItem[]
+}
+
+export interface IntentRunSummary {
+  decision: IntentDecisionKind
+  reasonCode: string
+  reasonText: string
+}
+
+export interface IntentReplayInfo {
+  input: string
+  semantic: string
+  prompt: string
+  policy: string
+  rules: string
+  persisted: boolean
+}
+
+export interface IntentRun {
+  decisionId: number
+  jobId: number
+  runId: string
+  flowVersion: string
+  provider: string
+  model: string
+  rulesetVersion: string
+  snapshotStatus: IntentSnapshotStatus
+  missingFields: string[]
+  summary: IntentRunSummary
+  nodes: IntentRunNode[]
+  edges: IntentRunEdge[]
+  delivery: IntentDelivery
+  replay?: IntentReplayInfo
+  scores: Record<string, number>
+  latencyMs: number
+  createdAt?: string
+}
+
+export interface IntentCost {
+  mayIncur: boolean
+  costEstimate?: string
+}
+
+export type PromptStatus = 'draft' | 'published' | 'archived'
+
+export interface PromptSummary {
+  promptId: string
+  name: string
+  activeVersion: number
+  status: PromptStatus
+  source: string
+  updatedAt: string
+}
+
+export interface PromptVersion {
+  id: number
+  promptId: string
+  name: string
+  provider: string
+  version: number
+  status: PromptStatus
+  source: string
+  sourceRef: string
+  hash: string
+  note: string
+  content: unknown
+  createdAt: string
+  publishedAt: string
+}
+
+export interface PromptDetail {
+  promptId: string
+  name: string
+  versions: PromptVersion[]
 }
 
 export const RULE_ACTION_LABELS: Record<RuleActionType, string> = {
