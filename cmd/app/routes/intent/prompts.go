@@ -5,6 +5,7 @@ package intent
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -42,6 +43,8 @@ type promptVersionInfo struct {
 
 func (h *Handler) RegisterPrompts(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/intent/prompts", h.ListPrompts)
+	mux.HandleFunc("GET /api/v1/intent/prompts/sync-status", h.PromptSyncStatus)
+	mux.HandleFunc("POST /api/v1/intent/prompts/{prompt_id}/sync", h.SyncPrompt)
 	mux.HandleFunc("GET /api/v1/intent/prompts/versions/{id}", h.GetPromptVersion)
 	mux.HandleFunc("GET /api/v1/intent/prompts/{prompt_id}", h.GetPrompt)
 	mux.HandleFunc("POST /api/v1/intent/prompts/{prompt_id}/versions", h.CreatePromptDraft)
@@ -271,6 +274,73 @@ func (h *Handler) RollbackPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	common.WriteSuccess(w, map[string]any{"Version": body.Version})
+}
+
+// PromptSyncStatus reports whether the optional remote source is configured and
+// what happened on the last explicit sync. It never contacts the remote source.
+// PromptSyncStatus 报告可选远端来源是否配置以及最近一次显式同步的结果；不会联系远端。
+func (h *Handler) PromptSyncStatus(w http.ResponseWriter, r *http.Request) {
+	if h.svcCtx.Prompts == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "Prompt 存储不可用")
+		return
+	}
+	promptID := r.URL.Query().Get("prompt_id")
+	provider := r.URL.Query().Get("provider")
+	status, err := h.svcCtx.Prompts.SyncStatus(r.Context(), promptID, provider)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "读取 Prompt 同步状态失败")
+		return
+	}
+	common.WriteSuccess(w, status)
+}
+
+// SyncPrompt fetches one remote prompt version and stores a local draft
+// candidate. It never publishes automatically.
+// SyncPrompt 获取一个远端 Prompt 版本并保存为本地草稿候选；绝不自动发布。
+func (h *Handler) SyncPrompt(w http.ResponseWriter, r *http.Request) {
+	if h.svcCtx.Prompts == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "Prompt 存储不可用")
+		return
+	}
+	var body struct {
+		Provider string
+		Version  int
+		Label    string
+	}
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&body); err != nil && err != io.EOF {
+		common.WriteFailure(w, http.StatusBadRequest, "请求体不合法")
+		return
+	}
+	if body.Provider == "" {
+		body.Provider = intentdomain.PromptProviderJev
+	}
+	if body.Version < 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "version 必须为正整数或留空")
+		return
+	}
+	result, err := h.svcCtx.Prompts.SyncRemote(r.Context(), r.PathValue("prompt_id"), body.Provider, body.Version, body.Label)
+	if err != nil {
+		code, message := intentapp.PromptSyncError(err)
+		status := http.StatusInternalServerError
+		switch code {
+		case intentdomain.PromptSyncReasonNotConfigured, intentdomain.PromptSyncReasonVersionConflict:
+			status = http.StatusConflict
+		case intentdomain.PromptSyncReasonNotFound:
+			status = http.StatusNotFound
+		case intentdomain.PromptSyncReasonInvalid:
+			status = http.StatusUnprocessableEntity
+		case intentdomain.PromptSyncReasonAuth, intentdomain.PromptSyncReasonUnreachable:
+			status = http.StatusBadGateway
+		case intentdomain.PromptSyncReasonTimeout:
+			status = http.StatusGatewayTimeout
+		default:
+			message = "保存 Prompt 候选失败"
+		}
+		common.WriteJSON(w, status, common.Envelope{Code: status, Message: message, Data: map[string]any{"ReasonCode": code}})
+		return
+	}
+	common.WriteSuccess(w, result)
 }
 
 func toPromptVersion(rec intentdomain.PromptRecord) promptVersionInfo {
