@@ -8,6 +8,7 @@ import type {
   IntentFlowEdge,
   IntentFlowNode,
   IntentNodeStatus,
+  IntentPromptInfo,
   IntentReplayInfo,
   IntentRun,
   IntentRunEdge,
@@ -18,12 +19,23 @@ import type {
   PromptStatus,
   PromptSummary,
   PromptVersion,
+  PromptSyncStatus,
+  PromptSyncResult,
+  ReplayComparison,
+  ReplayEstimate,
+  ReplayEvaluation,
+  ReplayEvaluationSummary,
+  ReplayParameters,
+  ReplayReproduction,
+  ReplayDifference,
 } from '../contracts'
 import {
   asArray,
   asRecord,
   contractError,
+  readBoolean,
   readNumber,
+  readOptionalNumber,
   readOptionalString,
   readOptionalTime,
   readString,
@@ -226,7 +238,64 @@ export function toIntentCost(raw: unknown): IntentCost | undefined {
   if (estimate) {
     cost.costEstimate = estimate
   }
+  const known = readOptionalBoolean(record, 'Known', DECISIONS_ENDPOINT)
+  if (known !== undefined) {
+    cost.known = known
+  }
+  const amount = readOptionalNumber(record, 'Amount', DECISIONS_ENDPOINT)
+  if (amount !== undefined) {
+    cost.amount = amount
+  }
+  const currency = readOptionalString(record, 'Currency', DECISIONS_ENDPOINT)
+  if (currency) {
+    cost.currency = currency
+  }
+  const text = readOptionalString(record, 'Text', DECISIONS_ENDPOINT)
+  if (text) {
+    cost.text = text
+  }
   return cost
+}
+
+function readOptionalBoolean(
+  record: Record<string, unknown>,
+  key: string,
+  endpoint: string,
+): boolean | undefined {
+  const value = record[key]
+  if (value === undefined || value === null) {
+    return undefined
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  throw contractError(endpoint, `${key} 不是布尔值`)
+}
+
+function toIntentPrompt(raw: unknown): IntentPromptInfo | undefined {
+  if (raw == null) {
+    return undefined
+  }
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'Prompt')
+  return {
+    id: readString(record, 'ID', DECISIONS_ENDPOINT, ''),
+    name: readString(record, 'Name', DECISIONS_ENDPOINT, ''),
+    version: readNumber(record, 'Version', DECISIONS_ENDPOINT, 0),
+    source: readString(record, 'Source', DECISIONS_ENDPOINT, ''),
+    sourceRef: readString(record, 'SourceRef', DECISIONS_ENDPOINT, ''),
+    hash: readString(record, 'Hash', DECISIONS_ENDPOINT, ''),
+  }
+}
+
+function toReproduction(raw: unknown): ReplayReproduction {
+  if (raw == null) {
+    return { fullyReproduced: false, reasons: [] }
+  }
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'Reproduction')
+  return {
+    fullyReproduced: readBooleanCompat(record, 'FullyReproduced', DECISIONS_ENDPOINT),
+    reasons: readStringArray(record.Reasons, DECISIONS_ENDPOINT, 'Reasons'),
+  }
 }
 
 function readBooleanCompat(
@@ -264,6 +333,7 @@ export function toIntentRun(raw: unknown): IntentRun {
         : asArray(record.Edges, DECISIONS_ENDPOINT, 'Edges').map(toRunEdge),
     delivery: toDelivery(record.Delivery),
     replay: toReplayInfo(record.Replay),
+    prompt: toIntentPrompt(record.Prompt),
     scores: readNumberMap(record.Scores, DECISIONS_ENDPOINT, 'Scores'),
     latencyMs: readNumber(record, 'LatencyMS', DECISIONS_ENDPOINT, 0),
     createdAt: readOptionalTime(record, 'CreatedAt', DECISIONS_ENDPOINT),
@@ -330,5 +400,174 @@ export function toRecalculateResult(raw: unknown): RecalculateResult {
     before: toIntentRun(record.Before),
     after: toIntentRun(record.After),
     changed: readBooleanCompat(record, 'Changed', DECISIONS_ENDPOINT),
+  }
+}
+
+
+function toPromptSyncCandidate(raw: unknown): PromptSyncStatus['candidates'][number] {
+  const record = asRecord(raw, PROMPTS_ENDPOINT, 'sync candidate')
+  return {
+    id: readNumber(record, 'ID', PROMPTS_ENDPOINT, 0),
+    version: readNumber(record, 'Version', PROMPTS_ENDPOINT, 0),
+    name: readString(record, 'Name', PROMPTS_ENDPOINT, ''),
+    hash: readString(record, 'Hash', PROMPTS_ENDPOINT, ''),
+    sourceRef: readString(record, 'SourceRef', PROMPTS_ENDPOINT, ''),
+    createdAt: readOptionalString(record, 'CreatedAt', PROMPTS_ENDPOINT) ?? '',
+  }
+}
+
+export function toPromptSyncStatus(raw: unknown): PromptSyncStatus {
+  const record = asRecord(raw, PROMPTS_ENDPOINT, 'sync status')
+  const activeRaw = record.Active
+  const active = activeRaw == null ? undefined : (() => {
+    const item = asRecord(activeRaw, PROMPTS_ENDPOINT, 'sync active')
+    return {
+      version: readNumber(item, 'Version', PROMPTS_ENDPOINT, 0),
+      source: readString(item, 'Source', PROMPTS_ENDPOINT, ''),
+      sourceRef: readString(item, 'SourceRef', PROMPTS_ENDPOINT, ''),
+      status: readEnum(item, 'Status', PROMPTS_ENDPOINT, PROMPT_STATUSES),
+    }
+  })()
+  return {
+    promptId: readString(record, 'PromptID', PROMPTS_ENDPOINT),
+    provider: readString(record, 'Provider', PROMPTS_ENDPOINT, ''),
+    configured: readBoolean(record, 'Configured', PROMPTS_ENDPOINT, false),
+    status: readEnum(record, 'Status', PROMPTS_ENDPOINT, ['not_configured', 'idle', 'ok', 'failed'] as const),
+    reasonCode: readString(record, 'ReasonCode', PROMPTS_ENDPOINT, ''),
+    message: readString(record, 'Message', PROMPTS_ENDPOINT, ''),
+    lastAttemptAt: readOptionalTime(record, 'LastAttemptAt', PROMPTS_ENDPOINT),
+    lastSuccessAt: readOptionalTime(record, 'LastSuccessAt', PROMPTS_ENDPOINT),
+    active,
+    candidates:
+      record.Candidates == null
+        ? []
+        : asArray(record.Candidates, PROMPTS_ENDPOINT, 'Candidates').map(toPromptSyncCandidate),
+  }
+}
+
+export function toPromptSyncResult(raw: unknown): PromptSyncResult {
+  const record = asRecord(raw, PROMPTS_ENDPOINT, 'sync result')
+  return {
+    promptId: readString(record, 'PromptID', PROMPTS_ENDPOINT),
+    provider: readString(record, 'Provider', PROMPTS_ENDPOINT, ''),
+    remoteName: readString(record, 'RemoteName', PROMPTS_ENDPOINT, ''),
+    remoteVersion: readNumber(record, 'RemoteVersion', PROMPTS_ENDPOINT, 0),
+    candidate: toPromptVersion(record.Candidate),
+    status: readEnum(record, 'Status', PROMPTS_ENDPOINT, ['already_synced', 'candidate_created'] as const),
+  }
+}
+
+function toReplayTokenEstimate(raw: unknown): ReplayEstimate['tokenEstimate'] {
+  if (raw == null) {
+    return undefined
+  }
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'TokenEstimate')
+  const tokenNumber = (primary: string, legacy: string) => {
+    const value = record[primary] ?? record[legacy]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+  }
+  return {
+    inputTokens: tokenNumber('InputTokens', 'Input'),
+    outputTokens: tokenNumber('OutputTokens', 'Output'),
+    totalTokens: tokenNumber('TotalTokens', 'Total'),
+    method: readString(record, 'Method', DECISIONS_ENDPOINT, ''),
+  }
+}
+
+export function toReplayEstimate(raw: unknown): ReplayEstimate {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'replay estimate')
+  return {
+    decisionId: readNumber(record, 'DecisionID', DECISIONS_ENDPOINT, 0),
+    provider: readString(record, 'Provider', DECISIONS_ENDPOINT, ''),
+    model: readString(record, 'Model', DECISIONS_ENDPOINT, ''),
+    sampleCount: readNumber(record, 'SampleCount', DECISIONS_ENDPOINT, 1),
+    estimatedExternalRequests: readNumber(record, 'EstimatedExternalRequests', DECISIONS_ENDPOINT, 0),
+    tokenEstimate: toReplayTokenEstimate(record.TokenEstimate),
+    cost: toIntentCost(record.Cost),
+    confirmationToken: readString(record, 'ConfirmationToken', DECISIONS_ENDPOINT, ''),
+    expiresAt: readOptionalTime(record, 'ExpiresAt', DECISIONS_ENDPOINT),
+    parametersFingerprint: readString(record, 'ParametersFingerprint', DECISIONS_ENDPOINT, ''),
+  }
+}
+
+function toReplayDifference(raw: unknown): ReplayDifference {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'replay difference')
+  return {
+    field: readString(record, 'Field', DECISIONS_ENDPOINT, ''),
+    before: String(record.Before ?? ''),
+    after: String(record.After ?? ''),
+  }
+}
+
+export function toReplayEvaluationSummary(raw: unknown): ReplayEvaluationSummary {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'replay evaluation')
+  return {
+    id: readNumber(record, 'ID', DECISIONS_ENDPOINT, 0),
+    decisionId: readNumber(record, 'DecisionID', DECISIONS_ENDPOINT, 0),
+    mode: readEnum(record, 'Mode', DECISIONS_ENDPOINT, ['recalculate', 'model'] as const),
+    name: readString(record, 'Name', DECISIONS_ENDPOINT, ''),
+    note: readOptionalString(record, 'Note', DECISIONS_ENDPOINT),
+    changed: readBooleanCompat(record, 'Changed', DECISIONS_ENDPOINT),
+    summary: toRunSummary(record.Summary),
+    createdAt: readOptionalTime(record, 'CreatedAt', DECISIONS_ENDPOINT),
+    reproduction: toReproduction(record.Reproduction),
+  }
+}
+
+export function toReplayEvaluationList(raw: unknown): ReplayEvaluationSummary[] {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'replay evaluation list')
+  return asArray(record.Items, DECISIONS_ENDPOINT, 'Items').map(toReplayEvaluationSummary)
+}
+
+function toReplayParameters(raw: unknown): ReplayParameters | undefined {
+  if (raw == null) {
+    return undefined
+  }
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'ReplayParameters')
+  return {
+    provider: readString(record, 'Provider', DECISIONS_ENDPOINT, ''),
+    model: readString(record, 'Model', DECISIONS_ENDPOINT, ''),
+    promptId: readString(record, 'PromptID', DECISIONS_ENDPOINT, ''),
+    promptVersion: readNumber(record, 'PromptVersion', DECISIONS_ENDPOINT, 0),
+    promptHash: readString(record, 'PromptHash', DECISIONS_ENDPOINT, ''),
+    rulesetVersion: readString(record, 'RulesetVersion', DECISIONS_ENDPOINT, ''),
+    sampleCount: readNumber(record, 'SampleCount', DECISIONS_ENDPOINT, 1),
+    estimatedExternalRequests: readNumber(record, 'EstimatedExternalRequests', DECISIONS_ENDPOINT, 0),
+    tokenEstimate: toReplayTokenEstimate(record.TokenEstimate),
+  }
+}
+
+export function toReplayEvaluation(raw: unknown): ReplayEvaluation {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'replay evaluation')
+  return {
+    id: readNumber(record, 'ID', DECISIONS_ENDPOINT, 0),
+    decisionId: readNumber(record, 'DecisionID', DECISIONS_ENDPOINT, 0),
+    botId: readNumber(record, 'BotID', DECISIONS_ENDPOINT, 0),
+    mode: readEnum(record, 'Mode', DECISIONS_ENDPOINT, ['recalculate', 'model'] as const),
+    name: readString(record, 'Name', DECISIONS_ENDPOINT, ''),
+    note: readString(record, 'Note', DECISIONS_ENDPOINT, ''),
+    changed: readBooleanCompat(record, 'Changed', DECISIONS_ENDPOINT),
+    before: toIntentRun(record.Before),
+    after: toIntentRun(record.After),
+    parameters: toReplayParameters(record.Parameters),
+    cost: toIntentCost(record.Cost),
+    reproduction: toReproduction(record.Reproduction),
+    createdAt: readOptionalTime(record, 'CreatedAt', DECISIONS_ENDPOINT),
+  }
+}
+
+export function toReplayComparison(raw: unknown): ReplayComparison {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'replay comparison')
+  return {
+    evaluationId: readNumber(record, 'EvaluationID', DECISIONS_ENDPOINT, 0),
+    against: readString(record, 'Against', DECISIONS_ENDPOINT, ''),
+    changed: readBooleanCompat(record, 'Changed', DECISIONS_ENDPOINT),
+    original: toIntentRun(record.Original),
+    replay: toIntentRun(record.Replay),
+    differences:
+      record.Differences == null
+        ? []
+        : asArray(record.Differences, DECISIONS_ENDPOINT, 'Differences').map(toReplayDifference),
+    reproduction: toReproduction(record.Reproduction),
   }
 }

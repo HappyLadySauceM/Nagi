@@ -48,6 +48,13 @@ export const queryKeys = {
   flow: ['intent', 'flow'] as const,
   prompts: ['intent', 'prompts'] as const,
   prompt: (promptId: string) => ['intent', 'prompt', promptId] as const,
+  promptSyncStatus: (promptId: string, provider: string) =>
+    ['intent', 'prompt-sync', promptId, provider] as const,
+  replayEvaluations: (decisionId: number | null) =>
+    ['intent', 'replay-evaluations', decisionId ?? null] as const,
+  replayEvaluation: (id: number | null) => ['intent', 'replay-evaluation', id ?? null] as const,
+  replayComparison: (id: number | null, againstId: number | null) =>
+    ['intent', 'replay-comparison', id ?? null, againstId ?? null] as const,
   rulesets: (scope: { botId: number; scopeType: string; scopeId: number } | null) =>
     ['intent', 'rulesets', scope] as const,
   ruleset: (id: number) => ['intent', 'ruleset', id] as const,

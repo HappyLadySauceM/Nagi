@@ -549,6 +549,15 @@ export interface IntentReplayInfo {
   persisted: boolean
 }
 
+export interface IntentPromptInfo {
+  id: string
+  name: string
+  version: number
+  source: string
+  sourceRef: string
+  hash: string
+}
+
 export interface IntentRun {
   decisionId: number
   jobId: number
@@ -564,6 +573,7 @@ export interface IntentRun {
   edges: IntentRunEdge[]
   delivery: IntentDelivery
   replay?: IntentReplayInfo
+  prompt?: IntentPromptInfo
   scores: Record<string, number>
   latencyMs: number
   createdAt?: string
@@ -572,6 +582,10 @@ export interface IntentRun {
 export interface IntentCost {
   mayIncur: boolean
   costEstimate?: string
+  known?: boolean
+  amount?: number
+  currency?: string
+  text?: string
 }
 
 export type PromptStatus = 'draft' | 'published' | 'archived'
@@ -605,6 +619,130 @@ export interface PromptDetail {
   promptId: string
   name: string
   versions: PromptVersion[]
+}
+
+export type PromptSyncStatusValue = 'not_configured' | 'idle' | 'ok' | 'failed'
+export type PromptSyncResultStatus = 'already_synced' | 'candidate_created'
+
+export interface PromptSyncCandidate {
+  id: number
+  version: number
+  name: string
+  hash: string
+  sourceRef: string
+  createdAt: string
+}
+
+export interface PromptSyncActive {
+  version: number
+  source: string
+  sourceRef: string
+  status: PromptStatus
+}
+
+export interface PromptSyncStatus {
+  promptId: string
+  provider: string
+  configured: boolean
+  status: PromptSyncStatusValue
+  reasonCode: string
+  message: string
+  lastAttemptAt?: string
+  lastSuccessAt?: string
+  active?: PromptSyncActive
+  candidates: PromptSyncCandidate[]
+}
+
+export interface PromptSyncResult {
+  promptId: string
+  provider: string
+  remoteName: string
+  remoteVersion: number
+  candidate: PromptVersion
+  status: PromptSyncResultStatus
+}
+
+export type ReplayEvaluationMode = 'recalculate' | 'model'
+
+export interface ReplayTokenEstimate {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  method: string
+}
+
+export interface ReplayEstimate {
+  decisionId: number
+  provider: string
+  model: string
+  sampleCount: number
+  estimatedExternalRequests: number
+  tokenEstimate?: ReplayTokenEstimate
+  cost?: IntentCost
+  confirmationToken: string
+  expiresAt?: string
+  parametersFingerprint: string
+}
+
+export interface ReplayReproduction {
+  fullyReproduced: boolean
+  reasons: string[]
+}
+
+export interface ReplayEvaluationSummary {
+  id: number
+  decisionId: number
+  mode: ReplayEvaluationMode
+  name: string
+  note?: string
+  changed: boolean
+  summary: IntentRunSummary
+  createdAt?: string
+  reproduction: ReplayReproduction
+}
+
+export interface ReplayParameters {
+  provider: string
+  model: string
+  promptId: string
+  promptVersion: number
+  promptHash: string
+  rulesetVersion: string
+  sampleCount: number
+  estimatedExternalRequests: number
+  tokenEstimate?: ReplayTokenEstimate
+}
+
+export interface ReplayEvaluation {
+  id: number
+  decisionId: number
+  botId: number
+  mode: ReplayEvaluationMode
+  name: string
+  note: string
+  changed: boolean
+  before: IntentRun
+  after: IntentRun
+  parameters?: ReplayParameters
+  cost?: IntentCost
+  reproduction: ReplayReproduction
+  createdAt?: string
+}
+
+export interface ReplayDifference {
+  field: string
+  before: string
+  after: string
+}
+
+export interface ReplayComparison {
+  evaluationId: number
+  against: string
+  changed: boolean
+  original: IntentRun
+  replay: IntentRun
+  differences: ReplayDifference[]
+  reproduction: ReplayReproduction
 }
 
 export const RULE_ACTION_LABELS: Record<RuleActionType, string> = {

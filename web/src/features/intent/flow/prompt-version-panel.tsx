@@ -8,15 +8,18 @@ import { FeedbackState } from '../../../components/feedback-state'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../../components/ui/sheet'
 import { Skeleton } from '../../../components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table'
-import type { PromptSummary, PromptVersion } from '../../../lib/api/contracts'
+import type { PromptSummary, PromptSyncCandidate, PromptVersion } from '../../../lib/api/contracts'
 import { describeError } from '../../../lib/errors'
 import { cn } from '../../../lib/utils'
 import {
   usePromptDetail,
   usePrompts,
+  usePromptSyncStatus,
   usePublishPromptVersion,
   useRollbackPromptVersion,
+  useSyncPrompt,
 } from './queries'
+import { PromptSyncPanel } from './prompt-sync-panel'
 
 const PROMPT_STATUS_LABELS: Record<PromptVersion['status'], string> = {
   draft: '草稿',
@@ -61,6 +64,11 @@ export function PromptVersionPanel() {
     }
   }, [detail.data, selectedVersionId])
 
+  const selectedVersion = detail.data?.versions.find((version) => version.id === selectedVersionId)
+  const provider = selectedVersion?.provider || detail.data?.versions[0]?.provider || 'jev'
+  const syncStatus = usePromptSyncStatus(selectedPromptId, provider)
+  const syncPrompt = useSyncPrompt()
+
   if (prompts.isError) {
     return <FeedbackState variant="error" title="读取 Prompt 列表失败" error={prompts.error} onRetry={() => void prompts.refetch()} />
   }
@@ -85,8 +93,6 @@ export function PromptVersionPanel() {
       })
     }
   }
-
-  const selectedVersion = detail.data?.versions.find((version) => version.id === selectedVersionId)
 
   return (
     <Card className="space-y-4 p-5">
@@ -125,7 +131,8 @@ export function PromptVersionPanel() {
         detail.isLoading ? <Skeleton className="h-32 w-full" /> : detail.isError ? (
           <FeedbackState variant="error" title="读取 Prompt 版本失败" error={detail.error} onRetry={() => void detail.refetch()} />
         ) : (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+          <>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
             <div className="overflow-hidden rounded-lg border border-border">
               <Table label="Prompt 版本列表">
                 <TableHeader>
@@ -180,6 +187,42 @@ export function PromptVersionPanel() {
               )}
             </div>
           </div>
+            <PromptSyncPanel
+            status={syncStatus.data}
+            loading={syncStatus.isLoading}
+            error={syncStatus.error}
+            onRetry={() => void syncStatus.refetch()}
+            onSync={() => {
+              if (!selectedPromptId) return
+              syncPrompt.mutate(
+                { promptId: selectedPromptId, provider },
+                {
+                  onSuccess: (result) =>
+                    toast.success(
+                      result.status === 'already_synced'
+                        ? '该 Langfuse 版本已同步'
+                        : '已同步 Langfuse Prompt 候选',
+                    ),
+                  onError: (error) => {
+                    toast.error(describeError(error).title)
+                    void syncStatus.refetch()
+                  },
+                },
+              )
+            }}
+            syncing={syncPrompt.isPending}
+            onActivate={(candidate: PromptSyncCandidate) => {
+              publish.mutate(candidate.id, {
+                onSuccess: () => {
+                  toast.success('远程候选已本地激活')
+                  void syncStatus.refetch()
+                },
+                onError: (error) => toast.error(describeError(error).title),
+              })
+            }}
+            activating={publish.isPending}
+            />
+          </>
         )
       ) : null}
       <Sheet open={pendingAction !== null} onOpenChange={(open) => { if (!open) setPendingAction(null) }}>
