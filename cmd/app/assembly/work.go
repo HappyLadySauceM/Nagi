@@ -31,6 +31,7 @@ import (
 	directoryinfra "github.com/HappyLadySauceM/Nagi/internal/directory/infrastructure"
 	echoapp "github.com/HappyLadySauceM/Nagi/internal/echo/application"
 	echoinfra "github.com/HappyLadySauceM/Nagi/internal/echo/infrastructure"
+	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
@@ -104,6 +105,8 @@ type Runtime struct {
 	// Decisions 读取已记录的意图决策；intent 未启用时为 nil。
 	Decisions       intentcontracts.DecisionReader
 	IntentSimulator intentcontracts.SimulationEvaluator
+	Prompts         *intentapp.PromptService
+	IntentReplayer  *intentapp.ReplayService
 	// Rulesets stores versioned intent rules; nil when the database is absent.
 	// Rulesets 存储版本化意图规则；未配置数据库时为 nil。
 	Rulesets *intentinfra.RulesetsRepo
@@ -444,13 +447,15 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 				return handler.Shutdown(ctx)
 			}
 		}
-		worker, decisions, simulator, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets, rt.AIAudit)
+		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets, rt.AIAudit)
 		if workerErr != nil {
 			return nil, workerErr
 		}
 		rt.Worker = worker
 		rt.Decisions = decisions
 		rt.IntentSimulator = simulator
+		rt.Prompts = prompts
+		rt.IntentReplayer = replayer
 	}
 
 	// Without a database there is still a snapshot so every consumer can read

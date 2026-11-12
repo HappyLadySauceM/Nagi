@@ -127,3 +127,36 @@ func TestJevClientRejectsHTTPError(t *testing.T) {
 		t.Fatal("expected error for 429")
 	}
 }
+
+// TestJevClientUsesPromptSnapshot verifies that a selected prompt snapshot, not
+// a hard-coded question set, is sent to the SystemOne endpoint.
+// TestJevClientUsesPromptSnapshot 验证发送到 SystemOne 的是选定的 Prompt 快照，
+// 而不是硬编码问题集。
+func TestJevClientUsesPromptSnapshot(t *testing.T) {
+	var gotInstruction string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Questions map[string]struct {
+				Instructions string `json:"instructions"`
+			} `json:"questions"`
+		}
+		_ = readJSON(r, &body)
+		gotInstruction = body.Questions["directed_to_bot"].Instructions
+		w.Write([]byte(validAnswers))
+	}))
+	defer srv.Close()
+	in := testInput()
+	in.Prompt = domain.Prompt{SystemOne: &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{
+		"directed_to_bot":      {Type: "noul", Instructions: "custom directed instruction"},
+		"continues_bot_thread": {Type: "noul", Instructions: "custom continuation instruction"},
+		"addressed_to_other":   {Type: "noul", Instructions: "custom other instruction"},
+		"appropriate_to_join":  {Type: "noul", Instructions: "custom join instruction"},
+		"intent":               {Type: "choice", Instructions: "custom intent instruction", Criteria: map[string]string{"chat": "chat"}},
+	}}}
+	if _, err := testClient(t, srv.URL).Decide(context.Background(), in); err != nil {
+		t.Fatalf("decide: %v", err)
+	}
+	if gotInstruction != "custom directed instruction" {
+		t.Fatalf("questions did not use prompt snapshot: %q", gotInstruction)
+	}
+}

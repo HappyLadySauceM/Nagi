@@ -50,9 +50,11 @@ type IntentDecisionEdges struct {
 	JobIDRef *MessageJob `json:"job_id_ref,omitempty"`
 	// IntentDecisionStepsDecisionID holds the value of the intent_decision_steps_decision_id edge.
 	IntentDecisionStepsDecisionID []*IntentDecisionStep `json:"intent_decision_steps_decision_id,omitempty"`
+	// IntentDecisionSnapshotsDecisionID holds the value of the intent_decision_snapshots_decision_id edge.
+	IntentDecisionSnapshotsDecisionID []*IntentDecisionSnapshot `json:"intent_decision_snapshots_decision_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // JobIDRefOrErr returns the JobIDRef value or an error if the edge
@@ -73,6 +75,15 @@ func (e IntentDecisionEdges) IntentDecisionStepsDecisionIDOrErr() ([]*IntentDeci
 		return e.IntentDecisionStepsDecisionID, nil
 	}
 	return nil, &NotLoadedError{edge: "intent_decision_steps_decision_id"}
+}
+
+// IntentDecisionSnapshotsDecisionIDOrErr returns the IntentDecisionSnapshotsDecisionID value or an error if the edge
+// was not loaded in eager-loading.
+func (e IntentDecisionEdges) IntentDecisionSnapshotsDecisionIDOrErr() ([]*IntentDecisionSnapshot, error) {
+	if e.loadedTypes[2] {
+		return e.IntentDecisionSnapshotsDecisionID, nil
+	}
+	return nil, &NotLoadedError{edge: "intent_decision_snapshots_decision_id"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -186,6 +197,11 @@ func (_m *IntentDecision) QueryJobIDRef() *MessageJobQuery {
 // QueryIntentDecisionStepsDecisionID queries the "intent_decision_steps_decision_id" edge of the IntentDecision entity.
 func (_m *IntentDecision) QueryIntentDecisionStepsDecisionID() *IntentDecisionStepQuery {
 	return NewIntentDecisionClient(_m.config).QueryIntentDecisionStepsDecisionID(_m)
+}
+
+// QueryIntentDecisionSnapshotsDecisionID queries the "intent_decision_snapshots_decision_id" edge of the IntentDecision entity.
+func (_m *IntentDecision) QueryIntentDecisionSnapshotsDecisionID() *IntentDecisionSnapshotQuery {
+	return NewIntentDecisionClient(_m.config).QueryIntentDecisionSnapshotsDecisionID(_m)
 }
 
 // Update returns a builder for updating this IntentDecision.

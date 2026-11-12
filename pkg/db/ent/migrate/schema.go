@@ -388,13 +388,56 @@ var (
 			},
 		},
 	}
+	// IntentDecisionSnapshotsColumns holds the columns for the "intent_decision_snapshots" table.
+	IntentDecisionSnapshotsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "run_id", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "flow_version", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "snapshot_version", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "input", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "semantic", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "prompt", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "rule", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "ruleset_version", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "missing_fields", Type: field.TypeJSON, Default: schema.Expr("'[]'::jsonb")},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "decision_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+	}
+	// IntentDecisionSnapshotsTable holds the schema information for the "intent_decision_snapshots" table.
+	IntentDecisionSnapshotsTable = &schema.Table{
+		Name:       "intent_decision_snapshots",
+		Columns:    IntentDecisionSnapshotsColumns,
+		PrimaryKey: []*schema.Column{IntentDecisionSnapshotsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "intent_decision_snapshots_intent_decisions_intent_decision_snapshots_decision_id",
+				Columns:    []*schema.Column{IntentDecisionSnapshotsColumns[11]},
+				RefColumns: []*schema.Column{IntentDecisionsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "intent_decision_snapshots_decision_id_key",
+				Unique:  true,
+				Columns: []*schema.Column{IntentDecisionSnapshotsColumns[11]},
+			},
+		},
+	}
 	// IntentDecisionStepsColumns holds the columns for the "intent_decision_steps" table.
 	IntentDecisionStepsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "step_index", Type: field.TypeInt, SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "phase", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "node_id", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "node_version", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
+		{Name: "status", Type: field.TypeString, Default: schema.Expr("'unknown'::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "branch", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "summary", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "reason_code", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "detail", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "evidence", Type: field.TypeJSON, Default: schema.Expr("'[]'::jsonb")},
+		{Name: "duration_ms", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "decision_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
 	}
@@ -406,7 +449,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "intent_decision_steps_intent_decisions_intent_decision_steps_decision_id",
-				Columns:    []*schema.Column{IntentDecisionStepsColumns[6]},
+				Columns:    []*schema.Column{IntentDecisionStepsColumns[13]},
 				RefColumns: []*schema.Column{IntentDecisionsColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -415,12 +458,46 @@ var (
 			{
 				Name:    "intent_decision_steps_decision_id_step_index_key",
 				Unique:  true,
-				Columns: []*schema.Column{IntentDecisionStepsColumns[6], IntentDecisionStepsColumns[1]},
+				Columns: []*schema.Column{IntentDecisionStepsColumns[13], IntentDecisionStepsColumns[1]},
 			},
 			{
 				Name:    "intent_decision_steps_decision",
 				Unique:  false,
-				Columns: []*schema.Column{IntentDecisionStepsColumns[6], IntentDecisionStepsColumns[1]},
+				Columns: []*schema.Column{IntentDecisionStepsColumns[13], IntentDecisionStepsColumns[1]},
+			},
+		},
+	}
+	// IntentPromptVersionsColumns holds the columns for the "intent_prompt_versions" table.
+	IntentPromptVersionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "prompt_id", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "name", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "provider", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "version", Type: field.TypeInt, SchemaType: map[string]string{"postgres": "integer"}},
+		{Name: "status", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "source", Type: field.TypeString, Default: schema.Expr("'local'::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "source_ref", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "hash", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "note", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "content", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "published_at", Type: field.TypeTime, Nullable: true},
+	}
+	// IntentPromptVersionsTable holds the schema information for the "intent_prompt_versions" table.
+	IntentPromptVersionsTable = &schema.Table{
+		Name:       "intent_prompt_versions",
+		Columns:    IntentPromptVersionsColumns,
+		PrimaryKey: []*schema.Column{IntentPromptVersionsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "intent_prompt_versions_prompt_id_version_key",
+				Unique:  true,
+				Columns: []*schema.Column{IntentPromptVersionsColumns[1], IntentPromptVersionsColumns[4]},
+			},
+			{
+				Name:    "intent_prompt_versions_prompt_status",
+				Unique:  false,
+				Columns: []*schema.Column{IntentPromptVersionsColumns[1], IntentPromptVersionsColumns[5]},
 			},
 		},
 	}
@@ -939,7 +1016,9 @@ var (
 		ConversationsTable,
 		GroupMembersTable,
 		IntentDecisionsTable,
+		IntentDecisionSnapshotsTable,
 		IntentDecisionStepsTable,
+		IntentPromptVersionsTable,
 		IntentRuleActivationsTable,
 		IntentRuleEntriesTable,
 		IntentRulesetsTable,
@@ -1018,12 +1097,24 @@ func init() {
 	IntentDecisionsTable.Annotation.Checks = map[string]string{
 		"intent_decisions_decision_check": "((decision = ANY (ARRAY['reply'::text, 'silent'::text, 'defer'::text])))",
 	}
+	IntentDecisionSnapshotsTable.ForeignKeys[0].RefTable = IntentDecisionsTable
+	IntentDecisionSnapshotsTable.Annotation = &entsql.Annotation{
+		Table: "intent_decision_snapshots",
+	}
 	IntentDecisionStepsTable.ForeignKeys[0].RefTable = IntentDecisionsTable
 	IntentDecisionStepsTable.Annotation = &entsql.Annotation{
 		Table: "intent_decision_steps",
 	}
 	IntentDecisionStepsTable.Annotation.Checks = map[string]string{
 		"intent_decision_steps_step_index_check": "((step_index >= 0))",
+	}
+	IntentPromptVersionsTable.Annotation = &entsql.Annotation{
+		Table: "intent_prompt_versions",
+	}
+	IntentPromptVersionsTable.Annotation.Checks = map[string]string{
+		"intent_prompt_versions_provider_check": "((provider = ANY (ARRAY['jev'::text, 'openai'::text])))",
+		"intent_prompt_versions_status_check":   "((status = ANY (ARRAY['draft'::text, 'published'::text, 'archived'::text])))",
+		"intent_prompt_versions_version_check":  "((version > 0))",
 	}
 	IntentRuleActivationsTable.ForeignKeys[0].RefTable = IntentRulesetsTable
 	IntentRuleActivationsTable.Annotation = &entsql.Annotation{

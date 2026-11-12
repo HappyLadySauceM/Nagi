@@ -42,8 +42,14 @@ type GroupMember func(*sql.Selector)
 // IntentDecision is the predicate function for intentdecision builders.
 type IntentDecision func(*sql.Selector)
 
+// IntentDecisionSnapshot is the predicate function for intentdecisionsnapshot builders.
+type IntentDecisionSnapshot func(*sql.Selector)
+
 // IntentDecisionStep is the predicate function for intentdecisionstep builders.
 type IntentDecisionStep func(*sql.Selector)
+
+// IntentPromptVersion is the predicate function for intentpromptversion builders.
+type IntentPromptVersion func(*sql.Selector)
 
 // IntentRuleActivation is the predicate function for intentruleactivation builders.
 type IntentRuleActivation func(*sql.Selector)

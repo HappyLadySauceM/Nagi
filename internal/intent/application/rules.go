@@ -122,18 +122,32 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 	if enabled("closing") && semantic.IntentCategory == "closing" {
 		return withScores(domain.DecisionSilent, "closing", scores)
 	}
-	if enabled("continuation") && semantic.ContinuesBotThread >= th.Continuation && (!enabled("addressed_to_other") || semantic.AddressedToOther < th.AddressedOtherMax) {
+	// A one-to-one conversation is addressed to the bot by construction. Treat
+	// normal private messages as expected replies instead of applying group
+	// participation thresholds; closing remains the explicit silence signal.
+	// 一对一对话按语义即指向机器人。私聊正常消息按期待回复处理，不再套用群聊参与阈值；
+	// 告别仍保留明确沉默信号。
+	if in.Task.Kind == "private" {
+		return withScores(domain.DecisionReply, "private_normal", scores)
+	}
+	// Being addressed to another person is the strongest group suppression
+	// signal, so it must run before active-thread continuation, interjection and
+	// directed-to-bot checks. Otherwise a high interjection score can override
+	// an explicit "you two keep talking" message.
+	// 对另一位真人说话是群聊最强的抑制信号，必须先于续聊、插话和指向机器人判断；
+	// 否则高插话分可能覆盖明确的“你们聊”信号。
+	if enabled("addressed_to_other") && semantic.AddressedToOther >= th.AddressedOtherMax {
+		return withScores(domain.DecisionSilent, "addressed_to_other", scores)
+	}
+	if enabled("continuation") && semantic.ContinuesBotThread >= th.Continuation {
 		return withScores(domain.DecisionReply, "active_thread_continuation", scores)
 	}
 	if enabled("interjection") && in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
 		semantic.AppropriateToJoin >= th.Interjection {
 		return withScores(domain.DecisionReply, "interjection", scores)
 	}
-	if enabled("directed_to_bot") && semantic.DirectedToBot >= th.Continuation && (!enabled("addressed_to_other") || semantic.AddressedToOther < th.AddressedOtherMax) {
+	if enabled("directed_to_bot") && semantic.DirectedToBot >= th.Continuation {
 		return withScores(domain.DecisionReply, "directed_to_bot", scores)
-	}
-	if enabled("addressed_to_other") && semantic.AddressedToOther >= th.AddressedOtherMax {
-		return withScores(domain.DecisionSilent, "addressed_to_other", scores)
 	}
 	return withScores(domain.DecisionSilent, "ambiguous", scores)
 }
@@ -160,7 +174,8 @@ func ApplyRuleset(rule domain.RuleResult, in domain.Input, entries []domain.Rule
 		return rule
 	}
 	for _, entry := range entries {
-		evaluation := domain.RuleEvaluation{Priority: entry.Priority, ReasonCode: entry.Action.ReasonCode, Status: "unmatched"}
+		enabled := entry.Enabled == nil || *entry.Enabled
+		evaluation := domain.RuleEvaluation{Priority: entry.Priority, Enabled: enabled, Match: entry.Match, Action: entry.Action, ReasonCode: entry.Action.ReasonCode, Status: "unmatched"}
 		if entry.Enabled != nil && !*entry.Enabled {
 			evaluation.Status = "disabled"
 			rule.Evaluations = append(rule.Evaluations, evaluation)

@@ -253,3 +253,28 @@ func TestDeleteRulesetEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestFlowReturnsFixedDefinition(t *testing.T) {
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{}).Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/intent/flow", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var env envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	var data struct {
+		FlowVersion string
+		Nodes       []struct{ NodeID string }
+		Edges       []struct{ EdgeID string }
+	}
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		t.Fatalf("decode flow: %v", err)
+	}
+	if data.FlowVersion != intentdomain.FlowVersion || len(data.Nodes) != 5 || len(data.Edges) != 5 {
+		t.Fatalf("flow = %+v", data)
+	}
+}

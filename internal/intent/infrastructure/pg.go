@@ -5,6 +5,7 @@ package infrastructure
 import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	d "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	dsnap "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	ds "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	m "github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	j "github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
@@ -100,7 +101,46 @@ func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain
 		if err != nil {
 			return err
 		}
-		if err := client.IntentDecisionStep.Create().SetDecisionID(record.ID).SetStepIndex(step.Index).SetPhase(step.Phase).SetReasonCode(step.ReasonCode).SetDetail(data).Exec(ctx); err != nil {
+		evidence, err := json.Marshal(evidencePayload(step.Evidence))
+		if err != nil {
+			return err
+		}
+		if err := client.IntentDecisionStep.Create().SetDecisionID(record.ID).SetStepIndex(step.Index).SetPhase(step.Phase).
+			SetNodeID(step.NodeID).SetNodeVersion(step.NodeVersion).SetStatus(step.Status).SetBranch(step.Branch).
+			SetSummary(step.Summary).SetReasonCode(step.ReasonCode).SetDetail(data).SetEvidence(evidence).
+			SetDurationMs(int(step.DurationMS)).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	if decision.Snapshot != nil {
+		input, err := json.Marshal(decision.Snapshot.Input)
+		if err != nil {
+			return err
+		}
+		semantic, err := json.Marshal(decision.Snapshot.Semantic)
+		if err != nil {
+			return err
+		}
+		prompt, err := json.Marshal(decision.Snapshot.Prompt)
+		if err != nil {
+			return err
+		}
+		rule, err := json.Marshal(decision.Snapshot.Rule)
+		if err != nil {
+			return err
+		}
+		missing, err := json.Marshal(decision.Snapshot.MissingFields)
+		if err != nil {
+			return err
+		}
+		rulesetVersion := decision.Snapshot.RulesetVersion
+		if rulesetVersion == "" {
+			rulesetVersion = decision.RulesetVersion
+		}
+		if _, err := client.IntentDecisionSnapshot.Create().
+			SetDecisionID(record.ID).SetRunID(decision.Snapshot.RunID).SetFlowVersion(decision.Snapshot.FlowVersion).
+			SetSnapshotVersion(decision.Snapshot.Version).SetInput(input).SetSemantic(semantic).SetPrompt(prompt).
+			SetRule(rule).SetRulesetVersion(rulesetVersion).SetMissingFields(missing).Save(ctx); err != nil {
 			return err
 		}
 	}
@@ -156,12 +196,39 @@ func (r *DecisionsRepo) List(ctx context.Context, q contracts.DecisionQuery) ([]
 		return nil, err
 	}
 	var out []contracts.DecisionRecord
+	ids := make([]int64, 0, len(rows))
 	for _, v := range rows {
 		record, err := decisionModel(v)
 		if err != nil {
 			return nil, err
 		}
+		ids = append(ids, v.ID)
 		out = append(out, record)
+	}
+	if len(ids) > 0 {
+		snapshots, err := r.pool.Client.IntentDecisionSnapshot.Query().Where(dsnap.DecisionIDIn(ids...)).All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		byDecision := make(map[int64]*ent.IntentDecisionSnapshot, len(snapshots))
+		for _, snapshot := range snapshots {
+			byDecision[snapshot.DecisionID] = snapshot
+		}
+		for i := range out {
+			if snapshot, ok := byDecision[out[i].ID]; ok {
+				out[i].RunID = snapshot.RunID
+				out[i].FlowVersion = snapshot.FlowVersion
+				out[i].MissingFields = []string{}
+				out[i].SnapshotStatus = domain.SnapshotStatusComplete
+				if len(snapshot.MissingFields) > 0 {
+					var missing []string
+					if err := json.Unmarshal(snapshot.MissingFields, &missing); err == nil && len(missing) > 0 {
+						out[i].MissingFields = missing
+						out[i].SnapshotStatus = domain.SnapshotStatusPartial
+					}
+				}
+			}
+		}
 	}
 	return out, nil
 }
@@ -185,13 +252,32 @@ func (r *DecisionsRepo) Get(ctx context.Context, id int64) (contracts.DecisionRe
 		return record, err
 	}
 	for _, v := range steps {
-		step := contracts.DecisionStep{Index: v.StepIndex, Phase: v.Phase, ReasonCode: v.ReasonCode, CreatedAt: v.CreatedAt}
+		step := contracts.DecisionStep{Index: v.StepIndex, Phase: v.Phase, NodeID: v.NodeID,
+			NodeVersion: v.NodeVersion, Status: v.Status, Branch: v.Branch, Summary: v.Summary,
+			ReasonCode: v.ReasonCode, DurationMS: int64(v.DurationMs), CreatedAt: v.CreatedAt}
 		if len(v.Detail) > 0 {
 			if err := json.Unmarshal(v.Detail, &step.Detail); err != nil {
 				return record, err
 			}
 		}
+		if len(v.Evidence) > 0 {
+			var evidence []domain.Evidence
+			if err := json.Unmarshal(v.Evidence, &evidence); err != nil {
+				return record, err
+			}
+			step.Evidence = evidencePayloadToContract(evidence)
+		}
 		record.Steps = append(record.Steps, step)
+	}
+	if snapshot, err := r.snapshotByDecision(ctx, id); err == nil {
+		record.RunID = snapshot.RunID
+		record.FlowVersion = snapshot.FlowVersion
+		record.MissingFields = snapshot.MissingFields
+		record.SnapshotStatus = snapshot.SnapshotStatus()
+	} else if !errors.Is(err, domain.ErrSnapshotNotFound) {
+		return record, err
+	} else {
+		record.SnapshotStatus = domain.SnapshotStatusLegacy
 	}
 	return record, nil
 }
@@ -206,7 +292,7 @@ func (r *DecisionsRepo) Stats(ctx context.Context, botID int64, since time.Time)
  WITH decisions AS (
  SELECT d.decision,d.latency_ms,
  EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic') AS called,
- EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic' AND s.detail->>'available'='true') AS success
+ EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic' AND COALESCE(s.detail->>'Available', s.detail->>'available')='true') AS success
  FROM intent_decisions d
  JOIN message_jobs j ON j.id=d.job_id
  JOIN messages m ON m.id=j.incoming_message_id
@@ -219,8 +305,79 @@ func (r *DecisionsRepo) Stats(ctx context.Context, botID int64, since time.Time)
 	return result, err
 }
 
+// Snapshot loads the exact input/semantic/prompt snapshot of one decision.
+// Snapshot 读取一条决策的精确输入、语义与 Prompt 快照。
+func (r *DecisionsRepo) Snapshot(ctx context.Context, decisionID int64) (domain.DecisionSnapshot, error) {
+	return r.snapshotByDecision(ctx, decisionID)
+}
+
+func (r *DecisionsRepo) snapshotByDecision(ctx context.Context, decisionID int64) (domain.DecisionSnapshot, error) {
+	row, err := r.pool.Client.IntentDecisionSnapshot.Query().Where(dsnap.DecisionID(decisionID)).Only(ctx)
+	if ent.IsNotFound(err) {
+		return domain.DecisionSnapshot{}, domain.ErrSnapshotNotFound
+	}
+	if err != nil {
+		return domain.DecisionSnapshot{}, err
+	}
+	snap := domain.DecisionSnapshot{Version: row.SnapshotVersion, FlowVersion: row.FlowVersion, RunID: row.RunID}
+	if len(row.Input) > 0 {
+		if err := json.Unmarshal(row.Input, &snap.Input); err != nil {
+			return snap, err
+		}
+	}
+	if len(row.Semantic) > 0 {
+		if err := json.Unmarshal(row.Semantic, &snap.Semantic); err != nil {
+			return snap, err
+		}
+	}
+	if len(row.Prompt) > 0 {
+		if err := json.Unmarshal(row.Prompt, &snap.Prompt); err != nil {
+			return snap, err
+		}
+	}
+	ruleLoaded := false
+	if len(row.Rule) > 0 {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(row.Rule, &raw); err != nil {
+			return snap, err
+		}
+		if len(raw) > 0 {
+			if err := json.Unmarshal(row.Rule, &snap.Rule); err != nil {
+				return snap, err
+			}
+			ruleLoaded = true
+		}
+	}
+	snap.RulesetVersion = row.RulesetVersion
+	if len(row.MissingFields) > 0 {
+		if err := json.Unmarshal(row.MissingFields, &snap.MissingFields); err != nil {
+			return snap, err
+		}
+	}
+	if !ruleLoaded {
+		snap.MissingFields = append(snap.MissingFields, "rule")
+	}
+	return snap, nil
+}
+
+func evidencePayload(items []domain.Evidence) []map[string]string {
+	out := make([]map[string]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, map[string]string{"Kind": item.Kind, "Text": item.Text})
+	}
+	return out
+}
+
+func evidencePayloadToContract(items []domain.Evidence) []contracts.EvidenceItem {
+	out := make([]contracts.EvidenceItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, contracts.EvidenceItem{Kind: item.Kind, Text: item.Text})
+	}
+	return out
+}
+
 func decisionModel(v *ent.IntentDecision) (contracts.DecisionRecord, error) {
-	record := contracts.DecisionRecord{ID: v.ID, JobID: v.JobID, Decision: v.Decision, ReasonCode: v.ReasonCode, Provider: v.Provider, Model: v.Model, RulesetVersion: v.RulesetVersion, LatencyMS: v.LatencyMs, CreatedAt: v.CreatedAt}
+	record := contracts.DecisionRecord{ID: v.ID, JobID: v.JobID, Decision: v.Decision, ReasonCode: v.ReasonCode, Provider: v.Provider, Model: v.Model, RulesetVersion: v.RulesetVersion, LatencyMS: v.LatencyMs, CreatedAt: v.CreatedAt, SnapshotStatus: domain.SnapshotStatusLegacy, MissingFields: []string{}}
 	job, err := v.Edges.JobIDRefOrErr()
 	if err != nil {
 		return record, err

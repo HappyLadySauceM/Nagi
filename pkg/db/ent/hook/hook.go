@@ -153,6 +153,18 @@ func (f IntentDecisionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Val
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentDecisionMutation", m)
 }
 
+// The IntentDecisionSnapshotFunc type is an adapter to allow the use of ordinary
+// function as IntentDecisionSnapshot mutator.
+type IntentDecisionSnapshotFunc func(context.Context, *ent.IntentDecisionSnapshotMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f IntentDecisionSnapshotFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.IntentDecisionSnapshotMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentDecisionSnapshotMutation", m)
+}
+
 // The IntentDecisionStepFunc type is an adapter to allow the use of ordinary
 // function as IntentDecisionStep mutator.
 type IntentDecisionStepFunc func(context.Context, *ent.IntentDecisionStepMutation) (ent.Value, error)
@@ -163,6 +175,18 @@ func (f IntentDecisionStepFunc) Mutate(ctx context.Context, m ent.Mutation) (ent
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentDecisionStepMutation", m)
+}
+
+// The IntentPromptVersionFunc type is an adapter to allow the use of ordinary
+// function as IntentPromptVersion mutator.
+type IntentPromptVersionFunc func(context.Context, *ent.IntentPromptVersionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f IntentPromptVersionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.IntentPromptVersionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentPromptVersionMutation", m)
 }
 
 // The IntentRuleActivationFunc type is an adapter to allow the use of ordinary

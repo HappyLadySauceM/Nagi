@@ -37,6 +37,8 @@ const (
 	EdgeJobIDRef = "job_id_ref"
 	// EdgeIntentDecisionStepsDecisionID holds the string denoting the intent_decision_steps_decision_id edge name in mutations.
 	EdgeIntentDecisionStepsDecisionID = "intent_decision_steps_decision_id"
+	// EdgeIntentDecisionSnapshotsDecisionID holds the string denoting the intent_decision_snapshots_decision_id edge name in mutations.
+	EdgeIntentDecisionSnapshotsDecisionID = "intent_decision_snapshots_decision_id"
 	// Table holds the table name of the intentdecision in the database.
 	Table = "intent_decisions"
 	// JobIDRefTable is the table that holds the job_id_ref relation/edge.
@@ -53,6 +55,13 @@ const (
 	IntentDecisionStepsDecisionIDInverseTable = "intent_decision_steps"
 	// IntentDecisionStepsDecisionIDColumn is the table column denoting the intent_decision_steps_decision_id relation/edge.
 	IntentDecisionStepsDecisionIDColumn = "decision_id"
+	// IntentDecisionSnapshotsDecisionIDTable is the table that holds the intent_decision_snapshots_decision_id relation/edge.
+	IntentDecisionSnapshotsDecisionIDTable = "intent_decision_snapshots"
+	// IntentDecisionSnapshotsDecisionIDInverseTable is the table name for the IntentDecisionSnapshot entity.
+	// It exists in this package in order to avoid circular dependency with the "intentdecisionsnapshot" package.
+	IntentDecisionSnapshotsDecisionIDInverseTable = "intent_decision_snapshots"
+	// IntentDecisionSnapshotsDecisionIDColumn is the table column denoting the intent_decision_snapshots_decision_id relation/edge.
+	IntentDecisionSnapshotsDecisionIDColumn = "decision_id"
 )
 
 // Columns holds all SQL columns for intentdecision fields.
@@ -160,6 +169,20 @@ func ByIntentDecisionStepsDecisionID(term sql.OrderTerm, terms ...sql.OrderTerm)
 		sqlgraph.OrderByNeighborTerms(s, newIntentDecisionStepsDecisionIDStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByIntentDecisionSnapshotsDecisionIDCount orders the results by intent_decision_snapshots_decision_id count.
+func ByIntentDecisionSnapshotsDecisionIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newIntentDecisionSnapshotsDecisionIDStep(), opts...)
+	}
+}
+
+// ByIntentDecisionSnapshotsDecisionID orders the results by intent_decision_snapshots_decision_id terms.
+func ByIntentDecisionSnapshotsDecisionID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newIntentDecisionSnapshotsDecisionIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newJobIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -172,5 +195,12 @@ func newIntentDecisionStepsDecisionIDStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(IntentDecisionStepsDecisionIDInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, IntentDecisionStepsDecisionIDTable, IntentDecisionStepsDecisionIDColumn),
+	)
+}
+func newIntentDecisionSnapshotsDecisionIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(IntentDecisionSnapshotsDecisionIDInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, IntentDecisionSnapshotsDecisionIDTable, IntentDecisionSnapshotsDecisionIDColumn),
 	)
 }

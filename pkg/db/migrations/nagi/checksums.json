@@ -12,5 +12,7 @@
   "20261110164256_memory_authorization_extraction.down.sql": "849ee9eeed36596590122715719f375500c6156ad4575961c3e01bb9aac6695b",
   "20261110164256_memory_authorization_extraction.up.sql": "07ee2f708e3017c720a9c61a8aaaf95d8fd22bb0435f8cfea765251549fa45ca",
   "20261110170000_bootstrap_memory_authorization.down.sql": "e60ae81e3124d8264f613b8d46f9e38d0b7e1403a19dd940d221b5ccbf1d2712",
-  "20261110170000_bootstrap_memory_authorization.up.sql": "b4419e0ec8e63fcd6a53f69b73c270efee2fd48aec5da89dad5cd585c800a2ca"
+  "20261110170000_bootstrap_memory_authorization.up.sql": "b4419e0ec8e63fcd6a53f69b73c270efee2fd48aec5da89dad5cd585c800a2ca",
+  "20261112085343_intent_p0_flow.down.sql": "1b2c65159715fa5901e409083dd1fc69a71973f29fd565e80acd7815d13ebbdc",
+  "20261112085343_intent_p0_flow.up.sql": "c80933fbea30fd4611d5c528fddf290b056bbb715c2fa1a986cc1f13b42e2d63"
 }

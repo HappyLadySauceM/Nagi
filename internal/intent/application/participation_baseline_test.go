@@ -153,15 +153,31 @@ func TestParticipationDecisionBaseline(t *testing.T) {
 			wantDecision: domain.DecisionReply, wantReason: "private_semantic_unavailable", wantNeedSemantic: true,
 		},
 		{
-			// Known conflict reported for the first-round baseline: interjection
-			// is checked before the addressed-to-other rejection and does not
-			// consult AddressedOtherMax. This sample freezes today's observable
-			// behavior; the product decision may change it deliberately.
-			// 首轮基线报告的已知冲突：interjection 在 addressed_to_other 拒绝前判定，
-			// 且未检查 AddressedOtherMax。本样例固定当前可观察行为，待产品决策后有意变更。
+			name: "private_greeting", input: baselinePrivateInput("在吗，早上好"),
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.21, ContinuesBotThread: 0.10, AddressedToOther: 0.10, AppropriateToJoin: 0.10, IntentCategory: "chat"},
+			wantDecision: domain.DecisionReply, wantReason: "private_normal", wantNeedSemantic: true,
+		},
+		{
+			name: "private_question", input: baselinePrivateInput("这个配置怎么改？"),
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.20, ContinuesBotThread: 0.10, AddressedToOther: 0.10, AppropriateToJoin: 0.10, IntentCategory: "question"},
+			wantDecision: domain.DecisionReply, wantReason: "private_normal", wantNeedSemantic: true,
+		},
+		{
+			name: "private_chat", input: baselinePrivateInput("今天天气不错"),
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.10, ContinuesBotThread: 0.10, AddressedToOther: 0.10, AppropriateToJoin: 0.10, IntentCategory: "chat"},
+			wantDecision: domain.DecisionReply, wantReason: "private_normal", wantNeedSemantic: true,
+		},
+		{
+			name: "private_closing", input: baselinePrivateInput("好，那先这样"),
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.10, ContinuesBotThread: 0.10, AddressedToOther: 0.10, AppropriateToJoin: 0.10, IntentCategory: "closing"},
+			wantDecision: domain.DecisionSilent, wantReason: "closing", wantNeedSemantic: true,
+		},
+		{
+			// Being addressed to another person must suppress interjection.
+			// 对别人说话时必须优先抑制插话。
 			name: "conflict_interjection_addressed_to_other", input: baselineGroupInput("你们俩聊什么呢？", nil),
 			semantic:     domain.SemanticAnswer{Available: true, AppropriateToJoin: 0.97, AddressedToOther: 0.90, IntentCategory: "chat"},
-			wantDecision: domain.DecisionReply, wantReason: "interjection", wantNeedSemantic: true,
+			wantDecision: domain.DecisionSilent, wantReason: "addressed_to_other", wantNeedSemantic: true,
 		},
 		{
 			name: "conflict_continuation_addressed_to_other", input: baselineGroupInput("你们俩聊什么呢？", nil),
@@ -232,27 +248,27 @@ func TestParticipationBaselineRecordsRuleVersionAndFailure(t *testing.T) {
 	semantic := domain.SemanticAnswer{Available: false, FailureCode: "semantic_unavailable"}
 	decision := EvaluateReplyPolicy(in, rule, semantic, baselineThresholds)
 	decision.RulesetVersion = version
-	steps := decisionSteps(in.Policy, rule, semantic, decision, 12, true, baselineThresholds)
-	if len(steps) != 4 {
-		t.Fatalf("steps = %d, want policy/rules/semantic/final", len(steps))
+	steps := decisionSteps(in, rule, semantic, decision, 12, true, baselineThresholds, false)
+	if len(steps) != 5 {
+		t.Fatalf("steps = %d, want policy/context/rules/semantic/final", len(steps))
 	}
-	if steps[0].Phase != domain.StepPolicy || steps[1].Phase != domain.StepRules ||
-		steps[2].Phase != domain.StepSemantic || steps[3].Phase != domain.StepFinal {
+	if steps[0].Phase != domain.StepPolicy || steps[1].Phase != domain.StepContext || steps[2].Phase != domain.StepRules ||
+		steps[3].Phase != domain.StepSemantic || steps[4].Phase != domain.StepFinal {
 		t.Fatalf("phases = %+v", steps)
 	}
-	evaluations, ok := steps[1].Detail["evaluations"].([]domain.RuleEvaluation)
+	evaluations, ok := steps[2].Detail["Evaluations"].([]domain.RuleEvaluation)
 	if !ok || len(evaluations) != 1 || evaluations[0].RulesetID != 41 ||
 		evaluations[0].Version != 7 || evaluations[0].Scope != "specific" || evaluations[0].Status != "matched" {
-		t.Fatalf("rule evaluations = %+v", steps[1].Detail["evaluations"])
+		t.Fatalf("rule evaluations = %+v", steps[2].Detail["Evaluations"])
 	}
-	if steps[2].Detail["available"] != false || steps[2].Detail["failure_code"] != "semantic_unavailable" {
-		t.Fatalf("semantic step = %+v", steps[2].Detail)
+	if steps[3].Detail["Available"] != false || steps[3].Detail["FailureCode"] != "semantic_unavailable" {
+		t.Fatalf("semantic step = %+v", steps[3].Detail)
 	}
-	thresholds, ok := steps[3].Detail["thresholds"].(map[string]float64)
-	if !ok || thresholds["continuation"] != baselineThresholds.Continuation ||
-		thresholds["interjection"] != baselineThresholds.Interjection ||
-		thresholds["addressed_other_max"] != baselineThresholds.AddressedOtherMax {
-		t.Fatalf("threshold snapshot = %+v", steps[3].Detail["thresholds"])
+	thresholds, ok := steps[4].Detail["Thresholds"].(map[string]float64)
+	if !ok || thresholds["Continuation"] != baselineThresholds.Continuation ||
+		thresholds["Interjection"] != baselineThresholds.Interjection ||
+		thresholds["AddressedOtherMax"] != baselineThresholds.AddressedOtherMax {
+		t.Fatalf("threshold snapshot = %+v", steps[4].Detail["Thresholds"])
 	}
 }
 
@@ -274,7 +290,7 @@ func TestParticipationBaselineSimulationMatchesPolicy(t *testing.T) {
 	if final.Decision != domain.DecisionReply || final.ReasonCode != "active_thread_continuation" {
 		t.Fatalf("simulation decision = %+v", final)
 	}
-	if len(steps) != 4 || len(recorder.decisions) != 0 || len(executor.tasks) != 0 {
+	if len(steps) != 5 || len(recorder.decisions) != 0 || len(executor.tasks) != 0 {
 		t.Fatalf("simulation steps = %d, recorded = %d, executed = %d", len(steps), len(recorder.decisions), len(executor.tasks))
 	}
 }

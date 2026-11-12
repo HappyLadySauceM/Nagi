@@ -95,7 +95,7 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	payload := map[string]any{
 		"model":     c.cfg.Model,
 		"state":     c.buildState(in),
-		"questions": defaultQuestions(),
+		"questions": questionsFor(in),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -134,6 +134,20 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 		return domain.SemanticAnswer{}, fmt.Errorf("jev: decode response: %w", err)
 	}
 	return parseAnswers(parsed.Answers)
+}
+
+// questionsFor uses the selected prompt snapshot; the built-in question set is
+// the final local fallback and never depends on the prompt store.
+// questionsFor 使用选定的 Prompt 快照；内置问题集是最终本地兜底，不依赖 Prompt 存储。
+func questionsFor(in domain.Input) map[string]jevQuestion {
+	if in.Prompt.SystemOne == nil || len(in.Prompt.SystemOne.Questions) == 0 {
+		return defaultQuestions()
+	}
+	out := make(map[string]jevQuestion, len(in.Prompt.SystemOne.Questions))
+	for name, q := range in.Prompt.SystemOne.Questions {
+		out[name] = jevQuestion{Type: q.Type, Instructions: q.Instructions, Criteria: q.Criteria}
+	}
+	return out
 }
 
 // buildState maps the decision input into the documented state shape.

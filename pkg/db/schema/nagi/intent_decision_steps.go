@@ -19,8 +19,15 @@ func (IntentDecisionStep) Fields() []ent.Field {
 		field.Int64("decision_id").SchemaType(map[string]string{"postgres": "bigint"}),
 		field.Int("step_index").SchemaType(map[string]string{"postgres": "integer"}),
 		field.String("phase").SchemaType(map[string]string{"postgres": "text"}),
+		field.String("node_id").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
+		field.Int("node_version").SchemaType(map[string]string{"postgres": "integer"}).Annotations(entsql.DefaultExpr("0")).Default(0),
+		field.String("status").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("'unknown'::text")).Default("unknown"),
+		field.String("branch").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
+		field.String("summary").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.String("reason_code").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.JSON("detail", json.RawMessage{}).Annotations(entsql.DefaultExpr("'{}'::jsonb")).Default(json.RawMessage("{}")),
+		field.JSON("evidence", json.RawMessage{}).Annotations(entsql.DefaultExpr("'[]'::jsonb")).Default(json.RawMessage("[]")),
+		field.Int("duration_ms").SchemaType(map[string]string{"postgres": "integer"}).Annotations(entsql.DefaultExpr("0")).Default(0),
 		field.Time("created_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 	}
 }

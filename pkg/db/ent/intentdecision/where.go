@@ -566,6 +566,29 @@ func HasIntentDecisionStepsDecisionIDWith(preds ...predicate.IntentDecisionStep)
 	})
 }
 
+// HasIntentDecisionSnapshotsDecisionID applies the HasEdge predicate on the "intent_decision_snapshots_decision_id" edge.
+func HasIntentDecisionSnapshotsDecisionID() predicate.IntentDecision {
+	return predicate.IntentDecision(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, IntentDecisionSnapshotsDecisionIDTable, IntentDecisionSnapshotsDecisionIDColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasIntentDecisionSnapshotsDecisionIDWith applies the HasEdge predicate on the "intent_decision_snapshots_decision_id" edge with a given conditions (other predicates).
+func HasIntentDecisionSnapshotsDecisionIDWith(preds ...predicate.IntentDecisionSnapshot) predicate.IntentDecision {
+	return predicate.IntentDecision(func(s *sql.Selector) {
+		step := newIntentDecisionSnapshotsDecisionIDStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.IntentDecision) predicate.IntentDecision {
 	return predicate.IntentDecision(sql.AndPredicates(predicates...))
