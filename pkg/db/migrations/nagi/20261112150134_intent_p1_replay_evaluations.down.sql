@@ -4,3 +4,5 @@ DROP INDEX "intent_replay_evaluations_decision";
 DROP INDEX "intent_replay_evaluations_bot_id_id";
 -- reverse: create "intent_replay_evaluations" table
 DROP TABLE "intent_replay_evaluations";
+
+DELETE FROM schema_migrations WHERE version=20261112150134;

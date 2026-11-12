@@ -21,3 +21,5 @@ CREATE TABLE "intent_replay_evaluations" (
 CREATE INDEX "intent_replay_evaluations_bot_id_id" ON "intent_replay_evaluations" ("bot_id", "id");
 -- create index "intent_replay_evaluations_decision" to table: "intent_replay_evaluations"
 CREATE INDEX "intent_replay_evaluations_decision" ON "intent_replay_evaluations" ("decision_id");
+
+INSERT INTO schema_migrations(version,name) VALUES (20261112150134,'intent_p1_replay_evaluations');
