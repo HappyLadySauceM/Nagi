@@ -123,6 +123,17 @@ type ReplayInfo struct {
 	Persisted bool
 }
 
+// PromptInfo identifies the immutable prompt version used by one run.
+// PromptInfo 标识一次运行使用的不可变 Prompt 版本。
+type PromptInfo struct {
+	ID        string
+	Name      string
+	Version   int
+	Source    string
+	SourceRef string
+	Hash      string
+}
+
 // Run is the single run contract shared by decision detail and simulation.
 // Run 是决策详情与模拟共享的统一运行契约。
 type Run struct {
@@ -142,6 +153,7 @@ type Run struct {
 	Scores         map[string]float64
 	LatencyMS      int64
 	CreatedAt      time.Time
+	Prompt         PromptInfo
 	Replay         *ReplayInfo `json:",omitempty"`
 }
 
@@ -164,6 +176,7 @@ type DecisionRecord struct {
 	Scores         map[string]float64
 	LatencyMS      int
 	CreatedAt      time.Time
+	Prompt         PromptInfo
 	Steps          []DecisionStep
 }
 

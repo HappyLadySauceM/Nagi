@@ -433,7 +433,16 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	promptService := intentapp.NewPromptService(promptsRepo, logger)
+	// Langfuse prompt sync is optional and explicit. The client is always
+	// constructed so the status endpoint can explain a missing configuration,
+	// but the decision path never calls it.
+	// Langfuse Prompt 同步是可选的显式操作。客户端始终构建，便于状态接口说明
+	// 配置缺失；判定路径绝不会调用它。
+	remotePrompts := intentinfra.NewLangfusePromptClient(intentinfra.LangfusePromptConfig{
+		BaseURL: cfg.Observability.BaseURL, PublicKey: cfg.Observability.PublicKey,
+		SecretKey: cfg.Observability.SecretKey, Timeout: 5 * time.Second,
+	}, logger)
+	promptService := intentapp.NewPromptService(promptsRepo, logger, remotePrompts)
 	live := settings.Settings()
 	transcripts, err := conversationinfra.NewRepo(pool)
 	if err != nil {
@@ -479,7 +488,11 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	replayService := intentapp.NewReplayService(decider, decisionsRepo, decisionsRepo)
+	replayRepo, err := intentinfra.NewReplayEvaluationsRepo(pool)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	replayService := intentapp.NewReplayService(decider, decisionsRepo, decisionsRepo, replayRepo)
 	repo, err := conversationinfra.NewRepo(pool)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err

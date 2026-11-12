@@ -51,6 +51,9 @@ type IntentDecisionStep func(*sql.Selector)
 // IntentPromptVersion is the predicate function for intentpromptversion builders.
 type IntentPromptVersion func(*sql.Selector)
 
+// IntentReplayEvaluation is the predicate function for intentreplayevaluation builders.
+type IntentReplayEvaluation func(*sql.Selector)
+
 // IntentRuleActivation is the predicate function for intentruleactivation builders.
 type IntentRuleActivation func(*sql.Selector)
 

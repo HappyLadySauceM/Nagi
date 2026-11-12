@@ -39,6 +39,8 @@ const (
 	EdgeIntentDecisionStepsDecisionID = "intent_decision_steps_decision_id"
 	// EdgeIntentDecisionSnapshotsDecisionID holds the string denoting the intent_decision_snapshots_decision_id edge name in mutations.
 	EdgeIntentDecisionSnapshotsDecisionID = "intent_decision_snapshots_decision_id"
+	// EdgeIntentReplayEvaluationsDecisionID holds the string denoting the intent_replay_evaluations_decision_id edge name in mutations.
+	EdgeIntentReplayEvaluationsDecisionID = "intent_replay_evaluations_decision_id"
 	// Table holds the table name of the intentdecision in the database.
 	Table = "intent_decisions"
 	// JobIDRefTable is the table that holds the job_id_ref relation/edge.
@@ -62,6 +64,13 @@ const (
 	IntentDecisionSnapshotsDecisionIDInverseTable = "intent_decision_snapshots"
 	// IntentDecisionSnapshotsDecisionIDColumn is the table column denoting the intent_decision_snapshots_decision_id relation/edge.
 	IntentDecisionSnapshotsDecisionIDColumn = "decision_id"
+	// IntentReplayEvaluationsDecisionIDTable is the table that holds the intent_replay_evaluations_decision_id relation/edge.
+	IntentReplayEvaluationsDecisionIDTable = "intent_replay_evaluations"
+	// IntentReplayEvaluationsDecisionIDInverseTable is the table name for the IntentReplayEvaluation entity.
+	// It exists in this package in order to avoid circular dependency with the "intentreplayevaluation" package.
+	IntentReplayEvaluationsDecisionIDInverseTable = "intent_replay_evaluations"
+	// IntentReplayEvaluationsDecisionIDColumn is the table column denoting the intent_replay_evaluations_decision_id relation/edge.
+	IntentReplayEvaluationsDecisionIDColumn = "decision_id"
 )
 
 // Columns holds all SQL columns for intentdecision fields.
@@ -183,6 +192,20 @@ func ByIntentDecisionSnapshotsDecisionID(term sql.OrderTerm, terms ...sql.OrderT
 		sqlgraph.OrderByNeighborTerms(s, newIntentDecisionSnapshotsDecisionIDStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByIntentReplayEvaluationsDecisionIDCount orders the results by intent_replay_evaluations_decision_id count.
+func ByIntentReplayEvaluationsDecisionIDCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newIntentReplayEvaluationsDecisionIDStep(), opts...)
+	}
+}
+
+// ByIntentReplayEvaluationsDecisionID orders the results by intent_replay_evaluations_decision_id terms.
+func ByIntentReplayEvaluationsDecisionID(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newIntentReplayEvaluationsDecisionIDStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newJobIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -202,5 +225,12 @@ func newIntentDecisionSnapshotsDecisionIDStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(IntentDecisionSnapshotsDecisionIDInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, IntentDecisionSnapshotsDecisionIDTable, IntentDecisionSnapshotsDecisionIDColumn),
+	)
+}
+func newIntentReplayEvaluationsDecisionIDStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(IntentReplayEvaluationsDecisionIDInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, IntentReplayEvaluationsDecisionIDTable, IntentReplayEvaluationsDecisionIDColumn),
 	)
 }

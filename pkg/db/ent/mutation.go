@@ -27,6 +27,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
@@ -67,6 +68,7 @@ const (
 	TypeIntentDecisionSnapshot        = "IntentDecisionSnapshot"
 	TypeIntentDecisionStep            = "IntentDecisionStep"
 	TypeIntentPromptVersion           = "IntentPromptVersion"
+	TypeIntentReplayEvaluation        = "IntentReplayEvaluation"
 	TypeIntentRuleActivation          = "IntentRuleActivation"
 	TypeIntentRuleEntry               = "IntentRuleEntry"
 	TypeIntentRuleset                 = "IntentRuleset"
@@ -11132,6 +11134,9 @@ type IntentDecisionMutation struct {
 	intent_decision_snapshots_decision_id        map[int64]struct{}
 	removedintent_decision_snapshots_decision_id map[int64]struct{}
 	clearedintent_decision_snapshots_decision_id bool
+	intent_replay_evaluations_decision_id        map[int64]struct{}
+	removedintent_replay_evaluations_decision_id map[int64]struct{}
+	clearedintent_replay_evaluations_decision_id bool
 	done                                         bool
 	oldValue                                     func(context.Context) (*IntentDecision, error)
 	predicates                                   []predicate.IntentDecision
@@ -11748,6 +11753,60 @@ func (m *IntentDecisionMutation) ResetIntentDecisionSnapshotsDecisionID() {
 	m.removedintent_decision_snapshots_decision_id = nil
 }
 
+// AddIntentReplayEvaluationsDecisionIDIDs adds the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity by ids.
+func (m *IntentDecisionMutation) AddIntentReplayEvaluationsDecisionIDIDs(ids ...int64) {
+	if m.intent_replay_evaluations_decision_id == nil {
+		m.intent_replay_evaluations_decision_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.intent_replay_evaluations_decision_id[ids[i]] = struct{}{}
+	}
+}
+
+// ClearIntentReplayEvaluationsDecisionID clears the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity.
+func (m *IntentDecisionMutation) ClearIntentReplayEvaluationsDecisionID() {
+	m.clearedintent_replay_evaluations_decision_id = true
+}
+
+// IntentReplayEvaluationsDecisionIDCleared reports if the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity was cleared.
+func (m *IntentDecisionMutation) IntentReplayEvaluationsDecisionIDCleared() bool {
+	return m.clearedintent_replay_evaluations_decision_id
+}
+
+// RemoveIntentReplayEvaluationsDecisionIDIDs removes the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity by IDs.
+func (m *IntentDecisionMutation) RemoveIntentReplayEvaluationsDecisionIDIDs(ids ...int64) {
+	if m.removedintent_replay_evaluations_decision_id == nil {
+		m.removedintent_replay_evaluations_decision_id = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.intent_replay_evaluations_decision_id, ids[i])
+		m.removedintent_replay_evaluations_decision_id[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedIntentReplayEvaluationsDecisionID returns the removed IDs of the "intent_replay_evaluations_decision_id" edge to the IntentReplayEvaluation entity.
+func (m *IntentDecisionMutation) RemovedIntentReplayEvaluationsDecisionIDIDs() (ids []int64) {
+	for id := range m.removedintent_replay_evaluations_decision_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// IntentReplayEvaluationsDecisionIDIDs returns the "intent_replay_evaluations_decision_id" edge IDs in the mutation.
+func (m *IntentDecisionMutation) IntentReplayEvaluationsDecisionIDIDs() (ids []int64) {
+	for id := range m.intent_replay_evaluations_decision_id {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetIntentReplayEvaluationsDecisionID resets all changes to the "intent_replay_evaluations_decision_id" edge.
+func (m *IntentDecisionMutation) ResetIntentReplayEvaluationsDecisionID() {
+	m.intent_replay_evaluations_decision_id = nil
+	m.clearedintent_replay_evaluations_decision_id = false
+	m.removedintent_replay_evaluations_decision_id = nil
+}
+
 // Where appends a list predicates to the IntentDecisionMutation builder.
 func (m *IntentDecisionMutation) Where(ps ...predicate.IntentDecision) {
 	m.predicates = append(m.predicates, ps...)
@@ -12032,7 +12091,7 @@ func (m *IntentDecisionMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *IntentDecisionMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.job_id_ref != nil {
 		edges = append(edges, intentdecision.EdgeJobIDRef)
 	}
@@ -12041,6 +12100,9 @@ func (m *IntentDecisionMutation) AddedEdges() []string {
 	}
 	if m.intent_decision_snapshots_decision_id != nil {
 		edges = append(edges, intentdecision.EdgeIntentDecisionSnapshotsDecisionID)
+	}
+	if m.intent_replay_evaluations_decision_id != nil {
+		edges = append(edges, intentdecision.EdgeIntentReplayEvaluationsDecisionID)
 	}
 	return edges
 }
@@ -12065,18 +12127,27 @@ func (m *IntentDecisionMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case intentdecision.EdgeIntentReplayEvaluationsDecisionID:
+		ids := make([]ent.Value, 0, len(m.intent_replay_evaluations_decision_id))
+		for id := range m.intent_replay_evaluations_decision_id {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *IntentDecisionMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.removedintent_decision_steps_decision_id != nil {
 		edges = append(edges, intentdecision.EdgeIntentDecisionStepsDecisionID)
 	}
 	if m.removedintent_decision_snapshots_decision_id != nil {
 		edges = append(edges, intentdecision.EdgeIntentDecisionSnapshotsDecisionID)
+	}
+	if m.removedintent_replay_evaluations_decision_id != nil {
+		edges = append(edges, intentdecision.EdgeIntentReplayEvaluationsDecisionID)
 	}
 	return edges
 }
@@ -12097,13 +12168,19 @@ func (m *IntentDecisionMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case intentdecision.EdgeIntentReplayEvaluationsDecisionID:
+		ids := make([]ent.Value, 0, len(m.removedintent_replay_evaluations_decision_id))
+		for id := range m.removedintent_replay_evaluations_decision_id {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *IntentDecisionMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.clearedjob_id_ref {
 		edges = append(edges, intentdecision.EdgeJobIDRef)
 	}
@@ -12112,6 +12189,9 @@ func (m *IntentDecisionMutation) ClearedEdges() []string {
 	}
 	if m.clearedintent_decision_snapshots_decision_id {
 		edges = append(edges, intentdecision.EdgeIntentDecisionSnapshotsDecisionID)
+	}
+	if m.clearedintent_replay_evaluations_decision_id {
+		edges = append(edges, intentdecision.EdgeIntentReplayEvaluationsDecisionID)
 	}
 	return edges
 }
@@ -12126,6 +12206,8 @@ func (m *IntentDecisionMutation) EdgeCleared(name string) bool {
 		return m.clearedintent_decision_steps_decision_id
 	case intentdecision.EdgeIntentDecisionSnapshotsDecisionID:
 		return m.clearedintent_decision_snapshots_decision_id
+	case intentdecision.EdgeIntentReplayEvaluationsDecisionID:
+		return m.clearedintent_replay_evaluations_decision_id
 	}
 	return false
 }
@@ -12153,6 +12235,9 @@ func (m *IntentDecisionMutation) ResetEdge(name string) error {
 		return nil
 	case intentdecision.EdgeIntentDecisionSnapshotsDecisionID:
 		m.ResetIntentDecisionSnapshotsDecisionID()
+		return nil
+	case intentdecision.EdgeIntentReplayEvaluationsDecisionID:
+		m.ResetIntentReplayEvaluationsDecisionID()
 		return nil
 	}
 	return fmt.Errorf("unknown IntentDecision edge %s", name)
@@ -15359,6 +15444,1115 @@ func (m *IntentPromptVersionMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *IntentPromptVersionMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown IntentPromptVersion edge %s", name)
+}
+
+// IntentReplayEvaluationMutation represents an operation that mutates the IntentReplayEvaluation nodes in the graph.
+type IntentReplayEvaluationMutation struct {
+	config
+	op                     Op
+	typ                    string
+	id                     *int64
+	bot_id                 *int64
+	addbot_id              *int64
+	mode                   *string
+	name                   *string
+	note                   *string
+	changed                *bool
+	before_run             *jsontext.Value
+	appendbefore_run       jsontext.Value
+	after_run              *jsontext.Value
+	appendafter_run        jsontext.Value
+	parameters             *jsontext.Value
+	appendparameters       jsontext.Value
+	cost                   *jsontext.Value
+	appendcost             jsontext.Value
+	reproduction           *jsontext.Value
+	appendreproduction     jsontext.Value
+	created_at             *time.Time
+	clearedFields          map[string]struct{}
+	decision_id_ref        *int64
+	cleareddecision_id_ref bool
+	done                   bool
+	oldValue               func(context.Context) (*IntentReplayEvaluation, error)
+	predicates             []predicate.IntentReplayEvaluation
+}
+
+var _ ent.Mutation = (*IntentReplayEvaluationMutation)(nil)
+
+// intentreplayevaluationOption allows management of the mutation configuration using functional options.
+type intentreplayevaluationOption func(*IntentReplayEvaluationMutation)
+
+// newIntentReplayEvaluationMutation creates new mutation for the IntentReplayEvaluation entity.
+func newIntentReplayEvaluationMutation(c config, op Op, opts ...intentreplayevaluationOption) *IntentReplayEvaluationMutation {
+	m := &IntentReplayEvaluationMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeIntentReplayEvaluation,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withIntentReplayEvaluationID sets the ID field of the mutation.
+func withIntentReplayEvaluationID(id int64) intentreplayevaluationOption {
+	return func(m *IntentReplayEvaluationMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *IntentReplayEvaluation
+		)
+		m.oldValue = func(ctx context.Context) (*IntentReplayEvaluation, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().IntentReplayEvaluation.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withIntentReplayEvaluation sets the old IntentReplayEvaluation of the mutation.
+func withIntentReplayEvaluation(node *IntentReplayEvaluation) intentreplayevaluationOption {
+	return func(m *IntentReplayEvaluationMutation) {
+		m.oldValue = func(context.Context) (*IntentReplayEvaluation, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m IntentReplayEvaluationMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m IntentReplayEvaluationMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of IntentReplayEvaluation entities.
+func (m *IntentReplayEvaluationMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *IntentReplayEvaluationMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *IntentReplayEvaluationMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().IntentReplayEvaluation.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetDecisionID sets the "decision_id" field.
+func (m *IntentReplayEvaluationMutation) SetDecisionID(i int64) {
+	m.decision_id_ref = &i
+}
+
+// DecisionID returns the value of the "decision_id" field in the mutation.
+func (m *IntentReplayEvaluationMutation) DecisionID() (r int64, exists bool) {
+	v := m.decision_id_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDecisionID returns the old "decision_id" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldDecisionID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDecisionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDecisionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDecisionID: %w", err)
+	}
+	return oldValue.DecisionID, nil
+}
+
+// ResetDecisionID resets all changes to the "decision_id" field.
+func (m *IntentReplayEvaluationMutation) ResetDecisionID() {
+	m.decision_id_ref = nil
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *IntentReplayEvaluationMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *IntentReplayEvaluationMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *IntentReplayEvaluationMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *IntentReplayEvaluationMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *IntentReplayEvaluationMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetMode sets the "mode" field.
+func (m *IntentReplayEvaluationMutation) SetMode(s string) {
+	m.mode = &s
+}
+
+// Mode returns the value of the "mode" field in the mutation.
+func (m *IntentReplayEvaluationMutation) Mode() (r string, exists bool) {
+	v := m.mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMode returns the old "mode" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMode: %w", err)
+	}
+	return oldValue.Mode, nil
+}
+
+// ResetMode resets all changes to the "mode" field.
+func (m *IntentReplayEvaluationMutation) ResetMode() {
+	m.mode = nil
+}
+
+// SetName sets the "name" field.
+func (m *IntentReplayEvaluationMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *IntentReplayEvaluationMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *IntentReplayEvaluationMutation) ResetName() {
+	m.name = nil
+}
+
+// SetNote sets the "note" field.
+func (m *IntentReplayEvaluationMutation) SetNote(s string) {
+	m.note = &s
+}
+
+// Note returns the value of the "note" field in the mutation.
+func (m *IntentReplayEvaluationMutation) Note() (r string, exists bool) {
+	v := m.note
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNote returns the old "note" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldNote(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNote is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNote requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNote: %w", err)
+	}
+	return oldValue.Note, nil
+}
+
+// ResetNote resets all changes to the "note" field.
+func (m *IntentReplayEvaluationMutation) ResetNote() {
+	m.note = nil
+}
+
+// SetChanged sets the "changed" field.
+func (m *IntentReplayEvaluationMutation) SetChanged(b bool) {
+	m.changed = &b
+}
+
+// Changed returns the value of the "changed" field in the mutation.
+func (m *IntentReplayEvaluationMutation) Changed() (r bool, exists bool) {
+	v := m.changed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChanged returns the old "changed" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldChanged(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChanged is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChanged requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChanged: %w", err)
+	}
+	return oldValue.Changed, nil
+}
+
+// ResetChanged resets all changes to the "changed" field.
+func (m *IntentReplayEvaluationMutation) ResetChanged() {
+	m.changed = nil
+}
+
+// SetBeforeRun sets the "before_run" field.
+func (m *IntentReplayEvaluationMutation) SetBeforeRun(j jsontext.Value) {
+	m.before_run = &j
+	m.appendbefore_run = nil
+}
+
+// BeforeRun returns the value of the "before_run" field in the mutation.
+func (m *IntentReplayEvaluationMutation) BeforeRun() (r jsontext.Value, exists bool) {
+	v := m.before_run
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBeforeRun returns the old "before_run" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldBeforeRun(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBeforeRun is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBeforeRun requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBeforeRun: %w", err)
+	}
+	return oldValue.BeforeRun, nil
+}
+
+// AppendBeforeRun adds j to the "before_run" field.
+func (m *IntentReplayEvaluationMutation) AppendBeforeRun(j jsontext.Value) {
+	m.appendbefore_run = append(m.appendbefore_run, j...)
+}
+
+// AppendedBeforeRun returns the list of values that were appended to the "before_run" field in this mutation.
+func (m *IntentReplayEvaluationMutation) AppendedBeforeRun() (jsontext.Value, bool) {
+	if len(m.appendbefore_run) == 0 {
+		return nil, false
+	}
+	return m.appendbefore_run, true
+}
+
+// ResetBeforeRun resets all changes to the "before_run" field.
+func (m *IntentReplayEvaluationMutation) ResetBeforeRun() {
+	m.before_run = nil
+	m.appendbefore_run = nil
+}
+
+// SetAfterRun sets the "after_run" field.
+func (m *IntentReplayEvaluationMutation) SetAfterRun(j jsontext.Value) {
+	m.after_run = &j
+	m.appendafter_run = nil
+}
+
+// AfterRun returns the value of the "after_run" field in the mutation.
+func (m *IntentReplayEvaluationMutation) AfterRun() (r jsontext.Value, exists bool) {
+	v := m.after_run
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAfterRun returns the old "after_run" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldAfterRun(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAfterRun is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAfterRun requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAfterRun: %w", err)
+	}
+	return oldValue.AfterRun, nil
+}
+
+// AppendAfterRun adds j to the "after_run" field.
+func (m *IntentReplayEvaluationMutation) AppendAfterRun(j jsontext.Value) {
+	m.appendafter_run = append(m.appendafter_run, j...)
+}
+
+// AppendedAfterRun returns the list of values that were appended to the "after_run" field in this mutation.
+func (m *IntentReplayEvaluationMutation) AppendedAfterRun() (jsontext.Value, bool) {
+	if len(m.appendafter_run) == 0 {
+		return nil, false
+	}
+	return m.appendafter_run, true
+}
+
+// ResetAfterRun resets all changes to the "after_run" field.
+func (m *IntentReplayEvaluationMutation) ResetAfterRun() {
+	m.after_run = nil
+	m.appendafter_run = nil
+}
+
+// SetParameters sets the "parameters" field.
+func (m *IntentReplayEvaluationMutation) SetParameters(j jsontext.Value) {
+	m.parameters = &j
+	m.appendparameters = nil
+}
+
+// Parameters returns the value of the "parameters" field in the mutation.
+func (m *IntentReplayEvaluationMutation) Parameters() (r jsontext.Value, exists bool) {
+	v := m.parameters
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldParameters returns the old "parameters" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldParameters(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldParameters is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldParameters requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldParameters: %w", err)
+	}
+	return oldValue.Parameters, nil
+}
+
+// AppendParameters adds j to the "parameters" field.
+func (m *IntentReplayEvaluationMutation) AppendParameters(j jsontext.Value) {
+	m.appendparameters = append(m.appendparameters, j...)
+}
+
+// AppendedParameters returns the list of values that were appended to the "parameters" field in this mutation.
+func (m *IntentReplayEvaluationMutation) AppendedParameters() (jsontext.Value, bool) {
+	if len(m.appendparameters) == 0 {
+		return nil, false
+	}
+	return m.appendparameters, true
+}
+
+// ResetParameters resets all changes to the "parameters" field.
+func (m *IntentReplayEvaluationMutation) ResetParameters() {
+	m.parameters = nil
+	m.appendparameters = nil
+}
+
+// SetCost sets the "cost" field.
+func (m *IntentReplayEvaluationMutation) SetCost(j jsontext.Value) {
+	m.cost = &j
+	m.appendcost = nil
+}
+
+// Cost returns the value of the "cost" field in the mutation.
+func (m *IntentReplayEvaluationMutation) Cost() (r jsontext.Value, exists bool) {
+	v := m.cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCost returns the old "cost" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldCost(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCost is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCost requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCost: %w", err)
+	}
+	return oldValue.Cost, nil
+}
+
+// AppendCost adds j to the "cost" field.
+func (m *IntentReplayEvaluationMutation) AppendCost(j jsontext.Value) {
+	m.appendcost = append(m.appendcost, j...)
+}
+
+// AppendedCost returns the list of values that were appended to the "cost" field in this mutation.
+func (m *IntentReplayEvaluationMutation) AppendedCost() (jsontext.Value, bool) {
+	if len(m.appendcost) == 0 {
+		return nil, false
+	}
+	return m.appendcost, true
+}
+
+// ResetCost resets all changes to the "cost" field.
+func (m *IntentReplayEvaluationMutation) ResetCost() {
+	m.cost = nil
+	m.appendcost = nil
+}
+
+// SetReproduction sets the "reproduction" field.
+func (m *IntentReplayEvaluationMutation) SetReproduction(j jsontext.Value) {
+	m.reproduction = &j
+	m.appendreproduction = nil
+}
+
+// Reproduction returns the value of the "reproduction" field in the mutation.
+func (m *IntentReplayEvaluationMutation) Reproduction() (r jsontext.Value, exists bool) {
+	v := m.reproduction
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReproduction returns the old "reproduction" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldReproduction(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReproduction is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReproduction requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReproduction: %w", err)
+	}
+	return oldValue.Reproduction, nil
+}
+
+// AppendReproduction adds j to the "reproduction" field.
+func (m *IntentReplayEvaluationMutation) AppendReproduction(j jsontext.Value) {
+	m.appendreproduction = append(m.appendreproduction, j...)
+}
+
+// AppendedReproduction returns the list of values that were appended to the "reproduction" field in this mutation.
+func (m *IntentReplayEvaluationMutation) AppendedReproduction() (jsontext.Value, bool) {
+	if len(m.appendreproduction) == 0 {
+		return nil, false
+	}
+	return m.appendreproduction, true
+}
+
+// ResetReproduction resets all changes to the "reproduction" field.
+func (m *IntentReplayEvaluationMutation) ResetReproduction() {
+	m.reproduction = nil
+	m.appendreproduction = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *IntentReplayEvaluationMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *IntentReplayEvaluationMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the IntentReplayEvaluation entity.
+// If the IntentReplayEvaluation object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentReplayEvaluationMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *IntentReplayEvaluationMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetDecisionIDRefID sets the "decision_id_ref" edge to the IntentDecision entity by id.
+func (m *IntentReplayEvaluationMutation) SetDecisionIDRefID(id int64) {
+	m.decision_id_ref = &id
+}
+
+// ClearDecisionIDRef clears the "decision_id_ref" edge to the IntentDecision entity.
+func (m *IntentReplayEvaluationMutation) ClearDecisionIDRef() {
+	m.cleareddecision_id_ref = true
+	m.clearedFields[intentreplayevaluation.FieldDecisionID] = struct{}{}
+}
+
+// DecisionIDRefCleared reports if the "decision_id_ref" edge to the IntentDecision entity was cleared.
+func (m *IntentReplayEvaluationMutation) DecisionIDRefCleared() bool {
+	return m.cleareddecision_id_ref
+}
+
+// DecisionIDRefID returns the "decision_id_ref" edge ID in the mutation.
+func (m *IntentReplayEvaluationMutation) DecisionIDRefID() (id int64, exists bool) {
+	if m.decision_id_ref != nil {
+		return *m.decision_id_ref, true
+	}
+	return
+}
+
+// DecisionIDRefIDs returns the "decision_id_ref" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// DecisionIDRefID instead. It exists only for internal usage by the builders.
+func (m *IntentReplayEvaluationMutation) DecisionIDRefIDs() (ids []int64) {
+	if id := m.decision_id_ref; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetDecisionIDRef resets all changes to the "decision_id_ref" edge.
+func (m *IntentReplayEvaluationMutation) ResetDecisionIDRef() {
+	m.decision_id_ref = nil
+	m.cleareddecision_id_ref = false
+}
+
+// Where appends a list predicates to the IntentReplayEvaluationMutation builder.
+func (m *IntentReplayEvaluationMutation) Where(ps ...predicate.IntentReplayEvaluation) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the IntentReplayEvaluationMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *IntentReplayEvaluationMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.IntentReplayEvaluation, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *IntentReplayEvaluationMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *IntentReplayEvaluationMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (IntentReplayEvaluation).
+func (m *IntentReplayEvaluationMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *IntentReplayEvaluationMutation) Fields() []string {
+	fields := make([]string, 0, 12)
+	if m.decision_id_ref != nil {
+		fields = append(fields, intentreplayevaluation.FieldDecisionID)
+	}
+	if m.bot_id != nil {
+		fields = append(fields, intentreplayevaluation.FieldBotID)
+	}
+	if m.mode != nil {
+		fields = append(fields, intentreplayevaluation.FieldMode)
+	}
+	if m.name != nil {
+		fields = append(fields, intentreplayevaluation.FieldName)
+	}
+	if m.note != nil {
+		fields = append(fields, intentreplayevaluation.FieldNote)
+	}
+	if m.changed != nil {
+		fields = append(fields, intentreplayevaluation.FieldChanged)
+	}
+	if m.before_run != nil {
+		fields = append(fields, intentreplayevaluation.FieldBeforeRun)
+	}
+	if m.after_run != nil {
+		fields = append(fields, intentreplayevaluation.FieldAfterRun)
+	}
+	if m.parameters != nil {
+		fields = append(fields, intentreplayevaluation.FieldParameters)
+	}
+	if m.cost != nil {
+		fields = append(fields, intentreplayevaluation.FieldCost)
+	}
+	if m.reproduction != nil {
+		fields = append(fields, intentreplayevaluation.FieldReproduction)
+	}
+	if m.created_at != nil {
+		fields = append(fields, intentreplayevaluation.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *IntentReplayEvaluationMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case intentreplayevaluation.FieldDecisionID:
+		return m.DecisionID()
+	case intentreplayevaluation.FieldBotID:
+		return m.BotID()
+	case intentreplayevaluation.FieldMode:
+		return m.Mode()
+	case intentreplayevaluation.FieldName:
+		return m.Name()
+	case intentreplayevaluation.FieldNote:
+		return m.Note()
+	case intentreplayevaluation.FieldChanged:
+		return m.Changed()
+	case intentreplayevaluation.FieldBeforeRun:
+		return m.BeforeRun()
+	case intentreplayevaluation.FieldAfterRun:
+		return m.AfterRun()
+	case intentreplayevaluation.FieldParameters:
+		return m.Parameters()
+	case intentreplayevaluation.FieldCost:
+		return m.Cost()
+	case intentreplayevaluation.FieldReproduction:
+		return m.Reproduction()
+	case intentreplayevaluation.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *IntentReplayEvaluationMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case intentreplayevaluation.FieldDecisionID:
+		return m.OldDecisionID(ctx)
+	case intentreplayevaluation.FieldBotID:
+		return m.OldBotID(ctx)
+	case intentreplayevaluation.FieldMode:
+		return m.OldMode(ctx)
+	case intentreplayevaluation.FieldName:
+		return m.OldName(ctx)
+	case intentreplayevaluation.FieldNote:
+		return m.OldNote(ctx)
+	case intentreplayevaluation.FieldChanged:
+		return m.OldChanged(ctx)
+	case intentreplayevaluation.FieldBeforeRun:
+		return m.OldBeforeRun(ctx)
+	case intentreplayevaluation.FieldAfterRun:
+		return m.OldAfterRun(ctx)
+	case intentreplayevaluation.FieldParameters:
+		return m.OldParameters(ctx)
+	case intentreplayevaluation.FieldCost:
+		return m.OldCost(ctx)
+	case intentreplayevaluation.FieldReproduction:
+		return m.OldReproduction(ctx)
+	case intentreplayevaluation.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown IntentReplayEvaluation field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentReplayEvaluationMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case intentreplayevaluation.FieldDecisionID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDecisionID(v)
+		return nil
+	case intentreplayevaluation.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case intentreplayevaluation.FieldMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMode(v)
+		return nil
+	case intentreplayevaluation.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case intentreplayevaluation.FieldNote:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNote(v)
+		return nil
+	case intentreplayevaluation.FieldChanged:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChanged(v)
+		return nil
+	case intentreplayevaluation.FieldBeforeRun:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBeforeRun(v)
+		return nil
+	case intentreplayevaluation.FieldAfterRun:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAfterRun(v)
+		return nil
+	case intentreplayevaluation.FieldParameters:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetParameters(v)
+		return nil
+	case intentreplayevaluation.FieldCost:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCost(v)
+		return nil
+	case intentreplayevaluation.FieldReproduction:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReproduction(v)
+		return nil
+	case intentreplayevaluation.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentReplayEvaluation field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *IntentReplayEvaluationMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, intentreplayevaluation.FieldBotID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *IntentReplayEvaluationMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case intentreplayevaluation.FieldBotID:
+		return m.AddedBotID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentReplayEvaluationMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case intentreplayevaluation.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentReplayEvaluation numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *IntentReplayEvaluationMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *IntentReplayEvaluationMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *IntentReplayEvaluationMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown IntentReplayEvaluation nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *IntentReplayEvaluationMutation) ResetField(name string) error {
+	switch name {
+	case intentreplayevaluation.FieldDecisionID:
+		m.ResetDecisionID()
+		return nil
+	case intentreplayevaluation.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case intentreplayevaluation.FieldMode:
+		m.ResetMode()
+		return nil
+	case intentreplayevaluation.FieldName:
+		m.ResetName()
+		return nil
+	case intentreplayevaluation.FieldNote:
+		m.ResetNote()
+		return nil
+	case intentreplayevaluation.FieldChanged:
+		m.ResetChanged()
+		return nil
+	case intentreplayevaluation.FieldBeforeRun:
+		m.ResetBeforeRun()
+		return nil
+	case intentreplayevaluation.FieldAfterRun:
+		m.ResetAfterRun()
+		return nil
+	case intentreplayevaluation.FieldParameters:
+		m.ResetParameters()
+		return nil
+	case intentreplayevaluation.FieldCost:
+		m.ResetCost()
+		return nil
+	case intentreplayevaluation.FieldReproduction:
+		m.ResetReproduction()
+		return nil
+	case intentreplayevaluation.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentReplayEvaluation field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *IntentReplayEvaluationMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.decision_id_ref != nil {
+		edges = append(edges, intentreplayevaluation.EdgeDecisionIDRef)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *IntentReplayEvaluationMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case intentreplayevaluation.EdgeDecisionIDRef:
+		if id := m.decision_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *IntentReplayEvaluationMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *IntentReplayEvaluationMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *IntentReplayEvaluationMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareddecision_id_ref {
+		edges = append(edges, intentreplayevaluation.EdgeDecisionIDRef)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *IntentReplayEvaluationMutation) EdgeCleared(name string) bool {
+	switch name {
+	case intentreplayevaluation.EdgeDecisionIDRef:
+		return m.cleareddecision_id_ref
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *IntentReplayEvaluationMutation) ClearEdge(name string) error {
+	switch name {
+	case intentreplayevaluation.EdgeDecisionIDRef:
+		m.ClearDecisionIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentReplayEvaluation unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *IntentReplayEvaluationMutation) ResetEdge(name string) error {
+	switch name {
+	case intentreplayevaluation.EdgeDecisionIDRef:
+		m.ResetDecisionIDRef()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentReplayEvaluation edge %s", name)
 }
 
 // IntentRuleActivationMutation represents an operation that mutates the IntentRuleActivation nodes in the graph.

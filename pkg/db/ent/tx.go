@@ -44,6 +44,8 @@ type Tx struct {
 	IntentDecisionStep *IntentDecisionStepClient
 	// IntentPromptVersion is the client for interacting with the IntentPromptVersion builders.
 	IntentPromptVersion *IntentPromptVersionClient
+	// IntentReplayEvaluation is the client for interacting with the IntentReplayEvaluation builders.
+	IntentReplayEvaluation *IntentReplayEvaluationClient
 	// IntentRuleActivation is the client for interacting with the IntentRuleActivation builders.
 	IntentRuleActivation *IntentRuleActivationClient
 	// IntentRuleEntry is the client for interacting with the IntentRuleEntry builders.
@@ -214,6 +216,7 @@ func (tx *Tx) init() {
 	tx.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(tx.config)
 	tx.IntentDecisionStep = NewIntentDecisionStepClient(tx.config)
 	tx.IntentPromptVersion = NewIntentPromptVersionClient(tx.config)
+	tx.IntentReplayEvaluation = NewIntentReplayEvaluationClient(tx.config)
 	tx.IntentRuleActivation = NewIntentRuleActivationClient(tx.config)
 	tx.IntentRuleEntry = NewIntentRuleEntryClient(tx.config)
 	tx.IntentRuleset = NewIntentRulesetClient(tx.config)
