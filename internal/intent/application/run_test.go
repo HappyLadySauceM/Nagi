@@ -124,3 +124,21 @@ func TestFixedFlowOrderMatchesDecisionSteps(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildRuleRunUsesActualSemanticCallForEdges verifies a rules-only
+// simulation never claims the semantic edge when it did not call the model.
+// TestBuildRuleRunUsesActualSemanticCallForEdges 验证规则-only 模拟未调用模型时
+// 不会把 e_rules_semantic 标为实际走过。
+func TestBuildRuleRunUsesActualSemanticCallForEdges(t *testing.T) {
+	run := BuildRuleRun(domain.Input{}, domain.RuleResult{NeedSemantic: true}, thresholds, domain.FlowVersion)
+	status := map[string]string{}
+	for _, edge := range run.Edges {
+		status[edge.EdgeID] = edge.Status
+	}
+	if status["e_rules_semantic"] != domain.EdgeStatusNotTaken || status["e_rules_decision"] != domain.EdgeStatusTaken {
+		t.Fatalf("rules-only edges = %+v", status)
+	}
+	if len(run.Nodes) != 5 || run.Nodes[3].Status != domain.NodeStatusSkipped {
+		t.Fatalf("rules-only nodes = %+v", run.Nodes)
+	}
+}

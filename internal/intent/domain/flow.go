@@ -75,8 +75,8 @@ func FixedFlow() FlowDefinition {
 		Edges: []FlowEdgeDefinition{
 			{EdgeID: "e_policy_context", FromNodeID: NodePolicy, ToNodeID: NodeContext, Label: "继续", Condition: "策略已解析"},
 			{EdgeID: "e_context_rules", FromNodeID: NodeContext, ToNodeID: NodeRules, Label: "继续", Condition: "上下文处理完成"},
-			{EdgeID: "e_rules_semantic", FromNodeID: NodeRules, ToNodeID: NodeSemantic, Label: "需要语义", Condition: "NeedSemantic && !Blocked && SemanticConfigured"},
-			{EdgeID: "e_rules_decision", FromNodeID: NodeRules, ToNodeID: NodeDecision, Label: "规则直接结束", Condition: "!NeedSemantic || Blocked || !SemanticConfigured"},
+			{EdgeID: "e_rules_semantic", FromNodeID: NodeRules, ToNodeID: NodeSemantic, Label: "需要语义", Condition: "SemanticCalled"},
+			{EdgeID: "e_rules_decision", FromNodeID: NodeRules, ToNodeID: NodeDecision, Label: "规则直接结束", Condition: "!SemanticCalled"},
 			{EdgeID: "e_semantic_decision", FromNodeID: NodeSemantic, ToNodeID: NodeDecision, Label: "语义完成", Condition: "SemanticCalled"},
 		},
 	}
