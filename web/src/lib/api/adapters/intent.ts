@@ -5,6 +5,7 @@ import type {
   IntentDecisionKind,
 } from '../contracts'
 import { asArray, asRecord, contractError, readNumber, readOptionalString, readOptionalTime, readString } from './guard'
+import { toIntentRun } from './flow'
 
 const DECISIONS_ENDPOINT = '/api/v1/intent/decisions'
 
@@ -56,6 +57,7 @@ export function toDecisionDetail(raw: unknown): DecisionDetailEntry {
     ...toDecisionEntry(record),
     scores: toScores(record.Scores),
     steps: asArray(record.Steps ?? [], DECISIONS_ENDPOINT, 'Steps').map(toStep),
+    run: record.Run == null ? undefined : toIntentRun(record.Run),
   }
 }
 

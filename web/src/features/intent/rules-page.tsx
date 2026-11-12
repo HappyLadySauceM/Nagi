@@ -32,6 +32,7 @@ import { describeError } from '../../lib/errors'
 import { ApiError } from '../../lib/api/client'
 import { useContacts, useGroups } from '../directory/queries'
 import { useAccountContext } from '../accounts/account-context'
+import { FlowRunView } from './flow/flow-run-view'
 import {
   useCreateDraft,
   useDeleteRuleset,
@@ -445,7 +446,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
       {!targetAllowed ? <p role="alert" className="text-warning">测试对象不在当前编辑的适用范围内，请调整测试对象或规则范围。</p> : null}
       <div className="text-sm font-medium">只读规则模拟 · {entries ? '当前编辑内容' : '当前生效版本'}</div>
       <Select aria-label="验证方式" value={mode} onChange={e => { setMode(e.target.value as 'rules' | 'semantic'); simulate.reset() }}><option value="rules">规则验证 · 不调用模型</option><option value="semantic">完整语义验证 · 使用真实模型</option></Select>
-      <p className="text-meta text-muted-foreground">{mode === 'semantic' ? '使用当前参与权限、真实会话活动与获准读取的历史，以及服务 Provider 和严格阈值；按下方测试回复模式判断，不采用手工秒数，不保存决策或发送 QQ 消息。' : '只验证规则闸门，不调用语义模型，也不发送 QQ 消息。'}</p>
+      <p className="text-meta text-muted-foreground">{mode === 'semantic' ? '使用当前参与权限、真实会话活动与获准读取的历史，以及服务 Provider 和严格阈值；会调用真实模型并可能产生费用，不保存决策或发送 QQ 消息。' : '只验证规则闸门，不调用语义模型，也不发送 QQ 消息。'}</p>
       <div className="flex gap-2"><Select aria-label="模拟回复模式" value={replyMode} onChange={e => setReplyMode(e.target.value)}><option value="intent_based">智能判断</option><option value="always_reply">始终回复</option><option value="mention_only">仅明确指向</option><option value="observe_only">仅观察</option></Select><Input aria-label="距上次回复秒数" disabled={mode==='semantic'} value={seconds} onChange={e => setSeconds(e.target.value)} inputMode="numeric" /></div>
       <div className={`grid gap-2 ${layout === 'stacked' ? 'grid-cols-[minmax(0,1fr)_auto]' : 'sm:grid-cols-4'}`}>
         <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="输入一条消息" className={layout === 'stacked' ? 'col-span-2' : 'sm:col-span-2'} />
@@ -464,7 +465,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
           }}
         >
           <Send />
-          模拟
+          {mode === 'semantic' ? '调用模型重放' : '运行规则验证'}
         </Button>
       </div>
       </div>
@@ -473,16 +474,28 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
       {simulate.isPending ? <p role="status" className="text-muted-foreground">正在验证…</p> : null}
       {simulate.data && submitted !== snapshot ? <p role="status">内容已变化，请重新测试</p> : null}
       {simulate.data && !simulate.isPending && submitted === snapshot ? (
-        <div className="rounded-md bg-muted/40 p-3 text-meta">
-          <div>最终判断：{simulate.data.decision ?? '规则验证尚未进行语义判断'}</div>
-          <div>语义类别：{simulate.data.semanticCategory || '未调用或不可用'}</div>
-          <div>模型：{simulate.data.provider || '未调用'} / {simulate.data.model || '—'} · {simulate.data.latencyMs ?? 0} ms</div>
-          {simulate.data.semanticAvailable === false ? <p role="alert">语义服务不可用：{simulate.data.failureCode || '已降级'}</p> : null}
-          {Object.entries(simulate.data.scores ?? {}).map(([key,value]) => <div key={key}>{key}：{value.toFixed(3)}</div>)}
-          <div>规则结果：{simulate.data.blocked ? '被拦截' : simulate.data.forceReply ? '强制回复' : simulate.data.needSemantic ? '需要语义判定' : '走内置策略'}</div>
-          <div>原因码：{simulate.data.reasonCode || '—'}</div>
-          <div>规则版本：{simulate.data.rulesetVersion || '内置规则'}</div>
-        </div>
+        simulate.data.run ? (
+          <div className="space-y-3">
+            <FlowRunView run={simulate.data.run} showDelivery={false} />
+            {simulate.data.cost?.mayIncur ? (
+              <p role="status" className="rounded-md border border-warning/30 bg-warning/10 p-2 text-xs leading-relaxed text-warning">
+                本次验证调用了真实模型，可能产生模型调用费用；结果只用于预览，不写入决策记录，也不会发送消息。
+                {simulate.data.cost.costEstimate ? `（${simulate.data.cost.costEstimate}）` : ''}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-md bg-muted/40 p-3 text-meta">
+            <div>最终判断：{simulate.data.decision ?? '规则验证尚未进行语义判断'}</div>
+            <div>语义类别：{simulate.data.semanticCategory || '未调用或不可用'}</div>
+            <div>模型：{simulate.data.provider || '未调用'} / {simulate.data.model || '—'} · {simulate.data.latencyMs ?? 0} ms</div>
+            {simulate.data.semanticAvailable === false ? <p role="alert">语义服务不可用：{simulate.data.failureCode || '已降级'}</p> : null}
+            {Object.entries(simulate.data.scores ?? {}).map(([key,value]) => <div key={key}>{key}：{value.toFixed(3)}</div>)}
+            <div>规则结果：{simulate.data.blocked ? '被拦截' : simulate.data.forceReply ? '强制回复' : simulate.data.needSemantic ? '需要语义判定' : '走内置策略'}</div>
+            <div>原因码：{simulate.data.reasonCode || '—'}</div>
+            <div>规则版本：{simulate.data.rulesetVersion || '内置规则'}</div>
+          </div>
+        )
       ) : !simulate.isPending ? <p className="text-sm text-muted-foreground">填写测试消息并运行模拟后，在这里查看判断、语义分数与规则结果。</p> : null}
       </section>
     </Card>
