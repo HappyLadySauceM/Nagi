@@ -56,3 +56,9 @@ bash -lc 'just verify' | tee /tmp/nagi-participation-baseline-verify.log
 - `go test ./internal/intent/application -run "TestParticipation" -count=1 -v`：PASS。
 - `just verify`：PASS（`go mod tidy`、`go vet ./...`、`go test ./...`、`go fmt ./...`）。
 - 未调用真实 Jev、未连接真实 QQ、未使用浏览器；本报告不把这些未执行项当作通过。
+
+## P0 策略修订（2026-11-12）
+
+- 群聊 `addressed_to_other` 现在先于 `interjection` 判断；`conflict_interjection_addressed_to_other` 的期望已改为 `silent / addressed_to_other`。
+- 私聊 `intent_based` 正常问候、提问、闲聊统一走 `private_normal` 期待回复路径；`closing` 仍为 `silent / closing`，语义不可用仍回退 `private_semantic_unavailable`。
+- 上述改为本轮 P0 代码与回归测试所固定；此前报告只作历史基线，不再代表当前行为。

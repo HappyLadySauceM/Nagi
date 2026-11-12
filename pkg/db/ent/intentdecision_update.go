@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -189,6 +190,21 @@ func (_u *IntentDecisionUpdate) AddIntentDecisionStepsDecisionID(v ...*IntentDec
 	return _u.AddIntentDecisionStepsDecisionIDIDs(ids...)
 }
 
+// AddIntentDecisionSnapshotsDecisionIDIDs adds the "intent_decision_snapshots_decision_id" edge to the IntentDecisionSnapshot entity by IDs.
+func (_u *IntentDecisionUpdate) AddIntentDecisionSnapshotsDecisionIDIDs(ids ...int64) *IntentDecisionUpdate {
+	_u.mutation.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
+	return _u
+}
+
+// AddIntentDecisionSnapshotsDecisionID adds the "intent_decision_snapshots_decision_id" edges to the IntentDecisionSnapshot entity.
+func (_u *IntentDecisionUpdate) AddIntentDecisionSnapshotsDecisionID(v ...*IntentDecisionSnapshot) *IntentDecisionUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
+}
+
 // Mutation returns the IntentDecisionMutation object of the builder.
 func (_u *IntentDecisionUpdate) Mutation() *IntentDecisionMutation {
 	return _u.mutation
@@ -219,6 +235,27 @@ func (_u *IntentDecisionUpdate) RemoveIntentDecisionStepsDecisionID(v ...*Intent
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveIntentDecisionStepsDecisionIDIDs(ids...)
+}
+
+// ClearIntentDecisionSnapshotsDecisionID clears all "intent_decision_snapshots_decision_id" edges to the IntentDecisionSnapshot entity.
+func (_u *IntentDecisionUpdate) ClearIntentDecisionSnapshotsDecisionID() *IntentDecisionUpdate {
+	_u.mutation.ClearIntentDecisionSnapshotsDecisionID()
+	return _u
+}
+
+// RemoveIntentDecisionSnapshotsDecisionIDIDs removes the "intent_decision_snapshots_decision_id" edge to IntentDecisionSnapshot entities by IDs.
+func (_u *IntentDecisionUpdate) RemoveIntentDecisionSnapshotsDecisionIDIDs(ids ...int64) *IntentDecisionUpdate {
+	_u.mutation.RemoveIntentDecisionSnapshotsDecisionIDIDs(ids...)
+	return _u
+}
+
+// RemoveIntentDecisionSnapshotsDecisionID removes "intent_decision_snapshots_decision_id" edges to IntentDecisionSnapshot entities.
+func (_u *IntentDecisionUpdate) RemoveIntentDecisionSnapshotsDecisionID(v ...*IntentDecisionSnapshot) *IntentDecisionUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIntentDecisionSnapshotsDecisionIDIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -367,6 +404,51 @@ func (_u *IntentDecisionUpdate) sqlSave(ctx context.Context) (_node int, err err
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(intentdecisionstep.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IntentDecisionSnapshotsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentDecisionSnapshotsDecisionIDTable,
+			Columns: []string{intentdecision.IntentDecisionSnapshotsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIntentDecisionSnapshotsDecisionIDIDs(); len(nodes) > 0 && !_u.mutation.IntentDecisionSnapshotsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentDecisionSnapshotsDecisionIDTable,
+			Columns: []string{intentdecision.IntentDecisionSnapshotsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentDecisionSnapshotsDecisionIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentDecisionSnapshotsDecisionIDTable,
+			Columns: []string{intentdecision.IntentDecisionSnapshotsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -551,6 +633,21 @@ func (_u *IntentDecisionUpdateOne) AddIntentDecisionStepsDecisionID(v ...*Intent
 	return _u.AddIntentDecisionStepsDecisionIDIDs(ids...)
 }
 
+// AddIntentDecisionSnapshotsDecisionIDIDs adds the "intent_decision_snapshots_decision_id" edge to the IntentDecisionSnapshot entity by IDs.
+func (_u *IntentDecisionUpdateOne) AddIntentDecisionSnapshotsDecisionIDIDs(ids ...int64) *IntentDecisionUpdateOne {
+	_u.mutation.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
+	return _u
+}
+
+// AddIntentDecisionSnapshotsDecisionID adds the "intent_decision_snapshots_decision_id" edges to the IntentDecisionSnapshot entity.
+func (_u *IntentDecisionUpdateOne) AddIntentDecisionSnapshotsDecisionID(v ...*IntentDecisionSnapshot) *IntentDecisionUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
+}
+
 // Mutation returns the IntentDecisionMutation object of the builder.
 func (_u *IntentDecisionUpdateOne) Mutation() *IntentDecisionMutation {
 	return _u.mutation
@@ -581,6 +678,27 @@ func (_u *IntentDecisionUpdateOne) RemoveIntentDecisionStepsDecisionID(v ...*Int
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveIntentDecisionStepsDecisionIDIDs(ids...)
+}
+
+// ClearIntentDecisionSnapshotsDecisionID clears all "intent_decision_snapshots_decision_id" edges to the IntentDecisionSnapshot entity.
+func (_u *IntentDecisionUpdateOne) ClearIntentDecisionSnapshotsDecisionID() *IntentDecisionUpdateOne {
+	_u.mutation.ClearIntentDecisionSnapshotsDecisionID()
+	return _u
+}
+
+// RemoveIntentDecisionSnapshotsDecisionIDIDs removes the "intent_decision_snapshots_decision_id" edge to IntentDecisionSnapshot entities by IDs.
+func (_u *IntentDecisionUpdateOne) RemoveIntentDecisionSnapshotsDecisionIDIDs(ids ...int64) *IntentDecisionUpdateOne {
+	_u.mutation.RemoveIntentDecisionSnapshotsDecisionIDIDs(ids...)
+	return _u
+}
+
+// RemoveIntentDecisionSnapshotsDecisionID removes "intent_decision_snapshots_decision_id" edges to IntentDecisionSnapshot entities.
+func (_u *IntentDecisionUpdateOne) RemoveIntentDecisionSnapshotsDecisionID(v ...*IntentDecisionSnapshot) *IntentDecisionUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIntentDecisionSnapshotsDecisionIDIDs(ids...)
 }
 
 // Where appends a list predicates to the IntentDecisionUpdate builder.
@@ -759,6 +877,51 @@ func (_u *IntentDecisionUpdateOne) sqlSave(ctx context.Context) (_node *IntentDe
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(intentdecisionstep.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.IntentDecisionSnapshotsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentDecisionSnapshotsDecisionIDTable,
+			Columns: []string{intentdecision.IntentDecisionSnapshotsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIntentDecisionSnapshotsDecisionIDIDs(); len(nodes) > 0 && !_u.mutation.IntentDecisionSnapshotsDecisionIDCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentDecisionSnapshotsDecisionIDTable,
+			Columns: []string{intentdecision.IntentDecisionSnapshotsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentDecisionSnapshotsDecisionIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentDecisionSnapshotsDecisionIDTable,
+			Columns: []string{intentdecision.IntentDecisionSnapshotsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

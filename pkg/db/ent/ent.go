@@ -24,7 +24,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
@@ -109,7 +111,9 @@ func checkColumn(t, c string) error {
 			conversation.Table:                  conversation.ValidColumn,
 			groupmember.Table:                   groupmember.ValidColumn,
 			intentdecision.Table:                intentdecision.ValidColumn,
+			intentdecisionsnapshot.Table:        intentdecisionsnapshot.ValidColumn,
 			intentdecisionstep.Table:            intentdecisionstep.ValidColumn,
+			intentpromptversion.Table:           intentpromptversion.ValidColumn,
 			intentruleactivation.Table:          intentruleactivation.ValidColumn,
 			intentruleentry.Table:               intentruleentry.ValidColumn,
 			intentruleset.Table:                 intentruleset.ValidColumn,

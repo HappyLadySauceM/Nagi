@@ -28,7 +28,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
@@ -74,8 +76,12 @@ type Client struct {
 	GroupMember *GroupMemberClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
 	IntentDecision *IntentDecisionClient
+	// IntentDecisionSnapshot is the client for interacting with the IntentDecisionSnapshot builders.
+	IntentDecisionSnapshot *IntentDecisionSnapshotClient
 	// IntentDecisionStep is the client for interacting with the IntentDecisionStep builders.
 	IntentDecisionStep *IntentDecisionStepClient
+	// IntentPromptVersion is the client for interacting with the IntentPromptVersion builders.
+	IntentPromptVersion *IntentPromptVersionClient
 	// IntentRuleActivation is the client for interacting with the IntentRuleActivation builders.
 	IntentRuleActivation *IntentRuleActivationClient
 	// IntentRuleEntry is the client for interacting with the IntentRuleEntry builders.
@@ -123,7 +129,9 @@ func (c *Client) init() {
 	c.Conversation = NewConversationClient(c.config)
 	c.GroupMember = NewGroupMemberClient(c.config)
 	c.IntentDecision = NewIntentDecisionClient(c.config)
+	c.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(c.config)
 	c.IntentDecisionStep = NewIntentDecisionStepClient(c.config)
+	c.IntentPromptVersion = NewIntentPromptVersionClient(c.config)
 	c.IntentRuleActivation = NewIntentRuleActivationClient(c.config)
 	c.IntentRuleEntry = NewIntentRuleEntryClient(c.config)
 	c.IntentRuleset = NewIntentRulesetClient(c.config)
@@ -240,7 +248,9 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Conversation:                  NewConversationClient(cfg),
 		GroupMember:                   NewGroupMemberClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
+		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
+		IntentPromptVersion:           NewIntentPromptVersionClient(cfg),
 		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
@@ -284,7 +294,9 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Conversation:                  NewConversationClient(cfg),
 		GroupMember:                   NewGroupMemberClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
+		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
+		IntentPromptVersion:           NewIntentPromptVersionClient(cfg),
 		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
@@ -329,10 +341,10 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
-		c.IntentDecisionStep, c.IntentRuleActivation, c.IntentRuleEntry,
-		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
-		c.ScopePolicy, c.SystemSetting,
+		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
+		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.Memory,
+		c.MemoryExtractionCursor, c.MemoryExtractionJob, c.Message, c.MessageJob,
+		c.QQGroup, c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Use(hooks...)
 	}
@@ -345,10 +357,10 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
-		c.IntentDecisionStep, c.IntentRuleActivation, c.IntentRuleEntry,
-		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
-		c.ScopePolicy, c.SystemSetting,
+		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
+		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.Memory,
+		c.MemoryExtractionCursor, c.MemoryExtractionJob, c.Message, c.MessageJob,
+		c.QQGroup, c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -381,8 +393,12 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.GroupMember.mutate(ctx, m)
 	case *IntentDecisionMutation:
 		return c.IntentDecision.mutate(ctx, m)
+	case *IntentDecisionSnapshotMutation:
+		return c.IntentDecisionSnapshot.mutate(ctx, m)
 	case *IntentDecisionStepMutation:
 		return c.IntentDecisionStep.mutate(ctx, m)
+	case *IntentPromptVersionMutation:
+		return c.IntentPromptVersion.mutate(ctx, m)
 	case *IntentRuleActivationMutation:
 		return c.IntentRuleActivation.mutate(ctx, m)
 	case *IntentRuleEntryMutation:
@@ -2383,6 +2399,22 @@ func (c *IntentDecisionClient) QueryIntentDecisionStepsDecisionID(_m *IntentDeci
 	return query
 }
 
+// QueryIntentDecisionSnapshotsDecisionID queries the intent_decision_snapshots_decision_id edge of a IntentDecision.
+func (c *IntentDecisionClient) QueryIntentDecisionSnapshotsDecisionID(_m *IntentDecision) *IntentDecisionSnapshotQuery {
+	query := (&IntentDecisionSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, id),
+			sqlgraph.To(intentdecisionsnapshot.Table, intentdecisionsnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, intentdecision.IntentDecisionSnapshotsDecisionIDTable, intentdecision.IntentDecisionSnapshotsDecisionIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *IntentDecisionClient) Hooks() []Hook {
 	return c.hooks.IntentDecision
@@ -2405,6 +2437,155 @@ func (c *IntentDecisionClient) mutate(ctx context.Context, m *IntentDecisionMuta
 		return (&IntentDecisionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown IntentDecision mutation op: %q", m.Op())
+	}
+}
+
+// IntentDecisionSnapshotClient is a client for the IntentDecisionSnapshot schema.
+type IntentDecisionSnapshotClient struct {
+	config
+}
+
+// NewIntentDecisionSnapshotClient returns a client for the IntentDecisionSnapshot from the given config.
+func NewIntentDecisionSnapshotClient(c config) *IntentDecisionSnapshotClient {
+	return &IntentDecisionSnapshotClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `intentdecisionsnapshot.Hooks(f(g(h())))`.
+func (c *IntentDecisionSnapshotClient) Use(hooks ...Hook) {
+	c.hooks.IntentDecisionSnapshot = append(c.hooks.IntentDecisionSnapshot, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `intentdecisionsnapshot.Intercept(f(g(h())))`.
+func (c *IntentDecisionSnapshotClient) Intercept(interceptors ...Interceptor) {
+	c.inters.IntentDecisionSnapshot = append(c.inters.IntentDecisionSnapshot, interceptors...)
+}
+
+// Create returns a builder for creating a IntentDecisionSnapshot entity.
+func (c *IntentDecisionSnapshotClient) Create() *IntentDecisionSnapshotCreate {
+	mutation := newIntentDecisionSnapshotMutation(c.config, OpCreate)
+	return &IntentDecisionSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of IntentDecisionSnapshot entities.
+func (c *IntentDecisionSnapshotClient) CreateBulk(builders ...*IntentDecisionSnapshotCreate) *IntentDecisionSnapshotCreateBulk {
+	return &IntentDecisionSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IntentDecisionSnapshotClient) MapCreateBulk(slice any, setFunc func(*IntentDecisionSnapshotCreate, int)) *IntentDecisionSnapshotCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IntentDecisionSnapshotCreateBulk{err: fmt.Errorf("calling to IntentDecisionSnapshotClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IntentDecisionSnapshotCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IntentDecisionSnapshotCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for IntentDecisionSnapshot.
+func (c *IntentDecisionSnapshotClient) Update() *IntentDecisionSnapshotUpdate {
+	mutation := newIntentDecisionSnapshotMutation(c.config, OpUpdate)
+	return &IntentDecisionSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IntentDecisionSnapshotClient) UpdateOne(_m *IntentDecisionSnapshot) *IntentDecisionSnapshotUpdateOne {
+	mutation := newIntentDecisionSnapshotMutation(c.config, OpUpdateOne, withIntentDecisionSnapshot(_m))
+	return &IntentDecisionSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IntentDecisionSnapshotClient) UpdateOneID(id int64) *IntentDecisionSnapshotUpdateOne {
+	mutation := newIntentDecisionSnapshotMutation(c.config, OpUpdateOne, withIntentDecisionSnapshotID(id))
+	return &IntentDecisionSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for IntentDecisionSnapshot.
+func (c *IntentDecisionSnapshotClient) Delete() *IntentDecisionSnapshotDelete {
+	mutation := newIntentDecisionSnapshotMutation(c.config, OpDelete)
+	return &IntentDecisionSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IntentDecisionSnapshotClient) DeleteOne(_m *IntentDecisionSnapshot) *IntentDecisionSnapshotDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IntentDecisionSnapshotClient) DeleteOneID(id int64) *IntentDecisionSnapshotDeleteOne {
+	builder := c.Delete().Where(intentdecisionsnapshot.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IntentDecisionSnapshotDeleteOne{builder}
+}
+
+// Query returns a query builder for IntentDecisionSnapshot.
+func (c *IntentDecisionSnapshotClient) Query() *IntentDecisionSnapshotQuery {
+	return &IntentDecisionSnapshotQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIntentDecisionSnapshot},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a IntentDecisionSnapshot entity by its id.
+func (c *IntentDecisionSnapshotClient) Get(ctx context.Context, id int64) (*IntentDecisionSnapshot, error) {
+	return c.Query().Where(intentdecisionsnapshot.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IntentDecisionSnapshotClient) GetX(ctx context.Context, id int64) *IntentDecisionSnapshot {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryDecisionIDRef queries the decision_id_ref edge of a IntentDecisionSnapshot.
+func (c *IntentDecisionSnapshotClient) QueryDecisionIDRef(_m *IntentDecisionSnapshot) *IntentDecisionQuery {
+	query := (&IntentDecisionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecisionsnapshot.Table, intentdecisionsnapshot.FieldID, id),
+			sqlgraph.To(intentdecision.Table, intentdecision.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, intentdecisionsnapshot.DecisionIDRefTable, intentdecisionsnapshot.DecisionIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *IntentDecisionSnapshotClient) Hooks() []Hook {
+	return c.hooks.IntentDecisionSnapshot
+}
+
+// Interceptors returns the client interceptors.
+func (c *IntentDecisionSnapshotClient) Interceptors() []Interceptor {
+	return c.inters.IntentDecisionSnapshot
+}
+
+func (c *IntentDecisionSnapshotClient) mutate(ctx context.Context, m *IntentDecisionSnapshotMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IntentDecisionSnapshotCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IntentDecisionSnapshotUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IntentDecisionSnapshotUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IntentDecisionSnapshotDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown IntentDecisionSnapshot mutation op: %q", m.Op())
 	}
 }
 
@@ -2554,6 +2735,139 @@ func (c *IntentDecisionStepClient) mutate(ctx context.Context, m *IntentDecision
 		return (&IntentDecisionStepDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown IntentDecisionStep mutation op: %q", m.Op())
+	}
+}
+
+// IntentPromptVersionClient is a client for the IntentPromptVersion schema.
+type IntentPromptVersionClient struct {
+	config
+}
+
+// NewIntentPromptVersionClient returns a client for the IntentPromptVersion from the given config.
+func NewIntentPromptVersionClient(c config) *IntentPromptVersionClient {
+	return &IntentPromptVersionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `intentpromptversion.Hooks(f(g(h())))`.
+func (c *IntentPromptVersionClient) Use(hooks ...Hook) {
+	c.hooks.IntentPromptVersion = append(c.hooks.IntentPromptVersion, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `intentpromptversion.Intercept(f(g(h())))`.
+func (c *IntentPromptVersionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.IntentPromptVersion = append(c.inters.IntentPromptVersion, interceptors...)
+}
+
+// Create returns a builder for creating a IntentPromptVersion entity.
+func (c *IntentPromptVersionClient) Create() *IntentPromptVersionCreate {
+	mutation := newIntentPromptVersionMutation(c.config, OpCreate)
+	return &IntentPromptVersionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of IntentPromptVersion entities.
+func (c *IntentPromptVersionClient) CreateBulk(builders ...*IntentPromptVersionCreate) *IntentPromptVersionCreateBulk {
+	return &IntentPromptVersionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IntentPromptVersionClient) MapCreateBulk(slice any, setFunc func(*IntentPromptVersionCreate, int)) *IntentPromptVersionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IntentPromptVersionCreateBulk{err: fmt.Errorf("calling to IntentPromptVersionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IntentPromptVersionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IntentPromptVersionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for IntentPromptVersion.
+func (c *IntentPromptVersionClient) Update() *IntentPromptVersionUpdate {
+	mutation := newIntentPromptVersionMutation(c.config, OpUpdate)
+	return &IntentPromptVersionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IntentPromptVersionClient) UpdateOne(_m *IntentPromptVersion) *IntentPromptVersionUpdateOne {
+	mutation := newIntentPromptVersionMutation(c.config, OpUpdateOne, withIntentPromptVersion(_m))
+	return &IntentPromptVersionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IntentPromptVersionClient) UpdateOneID(id int64) *IntentPromptVersionUpdateOne {
+	mutation := newIntentPromptVersionMutation(c.config, OpUpdateOne, withIntentPromptVersionID(id))
+	return &IntentPromptVersionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for IntentPromptVersion.
+func (c *IntentPromptVersionClient) Delete() *IntentPromptVersionDelete {
+	mutation := newIntentPromptVersionMutation(c.config, OpDelete)
+	return &IntentPromptVersionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IntentPromptVersionClient) DeleteOne(_m *IntentPromptVersion) *IntentPromptVersionDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IntentPromptVersionClient) DeleteOneID(id int64) *IntentPromptVersionDeleteOne {
+	builder := c.Delete().Where(intentpromptversion.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IntentPromptVersionDeleteOne{builder}
+}
+
+// Query returns a query builder for IntentPromptVersion.
+func (c *IntentPromptVersionClient) Query() *IntentPromptVersionQuery {
+	return &IntentPromptVersionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIntentPromptVersion},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a IntentPromptVersion entity by its id.
+func (c *IntentPromptVersionClient) Get(ctx context.Context, id int64) (*IntentPromptVersion, error) {
+	return c.Query().Where(intentpromptversion.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IntentPromptVersionClient) GetX(ctx context.Context, id int64) *IntentPromptVersion {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *IntentPromptVersionClient) Hooks() []Hook {
+	return c.hooks.IntentPromptVersion
+}
+
+// Interceptors returns the client interceptors.
+func (c *IntentPromptVersionClient) Interceptors() []Interceptor {
+	return c.inters.IntentPromptVersion
+}
+
+func (c *IntentPromptVersionClient) mutate(ctx context.Context, m *IntentPromptVersionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IntentPromptVersionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IntentPromptVersionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IntentPromptVersionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IntentPromptVersionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown IntentPromptVersion mutation op: %q", m.Op())
 	}
 }
 
@@ -4542,18 +4856,19 @@ type (
 	hooks struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
-		GroupMember, IntentDecision, IntentDecisionStep, IntentRuleActivation,
-		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
-		MemoryExtractionJob, Message, MessageJob, QQGroup,
-		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Hook
+		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
+		IntentPromptVersion, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
+		Memory, MemoryExtractionCursor, MemoryExtractionJob, Message, MessageJob,
+		QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Hook
 	}
 	inters struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
-		GroupMember, IntentDecision, IntentDecisionStep, IntentRuleActivation,
-		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
-		MemoryExtractionJob, Message, MessageJob, QQGroup,
-		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Interceptor
+		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
+		IntentPromptVersion, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
+		Memory, MemoryExtractionCursor, MemoryExtractionJob, Message, MessageJob,
+		QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
+		SystemSetting []ent.Interceptor
 	}
 )
 

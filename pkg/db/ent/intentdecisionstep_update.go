@@ -80,6 +80,83 @@ func (_u *IntentDecisionStepUpdate) SetNillablePhase(v *string) *IntentDecisionS
 	return _u
 }
 
+// SetNodeID sets the "node_id" field.
+func (_u *IntentDecisionStepUpdate) SetNodeID(v string) *IntentDecisionStepUpdate {
+	_u.mutation.SetNodeID(v)
+	return _u
+}
+
+// SetNillableNodeID sets the "node_id" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdate) SetNillableNodeID(v *string) *IntentDecisionStepUpdate {
+	if v != nil {
+		_u.SetNodeID(*v)
+	}
+	return _u
+}
+
+// SetNodeVersion sets the "node_version" field.
+func (_u *IntentDecisionStepUpdate) SetNodeVersion(v int) *IntentDecisionStepUpdate {
+	_u.mutation.ResetNodeVersion()
+	_u.mutation.SetNodeVersion(v)
+	return _u
+}
+
+// SetNillableNodeVersion sets the "node_version" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdate) SetNillableNodeVersion(v *int) *IntentDecisionStepUpdate {
+	if v != nil {
+		_u.SetNodeVersion(*v)
+	}
+	return _u
+}
+
+// AddNodeVersion adds value to the "node_version" field.
+func (_u *IntentDecisionStepUpdate) AddNodeVersion(v int) *IntentDecisionStepUpdate {
+	_u.mutation.AddNodeVersion(v)
+	return _u
+}
+
+// SetStatus sets the "status" field.
+func (_u *IntentDecisionStepUpdate) SetStatus(v string) *IntentDecisionStepUpdate {
+	_u.mutation.SetStatus(v)
+	return _u
+}
+
+// SetNillableStatus sets the "status" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdate) SetNillableStatus(v *string) *IntentDecisionStepUpdate {
+	if v != nil {
+		_u.SetStatus(*v)
+	}
+	return _u
+}
+
+// SetBranch sets the "branch" field.
+func (_u *IntentDecisionStepUpdate) SetBranch(v string) *IntentDecisionStepUpdate {
+	_u.mutation.SetBranch(v)
+	return _u
+}
+
+// SetNillableBranch sets the "branch" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdate) SetNillableBranch(v *string) *IntentDecisionStepUpdate {
+	if v != nil {
+		_u.SetBranch(*v)
+	}
+	return _u
+}
+
+// SetSummary sets the "summary" field.
+func (_u *IntentDecisionStepUpdate) SetSummary(v string) *IntentDecisionStepUpdate {
+	_u.mutation.SetSummary(v)
+	return _u
+}
+
+// SetNillableSummary sets the "summary" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdate) SetNillableSummary(v *string) *IntentDecisionStepUpdate {
+	if v != nil {
+		_u.SetSummary(*v)
+	}
+	return _u
+}
+
 // SetReasonCode sets the "reason_code" field.
 func (_u *IntentDecisionStepUpdate) SetReasonCode(v string) *IntentDecisionStepUpdate {
 	_u.mutation.SetReasonCode(v)
@@ -103,6 +180,39 @@ func (_u *IntentDecisionStepUpdate) SetDetail(v jsontext.Value) *IntentDecisionS
 // AppendDetail appends value to the "detail" field.
 func (_u *IntentDecisionStepUpdate) AppendDetail(v jsontext.Value) *IntentDecisionStepUpdate {
 	_u.mutation.AppendDetail(v)
+	return _u
+}
+
+// SetEvidence sets the "evidence" field.
+func (_u *IntentDecisionStepUpdate) SetEvidence(v jsontext.Value) *IntentDecisionStepUpdate {
+	_u.mutation.SetEvidence(v)
+	return _u
+}
+
+// AppendEvidence appends value to the "evidence" field.
+func (_u *IntentDecisionStepUpdate) AppendEvidence(v jsontext.Value) *IntentDecisionStepUpdate {
+	_u.mutation.AppendEvidence(v)
+	return _u
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (_u *IntentDecisionStepUpdate) SetDurationMs(v int) *IntentDecisionStepUpdate {
+	_u.mutation.ResetDurationMs()
+	_u.mutation.SetDurationMs(v)
+	return _u
+}
+
+// SetNillableDurationMs sets the "duration_ms" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdate) SetNillableDurationMs(v *int) *IntentDecisionStepUpdate {
+	if v != nil {
+		_u.SetDurationMs(*v)
+	}
+	return _u
+}
+
+// AddDurationMs adds value to the "duration_ms" field.
+func (_u *IntentDecisionStepUpdate) AddDurationMs(v int) *IntentDecisionStepUpdate {
+	_u.mutation.AddDurationMs(v)
 	return _u
 }
 
@@ -198,6 +308,24 @@ func (_u *IntentDecisionStepUpdate) sqlSave(ctx context.Context) (_node int, err
 	if value, ok := _u.mutation.Phase(); ok {
 		_spec.SetField(intentdecisionstep.FieldPhase, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.NodeID(); ok {
+		_spec.SetField(intentdecisionstep.FieldNodeID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.NodeVersion(); ok {
+		_spec.SetField(intentdecisionstep.FieldNodeVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedNodeVersion(); ok {
+		_spec.AddField(intentdecisionstep.FieldNodeVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.Status(); ok {
+		_spec.SetField(intentdecisionstep.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Branch(); ok {
+		_spec.SetField(intentdecisionstep.FieldBranch, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Summary(); ok {
+		_spec.SetField(intentdecisionstep.FieldSummary, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.ReasonCode(); ok {
 		_spec.SetField(intentdecisionstep.FieldReasonCode, field.TypeString, value)
 	}
@@ -208,6 +336,20 @@ func (_u *IntentDecisionStepUpdate) sqlSave(ctx context.Context) (_node int, err
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, intentdecisionstep.FieldDetail, value)
 		})
+	}
+	if value, ok := _u.mutation.Evidence(); ok {
+		_spec.SetField(intentdecisionstep.FieldEvidence, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedEvidence(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, intentdecisionstep.FieldEvidence, value)
+		})
+	}
+	if value, ok := _u.mutation.DurationMs(); ok {
+		_spec.SetField(intentdecisionstep.FieldDurationMs, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedDurationMs(); ok {
+		_spec.AddField(intentdecisionstep.FieldDurationMs, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(intentdecisionstep.FieldCreatedAt, field.TypeTime, value)
@@ -310,6 +452,83 @@ func (_u *IntentDecisionStepUpdateOne) SetNillablePhase(v *string) *IntentDecisi
 	return _u
 }
 
+// SetNodeID sets the "node_id" field.
+func (_u *IntentDecisionStepUpdateOne) SetNodeID(v string) *IntentDecisionStepUpdateOne {
+	_u.mutation.SetNodeID(v)
+	return _u
+}
+
+// SetNillableNodeID sets the "node_id" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdateOne) SetNillableNodeID(v *string) *IntentDecisionStepUpdateOne {
+	if v != nil {
+		_u.SetNodeID(*v)
+	}
+	return _u
+}
+
+// SetNodeVersion sets the "node_version" field.
+func (_u *IntentDecisionStepUpdateOne) SetNodeVersion(v int) *IntentDecisionStepUpdateOne {
+	_u.mutation.ResetNodeVersion()
+	_u.mutation.SetNodeVersion(v)
+	return _u
+}
+
+// SetNillableNodeVersion sets the "node_version" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdateOne) SetNillableNodeVersion(v *int) *IntentDecisionStepUpdateOne {
+	if v != nil {
+		_u.SetNodeVersion(*v)
+	}
+	return _u
+}
+
+// AddNodeVersion adds value to the "node_version" field.
+func (_u *IntentDecisionStepUpdateOne) AddNodeVersion(v int) *IntentDecisionStepUpdateOne {
+	_u.mutation.AddNodeVersion(v)
+	return _u
+}
+
+// SetStatus sets the "status" field.
+func (_u *IntentDecisionStepUpdateOne) SetStatus(v string) *IntentDecisionStepUpdateOne {
+	_u.mutation.SetStatus(v)
+	return _u
+}
+
+// SetNillableStatus sets the "status" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdateOne) SetNillableStatus(v *string) *IntentDecisionStepUpdateOne {
+	if v != nil {
+		_u.SetStatus(*v)
+	}
+	return _u
+}
+
+// SetBranch sets the "branch" field.
+func (_u *IntentDecisionStepUpdateOne) SetBranch(v string) *IntentDecisionStepUpdateOne {
+	_u.mutation.SetBranch(v)
+	return _u
+}
+
+// SetNillableBranch sets the "branch" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdateOne) SetNillableBranch(v *string) *IntentDecisionStepUpdateOne {
+	if v != nil {
+		_u.SetBranch(*v)
+	}
+	return _u
+}
+
+// SetSummary sets the "summary" field.
+func (_u *IntentDecisionStepUpdateOne) SetSummary(v string) *IntentDecisionStepUpdateOne {
+	_u.mutation.SetSummary(v)
+	return _u
+}
+
+// SetNillableSummary sets the "summary" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdateOne) SetNillableSummary(v *string) *IntentDecisionStepUpdateOne {
+	if v != nil {
+		_u.SetSummary(*v)
+	}
+	return _u
+}
+
 // SetReasonCode sets the "reason_code" field.
 func (_u *IntentDecisionStepUpdateOne) SetReasonCode(v string) *IntentDecisionStepUpdateOne {
 	_u.mutation.SetReasonCode(v)
@@ -333,6 +552,39 @@ func (_u *IntentDecisionStepUpdateOne) SetDetail(v jsontext.Value) *IntentDecisi
 // AppendDetail appends value to the "detail" field.
 func (_u *IntentDecisionStepUpdateOne) AppendDetail(v jsontext.Value) *IntentDecisionStepUpdateOne {
 	_u.mutation.AppendDetail(v)
+	return _u
+}
+
+// SetEvidence sets the "evidence" field.
+func (_u *IntentDecisionStepUpdateOne) SetEvidence(v jsontext.Value) *IntentDecisionStepUpdateOne {
+	_u.mutation.SetEvidence(v)
+	return _u
+}
+
+// AppendEvidence appends value to the "evidence" field.
+func (_u *IntentDecisionStepUpdateOne) AppendEvidence(v jsontext.Value) *IntentDecisionStepUpdateOne {
+	_u.mutation.AppendEvidence(v)
+	return _u
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (_u *IntentDecisionStepUpdateOne) SetDurationMs(v int) *IntentDecisionStepUpdateOne {
+	_u.mutation.ResetDurationMs()
+	_u.mutation.SetDurationMs(v)
+	return _u
+}
+
+// SetNillableDurationMs sets the "duration_ms" field if the given value is not nil.
+func (_u *IntentDecisionStepUpdateOne) SetNillableDurationMs(v *int) *IntentDecisionStepUpdateOne {
+	if v != nil {
+		_u.SetDurationMs(*v)
+	}
+	return _u
+}
+
+// AddDurationMs adds value to the "duration_ms" field.
+func (_u *IntentDecisionStepUpdateOne) AddDurationMs(v int) *IntentDecisionStepUpdateOne {
+	_u.mutation.AddDurationMs(v)
 	return _u
 }
 
@@ -458,6 +710,24 @@ func (_u *IntentDecisionStepUpdateOne) sqlSave(ctx context.Context) (_node *Inte
 	if value, ok := _u.mutation.Phase(); ok {
 		_spec.SetField(intentdecisionstep.FieldPhase, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.NodeID(); ok {
+		_spec.SetField(intentdecisionstep.FieldNodeID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.NodeVersion(); ok {
+		_spec.SetField(intentdecisionstep.FieldNodeVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedNodeVersion(); ok {
+		_spec.AddField(intentdecisionstep.FieldNodeVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.Status(); ok {
+		_spec.SetField(intentdecisionstep.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Branch(); ok {
+		_spec.SetField(intentdecisionstep.FieldBranch, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Summary(); ok {
+		_spec.SetField(intentdecisionstep.FieldSummary, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.ReasonCode(); ok {
 		_spec.SetField(intentdecisionstep.FieldReasonCode, field.TypeString, value)
 	}
@@ -468,6 +738,20 @@ func (_u *IntentDecisionStepUpdateOne) sqlSave(ctx context.Context) (_node *Inte
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, intentdecisionstep.FieldDetail, value)
 		})
+	}
+	if value, ok := _u.mutation.Evidence(); ok {
+		_spec.SetField(intentdecisionstep.FieldEvidence, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedEvidence(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, intentdecisionstep.FieldEvidence, value)
+		})
+	}
+	if value, ok := _u.mutation.DurationMs(); ok {
+		_spec.SetField(intentdecisionstep.FieldDurationMs, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedDurationMs(); ok {
+		_spec.AddField(intentdecisionstep.FieldDurationMs, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(intentdecisionstep.FieldCreatedAt, field.TypeTime, value)

@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -22,13 +23,14 @@ import (
 // IntentDecisionQuery is the builder for querying IntentDecision entities.
 type IntentDecisionQuery struct {
 	config
-	ctx                               *QueryContext
-	order                             []intentdecision.OrderOption
-	inters                            []Interceptor
-	predicates                        []predicate.IntentDecision
-	withJobIDRef                      *MessageJobQuery
-	withIntentDecisionStepsDecisionID *IntentDecisionStepQuery
-	modifiers                         []func(*sql.Selector)
+	ctx                                   *QueryContext
+	order                                 []intentdecision.OrderOption
+	inters                                []Interceptor
+	predicates                            []predicate.IntentDecision
+	withJobIDRef                          *MessageJobQuery
+	withIntentDecisionStepsDecisionID     *IntentDecisionStepQuery
+	withIntentDecisionSnapshotsDecisionID *IntentDecisionSnapshotQuery
+	modifiers                             []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -102,6 +104,28 @@ func (_q *IntentDecisionQuery) QueryIntentDecisionStepsDecisionID() *IntentDecis
 			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, selector),
 			sqlgraph.To(intentdecisionstep.Table, intentdecisionstep.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, intentdecision.IntentDecisionStepsDecisionIDTable, intentdecision.IntentDecisionStepsDecisionIDColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryIntentDecisionSnapshotsDecisionID chains the current query on the "intent_decision_snapshots_decision_id" edge.
+func (_q *IntentDecisionQuery) QueryIntentDecisionSnapshotsDecisionID() *IntentDecisionSnapshotQuery {
+	query := (&IntentDecisionSnapshotClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, selector),
+			sqlgraph.To(intentdecisionsnapshot.Table, intentdecisionsnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, intentdecision.IntentDecisionSnapshotsDecisionIDTable, intentdecision.IntentDecisionSnapshotsDecisionIDColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -296,13 +320,14 @@ func (_q *IntentDecisionQuery) Clone() *IntentDecisionQuery {
 		return nil
 	}
 	return &IntentDecisionQuery{
-		config:                            _q.config,
-		ctx:                               _q.ctx.Clone(),
-		order:                             append([]intentdecision.OrderOption{}, _q.order...),
-		inters:                            append([]Interceptor{}, _q.inters...),
-		predicates:                        append([]predicate.IntentDecision{}, _q.predicates...),
-		withJobIDRef:                      _q.withJobIDRef.Clone(),
-		withIntentDecisionStepsDecisionID: _q.withIntentDecisionStepsDecisionID.Clone(),
+		config:                                _q.config,
+		ctx:                                   _q.ctx.Clone(),
+		order:                                 append([]intentdecision.OrderOption{}, _q.order...),
+		inters:                                append([]Interceptor{}, _q.inters...),
+		predicates:                            append([]predicate.IntentDecision{}, _q.predicates...),
+		withJobIDRef:                          _q.withJobIDRef.Clone(),
+		withIntentDecisionStepsDecisionID:     _q.withIntentDecisionStepsDecisionID.Clone(),
+		withIntentDecisionSnapshotsDecisionID: _q.withIntentDecisionSnapshotsDecisionID.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -328,6 +353,17 @@ func (_q *IntentDecisionQuery) WithIntentDecisionStepsDecisionID(opts ...func(*I
 		opt(query)
 	}
 	_q.withIntentDecisionStepsDecisionID = query
+	return _q
+}
+
+// WithIntentDecisionSnapshotsDecisionID tells the query-builder to eager-load the nodes that are connected to
+// the "intent_decision_snapshots_decision_id" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *IntentDecisionQuery) WithIntentDecisionSnapshotsDecisionID(opts ...func(*IntentDecisionSnapshotQuery)) *IntentDecisionQuery {
+	query := (&IntentDecisionSnapshotClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withIntentDecisionSnapshotsDecisionID = query
 	return _q
 }
 
@@ -409,9 +445,10 @@ func (_q *IntentDecisionQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	var (
 		nodes       = []*IntentDecision{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
 			_q.withJobIDRef != nil,
 			_q.withIntentDecisionStepsDecisionID != nil,
+			_q.withIntentDecisionSnapshotsDecisionID != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -446,6 +483,15 @@ func (_q *IntentDecisionQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 			func(n *IntentDecision) { n.Edges.IntentDecisionStepsDecisionID = []*IntentDecisionStep{} },
 			func(n *IntentDecision, e *IntentDecisionStep) {
 				n.Edges.IntentDecisionStepsDecisionID = append(n.Edges.IntentDecisionStepsDecisionID, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withIntentDecisionSnapshotsDecisionID; query != nil {
+		if err := _q.loadIntentDecisionSnapshotsDecisionID(ctx, query, nodes,
+			func(n *IntentDecision) { n.Edges.IntentDecisionSnapshotsDecisionID = []*IntentDecisionSnapshot{} },
+			func(n *IntentDecision, e *IntentDecisionSnapshot) {
+				n.Edges.IntentDecisionSnapshotsDecisionID = append(n.Edges.IntentDecisionSnapshotsDecisionID, e)
 			}); err != nil {
 			return nil, err
 		}
@@ -497,6 +543,36 @@ func (_q *IntentDecisionQuery) loadIntentDecisionStepsDecisionID(ctx context.Con
 	}
 	query.Where(predicate.IntentDecisionStep(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(intentdecision.IntentDecisionStepsDecisionIDColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.DecisionID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "decision_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *IntentDecisionQuery) loadIntentDecisionSnapshotsDecisionID(ctx context.Context, query *IntentDecisionSnapshotQuery, nodes []*IntentDecision, init func(*IntentDecision), assign func(*IntentDecision, *IntentDecisionSnapshot)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*IntentDecision)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(intentdecisionsnapshot.FieldDecisionID)
+	}
+	query.Where(predicate.IntentDecisionSnapshot(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(intentdecision.IntentDecisionSnapshotsDecisionIDColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

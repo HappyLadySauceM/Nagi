@@ -70,9 +70,39 @@ func Phase(v string) predicate.IntentDecisionStep {
 	return predicate.IntentDecisionStep(sql.FieldEQ(FieldPhase, v))
 }
 
+// NodeID applies equality check predicate on the "node_id" field. It's identical to NodeIDEQ.
+func NodeID(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldNodeID, v))
+}
+
+// NodeVersion applies equality check predicate on the "node_version" field. It's identical to NodeVersionEQ.
+func NodeVersion(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldNodeVersion, v))
+}
+
+// Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
+func Status(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldStatus, v))
+}
+
+// Branch applies equality check predicate on the "branch" field. It's identical to BranchEQ.
+func Branch(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldBranch, v))
+}
+
+// Summary applies equality check predicate on the "summary" field. It's identical to SummaryEQ.
+func Summary(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldSummary, v))
+}
+
 // ReasonCode applies equality check predicate on the "reason_code" field. It's identical to ReasonCodeEQ.
 func ReasonCode(v string) predicate.IntentDecisionStep {
 	return predicate.IntentDecisionStep(sql.FieldEQ(FieldReasonCode, v))
+}
+
+// DurationMs applies equality check predicate on the "duration_ms" field. It's identical to DurationMsEQ.
+func DurationMs(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldDurationMs, v))
 }
 
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
@@ -205,6 +235,306 @@ func PhaseContainsFold(v string) predicate.IntentDecisionStep {
 	return predicate.IntentDecisionStep(sql.FieldContainsFold(FieldPhase, v))
 }
 
+// NodeIDEQ applies the EQ predicate on the "node_id" field.
+func NodeIDEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldNodeID, v))
+}
+
+// NodeIDNEQ applies the NEQ predicate on the "node_id" field.
+func NodeIDNEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNEQ(FieldNodeID, v))
+}
+
+// NodeIDIn applies the In predicate on the "node_id" field.
+func NodeIDIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldIn(FieldNodeID, vs...))
+}
+
+// NodeIDNotIn applies the NotIn predicate on the "node_id" field.
+func NodeIDNotIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNotIn(FieldNodeID, vs...))
+}
+
+// NodeIDGT applies the GT predicate on the "node_id" field.
+func NodeIDGT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGT(FieldNodeID, v))
+}
+
+// NodeIDGTE applies the GTE predicate on the "node_id" field.
+func NodeIDGTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGTE(FieldNodeID, v))
+}
+
+// NodeIDLT applies the LT predicate on the "node_id" field.
+func NodeIDLT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLT(FieldNodeID, v))
+}
+
+// NodeIDLTE applies the LTE predicate on the "node_id" field.
+func NodeIDLTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLTE(FieldNodeID, v))
+}
+
+// NodeIDContains applies the Contains predicate on the "node_id" field.
+func NodeIDContains(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContains(FieldNodeID, v))
+}
+
+// NodeIDHasPrefix applies the HasPrefix predicate on the "node_id" field.
+func NodeIDHasPrefix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasPrefix(FieldNodeID, v))
+}
+
+// NodeIDHasSuffix applies the HasSuffix predicate on the "node_id" field.
+func NodeIDHasSuffix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasSuffix(FieldNodeID, v))
+}
+
+// NodeIDEqualFold applies the EqualFold predicate on the "node_id" field.
+func NodeIDEqualFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEqualFold(FieldNodeID, v))
+}
+
+// NodeIDContainsFold applies the ContainsFold predicate on the "node_id" field.
+func NodeIDContainsFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContainsFold(FieldNodeID, v))
+}
+
+// NodeVersionEQ applies the EQ predicate on the "node_version" field.
+func NodeVersionEQ(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldNodeVersion, v))
+}
+
+// NodeVersionNEQ applies the NEQ predicate on the "node_version" field.
+func NodeVersionNEQ(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNEQ(FieldNodeVersion, v))
+}
+
+// NodeVersionIn applies the In predicate on the "node_version" field.
+func NodeVersionIn(vs ...int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldIn(FieldNodeVersion, vs...))
+}
+
+// NodeVersionNotIn applies the NotIn predicate on the "node_version" field.
+func NodeVersionNotIn(vs ...int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNotIn(FieldNodeVersion, vs...))
+}
+
+// NodeVersionGT applies the GT predicate on the "node_version" field.
+func NodeVersionGT(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGT(FieldNodeVersion, v))
+}
+
+// NodeVersionGTE applies the GTE predicate on the "node_version" field.
+func NodeVersionGTE(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGTE(FieldNodeVersion, v))
+}
+
+// NodeVersionLT applies the LT predicate on the "node_version" field.
+func NodeVersionLT(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLT(FieldNodeVersion, v))
+}
+
+// NodeVersionLTE applies the LTE predicate on the "node_version" field.
+func NodeVersionLTE(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLTE(FieldNodeVersion, v))
+}
+
+// StatusEQ applies the EQ predicate on the "status" field.
+func StatusEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldStatus, v))
+}
+
+// StatusNEQ applies the NEQ predicate on the "status" field.
+func StatusNEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNEQ(FieldStatus, v))
+}
+
+// StatusIn applies the In predicate on the "status" field.
+func StatusIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldIn(FieldStatus, vs...))
+}
+
+// StatusNotIn applies the NotIn predicate on the "status" field.
+func StatusNotIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNotIn(FieldStatus, vs...))
+}
+
+// StatusGT applies the GT predicate on the "status" field.
+func StatusGT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGT(FieldStatus, v))
+}
+
+// StatusGTE applies the GTE predicate on the "status" field.
+func StatusGTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGTE(FieldStatus, v))
+}
+
+// StatusLT applies the LT predicate on the "status" field.
+func StatusLT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLT(FieldStatus, v))
+}
+
+// StatusLTE applies the LTE predicate on the "status" field.
+func StatusLTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLTE(FieldStatus, v))
+}
+
+// StatusContains applies the Contains predicate on the "status" field.
+func StatusContains(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContains(FieldStatus, v))
+}
+
+// StatusHasPrefix applies the HasPrefix predicate on the "status" field.
+func StatusHasPrefix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasPrefix(FieldStatus, v))
+}
+
+// StatusHasSuffix applies the HasSuffix predicate on the "status" field.
+func StatusHasSuffix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasSuffix(FieldStatus, v))
+}
+
+// StatusEqualFold applies the EqualFold predicate on the "status" field.
+func StatusEqualFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEqualFold(FieldStatus, v))
+}
+
+// StatusContainsFold applies the ContainsFold predicate on the "status" field.
+func StatusContainsFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContainsFold(FieldStatus, v))
+}
+
+// BranchEQ applies the EQ predicate on the "branch" field.
+func BranchEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldBranch, v))
+}
+
+// BranchNEQ applies the NEQ predicate on the "branch" field.
+func BranchNEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNEQ(FieldBranch, v))
+}
+
+// BranchIn applies the In predicate on the "branch" field.
+func BranchIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldIn(FieldBranch, vs...))
+}
+
+// BranchNotIn applies the NotIn predicate on the "branch" field.
+func BranchNotIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNotIn(FieldBranch, vs...))
+}
+
+// BranchGT applies the GT predicate on the "branch" field.
+func BranchGT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGT(FieldBranch, v))
+}
+
+// BranchGTE applies the GTE predicate on the "branch" field.
+func BranchGTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGTE(FieldBranch, v))
+}
+
+// BranchLT applies the LT predicate on the "branch" field.
+func BranchLT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLT(FieldBranch, v))
+}
+
+// BranchLTE applies the LTE predicate on the "branch" field.
+func BranchLTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLTE(FieldBranch, v))
+}
+
+// BranchContains applies the Contains predicate on the "branch" field.
+func BranchContains(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContains(FieldBranch, v))
+}
+
+// BranchHasPrefix applies the HasPrefix predicate on the "branch" field.
+func BranchHasPrefix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasPrefix(FieldBranch, v))
+}
+
+// BranchHasSuffix applies the HasSuffix predicate on the "branch" field.
+func BranchHasSuffix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasSuffix(FieldBranch, v))
+}
+
+// BranchEqualFold applies the EqualFold predicate on the "branch" field.
+func BranchEqualFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEqualFold(FieldBranch, v))
+}
+
+// BranchContainsFold applies the ContainsFold predicate on the "branch" field.
+func BranchContainsFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContainsFold(FieldBranch, v))
+}
+
+// SummaryEQ applies the EQ predicate on the "summary" field.
+func SummaryEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldSummary, v))
+}
+
+// SummaryNEQ applies the NEQ predicate on the "summary" field.
+func SummaryNEQ(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNEQ(FieldSummary, v))
+}
+
+// SummaryIn applies the In predicate on the "summary" field.
+func SummaryIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldIn(FieldSummary, vs...))
+}
+
+// SummaryNotIn applies the NotIn predicate on the "summary" field.
+func SummaryNotIn(vs ...string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNotIn(FieldSummary, vs...))
+}
+
+// SummaryGT applies the GT predicate on the "summary" field.
+func SummaryGT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGT(FieldSummary, v))
+}
+
+// SummaryGTE applies the GTE predicate on the "summary" field.
+func SummaryGTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGTE(FieldSummary, v))
+}
+
+// SummaryLT applies the LT predicate on the "summary" field.
+func SummaryLT(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLT(FieldSummary, v))
+}
+
+// SummaryLTE applies the LTE predicate on the "summary" field.
+func SummaryLTE(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLTE(FieldSummary, v))
+}
+
+// SummaryContains applies the Contains predicate on the "summary" field.
+func SummaryContains(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContains(FieldSummary, v))
+}
+
+// SummaryHasPrefix applies the HasPrefix predicate on the "summary" field.
+func SummaryHasPrefix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasPrefix(FieldSummary, v))
+}
+
+// SummaryHasSuffix applies the HasSuffix predicate on the "summary" field.
+func SummaryHasSuffix(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldHasSuffix(FieldSummary, v))
+}
+
+// SummaryEqualFold applies the EqualFold predicate on the "summary" field.
+func SummaryEqualFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEqualFold(FieldSummary, v))
+}
+
+// SummaryContainsFold applies the ContainsFold predicate on the "summary" field.
+func SummaryContainsFold(v string) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldContainsFold(FieldSummary, v))
+}
+
 // ReasonCodeEQ applies the EQ predicate on the "reason_code" field.
 func ReasonCodeEQ(v string) predicate.IntentDecisionStep {
 	return predicate.IntentDecisionStep(sql.FieldEQ(FieldReasonCode, v))
@@ -268,6 +598,46 @@ func ReasonCodeEqualFold(v string) predicate.IntentDecisionStep {
 // ReasonCodeContainsFold applies the ContainsFold predicate on the "reason_code" field.
 func ReasonCodeContainsFold(v string) predicate.IntentDecisionStep {
 	return predicate.IntentDecisionStep(sql.FieldContainsFold(FieldReasonCode, v))
+}
+
+// DurationMsEQ applies the EQ predicate on the "duration_ms" field.
+func DurationMsEQ(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldEQ(FieldDurationMs, v))
+}
+
+// DurationMsNEQ applies the NEQ predicate on the "duration_ms" field.
+func DurationMsNEQ(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNEQ(FieldDurationMs, v))
+}
+
+// DurationMsIn applies the In predicate on the "duration_ms" field.
+func DurationMsIn(vs ...int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldIn(FieldDurationMs, vs...))
+}
+
+// DurationMsNotIn applies the NotIn predicate on the "duration_ms" field.
+func DurationMsNotIn(vs ...int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldNotIn(FieldDurationMs, vs...))
+}
+
+// DurationMsGT applies the GT predicate on the "duration_ms" field.
+func DurationMsGT(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGT(FieldDurationMs, v))
+}
+
+// DurationMsGTE applies the GTE predicate on the "duration_ms" field.
+func DurationMsGTE(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldGTE(FieldDurationMs, v))
+}
+
+// DurationMsLT applies the LT predicate on the "duration_ms" field.
+func DurationMsLT(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLT(FieldDurationMs, v))
+}
+
+// DurationMsLTE applies the LTE predicate on the "duration_ms" field.
+func DurationMsLTE(v int) predicate.IntentDecisionStep {
+	return predicate.IntentDecisionStep(sql.FieldLTE(FieldDurationMs, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

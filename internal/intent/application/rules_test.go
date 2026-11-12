@@ -206,12 +206,12 @@ func TestPrivateReplyModesDiverge(t *testing.T) {
 		{
 			name: "intent_based_uses_semantics", mode: scopedomain.ModeIntentBased,
 			semantic: domain.SemanticAnswer{Available: true, AppropriateToJoin: 0.99, AddressedToOther: 0.1},
-			want:     domain.DecisionReply, wantReason: "interjection",
+			want:     domain.DecisionReply, wantReason: "private_normal",
 		},
 		{
 			name: "intent_based_stays_silent_for_other_thread", mode: scopedomain.ModeIntentBased,
 			semantic: domain.SemanticAnswer{Available: true, AddressedToOther: 0.9},
-			want:     domain.DecisionSilent, wantReason: "addressed_to_other",
+			want:     domain.DecisionReply, wantReason: "private_normal",
 		},
 	}
 	for _, tc := range cases {

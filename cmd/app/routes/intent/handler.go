@@ -3,6 +3,7 @@
 package intent
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
+	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 )
 
@@ -34,9 +37,13 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/intent/overview", h.Overview)
+	mux.HandleFunc("GET /api/v1/intent/flow", h.Flow)
 	mux.HandleFunc("GET /api/v1/intent/decisions", h.List)
 	mux.HandleFunc("GET /api/v1/intent/decisions/{id}", h.Get)
+	mux.HandleFunc("POST /api/v1/intent/decisions/{id}/recalculate", h.Recalculate)
+	mux.HandleFunc("POST /api/v1/intent/decisions/{id}/replay-model", h.ReplayModel)
 	h.RegisterRules(mux)
+	h.RegisterPrompts(mux)
 }
 
 // decisionInfo is the list representation of one decision.
@@ -51,6 +58,10 @@ type decisionInfo struct {
 	Provider       string
 	Model          string
 	RulesetVersion string
+	RunID          string
+	FlowVersion    string
+	SnapshotStatus string
+	MissingFields  []string
 	LatencyMS      int
 	CreatedAt      time.Time
 }
@@ -61,6 +72,7 @@ type decisionDetail struct {
 	decisionInfo
 	Scores map[string]float64
 	Steps  []stepInfo
+	Run    intentcontracts.Run
 }
 
 // stepInfo is one explainable stage of a decision.
@@ -134,14 +146,11 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取决策详情失败")
 		return
 	}
-	detail := decisionDetail{decisionInfo: toInfo(record), Scores: record.Scores}
+	delivery := h.deliveryFor(r.Context(), record.BotID, record.JobID)
+	detail := decisionDetail{decisionInfo: toInfo(record), Scores: record.Scores, Run: intentapp.BuildRunFromRecord(record, delivery)}
 	for _, step := range record.Steps {
 		detail.Steps = append(detail.Steps, stepInfo{
-			Index:      step.Index,
-			Phase:      step.Phase,
-			ReasonCode: step.ReasonCode,
-			Detail:     step.Detail,
-			CreatedAt:  step.CreatedAt,
+			Index: step.Index, Phase: step.Phase, ReasonCode: step.ReasonCode, Detail: step.Detail, CreatedAt: step.CreatedAt,
 		})
 	}
 	common.WriteSuccess(w, detail)
@@ -158,9 +167,94 @@ func toInfo(record intentcontracts.DecisionRecord) decisionInfo {
 		Provider:       record.Provider,
 		Model:          record.Model,
 		RulesetVersion: record.RulesetVersion,
+		RunID:          record.RunID,
+		FlowVersion:    record.FlowVersion,
+		SnapshotStatus: record.SnapshotStatus,
+		MissingFields:  record.MissingFields,
 		LatencyMS:      record.LatencyMS,
 		CreatedAt:      record.CreatedAt,
 	}
+}
+
+// Flow returns the fixed read-only execution flow definition.
+// Flow 返回固定的只读执行流程定义。
+func (h *Handler) Flow(w http.ResponseWriter, r *http.Request) {
+	common.WriteSuccess(w, intentdomain.FixedFlow())
+}
+
+// deliveryFor reads the independent outbound outcome of one decision job.
+// deliveryFor 读取一条决策任务独立的出站结果。
+func (h *Handler) deliveryFor(ctx context.Context, botID, jobID int64) intentcontracts.Delivery {
+	out := intentcontracts.Delivery{Items: []intentcontracts.DeliveryItem{}}
+	if h.svcCtx.Outbound == nil {
+		return out
+	}
+	owns, err := h.svcCtx.Outbound.OwnsJob(ctx, botID, jobID)
+	if err != nil || !owns {
+		return out
+	}
+	outcome, reason, denied, err := h.svcCtx.Outbound.RunOutcome(ctx, jobID)
+	if err == nil {
+		out.Outcome, out.Reason, out.Denied = outcome, reason, denied
+	}
+	rows, err := h.svcCtx.Outbound.ListByJob(ctx, jobID)
+	if err != nil {
+		return out
+	}
+	for _, row := range rows {
+		out.Items = append(out.Items, intentcontracts.DeliveryItem{
+			ID: row.ID, Sequence: row.Sequence, Status: string(row.Status), Text: row.Text,
+			PlatformMessageID: row.PlatformMessageID, ErrorCode: row.ErrorCode,
+		})
+	}
+	return out
+}
+
+// Recalculate re-runs policy and rules from a stored snapshot without model calls.
+// Recalculate 使用已保存快照重跑策略与规则，不调用模型。
+func (h *Handler) Recalculate(w http.ResponseWriter, r *http.Request) {
+	h.replay(w, r, false)
+}
+
+// ReplayModel calls the current semantic model with a stored input snapshot.
+// ReplayModel 使用已保存输入快照调用当前语义模型。
+func (h *Handler) ReplayModel(w http.ResponseWriter, r *http.Request) {
+	h.replay(w, r, true)
+}
+
+func (h *Handler) replay(w http.ResponseWriter, r *http.Request, model bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "决策 id 无效")
+		return
+	}
+	if h.svcCtx.IntentReplayer == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "决策回放不可用")
+		return
+	}
+	if model {
+		run, err := h.svcCtx.IntentReplayer.ReplayModel(r.Context(), id)
+		if err != nil {
+			h.replayError(w, err)
+			return
+		}
+		common.WriteSuccess(w, map[string]any{"Run": run, "Cost": map[string]any{"MayIncur": true, "CostEstimate": "one semantic request"}})
+		return
+	}
+	before, after, changed, err := h.svcCtx.IntentReplayer.Recalculate(r.Context(), id)
+	if err != nil {
+		h.replayError(w, err)
+		return
+	}
+	common.WriteSuccess(w, map[string]any{"Before": before, "After": after, "Changed": changed})
+}
+
+func (h *Handler) replayError(w http.ResponseWriter, err error) {
+	if errors.Is(err, intentapp.ErrSnapshotMissing) {
+		common.WriteFailure(w, http.StatusConflict, "snapshot_missing")
+		return
+	}
+	common.WriteFailure(w, http.StatusInternalServerError, "决策回放失败")
 }
 
 func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {

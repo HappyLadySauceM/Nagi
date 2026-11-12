@@ -17,7 +17,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
@@ -268,20 +270,116 @@ func init() {
 	intentdecisionDescRulesetVersion := intentdecisionFields[9].Descriptor()
 	// intentdecision.DefaultRulesetVersion holds the default value on creation for the ruleset_version field.
 	intentdecision.DefaultRulesetVersion = intentdecisionDescRulesetVersion.Default.(string)
+	intentdecisionsnapshotFields := nagi.IntentDecisionSnapshot{}.Fields()
+	_ = intentdecisionsnapshotFields
+	// intentdecisionsnapshotDescRunID is the schema descriptor for run_id field.
+	intentdecisionsnapshotDescRunID := intentdecisionsnapshotFields[2].Descriptor()
+	// intentdecisionsnapshot.DefaultRunID holds the default value on creation for the run_id field.
+	intentdecisionsnapshot.DefaultRunID = intentdecisionsnapshotDescRunID.Default.(string)
+	// intentdecisionsnapshotDescFlowVersion is the schema descriptor for flow_version field.
+	intentdecisionsnapshotDescFlowVersion := intentdecisionsnapshotFields[3].Descriptor()
+	// intentdecisionsnapshot.DefaultFlowVersion holds the default value on creation for the flow_version field.
+	intentdecisionsnapshot.DefaultFlowVersion = intentdecisionsnapshotDescFlowVersion.Default.(string)
+	// intentdecisionsnapshotDescSnapshotVersion is the schema descriptor for snapshot_version field.
+	intentdecisionsnapshotDescSnapshotVersion := intentdecisionsnapshotFields[4].Descriptor()
+	// intentdecisionsnapshot.DefaultSnapshotVersion holds the default value on creation for the snapshot_version field.
+	intentdecisionsnapshot.DefaultSnapshotVersion = intentdecisionsnapshotDescSnapshotVersion.Default.(string)
+	// intentdecisionsnapshotDescInput is the schema descriptor for input field.
+	intentdecisionsnapshotDescInput := intentdecisionsnapshotFields[5].Descriptor()
+	// intentdecisionsnapshot.DefaultInput holds the default value on creation for the input field.
+	intentdecisionsnapshot.DefaultInput = intentdecisionsnapshotDescInput.Default.(jsontext.Value)
+	// intentdecisionsnapshotDescSemantic is the schema descriptor for semantic field.
+	intentdecisionsnapshotDescSemantic := intentdecisionsnapshotFields[6].Descriptor()
+	// intentdecisionsnapshot.DefaultSemantic holds the default value on creation for the semantic field.
+	intentdecisionsnapshot.DefaultSemantic = intentdecisionsnapshotDescSemantic.Default.(jsontext.Value)
+	// intentdecisionsnapshotDescPrompt is the schema descriptor for prompt field.
+	intentdecisionsnapshotDescPrompt := intentdecisionsnapshotFields[7].Descriptor()
+	// intentdecisionsnapshot.DefaultPrompt holds the default value on creation for the prompt field.
+	intentdecisionsnapshot.DefaultPrompt = intentdecisionsnapshotDescPrompt.Default.(jsontext.Value)
+	// intentdecisionsnapshotDescRule is the schema descriptor for rule field.
+	intentdecisionsnapshotDescRule := intentdecisionsnapshotFields[8].Descriptor()
+	// intentdecisionsnapshot.DefaultRule holds the default value on creation for the rule field.
+	intentdecisionsnapshot.DefaultRule = intentdecisionsnapshotDescRule.Default.(jsontext.Value)
+	// intentdecisionsnapshotDescRulesetVersion is the schema descriptor for ruleset_version field.
+	intentdecisionsnapshotDescRulesetVersion := intentdecisionsnapshotFields[9].Descriptor()
+	// intentdecisionsnapshot.DefaultRulesetVersion holds the default value on creation for the ruleset_version field.
+	intentdecisionsnapshot.DefaultRulesetVersion = intentdecisionsnapshotDescRulesetVersion.Default.(string)
+	// intentdecisionsnapshotDescMissingFields is the schema descriptor for missing_fields field.
+	intentdecisionsnapshotDescMissingFields := intentdecisionsnapshotFields[10].Descriptor()
+	// intentdecisionsnapshot.DefaultMissingFields holds the default value on creation for the missing_fields field.
+	intentdecisionsnapshot.DefaultMissingFields = intentdecisionsnapshotDescMissingFields.Default.(jsontext.Value)
+	// intentdecisionsnapshotDescCreatedAt is the schema descriptor for created_at field.
+	intentdecisionsnapshotDescCreatedAt := intentdecisionsnapshotFields[11].Descriptor()
+	// intentdecisionsnapshot.DefaultCreatedAt holds the default value on creation for the created_at field.
+	intentdecisionsnapshot.DefaultCreatedAt = intentdecisionsnapshotDescCreatedAt.Default.(func() time.Time)
 	intentdecisionstepFields := nagi.IntentDecisionStep{}.Fields()
 	_ = intentdecisionstepFields
+	// intentdecisionstepDescNodeID is the schema descriptor for node_id field.
+	intentdecisionstepDescNodeID := intentdecisionstepFields[4].Descriptor()
+	// intentdecisionstep.DefaultNodeID holds the default value on creation for the node_id field.
+	intentdecisionstep.DefaultNodeID = intentdecisionstepDescNodeID.Default.(string)
+	// intentdecisionstepDescNodeVersion is the schema descriptor for node_version field.
+	intentdecisionstepDescNodeVersion := intentdecisionstepFields[5].Descriptor()
+	// intentdecisionstep.DefaultNodeVersion holds the default value on creation for the node_version field.
+	intentdecisionstep.DefaultNodeVersion = intentdecisionstepDescNodeVersion.Default.(int)
+	// intentdecisionstepDescStatus is the schema descriptor for status field.
+	intentdecisionstepDescStatus := intentdecisionstepFields[6].Descriptor()
+	// intentdecisionstep.DefaultStatus holds the default value on creation for the status field.
+	intentdecisionstep.DefaultStatus = intentdecisionstepDescStatus.Default.(string)
+	// intentdecisionstepDescBranch is the schema descriptor for branch field.
+	intentdecisionstepDescBranch := intentdecisionstepFields[7].Descriptor()
+	// intentdecisionstep.DefaultBranch holds the default value on creation for the branch field.
+	intentdecisionstep.DefaultBranch = intentdecisionstepDescBranch.Default.(string)
+	// intentdecisionstepDescSummary is the schema descriptor for summary field.
+	intentdecisionstepDescSummary := intentdecisionstepFields[8].Descriptor()
+	// intentdecisionstep.DefaultSummary holds the default value on creation for the summary field.
+	intentdecisionstep.DefaultSummary = intentdecisionstepDescSummary.Default.(string)
 	// intentdecisionstepDescReasonCode is the schema descriptor for reason_code field.
-	intentdecisionstepDescReasonCode := intentdecisionstepFields[4].Descriptor()
+	intentdecisionstepDescReasonCode := intentdecisionstepFields[9].Descriptor()
 	// intentdecisionstep.DefaultReasonCode holds the default value on creation for the reason_code field.
 	intentdecisionstep.DefaultReasonCode = intentdecisionstepDescReasonCode.Default.(string)
 	// intentdecisionstepDescDetail is the schema descriptor for detail field.
-	intentdecisionstepDescDetail := intentdecisionstepFields[5].Descriptor()
+	intentdecisionstepDescDetail := intentdecisionstepFields[10].Descriptor()
 	// intentdecisionstep.DefaultDetail holds the default value on creation for the detail field.
 	intentdecisionstep.DefaultDetail = intentdecisionstepDescDetail.Default.(jsontext.Value)
+	// intentdecisionstepDescEvidence is the schema descriptor for evidence field.
+	intentdecisionstepDescEvidence := intentdecisionstepFields[11].Descriptor()
+	// intentdecisionstep.DefaultEvidence holds the default value on creation for the evidence field.
+	intentdecisionstep.DefaultEvidence = intentdecisionstepDescEvidence.Default.(jsontext.Value)
+	// intentdecisionstepDescDurationMs is the schema descriptor for duration_ms field.
+	intentdecisionstepDescDurationMs := intentdecisionstepFields[12].Descriptor()
+	// intentdecisionstep.DefaultDurationMs holds the default value on creation for the duration_ms field.
+	intentdecisionstep.DefaultDurationMs = intentdecisionstepDescDurationMs.Default.(int)
 	// intentdecisionstepDescCreatedAt is the schema descriptor for created_at field.
-	intentdecisionstepDescCreatedAt := intentdecisionstepFields[6].Descriptor()
+	intentdecisionstepDescCreatedAt := intentdecisionstepFields[13].Descriptor()
 	// intentdecisionstep.DefaultCreatedAt holds the default value on creation for the created_at field.
 	intentdecisionstep.DefaultCreatedAt = intentdecisionstepDescCreatedAt.Default.(func() time.Time)
+	intentpromptversionFields := nagi.IntentPromptVersion{}.Fields()
+	_ = intentpromptversionFields
+	// intentpromptversionDescSource is the schema descriptor for source field.
+	intentpromptversionDescSource := intentpromptversionFields[6].Descriptor()
+	// intentpromptversion.DefaultSource holds the default value on creation for the source field.
+	intentpromptversion.DefaultSource = intentpromptversionDescSource.Default.(string)
+	// intentpromptversionDescSourceRef is the schema descriptor for source_ref field.
+	intentpromptversionDescSourceRef := intentpromptversionFields[7].Descriptor()
+	// intentpromptversion.DefaultSourceRef holds the default value on creation for the source_ref field.
+	intentpromptversion.DefaultSourceRef = intentpromptversionDescSourceRef.Default.(string)
+	// intentpromptversionDescHash is the schema descriptor for hash field.
+	intentpromptversionDescHash := intentpromptversionFields[8].Descriptor()
+	// intentpromptversion.DefaultHash holds the default value on creation for the hash field.
+	intentpromptversion.DefaultHash = intentpromptversionDescHash.Default.(string)
+	// intentpromptversionDescNote is the schema descriptor for note field.
+	intentpromptversionDescNote := intentpromptversionFields[9].Descriptor()
+	// intentpromptversion.DefaultNote holds the default value on creation for the note field.
+	intentpromptversion.DefaultNote = intentpromptversionDescNote.Default.(string)
+	// intentpromptversionDescContent is the schema descriptor for content field.
+	intentpromptversionDescContent := intentpromptversionFields[10].Descriptor()
+	// intentpromptversion.DefaultContent holds the default value on creation for the content field.
+	intentpromptversion.DefaultContent = intentpromptversionDescContent.Default.(jsontext.Value)
+	// intentpromptversionDescCreatedAt is the schema descriptor for created_at field.
+	intentpromptversionDescCreatedAt := intentpromptversionFields[11].Descriptor()
+	// intentpromptversion.DefaultCreatedAt holds the default value on creation for the created_at field.
+	intentpromptversion.DefaultCreatedAt = intentpromptversionDescCreatedAt.Default.(func() time.Time)
 	intentruleactivationFields := nagi.IntentRuleActivation{}.Fields()
 	_ = intentruleactivationFields
 	// intentruleactivationDescUpdatedAt is the schema descriptor for updated_at field.

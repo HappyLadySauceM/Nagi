@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 )
@@ -141,6 +142,21 @@ func (_c *IntentDecisionCreate) AddIntentDecisionStepsDecisionID(v ...*IntentDec
 		ids[i] = v[i].ID
 	}
 	return _c.AddIntentDecisionStepsDecisionIDIDs(ids...)
+}
+
+// AddIntentDecisionSnapshotsDecisionIDIDs adds the "intent_decision_snapshots_decision_id" edge to the IntentDecisionSnapshot entity by IDs.
+func (_c *IntentDecisionCreate) AddIntentDecisionSnapshotsDecisionIDIDs(ids ...int64) *IntentDecisionCreate {
+	_c.mutation.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
+	return _c
+}
+
+// AddIntentDecisionSnapshotsDecisionID adds the "intent_decision_snapshots_decision_id" edges to the IntentDecisionSnapshot entity.
+func (_c *IntentDecisionCreate) AddIntentDecisionSnapshotsDecisionID(v ...*IntentDecisionSnapshot) *IntentDecisionCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddIntentDecisionSnapshotsDecisionIDIDs(ids...)
 }
 
 // Mutation returns the IntentDecisionMutation object of the builder.
@@ -308,6 +324,22 @@ func (_c *IntentDecisionCreate) createSpec() (*IntentDecision, *sqlgraph.CreateS
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(intentdecisionstep.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.IntentDecisionSnapshotsDecisionIDIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   intentdecision.IntentDecisionSnapshotsDecisionIDTable,
+			Columns: []string{intentdecision.IntentDecisionSnapshotsDecisionIDColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionsnapshot.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

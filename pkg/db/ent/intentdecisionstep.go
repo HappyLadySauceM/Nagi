@@ -26,10 +26,24 @@ type IntentDecisionStep struct {
 	StepIndex int `json:"step_index,omitempty"`
 	// Phase holds the value of the "phase" field.
 	Phase string `json:"phase,omitempty"`
+	// NodeID holds the value of the "node_id" field.
+	NodeID string `json:"node_id,omitempty"`
+	// NodeVersion holds the value of the "node_version" field.
+	NodeVersion int `json:"node_version,omitempty"`
+	// Status holds the value of the "status" field.
+	Status string `json:"status,omitempty"`
+	// Branch holds the value of the "branch" field.
+	Branch string `json:"branch,omitempty"`
+	// Summary holds the value of the "summary" field.
+	Summary string `json:"summary,omitempty"`
 	// ReasonCode holds the value of the "reason_code" field.
 	ReasonCode string `json:"reason_code,omitempty"`
 	// Detail holds the value of the "detail" field.
 	Detail jsontext.Value `json:"detail,omitempty"`
+	// Evidence holds the value of the "evidence" field.
+	Evidence jsontext.Value `json:"evidence,omitempty"`
+	// DurationMs holds the value of the "duration_ms" field.
+	DurationMs int `json:"duration_ms,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -63,11 +77,11 @@ func (*IntentDecisionStep) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case intentdecisionstep.FieldDetail:
+		case intentdecisionstep.FieldDetail, intentdecisionstep.FieldEvidence:
 			values[i] = new([]byte)
-		case intentdecisionstep.FieldID, intentdecisionstep.FieldDecisionID, intentdecisionstep.FieldStepIndex:
+		case intentdecisionstep.FieldID, intentdecisionstep.FieldDecisionID, intentdecisionstep.FieldStepIndex, intentdecisionstep.FieldNodeVersion, intentdecisionstep.FieldDurationMs:
 			values[i] = new(sql.NullInt64)
-		case intentdecisionstep.FieldPhase, intentdecisionstep.FieldReasonCode:
+		case intentdecisionstep.FieldPhase, intentdecisionstep.FieldNodeID, intentdecisionstep.FieldStatus, intentdecisionstep.FieldBranch, intentdecisionstep.FieldSummary, intentdecisionstep.FieldReasonCode:
 			values[i] = new(sql.NullString)
 		case intentdecisionstep.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -110,6 +124,36 @@ func (_m *IntentDecisionStep) assignValues(columns []string, values []any) error
 			} else if value.Valid {
 				_m.Phase = value.String
 			}
+		case intentdecisionstep.FieldNodeID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field node_id", values[i])
+			} else if value.Valid {
+				_m.NodeID = value.String
+			}
+		case intentdecisionstep.FieldNodeVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field node_version", values[i])
+			} else if value.Valid {
+				_m.NodeVersion = int(value.Int64)
+			}
+		case intentdecisionstep.FieldStatus:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field status", values[i])
+			} else if value.Valid {
+				_m.Status = value.String
+			}
+		case intentdecisionstep.FieldBranch:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field branch", values[i])
+			} else if value.Valid {
+				_m.Branch = value.String
+			}
+		case intentdecisionstep.FieldSummary:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field summary", values[i])
+			} else if value.Valid {
+				_m.Summary = value.String
+			}
 		case intentdecisionstep.FieldReasonCode:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field reason_code", values[i])
@@ -123,6 +167,20 @@ func (_m *IntentDecisionStep) assignValues(columns []string, values []any) error
 				if err := json.Unmarshal(*value, &_m.Detail); err != nil {
 					return fmt.Errorf("unmarshal field detail: %w", err)
 				}
+			}
+		case intentdecisionstep.FieldEvidence:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field evidence", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Evidence); err != nil {
+					return fmt.Errorf("unmarshal field evidence: %w", err)
+				}
+			}
+		case intentdecisionstep.FieldDurationMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field duration_ms", values[i])
+			} else if value.Valid {
+				_m.DurationMs = int(value.Int64)
 			}
 		case intentdecisionstep.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -180,11 +238,32 @@ func (_m *IntentDecisionStep) String() string {
 	builder.WriteString("phase=")
 	builder.WriteString(_m.Phase)
 	builder.WriteString(", ")
+	builder.WriteString("node_id=")
+	builder.WriteString(_m.NodeID)
+	builder.WriteString(", ")
+	builder.WriteString("node_version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.NodeVersion))
+	builder.WriteString(", ")
+	builder.WriteString("status=")
+	builder.WriteString(_m.Status)
+	builder.WriteString(", ")
+	builder.WriteString("branch=")
+	builder.WriteString(_m.Branch)
+	builder.WriteString(", ")
+	builder.WriteString("summary=")
+	builder.WriteString(_m.Summary)
+	builder.WriteString(", ")
 	builder.WriteString("reason_code=")
 	builder.WriteString(_m.ReasonCode)
 	builder.WriteString(", ")
 	builder.WriteString("detail=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Detail))
+	builder.WriteString(", ")
+	builder.WriteString("evidence=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Evidence))
+	builder.WriteString(", ")
+	builder.WriteString("duration_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DurationMs))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

@@ -35,5 +35,5 @@ func (IntentDecision) Indexes() []ent.Index {
 }
 
 func (IntentDecision) Edges() []ent.Edge {
-	return []ent.Edge{edge.From("job_id_ref", MessageJob.Type).Ref("intent_decisions_job_id").Field("job_id").Unique().Annotations(entsql.OnDelete("CASCADE")).Required(), edge.To("intent_decision_steps_decision_id", IntentDecisionStep.Type).Annotations(entsql.OnDelete("CASCADE"))}
+	return []ent.Edge{edge.From("job_id_ref", MessageJob.Type).Ref("intent_decisions_job_id").Field("job_id").Unique().Annotations(entsql.OnDelete("CASCADE")).Required(), edge.To("intent_decision_steps_decision_id", IntentDecisionStep.Type).Annotations(entsql.OnDelete("CASCADE")), edge.To("intent_decision_snapshots_decision_id", IntentDecisionSnapshot.Type).Annotations(entsql.OnDelete("CASCADE"))}
 }

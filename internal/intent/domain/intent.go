@@ -74,6 +74,9 @@ type Input struct {
 	Activity BotActivity
 	Policy   scopedomain.Policy
 	Now      time.Time
+	// Prompt is the immutable prompt snapshot selected before the semantic call.
+	// Prompt 是语义调用前选定的不可变 Prompt 快照。
+	Prompt Prompt
 }
 
 // MentionsBot reports whether an at segment targets the bot itself.
@@ -170,6 +173,9 @@ type RuleEvaluation struct {
 	Version    int
 	Scope      string
 	Priority   int
+	Enabled    bool
+	Match      RuleMatch
+	Action     RuleAction
 	Status     string
 	ReasonCode string
 }
@@ -204,18 +210,36 @@ type RuleResult struct {
 // 决策步骤的阶段名。字符串保持稳定，管理 API 与控制台按它分组。
 const (
 	StepPolicy   = "policy"
+	StepContext  = "context"
 	StepRules    = "rules"
 	StepSemantic = "semantic"
 	StepFinal    = "final"
 )
 
-// Step is one explainable stage of a decision.
-// Step 是决策中一个可解释的阶段。
+// Evidence is one short, human-readable fact supporting a node result.
+// Evidence 是支撑节点结果的一条简短、可读事实。
+type Evidence struct {
+	Kind string
+	Text string
+}
+
+// Step is one explainable node of a decision. NodeID, NodeVersion, Status,
+// Branch, Summary, Evidence and DurationMS are the stable run contract used by
+// the console; Detail carries the node-specific typed payload.
+// Step 是决策中的一个可解释节点。NodeID、NodeVersion、Status、Branch、Summary、
+// Evidence 与 DurationMS 是控制台使用的稳定运行契约；Detail 保存节点专属载荷。
 type Step struct {
-	Index      int
-	Phase      string
-	ReasonCode string
-	Detail     map[string]any
+	Index       int
+	Phase       string
+	NodeID      string
+	NodeVersion int
+	Status      string
+	Branch      string
+	Summary     string
+	ReasonCode  string
+	Detail      map[string]any
+	Evidence    []Evidence
+	DurationMS  int64
 }
 
 // FinalDecision is the pipeline outcome recorded for evaluation.
@@ -231,7 +255,13 @@ type FinalDecision struct {
 	// means the built-in ruleset.
 	// RulesetVersion 标识产生该决策的规则版本；空值表示内置规则。
 	RulesetVersion string
+	RunID          string
+	FlowVersion    string
 	Steps          []Step
+	// Snapshot is written in the same transaction as the decision when
+	// available. Historical rows without it stay explicitly legacy.
+	// Snapshot 在可得时与决策同事务写入；没有它的历史记录明确保持 legacy。
+	Snapshot *DecisionSnapshot
 }
 
 func itoa(v int64) string {

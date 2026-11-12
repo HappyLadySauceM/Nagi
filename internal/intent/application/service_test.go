@@ -299,6 +299,13 @@ func TestProcessTaskRateLimitsWithoutHistoryAuthorization(t *testing.T) {
 	if len(executor.tasks) != 0 || semantic.calls != 0 {
 		t.Fatal("cooled-down explicit mention must neither call semantic nor reply")
 	}
+	steps := recorder.decisions[0].Steps
+	if steps[0].Branch != "blocked" || steps[0].ReasonCode != "cooldown" {
+		t.Fatalf("policy node = %+v", steps[0])
+	}
+	if steps[3].Status != domain.NodeStatusSkipped || steps[3].Detail["called"] != false {
+		t.Fatalf("blocked semantic node = %+v", steps[3])
+	}
 }
 
 // TestProcessTaskFailsClosedWhenActivityUnavailable verifies that activity-store
@@ -337,13 +344,13 @@ func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 		t.Fatalf("recorded %d decisions", len(recorder.decisions))
 	}
 	steps := recorder.decisions[0].Steps
-	if len(steps) != 4 {
-		t.Fatalf("steps = %d, want policy/rules/semantic/final", len(steps))
+	if len(steps) != 5 {
+		t.Fatalf("steps = %d, want policy/context/rules/semantic/final", len(steps))
 	}
-	if steps[0].Phase != domain.StepPolicy || steps[1].Phase != domain.StepRules || steps[2].Phase != domain.StepSemantic || steps[3].Phase != domain.StepFinal {
+	if steps[0].Phase != domain.StepPolicy || steps[1].Phase != domain.StepContext || steps[2].Phase != domain.StepRules || steps[3].Phase != domain.StepSemantic || steps[4].Phase != domain.StepFinal {
 		t.Fatalf("phases = %+v", steps)
 	}
-	if steps[2].Detail["skip_reason"] != "always_reply" || steps[3].ReasonCode != "always_reply" {
+	if steps[3].Detail["SkipReason"] != "always_reply" || steps[4].ReasonCode != "always_reply" {
 		t.Fatalf("steps = %+v", steps)
 	}
 
@@ -358,8 +365,14 @@ func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 		t.Fatalf("process with semantics: %v", err)
 	}
 	steps = recorder.decisions[0].Steps
-	if len(steps) != 4 || steps[2].Phase != domain.StepSemantic || steps[2].Detail["called"] != true {
+	if len(steps) != 5 || steps[3].Phase != domain.StepSemantic || steps[3].Detail["Called"] != true {
 		t.Fatalf("semantic steps = %+v", steps)
+	}
+	if steps[3].Detail["called"] != true || steps[3].Detail["available"] != false {
+		t.Fatalf("legacy semantic detail aliases = %+v", steps[3].Detail)
+	}
+	if _, ok := steps[4].Detail["thresholds"].(map[string]float64); !ok {
+		t.Fatalf("legacy final thresholds alias = %+v", steps[4].Detail)
 	}
 }
 
@@ -398,6 +411,12 @@ func TestProcessTaskWritesDecisionRunEvent(t *testing.T) {
 	if !ok || decision["ReasonCode"] != "always_reply" {
 		t.Fatalf("decision output = %+v", output)
 	}
+	if strings.Contains(string(runRecorder.finished[0].Output), "那你觉得呢？") {
+		t.Fatalf("decision output must not include message text: %s", runRecorder.finished[0].Output)
+	}
+	if _, exists := decision["Snapshot"]; exists {
+		t.Fatalf("decision output must not include snapshot input: %+v", decision)
+	}
 }
 
 func TestProcessTaskStopsWhenDecisionRecordingFails(t *testing.T) {
@@ -425,7 +444,7 @@ func TestSemanticSimulationNeverRecordsOrExecutesReply(t *testing.T) {
 	in := baseInput(scopedomain.ModeIntentBased)
 	rule, _ := EvaluateRuleChain(in, nil, nil)
 	final, steps := d.EvaluateSimulation(context.Background(), in, rule, true)
-	if final.Decision != domain.DecisionReply || semantic.calls != 1 || len(steps) != 4 {
+	if final.Decision != domain.DecisionReply || semantic.calls != 1 || len(steps) != 5 {
 		t.Fatalf("semantic simulation: %+v calls=%d steps=%d", final, semantic.calls, len(steps))
 	}
 	if len(recorder.decisions) != 0 || len(executor.tasks) != 0 {

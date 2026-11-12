@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
+
+	"github.com/google/uuid"
 
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 
@@ -29,6 +32,14 @@ import (
 // SemanticDecider 请求外部语义服务；实现必须对畸形或越界响应关闭式失败。
 type SemanticDecider interface {
 	Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error)
+}
+
+// PromptProvider resolves the immutable prompt snapshot used by one semantic
+// call. Implementations must fall back locally, never block on Langfuse.
+// PromptProvider 解析一次语义调用使用的不可变 Prompt 快照。
+// 实现必须在本地兜底，绝不等待 Langfuse。
+type PromptProvider interface {
+	Resolve(ctx context.Context, provider string) domain.Prompt
 }
 
 // HistoryReader supplies authorized recent messages for decision context.
@@ -107,6 +118,7 @@ type Options struct {
 	Media       media.Transcriber
 	Transcripts TranscriptRecorder
 	Semantic    SemanticDecider
+	Prompts     PromptProvider
 	// Rules is optional; without it the built-in ruleset applies.
 	// Rules 可选；未提供时使用内置规则。
 	Rules        RulesProvider
@@ -134,6 +146,7 @@ type Decider struct {
 	history      HistoryReader
 	activity     ActivityReader
 	semantic     SemanticDecider
+	prompts      PromptProvider
 	rules        RulesProvider
 	recorder     DecisionRecorder
 	executor     ReplyExecutor
@@ -156,8 +169,8 @@ func NewDecider(opts Options) (*Decider, error) {
 	}
 	return &Decider{
 		media: opts.Media, transcripts: opts.Transcripts, scopes: opts.Scopes, history: opts.History, activity: opts.Activity,
-		semantic: opts.Semantic,
-		rules:    opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
+		semantic: opts.Semantic, prompts: opts.Prompts,
+		rules: opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
 		th: opts.Thresholds, historyLimit: opts.HistoryLimit,
 		provider: opts.Provider, model: opts.Model, dynamic: opts.Dynamic, logger: opts.Logger,
 	}, nil
@@ -227,21 +240,34 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		d.logger.Debug("intent pipeline disabled; job skipped", "job_id", task.JobID)
 		return nil
 	}
-	history, activity, err := d.loadContext(ctx, task, policy)
+	history, activity, historyDegraded, err := d.loadContext(ctx, task, policy)
 	if err != nil {
 		return err
 	}
-	in := domain.Input{Task: task, Recent: history, Activity: activity, Policy: policy, Now: time.Now()}
+	prompt := domain.BuiltinPrompt(runtime.Provider)
+	if d.prompts != nil {
+		prompt = d.prompts.Resolve(ctx, runtime.Provider)
+	}
+	runID := uuid.NewString()
+	in := domain.Input{Task: task, Recent: history, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
 
 	rule, rulesetVersion := d.applyRules(ctx, in)
 	var semantic domain.SemanticAnswer
 	var latency int64
-	if rule.NeedSemantic && d.semantic != nil {
+	asked := rule.NeedSemantic && !rule.Blocked && d.semantic != nil
+	if asked {
 		semantic, latency = d.decideSemantic(ctx, in, runtime)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = rulesetVersion
-	decision.Steps = decisionSteps(policy, rule, semantic, decision, latency, rule.NeedSemantic && d.semantic != nil, runtime.Thresholds)
+	decision.RunID = runID
+	decision.FlowVersion = domain.FlowVersion
+	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, runtime.Thresholds, historyDegraded)
+	decision.Snapshot = &domain.DecisionSnapshot{
+		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
+		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
+	}
 
 	// The durable decision record remains the source used by evaluation. Mirror
 	// its explainable, non-message facts into the run timeline before persisting
@@ -268,7 +294,21 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		}
 		return fmt.Errorf("intent: record decision: %w", err)
 	}
-	if err := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", map[string]any{"decision": decision}); err != nil {
+	// Audit keeps only decision facts. Snapshot.Input contains message bodies,
+	// so the audit projection deliberately omits the snapshot and raw steps.
+	// 审计只保留决策事实；Snapshot.Input 含消息正文，因此审计投影不包含快照与原始步骤。
+	auditDecision := map[string]any{
+		"Decision":       string(decision.Decision),
+		"ReasonCode":     decision.ReasonCode,
+		"Provider":       decision.Provider,
+		"Model":          decision.Model,
+		"Scores":         decision.Scores,
+		"LatencyMS":      decision.LatencyMS,
+		"RulesetVersion": decision.RulesetVersion,
+		"RunID":          decision.RunID,
+		"FlowVersion":    decision.FlowVersion,
+	}
+	if err := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", map[string]any{"decision": auditDecision}); err != nil {
 		return err
 	}
 	d.logger.Info("intent decided",
@@ -288,7 +328,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 // one span; the span exists even when history reads are unauthorized.
 // loadContext 在单个 span 内读取授权历史与频率规则元数据；
 // 即使未授权读取历史，该 span 仍然存在。
-func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scopedomain.Policy) ([]domain.Message, domain.BotActivity, error) {
+func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scopedomain.Policy) ([]domain.Message, domain.BotActivity, bool, error) {
 	ctx, span := tracer().Start(ctx, "nagi.intent.load_context")
 	defer span.End()
 	span.SetAttributes(attribute.Bool("nagi.history_allowed", policy.AllowHistoryRead))
@@ -303,6 +343,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	})
 
 	var history []domain.Message
+	degraded := false
 	if policy.AllowHistoryRead && d.history != nil {
 		var err error
 		history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, historyLimit)
@@ -313,6 +354,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 			span.SetAttributes(attribute.Bool("nagi.history_degraded", true))
 			d.logger.Warn("load conversation history failed", "error", err)
 			history = nil
+			degraded = true
 		}
 	}
 	// Rate-rule metadata is fetched regardless of history authorization; a
@@ -323,7 +365,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 		lastReplyAt, repliesLastHour, err := d.activity.BotReplyMeta(ctx, task.ConversationID)
 		if err != nil {
 			span.RecordError(err)
-			return nil, domain.BotActivity{}, fmt.Errorf("intent: load bot activity: %w", err)
+			return nil, domain.BotActivity{}, degraded, fmt.Errorf("intent: load bot activity: %w", err)
 		}
 		activity = domain.BotActivity{Known: true, LastReplyAt: lastReplyAt, RepliesLastHour: repliesLastHour}
 	}
@@ -336,68 +378,253 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 		"activity_known": activity.Known,
 		"history_read":   policy.AllowHistoryRead,
 	})
-	return history, activity, nil
+	return history, activity, degraded, nil
 }
 
-// decisionSteps turns the pipeline stages into persisted, explainable steps.
-// The order matches evaluation order so the console can replay the decision.
-// decisionSteps 把流水线各阶段整理为可持久化的解释步骤，
-// 顺序与判定顺序一致，控制台可据此复现决策。
-func decisionSteps(policy scopedomain.Policy, rule domain.RuleResult,
-	semantic domain.SemanticAnswer, decision domain.FinalDecision, latency int64, asked bool, th domain.Thresholds,
+// decisionSteps turns the pipeline stages into persisted, explainable nodes.
+// The order matches evaluation order and the fixed flow definition.
+// decisionSteps 把流水线各阶段整理为可持久化的解释节点，
+// 顺序与判定顺序及固定流程定义一致。
+func decisionSteps(in domain.Input, rule domain.RuleResult,
+	semantic domain.SemanticAnswer, decision domain.FinalDecision, latency int64, asked bool,
+	th domain.Thresholds, historyDegraded bool,
 ) []domain.Step {
+	policy := in.Policy
+	policyBranch := "authorized"
+	policySummary := "已通过作用域策略与频率闸门"
+	policyReason := ""
+	if rule.Blocked && isPolicyBlockReason(rule.ReasonCode) {
+		policyBranch = "blocked"
+		policySummary = domain.ReasonText(rule.ReasonCode)
+		policyReason = rule.ReasonCode
+	}
 	steps := []domain.Step{{
-		Index: 0,
-		Phase: domain.StepPolicy,
+		Index:       0,
+		Phase:       domain.StepPolicy,
+		NodeID:      domain.NodePolicy,
+		NodeVersion: 1,
+		Status:      domain.NodeStatusExecuted,
+		Branch:      policyBranch,
+		ReasonCode:  policyReason,
+		Summary:     policySummary,
 		Detail: map[string]any{
-			"enabled":               policy.Enabled,
-			"reply_mode":            string(policy.ReplyMode),
-			"scope_type":            string(policy.ScopeType),
-			"min_reply_interval_ms": policy.MinReplyIntervalMS,
-			"max_replies_per_hour":  policy.MaxRepliesPerHour,
+			"Source":             policy.Source,
+			"PolicyVersion":      policy.Version,
+			"TemplateVersion":    policy.TemplateVersion,
+			"Enabled":            policy.Enabled,
+			"ReplyMode":          string(policy.ReplyMode),
+			"MinReplyIntervalMS": policy.MinReplyIntervalMS,
+			"MaxRepliesPerHour":  policy.MaxRepliesPerHour,
+			"ScopeType":          string(policy.ScopeType),
+			"ScopeID":            policy.ScopeID,
 		},
+		Evidence: []domain.Evidence{{Kind: "policy", Text: "reply_mode=" + string(policy.ReplyMode)}},
 	}, {
-		Index:      1,
-		Phase:      domain.StepRules,
-		ReasonCode: rule.ReasonCode,
+		Index:       1,
+		Phase:       domain.StepContext,
+		NodeID:      domain.NodeContext,
+		NodeVersion: 1,
+		Status:      statusForContext(historyDegraded),
+		Branch:      contextBranch(historyDegraded, policy.AllowHistoryRead),
+		Summary:     contextSummary(historyDegraded, len(in.Recent)),
 		Detail: map[string]any{
-			"blocked":       rule.Blocked,
-			"explicit":      rule.Explicit,
-			"need_semantic": rule.NeedSemantic,
-			"always_reply":  rule.AlwaysReply,
-			"builtin_rules": rule.BuiltinRules,
-			"evaluations":   rule.Evaluations,
-			"matched":       rule.Matched,
+			"AllowHistoryRead": policy.AllowHistoryRead,
+			"AllowMemoryRead":  policy.AllowMemoryRead,
+			"AllowMemoryWrite": policy.AllowMemoryWrite,
+			"HistoryCount":     len(in.Recent),
+			"MemoryCount":      0,
+			"HistorySource":    historySource(policy.AllowHistoryRead),
+			"Skipped":          false,
+			"Degraded":         historyDegraded,
 		},
+		Evidence: []domain.Evidence{{Kind: "context", Text: "history_count=" + strconv.Itoa(len(in.Recent))}},
+	}, {
+		Index:       2,
+		Phase:       domain.StepRules,
+		NodeID:      domain.NodeRules,
+		NodeVersion: 1,
+		Status:      domain.NodeStatusExecuted,
+		Branch:      rulesBranch(rule),
+		ReasonCode:  rule.ReasonCode,
+		Summary:     "内置规则与版本化规则求值完成",
+		Detail: map[string]any{
+			"BuiltinRules": rule.BuiltinRules,
+			"Evaluations":  rule.Evaluations,
+			"evaluations":  rule.Evaluations,
+			"Matched":      rule.Matched,
+			"Blocked":      rule.Blocked,
+			"Explicit":     rule.Explicit,
+			"NeedSemantic": rule.NeedSemantic,
+			"AlwaysReply":  rule.AlwaysReply,
+		},
+		Evidence: []domain.Evidence{{Kind: "rules", Text: "need_semantic=" + boolText(rule.NeedSemantic)}},
 	}}
+	semanticStatus := domain.NodeStatusSkipped
+	if asked && semantic.Available {
+		semanticStatus = domain.NodeStatusExecuted
+	} else if asked && !semantic.Available {
+		semanticStatus = domain.NodeStatusDegraded
+	}
 	semanticDetail := map[string]any{
+		"Called":               asked,
+		"Available":            semantic.Available,
+		"FailureCode":          semantic.FailureCode,
+		"intent_category":      semantic.IntentCategory,
 		"called":               asked,
 		"available":            semantic.Available,
 		"failure_code":         semantic.FailureCode,
-		"intent_category":      semantic.IntentCategory,
-		"directed_to_bot":      semantic.DirectedToBot,
-		"continues_bot_thread": semantic.ContinuesBotThread,
-		"addressed_to_other":   semantic.AddressedToOther,
-		"appropriate_to_join":  semantic.AppropriateToJoin,
-		"latency_ms":           latency,
+		"Provider":             decision.Provider,
+		"Model":                decision.Model,
+		"PromptID":             in.Prompt.ID,
+		"PromptVersion":        in.Prompt.Version,
+		"PromptSource":         in.Prompt.Source,
+		"PromptHash":           in.Prompt.Hash,
+		"PromptFallbackReason": in.Prompt.FallbackReason,
+		"Scores":               decision.Scores,
+		"Thresholds":           map[string]float64{"Continuation": th.Continuation, "Interjection": th.Interjection, "AddressedOtherMax": th.AddressedOtherMax},
+		"Comparisons":          semanticComparisons(semantic, th),
+		"LatencyMS":            latency,
 	}
 	if !asked {
-		semanticDetail["skip_reason"] = semanticSkipReason(rule)
+		semanticDetail["SkipReason"] = semanticSkipReason(rule)
 	}
-	steps = append(steps, domain.Step{Index: len(steps), Phase: domain.StepSemantic, Detail: semanticDetail})
 	steps = append(steps, domain.Step{
-		Index:      len(steps),
-		Phase:      domain.StepFinal,
-		ReasonCode: decision.ReasonCode,
+		Index:       3,
+		Phase:       domain.StepSemantic,
+		NodeID:      domain.NodeSemantic,
+		NodeVersion: 1,
+		Status:      semanticStatus,
+		Branch:      semanticBranch(asked, semantic),
+		ReasonCode:  semantic.FailureCode,
+		Summary:     semanticSummary(asked, semantic),
+		Detail:      semanticDetail,
+		Evidence:    []domain.Evidence{{Kind: "semantic", Text: semanticEvidence(asked, semantic)}},
+		DurationMS:  latency,
+	})
+	steps = append(steps, domain.Step{
+		Index:       4,
+		Phase:       domain.StepFinal,
+		NodeID:      domain.NodeDecision,
+		NodeVersion: 1,
+		Status:      domain.NodeStatusExecuted,
+		Branch:      string(decision.Decision),
+		ReasonCode:  decision.ReasonCode,
+		Summary:     domain.ReasonText(decision.ReasonCode),
 		Detail: map[string]any{
-			"decision":   string(decision.Decision),
-			"provider":   decision.Provider,
-			"model":      decision.Model,
-			"scores":     decision.Scores,
+			"Decision":   string(decision.Decision),
+			"ReasonCode": decision.ReasonCode,
+			"ReasonText": domain.ReasonText(decision.ReasonCode),
+			"Thresholds": map[string]float64{"Continuation": th.Continuation, "Interjection": th.Interjection, "AddressedOtherMax": th.AddressedOtherMax},
 			"thresholds": map[string]float64{"continuation": th.Continuation, "interjection": th.Interjection, "addressed_other_max": th.AddressedOtherMax},
 		},
+		Evidence: []domain.Evidence{{Kind: "decision", Text: "decision=" + string(decision.Decision)}},
 	})
 	return steps
+}
+
+func isPolicyBlockReason(reason string) bool {
+	switch reason {
+	case "policy_disabled", "observe_only", "cooldown", "rate_limited", "not_addressed":
+		return true
+	default:
+		return false
+	}
+}
+
+func statusForContext(degraded bool) string {
+	if degraded {
+		return domain.NodeStatusDegraded
+	}
+	return domain.NodeStatusExecuted
+}
+
+func contextBranch(degraded, allowed bool) string {
+	if degraded {
+		return "degraded"
+	}
+	if !allowed {
+		return "history_denied"
+	}
+	return "history_read"
+}
+
+func rulesBranch(rule domain.RuleResult) string {
+	if rule.Blocked {
+		return "blocked"
+	}
+	if rule.Explicit {
+		return "explicit"
+	}
+	if rule.AlwaysReply {
+		return "always_reply"
+	}
+	if rule.NeedSemantic {
+		return "semantic"
+	}
+	return "rule_direct"
+}
+
+func semanticBranch(asked bool, semantic domain.SemanticAnswer) string {
+	if !asked {
+		return "skipped"
+	}
+	if !semantic.Available {
+		return "degraded"
+	}
+	return "available"
+}
+
+func contextSummary(degraded bool, count int) string {
+	if degraded {
+		return "历史读取失败，已降级为当前消息"
+	}
+	return "读取已授权上下文 " + strconv.Itoa(count) + " 条"
+}
+
+func historySource(allowed bool) string {
+	if allowed {
+		return "database"
+	}
+	return "none"
+}
+
+func semanticSummary(asked bool, semantic domain.SemanticAnswer) string {
+	if !asked {
+		return "未调用语义判定"
+	}
+	if !semantic.Available {
+		return "语义不可用，已按规则降级"
+	}
+	return "语义服务返回可用结果"
+}
+
+func semanticEvidence(asked bool, semantic domain.SemanticAnswer) string {
+	if !asked {
+		return "semantic_skipped"
+	}
+	if !semantic.Available {
+		return "semantic_unavailable"
+	}
+	return "intent=" + semantic.IntentCategory
+}
+
+func semanticComparisons(semantic domain.SemanticAnswer, th domain.Thresholds) []map[string]any {
+	if !semantic.Available {
+		return []map[string]any{}
+	}
+	return []map[string]any{
+		{"Name": "directed_to_bot", "Value": semantic.DirectedToBot, "Operator": ">=", "Threshold": th.Continuation, "Satisfied": semantic.DirectedToBot >= th.Continuation},
+		{"Name": "continues_bot_thread", "Value": semantic.ContinuesBotThread, "Operator": ">=", "Threshold": th.Continuation, "Satisfied": semantic.ContinuesBotThread >= th.Continuation},
+		{"Name": "appropriate_to_join", "Value": semantic.AppropriateToJoin, "Operator": ">=", "Threshold": th.Interjection, "Satisfied": semantic.AppropriateToJoin >= th.Interjection},
+		{"Name": "addressed_to_other", "Value": semantic.AddressedToOther, "Operator": ">=", "Threshold": th.AddressedOtherMax, "Satisfied": semantic.AddressedToOther >= th.AddressedOtherMax},
+	}
+}
+
+func boolText(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
 }
 
 func semanticSkipReason(rule domain.RuleResult) string {
@@ -553,7 +780,7 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 		semantic, latency = d.decideSemantic(ctx, in, runtime)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
-	return decision, decisionSteps(in.Policy, rule, semantic, decision, latency, called, runtime.Thresholds)
+	return decision, decisionSteps(in, rule, semantic, decision, latency, called, runtime.Thresholds, false)
 }
 
 // PrepareSimulation loads the same authorized context and activity as live decisions.
@@ -575,7 +802,7 @@ func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domai
 		in.Activity = domain.BotActivity{Known: true}
 		return in, nil
 	}
-	history, activity, err := d.loadContext(ctx, in.Task, in.Policy)
+	history, activity, _, err := d.loadContext(ctx, in.Task, in.Policy)
 	if err != nil {
 		return in, err
 	}

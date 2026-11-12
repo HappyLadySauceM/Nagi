@@ -415,9 +415,9 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	mediaService media.Transcriber,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder,
-) (*conversationinfra.Worker, intentcontracts.DecisionReader, intentcontracts.SimulationEvaluator, error) {
+) (*conversationinfra.Worker, *intentinfra.DecisionsRepo, intentcontracts.SimulationEvaluator, *intentapp.PromptService, *intentapp.ReplayService, error) {
 	if pool == nil || scope == nil || conv == nil {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
 	if !settings.Settings().Intent.Enabled {
 		logger.Info("intent pipeline starts disabled; stored messages are consumed without a decision",
@@ -427,15 +427,21 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	semantic := newSemanticRouter(settings, catalog, logger)
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
+	promptsRepo, err := intentinfra.NewPromptsRepo(pool)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	promptService := intentapp.NewPromptService(promptsRepo, logger)
 	live := settings.Settings()
 	transcripts, err := conversationinfra.NewRepo(pool)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	decider, err := intentapp.NewDecider(intentapp.Options{
-		Media: mediaService, Transcripts: transcripts, Semantic: semantic,
+		Prompts: promptService,
+		Media:   mediaService, Transcripts: transcripts, Semantic: semantic,
 		History:  historyReader{svc: conv},
 		Activity: activityReader{svc: conv},
 		Scopes:   scope,
@@ -471,11 +477,12 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		Logger: logger,
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
+	replayService := intentapp.NewReplayService(decider, decisionsRepo, decisionsRepo)
 	repo, err := conversationinfra.NewRepo(pool)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider, models: catalog, settings: settings}, conversationinfra.WorkerOptions{
 		Concurrency:  cfg.Worker.Concurrency,
@@ -500,5 +507,5 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			}), snapshot.Version
 		},
 	}, logger)
-	return worker, decisionsRepo, decider, err
+	return worker, decisionsRepo, decider, promptService, replayService, err
 }

@@ -21,10 +21,24 @@ const (
 	FieldStepIndex = "step_index"
 	// FieldPhase holds the string denoting the phase field in the database.
 	FieldPhase = "phase"
+	// FieldNodeID holds the string denoting the node_id field in the database.
+	FieldNodeID = "node_id"
+	// FieldNodeVersion holds the string denoting the node_version field in the database.
+	FieldNodeVersion = "node_version"
+	// FieldStatus holds the string denoting the status field in the database.
+	FieldStatus = "status"
+	// FieldBranch holds the string denoting the branch field in the database.
+	FieldBranch = "branch"
+	// FieldSummary holds the string denoting the summary field in the database.
+	FieldSummary = "summary"
 	// FieldReasonCode holds the string denoting the reason_code field in the database.
 	FieldReasonCode = "reason_code"
 	// FieldDetail holds the string denoting the detail field in the database.
 	FieldDetail = "detail"
+	// FieldEvidence holds the string denoting the evidence field in the database.
+	FieldEvidence = "evidence"
+	// FieldDurationMs holds the string denoting the duration_ms field in the database.
+	FieldDurationMs = "duration_ms"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// EdgeDecisionIDRef holds the string denoting the decision_id_ref edge name in mutations.
@@ -46,8 +60,15 @@ var Columns = []string{
 	FieldDecisionID,
 	FieldStepIndex,
 	FieldPhase,
+	FieldNodeID,
+	FieldNodeVersion,
+	FieldStatus,
+	FieldBranch,
+	FieldSummary,
 	FieldReasonCode,
 	FieldDetail,
+	FieldEvidence,
+	FieldDurationMs,
 	FieldCreatedAt,
 }
 
@@ -62,10 +83,24 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// DefaultNodeID holds the default value on creation for the "node_id" field.
+	DefaultNodeID string
+	// DefaultNodeVersion holds the default value on creation for the "node_version" field.
+	DefaultNodeVersion int
+	// DefaultStatus holds the default value on creation for the "status" field.
+	DefaultStatus string
+	// DefaultBranch holds the default value on creation for the "branch" field.
+	DefaultBranch string
+	// DefaultSummary holds the default value on creation for the "summary" field.
+	DefaultSummary string
 	// DefaultReasonCode holds the default value on creation for the "reason_code" field.
 	DefaultReasonCode string
 	// DefaultDetail holds the default value on creation for the "detail" field.
 	DefaultDetail jsontext.Value
+	// DefaultEvidence holds the default value on creation for the "evidence" field.
+	DefaultEvidence jsontext.Value
+	// DefaultDurationMs holds the default value on creation for the "duration_ms" field.
+	DefaultDurationMs int
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 )
@@ -93,9 +128,39 @@ func ByPhase(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPhase, opts...).ToFunc()
 }
 
+// ByNodeID orders the results by the node_id field.
+func ByNodeID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldNodeID, opts...).ToFunc()
+}
+
+// ByNodeVersion orders the results by the node_version field.
+func ByNodeVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldNodeVersion, opts...).ToFunc()
+}
+
+// ByStatus orders the results by the status field.
+func ByStatus(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByBranch orders the results by the branch field.
+func ByBranch(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBranch, opts...).ToFunc()
+}
+
+// BySummary orders the results by the summary field.
+func BySummary(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSummary, opts...).ToFunc()
+}
+
 // ByReasonCode orders the results by the reason_code field.
 func ByReasonCode(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldReasonCode, opts...).ToFunc()
+}
+
+// ByDurationMs orders the results by the duration_ms field.
+func ByDurationMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDurationMs, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

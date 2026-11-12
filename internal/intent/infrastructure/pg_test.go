@@ -64,9 +64,17 @@ func TestRecordPersistsStepsAndReadModel(t *testing.T) {
 		LatencyMS:      12,
 		RulesetVersion: "builtin-v1",
 		Steps: []domain.Step{
-			{Index: 0, Phase: domain.StepPolicy, Detail: map[string]any{"reply_mode": "always_reply"}},
-			{Index: 1, Phase: domain.StepRules, Detail: map[string]any{"always_reply": true}},
-			{Index: 2, Phase: domain.StepFinal, ReasonCode: "always_reply", Detail: map[string]any{"decision": "reply"}},
+			{Index: 0, Phase: domain.StepPolicy, NodeID: domain.NodePolicy, NodeVersion: 1, Status: domain.NodeStatusExecuted, Detail: map[string]any{"ReplyMode": "always_reply"}},
+			{Index: 1, Phase: domain.StepRules, NodeID: domain.NodeRules, NodeVersion: 1, Status: domain.NodeStatusExecuted, Detail: map[string]any{"AlwaysReply": true}},
+			{Index: 2, Phase: domain.StepFinal, NodeID: domain.NodeDecision, NodeVersion: 1, Status: domain.NodeStatusExecuted, ReasonCode: "always_reply", Detail: map[string]any{"Decision": "reply"}},
+		},
+		Snapshot: &domain.DecisionSnapshot{
+			Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: "run-integration-1",
+			Input:          domain.SnapshotInput{Task: domain.Task{JobID: jobID, BotID: botID}, Now: time.Now().UTC()},
+			Semantic:       domain.SemanticAnswer{Available: true, IntentCategory: "chat"},
+			Prompt:         domain.BuiltinPrompt(domain.PromptProviderJev),
+			Rule:           domain.RuleResult{NeedSemantic: true, BuiltinRules: map[string]bool{"closing": true}},
+			RulesetVersion: "ruleset-1",
 		},
 	}
 	if err := repo.Record(ctx, jobID, decision, dbtest.Claim(t, pool, jobID)); err != nil {
@@ -95,11 +103,24 @@ func TestRecordPersistsStepsAndReadModel(t *testing.T) {
 	if len(detail.Steps) != 3 {
 		t.Fatalf("steps = %d, want 3", len(detail.Steps))
 	}
-	if detail.Steps[1].Phase != domain.StepRules || detail.Steps[1].Detail["always_reply"] != true {
+	if detail.Steps[1].Phase != domain.StepRules || detail.Steps[1].Detail["AlwaysReply"] != true || detail.Steps[1].NodeID != domain.NodeRules {
 		t.Fatalf("rules step = %+v", detail.Steps[1])
 	}
 	if detail.Scores["directed_to_bot"] != 0.7 {
 		t.Fatalf("scores = %+v", detail.Scores)
+	}
+	if detail.SnapshotStatus != domain.SnapshotStatusComplete || detail.RunID != "run-integration-1" || detail.FlowVersion != domain.FlowVersion {
+		t.Fatalf("snapshot metadata = %+v", detail)
+	}
+	snapshot, err := repo.Snapshot(ctx, latest.ID)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if snapshot.RunID != "run-integration-1" || snapshot.Semantic.IntentCategory != "chat" {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+	if !snapshot.Rule.NeedSemantic || snapshot.RulesetVersion != "ruleset-1" {
+		t.Fatalf("snapshot rule = %+v ruleset %q", snapshot.Rule, snapshot.RulesetVersion)
 	}
 }
 
@@ -346,5 +367,89 @@ func TestDecisionTransactionRollsBackIfLeaseExpiresDuringWrite(t *testing.T) {
 	var count int
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM intent_decisions WHERE job_id=$1", jobID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("partial decision persisted: %d %v", count, err)
+	}
+}
+
+func TestPromptsRepoPublishAndRollback(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewPromptsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	promptID := domain.BuiltinPromptID + ".test." + time.Now().Format("150405.000000000")
+	content := domain.BuiltinPrompt(domain.PromptProviderJev)
+	first, err := repo.CreateDraft(ctx, promptID, "本地 Prompt", domain.PromptProviderJev, content, "v1", domain.PromptSourceLocal, "")
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+	if first.Version != 1 || first.Status != domain.PromptStatusDraft {
+		t.Fatalf("first draft = %+v", first)
+	}
+	if _, found, err := repo.Active(ctx, promptID, domain.PromptProviderJev); err != nil || found {
+		t.Fatalf("unexpected active before publish: found=%v err=%v", found, err)
+	}
+	if err := repo.Publish(ctx, first.ID); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	active, found, err := repo.Active(ctx, promptID, domain.PromptProviderJev)
+	if err != nil || !found || active.Version != 1 || active.Status != domain.PromptStatusPublished {
+		t.Fatalf("active after publish = %+v found=%v err=%v", active, found, err)
+	}
+	second, err := repo.CreateDraft(ctx, promptID, "本地 Prompt", domain.PromptProviderJev, content, "v2", domain.PromptSourceLocal, "")
+	if err != nil || second.Version != 2 {
+		t.Fatalf("second draft = %+v err=%v", second, err)
+	}
+	if err := repo.Publish(ctx, second.ID); err != nil {
+		t.Fatalf("publish second: %v", err)
+	}
+	active, found, err = repo.Active(ctx, promptID, domain.PromptProviderJev)
+	if err != nil || !found || active.Version != 2 {
+		t.Fatalf("active after second = %+v found=%v err=%v", active, found, err)
+	}
+	if err := repo.Rollback(ctx, promptID, 1); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	active, found, err = repo.Active(ctx, promptID, domain.PromptProviderJev)
+	if err != nil || !found || active.Version != 1 {
+		t.Fatalf("active after rollback = %+v found=%v err=%v", active, found, err)
+	}
+}
+
+// TestStatsReadsLegacySemanticDetailKeys verifies that historical steps written
+// with lowercase detail keys still count as successful semantic calls.
+// TestStatsReadsLegacySemanticDetailKeys 验证旧版小写 detail 键仍计入语义成功统计。
+func TestStatsReadsLegacySemanticDetailKeys(t *testing.T) {
+	pool := dbtest.Open(t)
+	jobID, botID, _ := seedJob(t, pool)
+	repo, err := NewDecisionsRepo(pool)
+	if err != nil {
+		t.Fatalf("new decisions repo: %v", err)
+	}
+	before, err := repo.Stats(context.Background(), botID, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("baseline stats: %v", err)
+	}
+	decision := domain.FinalDecision{
+		Decision:   domain.DecisionSilent,
+		ReasonCode: "jev_unavailable",
+		Steps: []domain.Step{{
+			Index:       0,
+			Phase:       domain.StepSemantic,
+			NodeID:      domain.NodeSemantic,
+			NodeVersion: 1,
+			Status:      domain.NodeStatusExecuted,
+			Detail:      map[string]any{"called": true, "available": true},
+		}},
+	}
+	if err := repo.Record(context.Background(), jobID, decision, dbtest.Claim(t, pool, jobID)); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	stats, err := repo.Stats(context.Background(), botID, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.SemanticCalls != before.SemanticCalls+1 || stats.SemanticSuccess != before.SemanticSuccess+1 || stats.Degraded != before.Degraded {
+		t.Fatalf("legacy stats = %+v, baseline = %+v", stats, before)
 	}
 }

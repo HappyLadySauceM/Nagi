@@ -36,11 +36,95 @@ type DecisionQuery struct {
 // DecisionStep is one explainable stage of a recorded decision.
 // DecisionStep 是已记录决策中的一个可解释阶段。
 type DecisionStep struct {
-	Index      int
-	Phase      string
+	Index       int
+	Phase       string
+	NodeID      string
+	NodeVersion int
+	Status      string
+	Branch      string
+	Summary     string
+	ReasonCode  string
+	Detail      map[string]any
+	Evidence    []EvidenceItem
+	DurationMS  int64
+	CreatedAt   time.Time
+}
+
+// EvidenceItem is one short fact attached to a run node.
+// EvidenceItem 是挂在运行节点上的一条简短事实。
+type EvidenceItem struct {
+	Kind string
+	Text string
+}
+
+// RunSummary is the human-readable final answer of one run.
+// RunSummary 是一次运行的人类可读最终结论。
+type RunSummary struct {
+	Decision   string
 	ReasonCode string
+	ReasonText string
+}
+
+// RunNode is one node result in a fixed execution flow.
+// RunNode 是固定执行流程中的一个节点结果。
+type RunNode struct {
+	NodeID     string
+	Version    int
+	Status     string
+	Branch     string
+	ReasonCode string
+	Summary    string
 	Detail     map[string]any
-	CreatedAt  time.Time
+	Evidence   []EvidenceItem
+	DurationMS int64
+}
+
+// RunEdge is one edge result in a fixed execution flow.
+// RunEdge 是固定执行流程中的一条边结果。
+type RunEdge struct {
+	EdgeID string
+	Status string
+}
+
+// DeliveryItem is one outbound delivery record linked to a decision job.
+// DeliveryItem 是与决策任务关联的一条投递记录。
+type DeliveryItem struct {
+	ID                string
+	Sequence          int
+	Status            string
+	Text              string
+	PlatformMessageID int64
+	ErrorCode         string
+}
+
+// Delivery is the independent outbound outcome of a decision job.
+// Delivery 是决策任务独立的出站结果。
+type Delivery struct {
+	Outcome string
+	Reason  string
+	Denied  int
+	Items   []DeliveryItem
+}
+
+// Run is the single run contract shared by decision detail and simulation.
+// Run 是决策详情与模拟共享的统一运行契约。
+type Run struct {
+	DecisionID     int64
+	JobID          int64
+	RunID          string
+	FlowVersion    string
+	Provider       string
+	Model          string
+	RulesetVersion string
+	SnapshotStatus string
+	MissingFields  []string
+	Summary        RunSummary
+	Nodes          []RunNode
+	Edges          []RunEdge
+	Delivery       Delivery
+	Scores         map[string]float64
+	LatencyMS      int64
+	CreatedAt      time.Time
 }
 
 // DecisionRecord is the read model of one recorded decision.
@@ -55,6 +139,10 @@ type DecisionRecord struct {
 	Provider       string
 	Model          string
 	RulesetVersion string
+	RunID          string
+	FlowVersion    string
+	SnapshotStatus string
+	MissingFields  []string
 	Scores         map[string]float64
 	LatencyMS      int
 	CreatedAt      time.Time

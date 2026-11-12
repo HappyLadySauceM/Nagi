@@ -38,8 +38,12 @@ type Tx struct {
 	GroupMember *GroupMemberClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
 	IntentDecision *IntentDecisionClient
+	// IntentDecisionSnapshot is the client for interacting with the IntentDecisionSnapshot builders.
+	IntentDecisionSnapshot *IntentDecisionSnapshotClient
 	// IntentDecisionStep is the client for interacting with the IntentDecisionStep builders.
 	IntentDecisionStep *IntentDecisionStepClient
+	// IntentPromptVersion is the client for interacting with the IntentPromptVersion builders.
+	IntentPromptVersion *IntentPromptVersionClient
 	// IntentRuleActivation is the client for interacting with the IntentRuleActivation builders.
 	IntentRuleActivation *IntentRuleActivationClient
 	// IntentRuleEntry is the client for interacting with the IntentRuleEntry builders.
@@ -207,7 +211,9 @@ func (tx *Tx) init() {
 	tx.Conversation = NewConversationClient(tx.config)
 	tx.GroupMember = NewGroupMemberClient(tx.config)
 	tx.IntentDecision = NewIntentDecisionClient(tx.config)
+	tx.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(tx.config)
 	tx.IntentDecisionStep = NewIntentDecisionStepClient(tx.config)
+	tx.IntentPromptVersion = NewIntentPromptVersionClient(tx.config)
 	tx.IntentRuleActivation = NewIntentRuleActivationClient(tx.config)
 	tx.IntentRuleEntry = NewIntentRuleEntryClient(tx.config)
 	tx.IntentRuleset = NewIntentRulesetClient(tx.config)

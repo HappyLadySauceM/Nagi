@@ -3,6 +3,8 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"io"
 	"net/http"
@@ -87,5 +89,41 @@ func TestLocalClientSharesConcurrencyAcrossDecisions(t *testing.T) {
 	wg.Wait()
 	if maximum.Load() > 2 {
 		t.Fatalf("shared concurrency exceeded: %d", maximum.Load())
+	}
+}
+
+func TestLocalClientUsesOpenAIUserTemplate(t *testing.T) {
+	var mu sync.Mutex
+	var sawTemplate bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []map[string]string `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Messages) > 1 {
+			content := body.Messages[1]["content"]
+			if strings.Contains(content, "STATE=") && strings.Contains(content, "QUESTION=") && strings.Contains(content, "那你觉得呢？") {
+				mu.Lock()
+				sawTemplate = true
+				mu.Unlock()
+			}
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"logprobs":{"content":[{"top_logprobs":[{"token":"A","logprob":-0.1},{"token":"B","logprob":-2},{"token":"C","logprob":-3},{"token":"D","logprob":-4},{"token":"E","logprob":-5}]}]}}]}`))
+	}))
+	defer server.Close()
+	client := &LocalClient{Config: JevConfig{Endpoint: server.URL, Model: "test", Timeout: time.Second}, Client: server.Client()}
+	input := testInput()
+	input.Prompt = domain.Prompt{OpenAI: &domain.OpenAIPrompt{
+		SystemPrompt:  "CUSTOM SYSTEM",
+		UserTemplate:  "STATE={{state}}\nQUESTION={{question}}",
+		ResponseShape: "single-letter",
+	}}
+	if _, err := client.Decide(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !sawTemplate {
+		t.Fatal("OpenAI user template was not applied")
 	}
 }

@@ -42,6 +42,76 @@ func (_c *IntentDecisionStepCreate) SetPhase(v string) *IntentDecisionStepCreate
 	return _c
 }
 
+// SetNodeID sets the "node_id" field.
+func (_c *IntentDecisionStepCreate) SetNodeID(v string) *IntentDecisionStepCreate {
+	_c.mutation.SetNodeID(v)
+	return _c
+}
+
+// SetNillableNodeID sets the "node_id" field if the given value is not nil.
+func (_c *IntentDecisionStepCreate) SetNillableNodeID(v *string) *IntentDecisionStepCreate {
+	if v != nil {
+		_c.SetNodeID(*v)
+	}
+	return _c
+}
+
+// SetNodeVersion sets the "node_version" field.
+func (_c *IntentDecisionStepCreate) SetNodeVersion(v int) *IntentDecisionStepCreate {
+	_c.mutation.SetNodeVersion(v)
+	return _c
+}
+
+// SetNillableNodeVersion sets the "node_version" field if the given value is not nil.
+func (_c *IntentDecisionStepCreate) SetNillableNodeVersion(v *int) *IntentDecisionStepCreate {
+	if v != nil {
+		_c.SetNodeVersion(*v)
+	}
+	return _c
+}
+
+// SetStatus sets the "status" field.
+func (_c *IntentDecisionStepCreate) SetStatus(v string) *IntentDecisionStepCreate {
+	_c.mutation.SetStatus(v)
+	return _c
+}
+
+// SetNillableStatus sets the "status" field if the given value is not nil.
+func (_c *IntentDecisionStepCreate) SetNillableStatus(v *string) *IntentDecisionStepCreate {
+	if v != nil {
+		_c.SetStatus(*v)
+	}
+	return _c
+}
+
+// SetBranch sets the "branch" field.
+func (_c *IntentDecisionStepCreate) SetBranch(v string) *IntentDecisionStepCreate {
+	_c.mutation.SetBranch(v)
+	return _c
+}
+
+// SetNillableBranch sets the "branch" field if the given value is not nil.
+func (_c *IntentDecisionStepCreate) SetNillableBranch(v *string) *IntentDecisionStepCreate {
+	if v != nil {
+		_c.SetBranch(*v)
+	}
+	return _c
+}
+
+// SetSummary sets the "summary" field.
+func (_c *IntentDecisionStepCreate) SetSummary(v string) *IntentDecisionStepCreate {
+	_c.mutation.SetSummary(v)
+	return _c
+}
+
+// SetNillableSummary sets the "summary" field if the given value is not nil.
+func (_c *IntentDecisionStepCreate) SetNillableSummary(v *string) *IntentDecisionStepCreate {
+	if v != nil {
+		_c.SetSummary(*v)
+	}
+	return _c
+}
+
 // SetReasonCode sets the "reason_code" field.
 func (_c *IntentDecisionStepCreate) SetReasonCode(v string) *IntentDecisionStepCreate {
 	_c.mutation.SetReasonCode(v)
@@ -59,6 +129,26 @@ func (_c *IntentDecisionStepCreate) SetNillableReasonCode(v *string) *IntentDeci
 // SetDetail sets the "detail" field.
 func (_c *IntentDecisionStepCreate) SetDetail(v jsontext.Value) *IntentDecisionStepCreate {
 	_c.mutation.SetDetail(v)
+	return _c
+}
+
+// SetEvidence sets the "evidence" field.
+func (_c *IntentDecisionStepCreate) SetEvidence(v jsontext.Value) *IntentDecisionStepCreate {
+	_c.mutation.SetEvidence(v)
+	return _c
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (_c *IntentDecisionStepCreate) SetDurationMs(v int) *IntentDecisionStepCreate {
+	_c.mutation.SetDurationMs(v)
+	return _c
+}
+
+// SetNillableDurationMs sets the "duration_ms" field if the given value is not nil.
+func (_c *IntentDecisionStepCreate) SetNillableDurationMs(v *int) *IntentDecisionStepCreate {
+	if v != nil {
+		_c.SetDurationMs(*v)
+	}
 	return _c
 }
 
@@ -128,6 +218,26 @@ func (_c *IntentDecisionStepCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *IntentDecisionStepCreate) defaults() {
+	if _, ok := _c.mutation.NodeID(); !ok {
+		v := intentdecisionstep.DefaultNodeID
+		_c.mutation.SetNodeID(v)
+	}
+	if _, ok := _c.mutation.NodeVersion(); !ok {
+		v := intentdecisionstep.DefaultNodeVersion
+		_c.mutation.SetNodeVersion(v)
+	}
+	if _, ok := _c.mutation.Status(); !ok {
+		v := intentdecisionstep.DefaultStatus
+		_c.mutation.SetStatus(v)
+	}
+	if _, ok := _c.mutation.Branch(); !ok {
+		v := intentdecisionstep.DefaultBranch
+		_c.mutation.SetBranch(v)
+	}
+	if _, ok := _c.mutation.Summary(); !ok {
+		v := intentdecisionstep.DefaultSummary
+		_c.mutation.SetSummary(v)
+	}
 	if _, ok := _c.mutation.ReasonCode(); !ok {
 		v := intentdecisionstep.DefaultReasonCode
 		_c.mutation.SetReasonCode(v)
@@ -135,6 +245,14 @@ func (_c *IntentDecisionStepCreate) defaults() {
 	if _, ok := _c.mutation.Detail(); !ok {
 		v := intentdecisionstep.DefaultDetail
 		_c.mutation.SetDetail(v)
+	}
+	if _, ok := _c.mutation.Evidence(); !ok {
+		v := intentdecisionstep.DefaultEvidence
+		_c.mutation.SetEvidence(v)
+	}
+	if _, ok := _c.mutation.DurationMs(); !ok {
+		v := intentdecisionstep.DefaultDurationMs
+		_c.mutation.SetDurationMs(v)
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := intentdecisionstep.DefaultCreatedAt()
@@ -197,6 +315,26 @@ func (_c *IntentDecisionStepCreate) createSpec() (*IntentDecisionStep, *sqlgraph
 		_spec.SetField(intentdecisionstep.FieldPhase, field.TypeString, value)
 		_node.Phase = value
 	}
+	if value, ok := _c.mutation.NodeID(); ok {
+		_spec.SetField(intentdecisionstep.FieldNodeID, field.TypeString, value)
+		_node.NodeID = value
+	}
+	if value, ok := _c.mutation.NodeVersion(); ok {
+		_spec.SetField(intentdecisionstep.FieldNodeVersion, field.TypeInt, value)
+		_node.NodeVersion = value
+	}
+	if value, ok := _c.mutation.Status(); ok {
+		_spec.SetField(intentdecisionstep.FieldStatus, field.TypeString, value)
+		_node.Status = value
+	}
+	if value, ok := _c.mutation.Branch(); ok {
+		_spec.SetField(intentdecisionstep.FieldBranch, field.TypeString, value)
+		_node.Branch = value
+	}
+	if value, ok := _c.mutation.Summary(); ok {
+		_spec.SetField(intentdecisionstep.FieldSummary, field.TypeString, value)
+		_node.Summary = value
+	}
 	if value, ok := _c.mutation.ReasonCode(); ok {
 		_spec.SetField(intentdecisionstep.FieldReasonCode, field.TypeString, value)
 		_node.ReasonCode = value
@@ -204,6 +342,14 @@ func (_c *IntentDecisionStepCreate) createSpec() (*IntentDecisionStep, *sqlgraph
 	if value, ok := _c.mutation.Detail(); ok {
 		_spec.SetField(intentdecisionstep.FieldDetail, field.TypeJSON, value)
 		_node.Detail = value
+	}
+	if value, ok := _c.mutation.Evidence(); ok {
+		_spec.SetField(intentdecisionstep.FieldEvidence, field.TypeJSON, value)
+		_node.Evidence = value
+	}
+	if value, ok := _c.mutation.DurationMs(); ok {
+		_spec.SetField(intentdecisionstep.FieldDurationMs, field.TypeInt, value)
+		_node.DurationMs = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(intentdecisionstep.FieldCreatedAt, field.TypeTime, value)
@@ -320,6 +466,72 @@ func (u *IntentDecisionStepUpsert) UpdatePhase() *IntentDecisionStepUpsert {
 	return u
 }
 
+// SetNodeID sets the "node_id" field.
+func (u *IntentDecisionStepUpsert) SetNodeID(v string) *IntentDecisionStepUpsert {
+	u.Set(intentdecisionstep.FieldNodeID, v)
+	return u
+}
+
+// UpdateNodeID sets the "node_id" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsert) UpdateNodeID() *IntentDecisionStepUpsert {
+	u.SetExcluded(intentdecisionstep.FieldNodeID)
+	return u
+}
+
+// SetNodeVersion sets the "node_version" field.
+func (u *IntentDecisionStepUpsert) SetNodeVersion(v int) *IntentDecisionStepUpsert {
+	u.Set(intentdecisionstep.FieldNodeVersion, v)
+	return u
+}
+
+// UpdateNodeVersion sets the "node_version" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsert) UpdateNodeVersion() *IntentDecisionStepUpsert {
+	u.SetExcluded(intentdecisionstep.FieldNodeVersion)
+	return u
+}
+
+// AddNodeVersion adds v to the "node_version" field.
+func (u *IntentDecisionStepUpsert) AddNodeVersion(v int) *IntentDecisionStepUpsert {
+	u.Add(intentdecisionstep.FieldNodeVersion, v)
+	return u
+}
+
+// SetStatus sets the "status" field.
+func (u *IntentDecisionStepUpsert) SetStatus(v string) *IntentDecisionStepUpsert {
+	u.Set(intentdecisionstep.FieldStatus, v)
+	return u
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsert) UpdateStatus() *IntentDecisionStepUpsert {
+	u.SetExcluded(intentdecisionstep.FieldStatus)
+	return u
+}
+
+// SetBranch sets the "branch" field.
+func (u *IntentDecisionStepUpsert) SetBranch(v string) *IntentDecisionStepUpsert {
+	u.Set(intentdecisionstep.FieldBranch, v)
+	return u
+}
+
+// UpdateBranch sets the "branch" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsert) UpdateBranch() *IntentDecisionStepUpsert {
+	u.SetExcluded(intentdecisionstep.FieldBranch)
+	return u
+}
+
+// SetSummary sets the "summary" field.
+func (u *IntentDecisionStepUpsert) SetSummary(v string) *IntentDecisionStepUpsert {
+	u.Set(intentdecisionstep.FieldSummary, v)
+	return u
+}
+
+// UpdateSummary sets the "summary" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsert) UpdateSummary() *IntentDecisionStepUpsert {
+	u.SetExcluded(intentdecisionstep.FieldSummary)
+	return u
+}
+
 // SetReasonCode sets the "reason_code" field.
 func (u *IntentDecisionStepUpsert) SetReasonCode(v string) *IntentDecisionStepUpsert {
 	u.Set(intentdecisionstep.FieldReasonCode, v)
@@ -341,6 +553,36 @@ func (u *IntentDecisionStepUpsert) SetDetail(v jsontext.Value) *IntentDecisionSt
 // UpdateDetail sets the "detail" field to the value that was provided on create.
 func (u *IntentDecisionStepUpsert) UpdateDetail() *IntentDecisionStepUpsert {
 	u.SetExcluded(intentdecisionstep.FieldDetail)
+	return u
+}
+
+// SetEvidence sets the "evidence" field.
+func (u *IntentDecisionStepUpsert) SetEvidence(v jsontext.Value) *IntentDecisionStepUpsert {
+	u.Set(intentdecisionstep.FieldEvidence, v)
+	return u
+}
+
+// UpdateEvidence sets the "evidence" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsert) UpdateEvidence() *IntentDecisionStepUpsert {
+	u.SetExcluded(intentdecisionstep.FieldEvidence)
+	return u
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (u *IntentDecisionStepUpsert) SetDurationMs(v int) *IntentDecisionStepUpsert {
+	u.Set(intentdecisionstep.FieldDurationMs, v)
+	return u
+}
+
+// UpdateDurationMs sets the "duration_ms" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsert) UpdateDurationMs() *IntentDecisionStepUpsert {
+	u.SetExcluded(intentdecisionstep.FieldDurationMs)
+	return u
+}
+
+// AddDurationMs adds v to the "duration_ms" field.
+func (u *IntentDecisionStepUpsert) AddDurationMs(v int) *IntentDecisionStepUpsert {
+	u.Add(intentdecisionstep.FieldDurationMs, v)
 	return u
 }
 
@@ -453,6 +695,83 @@ func (u *IntentDecisionStepUpsertOne) UpdatePhase() *IntentDecisionStepUpsertOne
 	})
 }
 
+// SetNodeID sets the "node_id" field.
+func (u *IntentDecisionStepUpsertOne) SetNodeID(v string) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetNodeID(v)
+	})
+}
+
+// UpdateNodeID sets the "node_id" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertOne) UpdateNodeID() *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateNodeID()
+	})
+}
+
+// SetNodeVersion sets the "node_version" field.
+func (u *IntentDecisionStepUpsertOne) SetNodeVersion(v int) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetNodeVersion(v)
+	})
+}
+
+// AddNodeVersion adds v to the "node_version" field.
+func (u *IntentDecisionStepUpsertOne) AddNodeVersion(v int) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.AddNodeVersion(v)
+	})
+}
+
+// UpdateNodeVersion sets the "node_version" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertOne) UpdateNodeVersion() *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateNodeVersion()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *IntentDecisionStepUpsertOne) SetStatus(v string) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertOne) UpdateStatus() *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetBranch sets the "branch" field.
+func (u *IntentDecisionStepUpsertOne) SetBranch(v string) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetBranch(v)
+	})
+}
+
+// UpdateBranch sets the "branch" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertOne) UpdateBranch() *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateBranch()
+	})
+}
+
+// SetSummary sets the "summary" field.
+func (u *IntentDecisionStepUpsertOne) SetSummary(v string) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetSummary(v)
+	})
+}
+
+// UpdateSummary sets the "summary" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertOne) UpdateSummary() *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateSummary()
+	})
+}
+
 // SetReasonCode sets the "reason_code" field.
 func (u *IntentDecisionStepUpsertOne) SetReasonCode(v string) *IntentDecisionStepUpsertOne {
 	return u.Update(func(s *IntentDecisionStepUpsert) {
@@ -478,6 +797,41 @@ func (u *IntentDecisionStepUpsertOne) SetDetail(v jsontext.Value) *IntentDecisio
 func (u *IntentDecisionStepUpsertOne) UpdateDetail() *IntentDecisionStepUpsertOne {
 	return u.Update(func(s *IntentDecisionStepUpsert) {
 		s.UpdateDetail()
+	})
+}
+
+// SetEvidence sets the "evidence" field.
+func (u *IntentDecisionStepUpsertOne) SetEvidence(v jsontext.Value) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetEvidence(v)
+	})
+}
+
+// UpdateEvidence sets the "evidence" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertOne) UpdateEvidence() *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateEvidence()
+	})
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (u *IntentDecisionStepUpsertOne) SetDurationMs(v int) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetDurationMs(v)
+	})
+}
+
+// AddDurationMs adds v to the "duration_ms" field.
+func (u *IntentDecisionStepUpsertOne) AddDurationMs(v int) *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.AddDurationMs(v)
+	})
+}
+
+// UpdateDurationMs sets the "duration_ms" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertOne) UpdateDurationMs() *IntentDecisionStepUpsertOne {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateDurationMs()
 	})
 }
 
@@ -758,6 +1112,83 @@ func (u *IntentDecisionStepUpsertBulk) UpdatePhase() *IntentDecisionStepUpsertBu
 	})
 }
 
+// SetNodeID sets the "node_id" field.
+func (u *IntentDecisionStepUpsertBulk) SetNodeID(v string) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetNodeID(v)
+	})
+}
+
+// UpdateNodeID sets the "node_id" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertBulk) UpdateNodeID() *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateNodeID()
+	})
+}
+
+// SetNodeVersion sets the "node_version" field.
+func (u *IntentDecisionStepUpsertBulk) SetNodeVersion(v int) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetNodeVersion(v)
+	})
+}
+
+// AddNodeVersion adds v to the "node_version" field.
+func (u *IntentDecisionStepUpsertBulk) AddNodeVersion(v int) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.AddNodeVersion(v)
+	})
+}
+
+// UpdateNodeVersion sets the "node_version" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertBulk) UpdateNodeVersion() *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateNodeVersion()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *IntentDecisionStepUpsertBulk) SetStatus(v string) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertBulk) UpdateStatus() *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetBranch sets the "branch" field.
+func (u *IntentDecisionStepUpsertBulk) SetBranch(v string) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetBranch(v)
+	})
+}
+
+// UpdateBranch sets the "branch" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertBulk) UpdateBranch() *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateBranch()
+	})
+}
+
+// SetSummary sets the "summary" field.
+func (u *IntentDecisionStepUpsertBulk) SetSummary(v string) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetSummary(v)
+	})
+}
+
+// UpdateSummary sets the "summary" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertBulk) UpdateSummary() *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateSummary()
+	})
+}
+
 // SetReasonCode sets the "reason_code" field.
 func (u *IntentDecisionStepUpsertBulk) SetReasonCode(v string) *IntentDecisionStepUpsertBulk {
 	return u.Update(func(s *IntentDecisionStepUpsert) {
@@ -783,6 +1214,41 @@ func (u *IntentDecisionStepUpsertBulk) SetDetail(v jsontext.Value) *IntentDecisi
 func (u *IntentDecisionStepUpsertBulk) UpdateDetail() *IntentDecisionStepUpsertBulk {
 	return u.Update(func(s *IntentDecisionStepUpsert) {
 		s.UpdateDetail()
+	})
+}
+
+// SetEvidence sets the "evidence" field.
+func (u *IntentDecisionStepUpsertBulk) SetEvidence(v jsontext.Value) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetEvidence(v)
+	})
+}
+
+// UpdateEvidence sets the "evidence" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertBulk) UpdateEvidence() *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateEvidence()
+	})
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (u *IntentDecisionStepUpsertBulk) SetDurationMs(v int) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.SetDurationMs(v)
+	})
+}
+
+// AddDurationMs adds v to the "duration_ms" field.
+func (u *IntentDecisionStepUpsertBulk) AddDurationMs(v int) *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.AddDurationMs(v)
+	})
+}
+
+// UpdateDurationMs sets the "duration_ms" field to the value that was provided on create.
+func (u *IntentDecisionStepUpsertBulk) UpdateDurationMs() *IntentDecisionStepUpsertBulk {
+	return u.Update(func(s *IntentDecisionStepUpsert) {
+		s.UpdateDurationMs()
 	})
 }
 

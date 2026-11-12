@@ -15,6 +15,7 @@ import (
 	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
 	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
+	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
@@ -76,6 +77,8 @@ type ServiceContext struct {
 	// Decisions 读取已记录的意图决策；流水线关闭时为 nil。
 	Decisions       intentcontracts.DecisionReader
 	IntentSimulator intentcontracts.SimulationEvaluator
+	Prompts         *intentapp.PromptService
+	IntentReplayer  *intentapp.ReplayService
 	// Rulesets reads and writes versioned intent rules; nil without a database.
 	// Rulesets 读写版本化意图规则；未配置数据库时为 nil。
 	Rulesets *intentinfra.RulesetsRepo

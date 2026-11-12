@@ -12,6 +12,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
+	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
@@ -386,9 +387,26 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		reasonCode = rule.ForceReason
 	}
 
+	var run intentcontracts.Run
+	if final != nil {
+		run = intentapp.BuildRunFromDecision(*final, intentcontracts.Delivery{})
+	} else {
+		thresholds := intentdomain.Thresholds{}
+		if h.svcCtx.SettingsProvider != nil {
+			live := h.svcCtx.SettingsProvider.Settings()
+			thresholds = intentdomain.Thresholds{Continuation: live.Intent.ContinuationThreshold, Interjection: live.Intent.InterjectionThreshold, AddressedOtherMax: live.Intent.AddressedOtherMax}
+		}
+		run = intentapp.BuildRuleRun(in, rule, thresholds, intentdomain.FlowVersion)
+	}
+	cost := map[string]any{"MayIncur": body.Mode == "semantic"}
+	if body.Mode == "semantic" {
+		cost["CostEstimate"] = "one semantic request"
+	}
 	common.WriteSuccess(w, map[string]any{
 		"Final":          final,
 		"Steps":          steps,
+		"Run":            run,
+		"Cost":           cost,
 		"Mode":           body.Mode,
 		"BuiltinRules":   rule.BuiltinRules,
 		"Matched":        rule.Matched,

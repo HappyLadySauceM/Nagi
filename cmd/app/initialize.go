@@ -151,6 +151,8 @@ func Run(ctx context.Context, opts options.Options) error {
 	svcCtx.Tools = rt.Tools
 	svcCtx.Decisions = rt.Decisions
 	svcCtx.IntentSimulator = rt.IntentSimulator
+	svcCtx.Prompts = rt.Prompts
+	svcCtx.IntentReplayer = rt.IntentReplayer
 	svcCtx.Rulesets = rt.Rulesets
 	svcCtx.Outbound = rt.Outbound
 	svcCtx.SendingPolicies = rt.SendingPolicies
