@@ -106,3 +106,21 @@ func TestBuildRunFromDecisionHasFixedNodesAndEdges(t *testing.T) {
 		t.Fatalf("edges = %+v", run.Edges)
 	}
 }
+
+// TestFixedFlowOrderMatchesDecisionSteps ensures the advertised node order is
+// the order the executor actually records.
+// TestFixedFlowOrderMatchesDecisionSteps 验证对外节点顺序与实际记录顺序一致。
+func TestFixedFlowOrderMatchesDecisionSteps(t *testing.T) {
+	steps := decisionSteps(domain.Input{}, domain.RuleResult{Blocked: true, ReasonCode: "policy_disabled"},
+		domain.SemanticAnswer{}, domain.FinalDecision{Decision: domain.DecisionSilent, ReasonCode: "policy_disabled"},
+		0, false, domain.Thresholds{}, false)
+	flow := domain.FixedFlow()
+	if len(steps) != len(flow.Nodes) {
+		t.Fatalf("steps=%d flow nodes=%d", len(steps), len(flow.Nodes))
+	}
+	for i, node := range flow.Nodes {
+		if steps[i].NodeID != node.NodeID || steps[i].Index != i {
+			t.Fatalf("step %d = %+v, flow node = %+v", i, steps[i], node)
+		}
+	}
+}

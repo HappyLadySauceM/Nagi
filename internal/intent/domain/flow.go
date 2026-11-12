@@ -67,16 +67,16 @@ func FixedFlow() FlowDefinition {
 		FlowVersion: FlowVersion,
 		Nodes: []FlowNodeDefinition{
 			{NodeID: NodePolicy, Kind: "policy", Title: "策略与权限", Description: "读取生效作用域策略并检查权限、观察模式与频率闸门", StageIndex: 0, Version: 1},
-			{NodeID: NodeContext, Kind: "context", Title: "上下文", Description: "按授权读取历史与记忆上下文", StageIndex: 1, Version: 1},
+			{NodeID: NodeContext, Kind: "context", Title: "上下文", Description: "按授权读取历史上下文，并记录记忆读写授权状态", StageIndex: 1, Version: 1},
 			{NodeID: NodeRules, Kind: "rules", Title: "规则", Description: "执行内置规则和版本化规则", StageIndex: 2, Version: 1},
 			{NodeID: NodeSemantic, Kind: "semantic", Title: "语义判定", Description: "按需调用当前 Prompt/模型，记录跳过、失败或降级", StageIndex: 3, Version: 1},
 			{NodeID: NodeDecision, Kind: "decision", Title: "最终决策", Description: "按规则与语义结果计算回复/沉默/延后", StageIndex: 4, Version: 1},
 		},
 		Edges: []FlowEdgeDefinition{
-			{EdgeID: "e_policy_context", FromNodeID: NodePolicy, ToNodeID: NodeContext, Label: "继续", Condition: "策略可用"},
+			{EdgeID: "e_policy_context", FromNodeID: NodePolicy, ToNodeID: NodeContext, Label: "继续", Condition: "策略已解析"},
 			{EdgeID: "e_context_rules", FromNodeID: NodeContext, ToNodeID: NodeRules, Label: "继续", Condition: "上下文处理完成"},
-			{EdgeID: "e_rules_semantic", FromNodeID: NodeRules, ToNodeID: NodeSemantic, Label: "需要语义", Condition: "NeedSemantic && !Blocked && !Explicit && !AlwaysReply"},
-			{EdgeID: "e_rules_decision", FromNodeID: NodeRules, ToNodeID: NodeDecision, Label: "规则直接结束", Condition: "!NeedSemantic || Blocked || Explicit || AlwaysReply"},
+			{EdgeID: "e_rules_semantic", FromNodeID: NodeRules, ToNodeID: NodeSemantic, Label: "需要语义", Condition: "NeedSemantic && !Blocked && SemanticConfigured"},
+			{EdgeID: "e_rules_decision", FromNodeID: NodeRules, ToNodeID: NodeDecision, Label: "规则直接结束", Condition: "!NeedSemantic || Blocked || !SemanticConfigured"},
 			{EdgeID: "e_semantic_decision", FromNodeID: NodeSemantic, ToNodeID: NodeDecision, Label: "语义完成", Condition: "SemanticCalled"},
 		},
 	}
