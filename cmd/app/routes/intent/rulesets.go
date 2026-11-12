@@ -400,7 +400,7 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 	}
 	cost := map[string]any{"MayIncur": body.Mode == "semantic"}
 	if body.Mode == "semantic" {
-		cost["CostEstimate"] = "one semantic request"
+		cost["CostEstimate"] = intentcontracts.SemanticCostEstimate
 	}
 	common.WriteSuccess(w, map[string]any{
 		"Final":          final,

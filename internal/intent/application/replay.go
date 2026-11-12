@@ -70,6 +70,7 @@ func (s *ReplayService) Recalculate(ctx context.Context, decisionID int64) (cont
 	after := BuildRunFromDecision(decision, contracts.Delivery{})
 	after.DecisionID = before.DecisionID
 	after.JobID = before.JobID
+	after.Replay = &contracts.ReplayInfo{Input: "snapshot", Semantic: "snapshot", Prompt: "snapshot", Policy: "current", Rules: "current", Persisted: false}
 	return before, after, changed(before, after), nil
 }
 
@@ -109,6 +110,7 @@ func (s *ReplayService) ReplayModel(ctx context.Context, decisionID int64) (cont
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, runtime.Thresholds, false)
 	run := BuildRunFromDecision(decision, contracts.Delivery{})
 	run.DecisionID = decisionID
+	run.Replay = &contracts.ReplayInfo{Input: "snapshot", Semantic: "current", Prompt: "snapshot", Policy: "current", Rules: "snapshot", Persisted: false}
 	return run, nil
 }
 

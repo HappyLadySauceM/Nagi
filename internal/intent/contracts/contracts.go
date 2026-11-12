@@ -9,6 +9,11 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
+// SemanticCostEstimate describes a semantic evaluation that may issue more than
+// one provider request. It is deliberately not a promise of one billable call.
+// SemanticCostEstimate 描述一次语义判定可能发出多次提供方请求，不承诺只有一次计费调用。
+const SemanticCostEstimate = "一次语义判定，可能包含多次模型请求，费用依提供方"
+
 // ReplyExecutor acts on reply decisions, e.g. generating and sending a response.
 // ReplyExecutor 对回复决策执行动作，例如生成并发送回复。
 type ReplyExecutor interface {
@@ -106,6 +111,18 @@ type Delivery struct {
 	Items   []DeliveryItem
 }
 
+// ReplayInfo marks which parts of a temporary replay result came from the
+// stored snapshot and which were evaluated against current configuration.
+// ReplayInfo 标记临时回放结果中来自快照与来自当前配置的部分。
+type ReplayInfo struct {
+	Input     string `json:",omitempty"`
+	Semantic  string `json:",omitempty"`
+	Prompt    string `json:",omitempty"`
+	Policy    string `json:",omitempty"`
+	Rules     string `json:",omitempty"`
+	Persisted bool
+}
+
 // Run is the single run contract shared by decision detail and simulation.
 // Run 是决策详情与模拟共享的统一运行契约。
 type Run struct {
@@ -125,6 +142,7 @@ type Run struct {
 	Scores         map[string]float64
 	LatencyMS      int64
 	CreatedAt      time.Time
+	Replay         *ReplayInfo `json:",omitempty"`
 }
 
 // DecisionRecord is the read model of one recorded decision.

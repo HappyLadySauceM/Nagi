@@ -238,7 +238,7 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request, model bool) {
 			h.replayError(w, err)
 			return
 		}
-		common.WriteSuccess(w, map[string]any{"Run": run, "Cost": map[string]any{"MayIncur": true, "CostEstimate": "one semantic request"}})
+		common.WriteSuccess(w, map[string]any{"Run": run, "Cost": map[string]any{"MayIncur": true, "CostEstimate": intentcontracts.SemanticCostEstimate}})
 		return
 	}
 	before, after, changed, err := h.svcCtx.IntentReplayer.Recalculate(r.Context(), id)
