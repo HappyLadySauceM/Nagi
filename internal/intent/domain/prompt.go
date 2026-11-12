@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 )
@@ -224,6 +225,93 @@ func SortedQuestions(q map[string]PromptQuestion) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Prompt sync status values exposed by the admin API.
+// 管理 API 暴露的 Prompt 同步状态取值。
+const (
+	PromptSyncStatusNotConfigured = "not_configured"
+	PromptSyncStatusIdle          = "idle"
+	PromptSyncStatusOK            = "ok"
+	PromptSyncStatusFailed        = "failed"
+)
+
+// Prompt sync failure reason codes. They are stable machine-readable values;
+// the human-readable message stays separate.
+// Prompt 同步失败原因码。它们是稳定的机器可读值，人类可读信息单独返回。
+const (
+	PromptSyncReasonNotConfigured   = "langfuse_not_configured"
+	PromptSyncReasonNotFound        = "langfuse_prompt_not_found"
+	PromptSyncReasonInvalid         = "langfuse_invalid_prompt"
+	PromptSyncReasonUnreachable     = "langfuse_unreachable"
+	PromptSyncReasonTimeout         = "langfuse_timeout"
+	PromptSyncReasonAuth            = "langfuse_auth_failed"
+	PromptSyncReasonVersionConflict = "langfuse_version_conflict"
+)
+
+// Remote prompt sync sentinel errors. Infrastructure adapters map transport
+// failures onto these values; the application layer maps them to reason codes.
+// 远端 Prompt 同步的哨兵错误。基础设施适配器把传输失败映射到这些值，
+// 应用层再把它们映射为原因码。
+var (
+	ErrPromptRemoteNotConfigured   = errors.New("intent: langfuse prompt sync not configured")
+	ErrPromptRemoteNotFound        = errors.New("intent: langfuse prompt not found")
+	ErrPromptRemoteInvalid         = errors.New("intent: langfuse prompt invalid")
+	ErrPromptRemoteUnreachable     = errors.New("intent: langfuse prompt unreachable")
+	ErrPromptRemoteTimeout         = errors.New("intent: langfuse prompt request timed out")
+	ErrPromptRemoteAuth            = errors.New("intent: langfuse prompt authentication failed")
+	ErrPromptRemoteVersionConflict = errors.New("intent: langfuse prompt version conflict")
+)
+
+// RemotePrompt is the raw remote prompt payload before local schema validation.
+// RemotePrompt 是本地 schema 校验前的远端 Prompt 原始载荷。
+type RemotePrompt struct {
+	Name      string
+	Version   int
+	Type      string
+	Prompt    json.RawMessage
+	Config    map[string]any
+	UpdatedAt string
+}
+
+// PromptSyncResult is returned after one explicit remote sync attempt.
+// PromptSyncResult 是一次显式远端同步尝试后返回的结果。
+type PromptSyncResult struct {
+	PromptID      string
+	Provider      string
+	RemoteName    string
+	RemoteVersion int
+	Status        string
+	Candidate     PromptRecord
+}
+
+// PromptSyncActive describes the version currently used by new decisions.
+// PromptSyncActive 描述新决策当前使用的版本。
+type PromptSyncActive struct {
+	PromptID  string
+	Name      string
+	Version   int
+	Status    string
+	Source    string
+	SourceRef string
+	Hash      string
+}
+
+// PromptSyncStatus is the local view of optional Langfuse prompt sync. A
+// missing or unreachable Langfuse never changes the active local prompt.
+// PromptSyncStatus 是可选 Langfuse Prompt 同步的本地视图。
+// Langfuse 缺失或不可达绝不改变当前生效的本地 Prompt。
+type PromptSyncStatus struct {
+	PromptID      string
+	Provider      string
+	Configured    bool
+	Status        string
+	ReasonCode    string
+	Message       string
+	LastAttemptAt string
+	LastSuccessAt string
+	Active        PromptSyncActive
+	Candidates    []PromptRecord
 }
 
 type invalidPrompt string
