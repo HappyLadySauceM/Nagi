@@ -8,6 +8,7 @@ import type {
   IntentFlowEdge,
   IntentFlowNode,
   IntentNodeStatus,
+  IntentReplayInfo,
   IntentRun,
   IntentRunEdge,
   IntentRunNode,
@@ -189,6 +190,21 @@ function toDelivery(raw: unknown): IntentDelivery {
   }
 }
 
+function toReplayInfo(raw: unknown): IntentReplayInfo | undefined {
+  if (raw == null) {
+    return undefined
+  }
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'Replay')
+  return {
+    input: readString(record, 'Input', DECISIONS_ENDPOINT, ''),
+    semantic: readString(record, 'Semantic', DECISIONS_ENDPOINT, ''),
+    prompt: readString(record, 'Prompt', DECISIONS_ENDPOINT, ''),
+    policy: readString(record, 'Policy', DECISIONS_ENDPOINT, ''),
+    rules: readString(record, 'Rules', DECISIONS_ENDPOINT, ''),
+    persisted: readBooleanCompat(record, 'Persisted', DECISIONS_ENDPOINT),
+  }
+}
+
 function toRunSummary(raw: unknown): IntentRunSummary {
   const record = asRecord(raw, DECISIONS_ENDPOINT, 'Summary')
   return {
@@ -247,6 +263,7 @@ export function toIntentRun(raw: unknown): IntentRun {
         ? []
         : asArray(record.Edges, DECISIONS_ENDPOINT, 'Edges').map(toRunEdge),
     delivery: toDelivery(record.Delivery),
+    replay: toReplayInfo(record.Replay),
     scores: readNumberMap(record.Scores, DECISIONS_ENDPOINT, 'Scores'),
     latencyMs: readNumber(record, 'LatencyMS', DECISIONS_ENDPOINT, 0),
     createdAt: readOptionalTime(record, 'CreatedAt', DECISIONS_ENDPOINT),

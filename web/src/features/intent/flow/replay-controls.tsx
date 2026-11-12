@@ -6,6 +6,7 @@ import { Card } from '../../../components/ui/card'
 import { ConfirmDialog } from '../../../components/confirm-dialog'
 import { describeError } from '../../../lib/errors'
 import type { IntentRun } from '../../../lib/api/contracts'
+import { ReplaySourcePanel } from './replay-source-panel'
 import { useRecalculateDecision, useReplayDecisionModel } from './queries'
 
 const DECISION_LABELS: Record<string, string> = { reply: '回复', silent: '沉默', defer: '延后' }
@@ -69,6 +70,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
             <div><div className="text-xs text-muted-foreground">原结论</div><div className="mt-1">{summaryLabel(recalc.data.before)}</div></div>
             <div><div className="text-xs text-muted-foreground">重算后</div><div className="mt-1">{summaryLabel(recalc.data.after)}</div></div>
           </div>
+          <ReplaySourcePanel replay={recalc.data.after.replay} />
         </div>
       ) : null}
       {replay.isError ? (
@@ -85,6 +87,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
             <Badge variant="warning">不保存 · 不发送</Badge>
           </div>
           <p>{summaryLabel(replay.data.run)}</p>
+          <ReplaySourcePanel replay={replay.data.run.replay} />
           <p className="text-xs text-muted-foreground">
             费用提示：{replay.data.costEstimate || '一次语义模型请求'}
           </p>

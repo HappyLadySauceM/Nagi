@@ -63,6 +63,29 @@ describe('flow adapters', () => {
     })
   })
 
+  it('parses optional replay source markers', () => {
+    const parsed = toIntentRun({
+      ...run,
+      Replay: {
+        Input: 'snapshot',
+        Semantic: 'current',
+        Prompt: 'snapshot',
+        Policy: 'current',
+        Rules: 'snapshot',
+        Persisted: false,
+      },
+    })
+    expect(parsed.replay).toEqual({
+      input: 'snapshot',
+      semantic: 'current',
+      prompt: 'snapshot',
+      policy: 'current',
+      rules: 'snapshot',
+      persisted: false,
+    })
+    expect(toIntentRun(run).replay).toBeUndefined()
+  })
+
   it('parses node statuses, evidence, delivery and snapshot completeness', () => {
     const parsed = toIntentRun(run)
     expect(parsed.summary).toEqual({ decision: 'reply', reasonCode: 'private_normal', reasonText: '私聊正常回复' })

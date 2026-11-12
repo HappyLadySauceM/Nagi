@@ -540,6 +540,15 @@ export interface IntentRunSummary {
   reasonText: string
 }
 
+export interface IntentReplayInfo {
+  input: string
+  semantic: string
+  prompt: string
+  policy: string
+  rules: string
+  persisted: boolean
+}
+
 export interface IntentRun {
   decisionId: number
   jobId: number
@@ -554,6 +563,7 @@ export interface IntentRun {
   nodes: IntentRunNode[]
   edges: IntentRunEdge[]
   delivery: IntentDelivery
+  replay?: IntentReplayInfo
   scores: Record<string, number>
   latencyMs: number
   createdAt?: string
