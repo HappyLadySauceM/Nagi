@@ -18,8 +18,9 @@ import (
 )
 
 var (
-	ErrPromptNotFound  = errors.New("intent: prompt not found")
-	ErrPromptImmutable = errors.New("intent: prompt version is not a draft")
+	ErrPromptNotFound    = errors.New("intent: prompt not found")
+	ErrPromptImmutable   = errors.New("intent: prompt version is not a draft")
+	ErrPromptNotArchived = errors.New("intent: prompt version is not an archived published version")
 )
 
 type PromptsRepo struct{ pool *db.Pool }
@@ -149,6 +150,18 @@ func (r *PromptsRepo) Publish(ctx context.Context, id int64) error {
 	}
 	defer tx.Rollback()
 	c := tx.Client()
+	// Read the target without a row lock first so Publish and Rollback always
+	// acquire the per-prompt transaction lock in the same order.
+	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrPromptNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := lockPromptTx(ctx, c, initial.PromptID); err != nil {
+		return err
+	}
 	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).ForUpdate().Only(ctx)
 	if ent.IsNotFound(err) {
 		return ErrPromptNotFound
@@ -162,30 +175,54 @@ func (r *PromptsRepo) Publish(ctx context.Context, id int64) error {
 	if row.Status != domain.PromptStatusDraft && row.Status != domain.PromptStatusArchived {
 		return ErrPromptImmutable
 	}
-	if _, err := c.IntentPromptVersion.Update().
-		Where(ipv.PromptID(row.PromptID), ipv.Provider(row.Provider), ipv.Status(domain.PromptStatusPublished)).
-		SetStatus(domain.PromptStatusArchived).Save(ctx); err != nil {
-		return err
-	}
-	now := time.Now()
-	if err := c.IntentPromptVersion.UpdateOneID(id).SetStatus(domain.PromptStatusPublished).SetPublishedAt(now).Exec(ctx); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return publishPromptTx(ctx, tx, row)
 }
 
-// Rollback republishes an archived version of the same logical prompt.
-// Rollback 重新发布同一逻辑 Prompt 的归档版本。
+// Rollback only republishes an archived version that was published before.
+// Drafts are rejected even if they are the requested version; the currently
+// published version is left untouched.
+// Rollback 只重新发布曾发布过的归档版本；草稿即使被指定也拒绝，当前发布版本保持不变。
 func (r *PromptsRepo) Rollback(ctx context.Context, promptID string, version int) error {
-	row, err := r.pool.Client.IntentPromptVersion.Query().
-		Where(ipv.PromptID(promptID), ipv.Version(version)).Only(ctx)
+	tx, err := r.pool.Client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	c := tx.Client()
+	if err := lockPromptTx(ctx, c, promptID); err != nil {
+		return err
+	}
+	row, err := c.IntentPromptVersion.Query().
+		Where(ipv.PromptID(promptID), ipv.Version(version)).ForUpdate().Only(ctx)
 	if ent.IsNotFound(err) {
 		return ErrPromptNotFound
 	}
 	if err != nil {
 		return err
 	}
-	return r.Publish(ctx, row.ID)
+	if row.Status != domain.PromptStatusArchived || row.PublishedAt == nil {
+		return ErrPromptNotArchived
+	}
+	return publishPromptTx(ctx, tx, row)
+}
+
+func lockPromptTx(ctx context.Context, c *ent.Client, promptID string) error {
+	_, err := c.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, promptID)
+	return err
+}
+
+func publishPromptTx(ctx context.Context, tx *ent.Tx, row *ent.IntentPromptVersion) error {
+	c := tx.Client()
+	if _, err := c.IntentPromptVersion.Update().
+		Where(ipv.PromptID(row.PromptID), ipv.Provider(row.Provider), ipv.Status(domain.PromptStatusPublished)).
+		SetStatus(domain.PromptStatusArchived).Save(ctx); err != nil {
+		return err
+	}
+	now := time.Now()
+	if err := c.IntentPromptVersion.UpdateOneID(row.ID).SetStatus(domain.PromptStatusPublished).SetPublishedAt(now).Exec(ctx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func promptRecord(row *ent.IntentPromptVersion) domain.PromptRecord {

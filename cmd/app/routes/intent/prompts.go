@@ -263,6 +263,10 @@ func (h *Handler) RollbackPrompt(w http.ResponseWriter, r *http.Request) {
 			common.WriteFailure(w, http.StatusNotFound, "Prompt 版本不存在")
 			return
 		}
+		if errors.Is(err, intentinfra.ErrPromptNotArchived) {
+			common.WriteFailure(w, http.StatusConflict, "只有已归档且曾发布的版本可以回滚")
+			return
+		}
 		common.WriteFailure(w, http.StatusInternalServerError, "回滚 Prompt 失败")
 		return
 	}

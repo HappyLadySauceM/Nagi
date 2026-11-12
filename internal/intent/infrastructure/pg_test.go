@@ -5,6 +5,7 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -451,5 +452,139 @@ func TestStatsReadsLegacySemanticDetailKeys(t *testing.T) {
 	}
 	if stats.SemanticCalls != before.SemanticCalls+1 || stats.SemanticSuccess != before.SemanticSuccess+1 || stats.Degraded != before.Degraded {
 		t.Fatalf("legacy stats = %+v, baseline = %+v", stats, before)
+	}
+}
+
+func promptFixture(t *testing.T, repo *PromptsRepo) (string, domain.PromptRecord) {
+	t.Helper()
+	ctx := context.Background()
+	promptID := domain.BuiltinPromptID + ".rollback." + time.Now().Format("150405.000000000")
+	content := domain.BuiltinPrompt(domain.PromptProviderJev)
+	v1, err := repo.CreateDraft(ctx, promptID, "rollback fixture", domain.PromptProviderJev, content, "v1", domain.PromptSourceLocal, "")
+	if err != nil {
+		t.Fatalf("create v1: %v", err)
+	}
+	if err := repo.Publish(ctx, v1.ID); err != nil {
+		t.Fatalf("publish v1: %v", err)
+	}
+	return promptID, v1
+}
+
+func TestPromptsRepoRollbackRejectsDraftAndKeepsActive(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewPromptsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	promptID, v1 := promptFixture(t, repo)
+	content := domain.BuiltinPrompt(domain.PromptProviderJev)
+	v2, err := repo.CreateDraft(ctx, promptID, "rollback fixture", domain.PromptProviderJev, content, "v2", domain.PromptSourceLocal, "")
+	if err != nil {
+		t.Fatalf("create v2: %v", err)
+	}
+	if err := repo.Rollback(ctx, promptID, v2.Version); !errors.Is(err, ErrPromptNotArchived) {
+		t.Fatalf("draft rollback err = %v, want ErrPromptNotArchived", err)
+	}
+	active, found, err := repo.Active(ctx, promptID, domain.PromptProviderJev)
+	if err != nil || !found || active.Version != v1.Version {
+		t.Fatalf("active after rejected rollback = %+v found=%v err=%v", active, found, err)
+	}
+}
+
+func TestPromptsRepoRollbackArchivedPublishedVersion(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewPromptsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	promptID, v1 := promptFixture(t, repo)
+	content := domain.BuiltinPrompt(domain.PromptProviderJev)
+	v2, err := repo.CreateDraft(ctx, promptID, "rollback fixture", domain.PromptProviderJev, content, "v2", domain.PromptSourceLocal, "")
+	if err != nil {
+		t.Fatalf("create v2: %v", err)
+	}
+	if err := repo.Publish(ctx, v2.ID); err != nil {
+		t.Fatalf("publish v2: %v", err)
+	}
+	archived, err := repo.Get(ctx, v1.ID)
+	if err != nil || archived.Status != domain.PromptStatusArchived || archived.PublishedAt == "" {
+		t.Fatalf("v1 before rollback = %+v err=%v", archived, err)
+	}
+	if err := repo.Rollback(ctx, promptID, v1.Version); err != nil {
+		t.Fatalf("rollback archived: %v", err)
+	}
+	active, found, err := repo.Active(ctx, promptID, domain.PromptProviderJev)
+	if err != nil || !found || active.Version != v1.Version {
+		t.Fatalf("active after rollback = %+v found=%v err=%v", active, found, err)
+	}
+}
+
+func TestPromptsRepoRollbackRejectsCrossPromptVersion(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewPromptsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	promptA, _ := promptFixture(t, repo)
+	content := domain.BuiltinPrompt(domain.PromptProviderJev)
+	promptB := domain.BuiltinPromptID + ".rollback.other." + time.Now().Format("150405.000000000")
+	if _, err := repo.CreateDraft(ctx, promptB, "other", domain.PromptProviderJev, content, "v1", domain.PromptSourceLocal, ""); err != nil {
+		t.Fatalf("create other v1: %v", err)
+	}
+	if err := repo.Rollback(ctx, promptA, 2); !errors.Is(err, ErrPromptNotFound) {
+		t.Fatalf("cross-prompt rollback err = %v, want ErrPromptNotFound", err)
+	}
+}
+
+func TestPromptsRepoPublishRollbackConcurrent(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewPromptsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	promptID, v1 := promptFixture(t, repo)
+	content := domain.BuiltinPrompt(domain.PromptProviderJev)
+	v2, err := repo.CreateDraft(ctx, promptID, "rollback fixture", domain.PromptProviderJev, content, "v2", domain.PromptSourceLocal, "")
+	if err != nil {
+		t.Fatalf("create v2: %v", err)
+	}
+	if err := repo.Publish(ctx, v2.ID); err != nil {
+		t.Fatalf("publish v2: %v", err)
+	}
+	v3, err := repo.CreateDraft(ctx, promptID, "rollback fixture", domain.PromptProviderJev, content, "v3", domain.PromptSourceLocal, "")
+	if err != nil {
+		t.Fatalf("create v3: %v", err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	wg.Add(2)
+	go func() { defer wg.Done(); errs <- repo.Publish(ctx, v3.ID) }()
+	go func() { defer wg.Done(); errs <- repo.Rollback(ctx, promptID, v1.Version) }()
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent operation: %v", err)
+		}
+	}
+	versions, err := repo.Versions(ctx, promptID)
+	if err != nil {
+		t.Fatalf("versions: %v", err)
+	}
+	published := 0
+	for _, version := range versions {
+		if version.Status == domain.PromptStatusPublished {
+			published++
+			if version.Version != v1.Version && version.Version != v3.Version {
+				t.Fatalf("unexpected active version: %+v", version)
+			}
+		}
+	}
+	if published != 1 {
+		t.Fatalf("published versions = %d", published)
 	}
 }
