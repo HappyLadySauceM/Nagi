@@ -31,6 +31,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
@@ -82,6 +83,8 @@ type Client struct {
 	IntentDecisionStep *IntentDecisionStepClient
 	// IntentPromptVersion is the client for interacting with the IntentPromptVersion builders.
 	IntentPromptVersion *IntentPromptVersionClient
+	// IntentReplayEvaluation is the client for interacting with the IntentReplayEvaluation builders.
+	IntentReplayEvaluation *IntentReplayEvaluationClient
 	// IntentRuleActivation is the client for interacting with the IntentRuleActivation builders.
 	IntentRuleActivation *IntentRuleActivationClient
 	// IntentRuleEntry is the client for interacting with the IntentRuleEntry builders.
@@ -132,6 +135,7 @@ func (c *Client) init() {
 	c.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(c.config)
 	c.IntentDecisionStep = NewIntentDecisionStepClient(c.config)
 	c.IntentPromptVersion = NewIntentPromptVersionClient(c.config)
+	c.IntentReplayEvaluation = NewIntentReplayEvaluationClient(c.config)
 	c.IntentRuleActivation = NewIntentRuleActivationClient(c.config)
 	c.IntentRuleEntry = NewIntentRuleEntryClient(c.config)
 	c.IntentRuleset = NewIntentRulesetClient(c.config)
@@ -251,6 +255,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
 		IntentPromptVersion:           NewIntentPromptVersionClient(cfg),
+		IntentReplayEvaluation:        NewIntentReplayEvaluationClient(cfg),
 		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
@@ -297,6 +302,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
 		IntentPromptVersion:           NewIntentPromptVersionClient(cfg),
+		IntentReplayEvaluation:        NewIntentReplayEvaluationClient(cfg),
 		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
@@ -342,9 +348,10 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
 		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
-		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.Memory,
-		c.MemoryExtractionCursor, c.MemoryExtractionJob, c.Message, c.MessageJob,
-		c.QQGroup, c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
+		c.IntentReplayEvaluation, c.IntentRuleActivation, c.IntentRuleEntry,
+		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
+		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
+		c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Use(hooks...)
 	}
@@ -358,9 +365,10 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
 		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
-		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.Memory,
-		c.MemoryExtractionCursor, c.MemoryExtractionJob, c.Message, c.MessageJob,
-		c.QQGroup, c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
+		c.IntentReplayEvaluation, c.IntentRuleActivation, c.IntentRuleEntry,
+		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
+		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
+		c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -399,6 +407,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.IntentDecisionStep.mutate(ctx, m)
 	case *IntentPromptVersionMutation:
 		return c.IntentPromptVersion.mutate(ctx, m)
+	case *IntentReplayEvaluationMutation:
+		return c.IntentReplayEvaluation.mutate(ctx, m)
 	case *IntentRuleActivationMutation:
 		return c.IntentRuleActivation.mutate(ctx, m)
 	case *IntentRuleEntryMutation:
@@ -2415,6 +2425,22 @@ func (c *IntentDecisionClient) QueryIntentDecisionSnapshotsDecisionID(_m *Intent
 	return query
 }
 
+// QueryIntentReplayEvaluationsDecisionID queries the intent_replay_evaluations_decision_id edge of a IntentDecision.
+func (c *IntentDecisionClient) QueryIntentReplayEvaluationsDecisionID(_m *IntentDecision) *IntentReplayEvaluationQuery {
+	query := (&IntentReplayEvaluationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, id),
+			sqlgraph.To(intentreplayevaluation.Table, intentreplayevaluation.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, intentdecision.IntentReplayEvaluationsDecisionIDTable, intentdecision.IntentReplayEvaluationsDecisionIDColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *IntentDecisionClient) Hooks() []Hook {
 	return c.hooks.IntentDecision
@@ -2868,6 +2894,155 @@ func (c *IntentPromptVersionClient) mutate(ctx context.Context, m *IntentPromptV
 		return (&IntentPromptVersionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown IntentPromptVersion mutation op: %q", m.Op())
+	}
+}
+
+// IntentReplayEvaluationClient is a client for the IntentReplayEvaluation schema.
+type IntentReplayEvaluationClient struct {
+	config
+}
+
+// NewIntentReplayEvaluationClient returns a client for the IntentReplayEvaluation from the given config.
+func NewIntentReplayEvaluationClient(c config) *IntentReplayEvaluationClient {
+	return &IntentReplayEvaluationClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `intentreplayevaluation.Hooks(f(g(h())))`.
+func (c *IntentReplayEvaluationClient) Use(hooks ...Hook) {
+	c.hooks.IntentReplayEvaluation = append(c.hooks.IntentReplayEvaluation, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `intentreplayevaluation.Intercept(f(g(h())))`.
+func (c *IntentReplayEvaluationClient) Intercept(interceptors ...Interceptor) {
+	c.inters.IntentReplayEvaluation = append(c.inters.IntentReplayEvaluation, interceptors...)
+}
+
+// Create returns a builder for creating a IntentReplayEvaluation entity.
+func (c *IntentReplayEvaluationClient) Create() *IntentReplayEvaluationCreate {
+	mutation := newIntentReplayEvaluationMutation(c.config, OpCreate)
+	return &IntentReplayEvaluationCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of IntentReplayEvaluation entities.
+func (c *IntentReplayEvaluationClient) CreateBulk(builders ...*IntentReplayEvaluationCreate) *IntentReplayEvaluationCreateBulk {
+	return &IntentReplayEvaluationCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IntentReplayEvaluationClient) MapCreateBulk(slice any, setFunc func(*IntentReplayEvaluationCreate, int)) *IntentReplayEvaluationCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IntentReplayEvaluationCreateBulk{err: fmt.Errorf("calling to IntentReplayEvaluationClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IntentReplayEvaluationCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IntentReplayEvaluationCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for IntentReplayEvaluation.
+func (c *IntentReplayEvaluationClient) Update() *IntentReplayEvaluationUpdate {
+	mutation := newIntentReplayEvaluationMutation(c.config, OpUpdate)
+	return &IntentReplayEvaluationUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IntentReplayEvaluationClient) UpdateOne(_m *IntentReplayEvaluation) *IntentReplayEvaluationUpdateOne {
+	mutation := newIntentReplayEvaluationMutation(c.config, OpUpdateOne, withIntentReplayEvaluation(_m))
+	return &IntentReplayEvaluationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IntentReplayEvaluationClient) UpdateOneID(id int64) *IntentReplayEvaluationUpdateOne {
+	mutation := newIntentReplayEvaluationMutation(c.config, OpUpdateOne, withIntentReplayEvaluationID(id))
+	return &IntentReplayEvaluationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for IntentReplayEvaluation.
+func (c *IntentReplayEvaluationClient) Delete() *IntentReplayEvaluationDelete {
+	mutation := newIntentReplayEvaluationMutation(c.config, OpDelete)
+	return &IntentReplayEvaluationDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IntentReplayEvaluationClient) DeleteOne(_m *IntentReplayEvaluation) *IntentReplayEvaluationDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IntentReplayEvaluationClient) DeleteOneID(id int64) *IntentReplayEvaluationDeleteOne {
+	builder := c.Delete().Where(intentreplayevaluation.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IntentReplayEvaluationDeleteOne{builder}
+}
+
+// Query returns a query builder for IntentReplayEvaluation.
+func (c *IntentReplayEvaluationClient) Query() *IntentReplayEvaluationQuery {
+	return &IntentReplayEvaluationQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIntentReplayEvaluation},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a IntentReplayEvaluation entity by its id.
+func (c *IntentReplayEvaluationClient) Get(ctx context.Context, id int64) (*IntentReplayEvaluation, error) {
+	return c.Query().Where(intentreplayevaluation.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IntentReplayEvaluationClient) GetX(ctx context.Context, id int64) *IntentReplayEvaluation {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryDecisionIDRef queries the decision_id_ref edge of a IntentReplayEvaluation.
+func (c *IntentReplayEvaluationClient) QueryDecisionIDRef(_m *IntentReplayEvaluation) *IntentDecisionQuery {
+	query := (&IntentDecisionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentreplayevaluation.Table, intentreplayevaluation.FieldID, id),
+			sqlgraph.To(intentdecision.Table, intentdecision.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, intentreplayevaluation.DecisionIDRefTable, intentreplayevaluation.DecisionIDRefColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *IntentReplayEvaluationClient) Hooks() []Hook {
+	return c.hooks.IntentReplayEvaluation
+}
+
+// Interceptors returns the client interceptors.
+func (c *IntentReplayEvaluationClient) Interceptors() []Interceptor {
+	return c.inters.IntentReplayEvaluation
+}
+
+func (c *IntentReplayEvaluationClient) mutate(ctx context.Context, m *IntentReplayEvaluationMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IntentReplayEvaluationCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IntentReplayEvaluationUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IntentReplayEvaluationUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IntentReplayEvaluationDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown IntentReplayEvaluation mutation op: %q", m.Op())
 	}
 }
 
@@ -4857,18 +5032,19 @@ type (
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
 		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
-		IntentPromptVersion, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
-		Memory, MemoryExtractionCursor, MemoryExtractionJob, Message, MessageJob,
-		QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Hook
+		IntentPromptVersion, IntentReplayEvaluation, IntentRuleActivation,
+		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
+		MemoryExtractionJob, Message, MessageJob, QQGroup,
+		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Hook
 	}
 	inters struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
 		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
-		IntentPromptVersion, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
-		Memory, MemoryExtractionCursor, MemoryExtractionJob, Message, MessageJob,
-		QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
-		SystemSetting []ent.Interceptor
+		IntentPromptVersion, IntentReplayEvaluation, IntentRuleActivation,
+		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
+		MemoryExtractionJob, Message, MessageJob, QQGroup,
+		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Interceptor
 	}
 )
 

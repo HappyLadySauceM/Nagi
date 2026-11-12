@@ -501,6 +501,48 @@ var (
 			},
 		},
 	}
+	// IntentReplayEvaluationsColumns holds the columns for the "intent_replay_evaluations" table.
+	IntentReplayEvaluationsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "bot_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "mode", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "name", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "note", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "changed", Type: field.TypeBool, Default: schema.Expr("false")},
+		{Name: "before_run", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "after_run", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "parameters", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "cost", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "reproduction", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "decision_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+	}
+	// IntentReplayEvaluationsTable holds the schema information for the "intent_replay_evaluations" table.
+	IntentReplayEvaluationsTable = &schema.Table{
+		Name:       "intent_replay_evaluations",
+		Columns:    IntentReplayEvaluationsColumns,
+		PrimaryKey: []*schema.Column{IntentReplayEvaluationsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "intent_replay_evaluations_intent_decisions_intent_replay_evaluations_decision_id",
+				Columns:    []*schema.Column{IntentReplayEvaluationsColumns[12]},
+				RefColumns: []*schema.Column{IntentDecisionsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "intent_replay_evaluations_decision",
+				Unique:  false,
+				Columns: []*schema.Column{IntentReplayEvaluationsColumns[12]},
+			},
+			{
+				Name:    "intent_replay_evaluations_bot_id_id",
+				Unique:  false,
+				Columns: []*schema.Column{IntentReplayEvaluationsColumns[1], IntentReplayEvaluationsColumns[0]},
+			},
+		},
+	}
 	// IntentRuleActivationsColumns holds the columns for the "intent_rule_activations" table.
 	IntentRuleActivationsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1019,6 +1061,7 @@ var (
 		IntentDecisionSnapshotsTable,
 		IntentDecisionStepsTable,
 		IntentPromptVersionsTable,
+		IntentReplayEvaluationsTable,
 		IntentRuleActivationsTable,
 		IntentRuleEntriesTable,
 		IntentRulesetsTable,
@@ -1115,6 +1158,13 @@ func init() {
 		"intent_prompt_versions_provider_check": "((provider = ANY (ARRAY['jev'::text, 'openai'::text])))",
 		"intent_prompt_versions_status_check":   "((status = ANY (ARRAY['draft'::text, 'published'::text, 'archived'::text])))",
 		"intent_prompt_versions_version_check":  "((version > 0))",
+	}
+	IntentReplayEvaluationsTable.ForeignKeys[0].RefTable = IntentDecisionsTable
+	IntentReplayEvaluationsTable.Annotation = &entsql.Annotation{
+		Table: "intent_replay_evaluations",
+	}
+	IntentReplayEvaluationsTable.Annotation.Checks = map[string]string{
+		"intent_replay_evaluations_mode_check": "((mode = ANY (ARRAY['recalculate'::text, 'model'::text])))",
 	}
 	IntentRuleActivationsTable.ForeignKeys[0].RefTable = IntentRulesetsTable
 	IntentRuleActivationsTable.Annotation = &entsql.Annotation{

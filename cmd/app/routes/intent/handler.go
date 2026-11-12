@@ -4,7 +4,9 @@ package intent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -42,6 +44,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/intent/decisions/{id}", h.Get)
 	mux.HandleFunc("POST /api/v1/intent/decisions/{id}/recalculate", h.Recalculate)
 	mux.HandleFunc("POST /api/v1/intent/decisions/{id}/replay-model", h.ReplayModel)
+	mux.HandleFunc("POST /api/v1/intent/decisions/{id}/replay-model/estimate", h.EstimateReplayModel)
+	mux.HandleFunc("POST /api/v1/intent/decisions/{id}/replay-evaluations", h.CreateReplayEvaluation)
+	mux.HandleFunc("GET /api/v1/intent/replay-evaluations", h.ListReplayEvaluations)
+	mux.HandleFunc("GET /api/v1/intent/replay-evaluations/{id}", h.GetReplayEvaluation)
+	mux.HandleFunc("GET /api/v1/intent/replay-evaluations/{id}/comparison", h.CompareReplayEvaluation)
 	h.RegisterRules(mux)
 	h.RegisterPrompts(mux)
 }
@@ -233,12 +240,24 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request, model bool) {
 		return
 	}
 	if model {
-		run, err := h.svcCtx.IntentReplayer.ReplayModel(r.Context(), id)
-		if err != nil {
-			h.replayError(w, err)
+		var body struct {
+			ConfirmationToken string
+			Name              string
+			Note              string
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			common.WriteFailure(w, http.StatusBadRequest, "请求体不合法")
 			return
 		}
-		common.WriteSuccess(w, map[string]any{"Run": run, "Cost": map[string]any{"MayIncur": true, "CostEstimate": intentcontracts.SemanticCostEstimate}})
+		evaluation, err := h.svcCtx.IntentReplayer.ReplayModelConfirmed(r.Context(), id, body.ConfirmationToken, body.Name, body.Note)
+		if err != nil {
+			h.replayEvaluationError(w, err)
+			return
+		}
+		common.WriteSuccess(w, map[string]any{
+			"Run": evaluation.After, "Cost": evaluation.Cost, "CostEstimate": evaluation.Cost.Text,
+			"EvaluationID": evaluation.ID, "Evaluation": evaluation,
+		})
 		return
 	}
 	before, after, changed, err := h.svcCtx.IntentReplayer.Recalculate(r.Context(), id)

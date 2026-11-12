@@ -26,6 +26,7 @@ func BuildRunFromRecord(record contracts.DecisionRecord, delivery contracts.Deli
 		RulesetVersion: record.RulesetVersion, SnapshotStatus: status, MissingFields: missing,
 		Summary:  contracts.RunSummary{Decision: record.Decision, ReasonCode: record.ReasonCode, ReasonText: domain.ReasonText(record.ReasonCode)},
 		Delivery: delivery, Scores: record.Scores, LatencyMS: int64(record.LatencyMS), CreatedAt: record.CreatedAt,
+		Prompt: record.Prompt,
 	}
 	for _, step := range record.Steps {
 		node := contracts.RunNode{

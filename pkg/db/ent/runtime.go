@@ -20,6 +20,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
@@ -380,6 +381,44 @@ func init() {
 	intentpromptversionDescCreatedAt := intentpromptversionFields[11].Descriptor()
 	// intentpromptversion.DefaultCreatedAt holds the default value on creation for the created_at field.
 	intentpromptversion.DefaultCreatedAt = intentpromptversionDescCreatedAt.Default.(func() time.Time)
+	intentreplayevaluationFields := nagi.IntentReplayEvaluation{}.Fields()
+	_ = intentreplayevaluationFields
+	// intentreplayevaluationDescName is the schema descriptor for name field.
+	intentreplayevaluationDescName := intentreplayevaluationFields[4].Descriptor()
+	// intentreplayevaluation.DefaultName holds the default value on creation for the name field.
+	intentreplayevaluation.DefaultName = intentreplayevaluationDescName.Default.(string)
+	// intentreplayevaluationDescNote is the schema descriptor for note field.
+	intentreplayevaluationDescNote := intentreplayevaluationFields[5].Descriptor()
+	// intentreplayevaluation.DefaultNote holds the default value on creation for the note field.
+	intentreplayevaluation.DefaultNote = intentreplayevaluationDescNote.Default.(string)
+	// intentreplayevaluationDescChanged is the schema descriptor for changed field.
+	intentreplayevaluationDescChanged := intentreplayevaluationFields[6].Descriptor()
+	// intentreplayevaluation.DefaultChanged holds the default value on creation for the changed field.
+	intentreplayevaluation.DefaultChanged = intentreplayevaluationDescChanged.Default.(bool)
+	// intentreplayevaluationDescBeforeRun is the schema descriptor for before_run field.
+	intentreplayevaluationDescBeforeRun := intentreplayevaluationFields[7].Descriptor()
+	// intentreplayevaluation.DefaultBeforeRun holds the default value on creation for the before_run field.
+	intentreplayevaluation.DefaultBeforeRun = intentreplayevaluationDescBeforeRun.Default.(jsontext.Value)
+	// intentreplayevaluationDescAfterRun is the schema descriptor for after_run field.
+	intentreplayevaluationDescAfterRun := intentreplayevaluationFields[8].Descriptor()
+	// intentreplayevaluation.DefaultAfterRun holds the default value on creation for the after_run field.
+	intentreplayevaluation.DefaultAfterRun = intentreplayevaluationDescAfterRun.Default.(jsontext.Value)
+	// intentreplayevaluationDescParameters is the schema descriptor for parameters field.
+	intentreplayevaluationDescParameters := intentreplayevaluationFields[9].Descriptor()
+	// intentreplayevaluation.DefaultParameters holds the default value on creation for the parameters field.
+	intentreplayevaluation.DefaultParameters = intentreplayevaluationDescParameters.Default.(jsontext.Value)
+	// intentreplayevaluationDescCost is the schema descriptor for cost field.
+	intentreplayevaluationDescCost := intentreplayevaluationFields[10].Descriptor()
+	// intentreplayevaluation.DefaultCost holds the default value on creation for the cost field.
+	intentreplayevaluation.DefaultCost = intentreplayevaluationDescCost.Default.(jsontext.Value)
+	// intentreplayevaluationDescReproduction is the schema descriptor for reproduction field.
+	intentreplayevaluationDescReproduction := intentreplayevaluationFields[11].Descriptor()
+	// intentreplayevaluation.DefaultReproduction holds the default value on creation for the reproduction field.
+	intentreplayevaluation.DefaultReproduction = intentreplayevaluationDescReproduction.Default.(jsontext.Value)
+	// intentreplayevaluationDescCreatedAt is the schema descriptor for created_at field.
+	intentreplayevaluationDescCreatedAt := intentreplayevaluationFields[12].Descriptor()
+	// intentreplayevaluation.DefaultCreatedAt holds the default value on creation for the created_at field.
+	intentreplayevaluation.DefaultCreatedAt = intentreplayevaluationDescCreatedAt.Default.(func() time.Time)
 	intentruleactivationFields := nagi.IntentRuleActivation{}.Fields()
 	_ = intentruleactivationFields
 	// intentruleactivationDescUpdatedAt is the schema descriptor for updated_at field.

@@ -52,9 +52,11 @@ type IntentDecisionEdges struct {
 	IntentDecisionStepsDecisionID []*IntentDecisionStep `json:"intent_decision_steps_decision_id,omitempty"`
 	// IntentDecisionSnapshotsDecisionID holds the value of the intent_decision_snapshots_decision_id edge.
 	IntentDecisionSnapshotsDecisionID []*IntentDecisionSnapshot `json:"intent_decision_snapshots_decision_id,omitempty"`
+	// IntentReplayEvaluationsDecisionID holds the value of the intent_replay_evaluations_decision_id edge.
+	IntentReplayEvaluationsDecisionID []*IntentReplayEvaluation `json:"intent_replay_evaluations_decision_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // JobIDRefOrErr returns the JobIDRef value or an error if the edge
@@ -84,6 +86,15 @@ func (e IntentDecisionEdges) IntentDecisionSnapshotsDecisionIDOrErr() ([]*Intent
 		return e.IntentDecisionSnapshotsDecisionID, nil
 	}
 	return nil, &NotLoadedError{edge: "intent_decision_snapshots_decision_id"}
+}
+
+// IntentReplayEvaluationsDecisionIDOrErr returns the IntentReplayEvaluationsDecisionID value or an error if the edge
+// was not loaded in eager-loading.
+func (e IntentDecisionEdges) IntentReplayEvaluationsDecisionIDOrErr() ([]*IntentReplayEvaluation, error) {
+	if e.loadedTypes[3] {
+		return e.IntentReplayEvaluationsDecisionID, nil
+	}
+	return nil, &NotLoadedError{edge: "intent_replay_evaluations_decision_id"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -202,6 +213,11 @@ func (_m *IntentDecision) QueryIntentDecisionStepsDecisionID() *IntentDecisionSt
 // QueryIntentDecisionSnapshotsDecisionID queries the "intent_decision_snapshots_decision_id" edge of the IntentDecision entity.
 func (_m *IntentDecision) QueryIntentDecisionSnapshotsDecisionID() *IntentDecisionSnapshotQuery {
 	return NewIntentDecisionClient(_m.config).QueryIntentDecisionSnapshotsDecisionID(_m)
+}
+
+// QueryIntentReplayEvaluationsDecisionID queries the "intent_replay_evaluations_decision_id" edge of the IntentDecision entity.
+func (_m *IntentDecision) QueryIntentReplayEvaluationsDecisionID() *IntentReplayEvaluationQuery {
+	return NewIntentDecisionClient(_m.config).QueryIntentReplayEvaluationsDecisionID(_m)
 }
 
 // Update returns a builder for updating this IntentDecision.

@@ -220,6 +220,12 @@ func (r *DecisionsRepo) List(ctx context.Context, q contracts.DecisionQuery) ([]
 				out[i].FlowVersion = snapshot.FlowVersion
 				out[i].MissingFields = []string{}
 				out[i].SnapshotStatus = domain.SnapshotStatusComplete
+				if len(snapshot.Prompt) > 0 {
+					var prompt domain.Prompt
+					if err := json.Unmarshal(snapshot.Prompt, &prompt); err == nil {
+						out[i].Prompt = promptInfo(prompt)
+					}
+				}
 				if len(snapshot.MissingFields) > 0 {
 					var missing []string
 					if err := json.Unmarshal(snapshot.MissingFields, &missing); err == nil && len(missing) > 0 {
@@ -274,6 +280,7 @@ func (r *DecisionsRepo) Get(ctx context.Context, id int64) (contracts.DecisionRe
 		record.FlowVersion = snapshot.FlowVersion
 		record.MissingFields = snapshot.MissingFields
 		record.SnapshotStatus = snapshot.SnapshotStatus()
+		record.Prompt = promptInfo(snapshot.Prompt)
 	} else if !errors.Is(err, domain.ErrSnapshotNotFound) {
 		return record, err
 	} else {
@@ -358,6 +365,13 @@ func (r *DecisionsRepo) snapshotByDecision(ctx context.Context, decisionID int64
 		snap.MissingFields = append(snap.MissingFields, "rule")
 	}
 	return snap, nil
+}
+
+func promptInfo(prompt domain.Prompt) contracts.PromptInfo {
+	return contracts.PromptInfo{
+		ID: prompt.ID, Name: prompt.Name, Version: prompt.Version,
+		Source: prompt.Source, SourceRef: prompt.SourceRef, Hash: prompt.Hash,
+	}
 }
 
 func evidencePayload(items []domain.Evidence) []map[string]string {
