@@ -206,8 +206,29 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 	if _, err := c.Action(); err != nil {
 		return "error: 请求参数无效", nil
 	}
+	// Keep the safe bounds from the narrowed tools now that the public catalog
+	// is the only registered surface for these actions.
+	// 公共清单成为这些动作的唯一注册面后，保留下调工具的边界。
+	if s.name == ob.ActionSetGroupBan && (c.Duration < 0 || c.Duration > maxMuteSeconds) {
+		return fmt.Sprintf("error: duration 必须在 0 到 %d 秒之间", maxMuteSeconds), nil
+	}
+	if s.name == ob.ActionSetGroupCard && len([]rune(c.Card)) > maxCardRunes {
+		return fmt.Sprintf("error: 群名片最多 %d 个字符", maxCardRunes), nil
+	}
 	if err := pa.RequirePermission(ctx, d.Permission); err != nil {
 		return "", err
+	}
+	if d.RequiresGroupRole != "" {
+		if p.opts.GroupRole == nil {
+			return "error: 群角色不可用", nil
+		}
+		role, err := p.opts.GroupRole(ctx, scope.BotID, int64(c.GroupID))
+		if err != nil {
+			return "", pa.Denied("无法确认机器人群角色")
+		}
+		if !pc.GroupRoleSatisfies(role, d.RequiresGroupRole) {
+			return "error: 机器人不是群管理员，无法执行该操作", nil
+		}
 	}
 	var result ob.PublicResult
 	var err error
@@ -252,8 +273,10 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 	return string(out), err
 }
 
-// WithoutPublicDuplicates retains the original providers' current-only tools.
-// WithoutPublicDuplicates 保留原提供方中的当前会话专用工具。
+// WithoutPublicDuplicates drops tools already covered by the closed public
+// catalog, leaving each OneBot action with exactly one tool and one permission.
+// WithoutPublicDuplicates 移除已由封闭公共清单覆盖的工具，
+// 确保每个 OneBot 动作只有一个工具和一套权限。
 func WithoutPublicDuplicates(provider pc.ToolProvider) pc.ToolProvider {
 	return filteredPublic{provider}
 }
@@ -268,7 +291,7 @@ func (p filteredPublic) Tools(ctx context.Context) ([]pc.RegisteredTool, error) 
 	out := []pc.RegisteredTool{}
 	for _, tool := range tools {
 		switch strings.TrimPrefix(tool.Descriptor.ID, "qq.") {
-		case "get_group_info", "get_group_member_info", "set_group_whole_ban", "set_group_card":
+		case "get_group_info", "get_group_member_info", "set_group_whole_ban", "set_group_card", "set_group_kick", "set_group_ban", "set_group_leave", "kick_group_member", "mute_group_member", "leave_current_group":
 			continue
 		}
 		out = append(out, tool)

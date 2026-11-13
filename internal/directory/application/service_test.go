@@ -65,6 +65,7 @@ type fakeRepo struct {
 	contacts map[int64][]domain.Contact
 	groups   map[int64][]domain.Group
 	members  map[int64][]domain.GroupMember
+	roles    map[int64]string
 	page     domain.PageQuery
 	pageBot  int64
 }
@@ -75,6 +76,7 @@ func newFakeRepo() *fakeRepo {
 		contacts: make(map[int64][]domain.Contact),
 		groups:   make(map[int64][]domain.Group),
 		members:  make(map[int64][]domain.GroupMember),
+		roles:    make(map[int64]string),
 	}
 }
 
@@ -95,7 +97,13 @@ func (f *fakeRepo) UpsertGroups(_ context.Context, botID int64, gs []domain.Grou
 }
 func (f *fakeRepo) UpsertGroupMembers(_ context.Context, botID, groupID int64, ms []domain.GroupMember) error {
 	f.members[groupID] = ms
+	for _, member := range ms {
+		f.roles[groupID] = member.Role
+	}
 	return nil
+}
+func (f *fakeRepo) BotGroupRole(_ context.Context, _ int64, groupID int64) (string, error) {
+	return f.roles[groupID], nil
 }
 func (f *fakeRepo) ListContacts(_ context.Context, botID int64, q domain.PageQuery) (domain.ContactPage, error) {
 	f.pageBot, f.page = botID, q
@@ -372,5 +380,64 @@ func TestApplyMemberLeaveWorksWhileOffline(t *testing.T) {
 	}
 	if len(repo.members[7]) != 0 {
 		t.Fatalf("member should be removed: %+v", repo.members[7])
+	}
+}
+
+// TestBotGroupRoleReturnsStoredRole verifies the save-time role lookup forwards
+// the account-scoped member role.
+// TestBotGroupRoleReturnsStoredRole 验证保存时角色查询返回按账号存储的成员角色。
+func TestBotGroupRoleReturnsStoredRole(t *testing.T) {
+	repo := newFakeRepo()
+	repo.roles[700] = "admin"
+	svc, err := NewService(repo, fakeInfos{}, testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	role, err := svc.BotGroupRole(context.Background(), 100, 700)
+	if err != nil || role != "admin" {
+		t.Fatalf("role = %q err = %v", role, err)
+	}
+}
+
+// TestBotGroupRoleUsesLiveLookupAndCaches verifies a connected account answers
+// with the current role and refreshes the cached member row.
+// TestBotGroupRoleUsesLiveLookupAndCaches 验证在线账号返回实时角色并刷新缓存成员行。
+func TestBotGroupRoleUsesLiveLookupAndCaches(t *testing.T) {
+	repo := newFakeRepo()
+	repo.accounts[100] = true
+	info := &fakeInfo{member: obdomain.GroupMemberInfo{UserID: 100, Nickname: "机器人", Role: "admin"}}
+	svc, err := NewService(repo, fakeInfos{100: info}, testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	role, err := svc.BotGroupRole(context.Background(), 100, 700)
+	if err != nil || role != "admin" {
+		t.Fatalf("role = %q err = %v", role, err)
+	}
+	if repo.roles[700] != "admin" {
+		t.Fatalf("cache not refreshed: %+v", repo.roles)
+	}
+}
+
+// TestBotGroupRoleFallsBackToCachedAdminOnly verifies an offline account can
+// use a cached admin/owner row but a cached member row is reported as unknown.
+// TestBotGroupRoleFallsBackToCachedAdminOnly 验证离线账号可使用缓存的 admin/owner 行，
+// 但缓存仅为 member 时按未知角色报告。
+func TestBotGroupRoleFallsBackToCachedAdminOnly(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo, fakeInfos{}, testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.roles[700] = "admin"
+	if role, err := svc.BotGroupRole(context.Background(), 100, 700); err != nil || role != "admin" {
+		t.Fatalf("cached admin = %q err = %v", role, err)
+	}
+	repo.roles[701] = "member"
+	if _, err := svc.BotGroupRole(context.Background(), 100, 701); !errors.Is(err, ErrRoleUnavailable) {
+		t.Fatalf("cached member error = %v, want role unavailable", err)
+	}
+	if _, err := svc.BotGroupRole(context.Background(), 100, 702); !errors.Is(err, ErrRoleUnavailable) {
+		t.Fatalf("missing row error = %v, want role unavailable", err)
 	}
 }

@@ -135,6 +135,19 @@ func (r *Repo) ListContacts(ctx context.Context, botID int64, q domain.PageQuery
 	return page, err
 }
 
+// BotGroupRole returns the bot's role in one group; empty means no member row.
+// BotGroupRole 返回机器人在某群的角色；空串表示没有成员行。
+func (r *Repo) BotGroupRole(ctx context.Context, botID, groupID int64) (string, error) {
+	row, err := r.pool.Client.GroupMember.Query().Where(groupmember.BotID(botID), groupmember.GroupID(groupID), groupmember.UserID(botID)).Only(ctx)
+	if ent.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return row.Role, nil
+}
+
 // ListGroups returns one page of the account's groups matching the search text.
 // ListGroups 返回该账号匹配搜索文本的一页群。
 func (r *Repo) ListGroups(ctx context.Context, botID int64, q domain.PageQuery) (domain.GroupPage, error) {
@@ -151,12 +164,26 @@ func (r *Repo) ListGroups(ctx context.Context, botID int64, q domain.PageQuery) 
 	}
 	rows, err := query.Order(ent.Asc(qqgroup.FieldName, qqgroup.FieldGroupID)).Limit(q.Limit).Offset(q.Offset()).All(ctx)
 	page := domain.GroupPage{Total: int64(total), Page: q.Page, Limit: q.Limit, Items: []domain.Group{}}
+	roles := map[int64]string{}
+	if len(rows) > 0 {
+		groupIDs := make([]int64, 0, len(rows))
+		for _, v := range rows {
+			groupIDs = append(groupIDs, v.GroupID)
+		}
+		members, memberErr := r.pool.Client.GroupMember.Query().Where(groupmember.BotID(botID), groupmember.UserID(botID), groupmember.GroupIDIn(groupIDs...)).All(ctx)
+		if memberErr != nil {
+			return domain.GroupPage{}, memberErr
+		}
+		for _, member := range members {
+			roles[member.GroupID] = member.Role
+		}
+	}
 	for _, v := range rows {
 		seen := time.Unix(0, 0)
 		if v.LastSeenAt != nil {
 			seen = *v.LastSeenAt
 		}
-		page.Items = append(page.Items, domain.Group{GroupID: v.GroupID, Name: v.Name, MemberCount: int64(v.MemberCount), LastSeenAt: seen})
+		page.Items = append(page.Items, domain.Group{GroupID: v.GroupID, Name: v.Name, MemberCount: int64(v.MemberCount), BotRole: roles[v.GroupID], LastSeenAt: seen})
 	}
 	return page, err
 }

@@ -57,16 +57,17 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // toolInfo 描述单个已注册工具，包含其默认授予状态；
 // 请求带会话类型时，还包含该工具是否适用于该类型。
 type toolInfo struct {
-	BlockedReasons []string
-	ID             string
-	Provider       string
-	Description    string
-	Category       string
-	ScopeKinds     []string
-	RiskLevel      contracts.RiskLevel
-	ReadOnly       bool
-	SideEffect     bool
-	Permission     string
+	BlockedReasons    []string
+	ID                string
+	Provider          string
+	Description       string
+	Category          string
+	ScopeKinds        []string
+	RiskLevel         contracts.RiskLevel
+	RequiresGroupRole string
+	ReadOnly          bool
+	SideEffect        bool
+	Permission        string
 	// DefaultGranted mirrors the runtime resolution for this tool.
 	// DefaultGranted 对应该工具的运行时授予结果。
 	DefaultGranted bool
@@ -86,6 +87,7 @@ type permissionInfo struct {
 	Requires          []string
 	Description       string
 	RiskLevel         contracts.RiskLevel
+	RequiresGroupRole string
 	ID                string
 	Tools             []string
 	DefaultGranted    bool
@@ -200,6 +202,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			Category:          descriptor.Category,
 			ScopeKinds:        append([]string{}, descriptor.ScopeKinds...),
 			RiskLevel:         descriptor.EffectiveRiskLevel(),
+			RequiresGroupRole: descriptor.RequiresGroupRole,
 			ReadOnly:          descriptor.ReadOnly,
 			SideEffect:        descriptor.SideEffect,
 			Permission:        descriptor.Permission,
@@ -212,12 +215,18 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		group, ok := byPermission[descriptor.Permission]
 		if !ok {
-			group = &permissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission], Description: descriptor.Description, RiskLevel: descriptor.EffectiveRiskLevel(), Kind: "tool", Applicable: applicable, UnavailableReason: unavailableReason}
+			group = &permissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission], Description: descriptor.Description, RiskLevel: descriptor.EffectiveRiskLevel(), RequiresGroupRole: descriptor.RequiresGroupRole, Kind: "tool", Applicable: applicable, UnavailableReason: unavailableReason}
 			byPermission[descriptor.Permission] = group
-		} else if riskRank(descriptor.EffectiveRiskLevel()) > riskRank(group.RiskLevel) {
-			// Keep the strictest risk so the group never depends on snapshot order.
-			// 取最严格的风险级别，组内展示不随快照顺序变化。
-			group.RiskLevel = descriptor.EffectiveRiskLevel()
+		} else {
+			// Keep the strictest risk and group role so the group never depends
+			// on snapshot order.
+			// 取最严格的风险级别与群角色要求，组内展示不随快照顺序变化。
+			if riskRank(descriptor.EffectiveRiskLevel()) > riskRank(group.RiskLevel) {
+				group.RiskLevel = descriptor.EffectiveRiskLevel()
+			}
+			if contracts.GroupRoleRank(descriptor.RequiresGroupRole) > contracts.GroupRoleRank(group.RequiresGroupRole) {
+				group.RequiresGroupRole = descriptor.RequiresGroupRole
+			}
 		}
 		if applicable {
 			group.Applicable = true

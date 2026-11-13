@@ -344,7 +344,12 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil
 		}
 		publicOptions.AuthorizeTarget = authorizeTarget
-		providers = append(providers, builtin.NewPublicProvider(builtin.PublicOptions{Account: publicAccount, AuthorizeTarget: authorizeTarget, Send: func(ctx context.Context, c obdomain.PublicCommand) (pluginscontracts.SendReceipt, error) {
+		providers = append(providers, builtin.NewPublicProvider(builtin.PublicOptions{Account: publicAccount, AuthorizeTarget: authorizeTarget, GroupRole: func(ctx context.Context, botID, groupID int64) (string, error) {
+			if rt.Directory == nil {
+				return "", nil
+			}
+			return rt.Directory.BotGroupRole(ctx, botID, groupID)
+		}, Send: func(ctx context.Context, c obdomain.PublicCommand) (pluginscontracts.SendReceipt, error) {
 			scope, ok := pluginsapp.ScopeFrom(ctx)
 			if !ok {
 				return pluginscontracts.SendReceipt{}, fmt.Errorf("missing scope")
@@ -383,6 +388,12 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 				Defaults:  pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, nil),
 				Effective: pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, overrides),
 			}
+		})
+		if rt.Directory != nil {
+			rt.Scope.SetGroupRoleResolver(rt.Directory.BotGroupRole)
+		}
+		rt.Scope.SetGroupRoleRequirement(func(permission string) string {
+			return pluginsapp.RequiredGroupRole(toolRegistry.Snapshot(), permission)
 		})
 		rt.Settings = settingsService
 		rt.SettingsProvider = settingsProvider

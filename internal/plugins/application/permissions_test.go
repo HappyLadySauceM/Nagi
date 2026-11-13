@@ -161,3 +161,46 @@ func TestSharedSendingPermissionDefaultsAndOverrides(t *testing.T) {
 		}
 	}
 }
+
+// TestResolvePermissionsMapsLegacyGroupAdminAliases verifies old public-action
+// overrides still grant the unified group-admin permissions, and an explicit
+// canonical override wins over the legacy key.
+// TestResolvePermissionsMapsLegacyGroupAdminAliases 验证旧公共动作覆盖仍能授予
+// 统一群管权限，且显式新键优先于旧键。
+func TestResolvePermissionsMapsLegacyGroupAdminAliases(t *testing.T) {
+	tools := []contracts.RegisteredTool{
+		{Descriptor: contracts.ToolDescriptor{ID: "qq.set_group_kick", Permission: contracts.PermissionGroupKick}},
+		{Descriptor: contracts.ToolDescriptor{ID: "qq.set_group_ban", Permission: contracts.PermissionGroupMute}},
+		{Descriptor: contracts.ToolDescriptor{ID: "qq.set_group_leave", Permission: contracts.PermissionGroupLeave}},
+	}
+	legacy := map[string]bool{
+		"qq.api.set_group_kick":  true,
+		"qq.api.set_group_ban":   true,
+		"qq.api.set_group_leave": true,
+	}
+	grants := ResolvePermissions(tools, nil, legacy)
+	for _, permission := range []string{contracts.PermissionGroupKick, contracts.PermissionGroupMute, contracts.PermissionGroupLeave} {
+		if !grants[permission] {
+			t.Fatalf("legacy alias did not grant %s: %+v", permission, grants)
+		}
+	}
+	explicitFalse := ResolvePermissions(tools, nil, map[string]bool{
+		"qq.api.set_group_kick":       true,
+		contracts.PermissionGroupKick: false,
+	})
+	if explicitFalse[contracts.PermissionGroupKick] {
+		t.Fatalf("canonical explicit denial lost: %+v", explicitFalse)
+	}
+}
+
+// TestResolvePermissionsMapsLegacyConfiguredDefaults verifies legacy keys in
+// persisted settings keep working, not just scope overrides.
+// TestResolvePermissionsMapsLegacyConfiguredDefaults 验证持久化设置中的旧键也继续生效，
+// 而不只是作用域覆盖。
+func TestResolvePermissionsMapsLegacyConfiguredDefaults(t *testing.T) {
+	tools := []contracts.RegisteredTool{{Descriptor: contracts.ToolDescriptor{ID: "qq.set_group_kick", Permission: contracts.PermissionGroupKick}}}
+	grants := ResolvePermissions(tools, map[string]bool{"qq.api.set_group_kick": true}, nil)
+	if !grants[contracts.PermissionGroupKick] {
+		t.Fatalf("legacy configured default lost: %+v", grants)
+	}
+}

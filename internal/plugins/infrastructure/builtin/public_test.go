@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"net/http"
@@ -19,6 +20,10 @@ import (
 	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	"github.com/gorilla/websocket"
 )
+
+// testGroupRole returns an owner role for admin-gated public tools in tests.
+// testGroupRole 在测试中为需要管理员能力的公开工具返回群主角色。
+func testGroupRole(context.Context, int64, int64) (string, error) { return pc.GroupRoleOwner, nil }
 
 // TestPublicToolsStandardFrames uses a real WebSocket with standard-shaped responses.
 // TestPublicToolsStandardFrames 使用真实 WebSocket 和标准响应验证工具调用。
@@ -104,7 +109,7 @@ func TestPublicToolsStandardFrames(t *testing.T) {
 	for !tr.Connected() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	provider := NewPublicProvider(PublicOptions{Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }, Send: func(ctx context.Context, c ob.PublicCommand) (pc.SendReceipt, error) {
+	provider := NewPublicProvider(PublicOptions{GroupRole: testGroupRole, Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }, Send: func(ctx context.Context, c ob.PublicCommand) (pc.SendReceipt, error) {
 		result, err := api.ExecutePublic(ctx, c)
 		return pc.SendReceipt{Data: result.Data, MessageID: result.MessageID, Async: result.Async}, err
 	}})
@@ -172,7 +177,7 @@ func (a *recordingPublicAPI) ExecutePublic(_ context.Context, c ob.PublicCommand
 
 func TestPublicPermissionsAndTargets(t *testing.T) {
 	api := &recordingPublicAPI{}
-	tools, _ := NewPublicProvider(PublicOptions{Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
+	tools, _ := NewPublicProvider(PublicOptions{GroupRole: testGroupRole, Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
 	byID := map[string]pc.RegisteredTool{}
 	for _, tool := range tools {
 		byID[tool.Descriptor.ID] = tool
@@ -236,7 +241,7 @@ func TestPublicPermissionsAndTargets(t *testing.T) {
 // TestPublicLeaveNeverDissolvesGroup 保持不可逆分支不进入工具面，与收窄的退群工具一致。
 func TestPublicLeaveNeverDissolvesGroup(t *testing.T) {
 	api := &recordingPublicAPI{}
-	tools, _ := NewPublicProvider(PublicOptions{Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
+	tools, _ := NewPublicProvider(PublicOptions{GroupRole: testGroupRole, Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
 	byID := map[string]pc.RegisteredTool{}
 	for _, tool := range tools {
 		byID[tool.Descriptor.ID] = tool
@@ -257,7 +262,7 @@ func TestPublicLeaveNeverDissolvesGroup(t *testing.T) {
 // TestPublicRequestApprovalNeedsCrossConversation 保护超出来源会话的审批动作。
 func TestPublicRequestApprovalNeedsCrossConversation(t *testing.T) {
 	api := &recordingPublicAPI{}
-	tools, _ := NewPublicProvider(PublicOptions{Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
+	tools, _ := NewPublicProvider(PublicOptions{GroupRole: testGroupRole, Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
 	byID := map[string]pc.RegisteredTool{}
 	for _, tool := range tools {
 		byID[tool.Descriptor.ID] = tool
@@ -279,7 +284,7 @@ func TestPublicRequestApprovalNeedsCrossConversation(t *testing.T) {
 // OneBot 缺省值。
 func TestPublicDestructiveDefaultsMustBeExplicit(t *testing.T) {
 	api := &recordingPublicAPI{}
-	tools, _ := NewPublicProvider(PublicOptions{Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
+	tools, _ := NewPublicProvider(PublicOptions{GroupRole: testGroupRole, Account: func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 }}).Tools(context.Background())
 	byID := map[string]pc.RegisteredTool{}
 	for _, tool := range tools {
 		byID[tool.Descriptor.ID] = tool
@@ -306,7 +311,7 @@ func TestPublicDestructiveDefaultsMustBeExplicit(t *testing.T) {
 }
 
 func TestPublicToolConversationApplicability(t *testing.T) {
-	tools, err := NewPublicProvider(PublicOptions{}).Tools(context.Background())
+	tools, err := NewPublicProvider(PublicOptions{GroupRole: testGroupRole}).Tools(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +344,7 @@ func TestUnifiedSendTargetsAndGrants(t *testing.T) {
 		} {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
 				calls := 0
-				provider := NewPublicProvider(PublicOptions{Send: func(_ context.Context, c ob.PublicCommand) (pc.SendReceipt, error) {
+				provider := NewPublicProvider(PublicOptions{GroupRole: testGroupRole, Send: func(_ context.Context, c ob.PublicCommand) (pc.SendReceipt, error) {
 					calls++
 					target := int64(c.UserID)
 					if c.MessageType == ob.TypeGroup {
@@ -373,5 +378,124 @@ func TestUnifiedSendTargetsAndGrants(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestPublicAdminToolsEnforceBotGroupRole verifies admin-only OneBot actions
+// are refused after a runtime role demotion, while leave stays available and
+// owner-only actions reject a mere admin.
+// TestPublicAdminToolsEnforceBotGroupRole 验证运行中降权后管理员动作被拒；
+// 退群不受影响，owner 专属动作拒绝普通管理员。
+func TestPublicAdminToolsEnforceBotGroupRole(t *testing.T) {
+	api := &recordingPublicAPI{}
+	role := "member"
+	provider := NewPublicProvider(PublicOptions{
+		GroupRole: func(context.Context, int64, int64) (string, error) { return role, nil },
+		Account:   func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 },
+	})
+	tools, err := provider.Tools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]pc.RegisteredTool{}
+	for _, tool := range tools {
+		byID[tool.Descriptor.ID] = tool
+	}
+	invoke := func(id, args string, grants map[string]bool) string {
+		t.Helper()
+		tool := byID[id]
+		scope := pa.Scope{BotID: 100, Kind: pc.ScopeKindGroup, TargetID: 700, Permissions: grants}
+		result, err := pa.Guard(scope, tool.Descriptor, tool.Invoke)(context.Background(), args)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		return result
+	}
+	kickGrants := map[string]bool{"qq.group.admin.kick": true}
+	if out := invoke("qq.set_group_kick", `{"user_id":200}`, kickGrants); !strings.Contains(out, "机器人不是群管理员") || api.calls != 0 {
+		t.Fatalf("member kick out=%q calls=%d", out, api.calls)
+	}
+	role = "admin"
+	if out := invoke("qq.set_group_kick", `{"user_id":200}`, kickGrants); api.calls != 1 {
+		t.Fatalf("admin kick not executed: out=%q calls=%d", out, api.calls)
+	}
+	api.calls = 0
+	if out := invoke("qq.set_group_admin", `{"user_id":200}`, map[string]bool{"qq.api.set_group_admin": true}); !strings.Contains(out, "机器人不是群管理员") || api.calls != 0 {
+		t.Fatalf("admin must not set admins: out=%q calls=%d", out, api.calls)
+	}
+	role = "owner"
+	if out := invoke("qq.set_group_admin", `{"user_id":200}`, map[string]bool{"qq.api.set_group_admin": true}); api.calls != 1 {
+		t.Fatalf("owner set-admin not executed: out=%q calls=%d", out, api.calls)
+	}
+	api.calls = 0
+	role = "member"
+	if out := invoke("qq.set_group_leave", `{}`, map[string]bool{"qq.group.admin.leave": true}); api.calls != 1 {
+		t.Fatalf("leave must not require admin: out=%q calls=%d", out, api.calls)
+	}
+}
+
+// TestPublicAdminParameterBounds verifies the public tools keep the narrowed
+// tools' mute and card bounds after the duplicate providers are filtered out.
+// TestPublicAdminParameterBounds 验证公共工具在去重后保留下调工具的禁言与名片边界。
+func TestPublicAdminParameterBounds(t *testing.T) {
+	api := &recordingPublicAPI{}
+	provider := NewPublicProvider(PublicOptions{
+		GroupRole: testGroupRole,
+		Account:   func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 },
+	})
+	tools, err := provider.Tools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]pc.RegisteredTool{}
+	for _, tool := range tools {
+		byID[tool.Descriptor.ID] = tool
+	}
+	invoke := func(id, args string) string {
+		t.Helper()
+		tool := byID[id]
+		scope := pa.Scope{BotID: 100, Kind: pc.ScopeKindGroup, TargetID: 700, Permissions: map[string]bool{tool.Descriptor.Permission: true}}
+		result, err := pa.Guard(scope, tool.Descriptor, tool.Invoke)(context.Background(), args)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		return result
+	}
+	if out := invoke("qq.set_group_ban", `{"user_id":200,"duration":7200}`); !strings.Contains(out, "3600") || api.calls != 0 {
+		t.Fatalf("mute bound lost: out=%q calls=%d", out, api.calls)
+	}
+	long := strings.Repeat("字", 31)
+	if out := invoke("qq.set_group_card", `{"user_id":200,"card":"`+long+`"}`); !strings.Contains(out, "30") || api.calls != 0 {
+		t.Fatalf("card bound lost: out=%q calls=%d", out, api.calls)
+	}
+	if out := invoke("qq.set_group_ban", `{"user_id":200,"duration":3600}`); api.calls != 1 {
+		t.Fatalf("boundary duration rejected: out=%q calls=%d", out, api.calls)
+	}
+}
+
+// TestPublicAdminToolsFailClosedWhenRoleUnknown verifies an unavailable role
+// lookup denies the action with a clear reason instead of running unchecked.
+// TestPublicAdminToolsFailClosedWhenRoleUnknown 验证角色查询不可用时拒绝动作并给出明确原因，
+// 而不是未校验就执行。
+func TestPublicAdminToolsFailClosedWhenRoleUnknown(t *testing.T) {
+	api := &recordingPublicAPI{}
+	provider := NewPublicProvider(PublicOptions{
+		GroupRole: func(context.Context, int64, int64) (string, error) { return "", errors.New("offline") },
+		Account:   func(botID int64) (oc.PublicAPI, bool) { return api, botID == 100 },
+	})
+	tools, _ := provider.Tools(context.Background())
+	var kick pc.RegisteredTool
+	for _, tool := range tools {
+		if tool.Descriptor.ID == "qq.set_group_kick" {
+			kick = tool
+		}
+	}
+	scope := pa.Scope{BotID: 100, Kind: pc.ScopeKindGroup, TargetID: 700, Permissions: map[string]bool{"qq.group.admin.kick": true}}
+	result, err := pa.Guard(scope, kick.Descriptor, kick.Invoke)(context.Background(), `{"user_id":200}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "无法确认机器人群角色") || api.calls != 0 {
+		t.Fatalf("role unavailable result=%q calls=%d", result, api.calls)
 	}
 }

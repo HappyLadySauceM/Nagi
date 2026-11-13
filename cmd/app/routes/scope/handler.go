@@ -12,6 +12,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
@@ -167,6 +168,7 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	body.ToolPermissions = pluginscontracts.NormalizePermissionOverrides(body.ToolPermissions)
 	// An override for a permission no registered tool declares has no effect at
 	// runtime, so reject it instead of storing a misleading policy. A permission
 	// that already exists on the stored row is tolerated: removing a provider
@@ -210,12 +212,20 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		ToolPermissions:         body.ToolPermissions,
 	}
 	if err := h.svcCtx.Scope.Upsert(r.Context(), botID, policy); err != nil {
-		if errors.Is(err, scopedomain.ErrTemplateConflict) {
+		switch {
+		case errors.Is(err, scopedomain.ErrTemplateConflict):
 			common.WriteFailure(w, http.StatusConflict, "default template changed; reload before saving")
 			return
+		case errors.Is(err, scopedomain.ErrBotNotGroupAdmin):
+			common.WriteFailure(w, http.StatusBadRequest, "bot_not_group_admin")
+			return
+		case errors.Is(err, scopedomain.ErrBotGroupRoleUnavailable):
+			common.WriteFailure(w, http.StatusServiceUnavailable, "bot_group_role_unavailable")
+			return
+		default:
+			common.WriteFailure(w, http.StatusBadRequest, "invalid scope policy")
+			return
 		}
-		common.WriteFailure(w, http.StatusBadRequest, "invalid scope policy")
-		return
 	}
 	saved, err := h.svcCtx.Scope.Get(r.Context(), botID, t, id)
 	if err != nil {

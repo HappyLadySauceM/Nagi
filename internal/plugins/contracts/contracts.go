@@ -114,6 +114,11 @@ type ToolDescriptor struct {
 	// ReadOnly.
 	// RiskLevel 标注工具的影响级别；为空时按 ReadOnly 推导。
 	RiskLevel RiskLevel
+	// RequiresGroupRole declares the bot's minimum role in the target group
+	// (admin or owner). Empty means no group-role precondition.
+	// RequiresGroupRole 声明机器人在目标群所需的最低角色（admin 或 owner）；
+	// 空值表示不需要群角色前置条件。
+	RequiresGroupRole string
 	// ReadOnly marks tools without side effects.
 	// ReadOnly 标记无副作用的工具。
 	ReadOnly   bool

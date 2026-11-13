@@ -127,3 +127,42 @@ func TestDirectoryRoundTrip(t *testing.T) {
 		t.Fatalf("after delete group: total=%d err=%v", groups.Total, err)
 	}
 }
+
+// TestDirectoryBotGroupRole verifies the group list and role lookup expose the
+// bot's own membership role for the scope admin gate.
+// TestDirectoryBotGroupRole 验证群列表与角色查询返回机器人自身的成员角色，
+// 供作用域管理员校验使用。
+func TestDirectoryBotGroupRole(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	ctx := context.Background()
+	const botID, groupID = 990201, 990202
+	if err := repo.UpsertBotAccount(ctx, botID, "角色测试机器人"); err != nil {
+		t.Fatalf("upsert bot account: %v", err)
+	}
+	if err := repo.UpsertGroups(ctx, botID, []domain.Group{{GroupID: groupID, Name: "角色测试群", MemberCount: 3}}); err != nil {
+		t.Fatalf("upsert group: %v", err)
+	}
+	if err := repo.UpsertGroupMembers(ctx, botID, groupID, []domain.GroupMember{
+		{GroupID: groupID, UserID: botID, Nickname: "角色测试机器人", Role: "admin"},
+	}); err != nil {
+		t.Fatalf("upsert bot member: %v", err)
+	}
+	role, err := repo.BotGroupRole(ctx, botID, groupID)
+	if err != nil || role != "admin" {
+		t.Fatalf("bot role = %q err = %v", role, err)
+	}
+	page, err := repo.ListGroups(ctx, botID, domain.PageQuery{Search: "角色测试群", Page: 1, Limit: 10})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("groups = %+v err = %v", page, err)
+	}
+	if page.Items[0].BotRole != "admin" {
+		t.Fatalf("group bot role = %q", page.Items[0].BotRole)
+	}
+	if role, err := repo.BotGroupRole(ctx, botID, groupID+1); err != nil || role != "" {
+		t.Fatalf("missing member role = %q err = %v", role, err)
+	}
+}

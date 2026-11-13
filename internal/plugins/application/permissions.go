@@ -13,6 +13,8 @@ import (
 // 优先级为作用域覆盖、配置默认、描述符显式默认或兜底：只读工具允许，其余默认拒绝。
 // 多个工具共用一个权限时取最严格的兜底，注册顺序因此不会放大权限。
 func ResolvePermissions(tools []contracts.RegisteredTool, configDefaults, overrides map[string]bool) map[string]bool {
+	configDefaults = contracts.NormalizePermissionOverrides(configDefaults)
+	overrides = contracts.NormalizePermissionOverrides(overrides)
 	fallback := make(map[string]bool, len(tools))
 	fallback["media.voice.transcribe"] = true
 	for _, registered := range tools {
@@ -59,4 +61,20 @@ func Allowed(descriptor contracts.ToolDescriptor, granted map[string]bool) bool 
 		return true
 	}
 	return granted[descriptor.Permission]
+}
+
+// RequiredGroupRole returns the strongest group role required by any tool
+// carrying the given permission. Empty means no group-role prerequisite.
+// RequiredGroupRole 返回持有该权限的任意工具所要求的最强群角色；空值表示无前置要求。
+func RequiredGroupRole(tools []contracts.RegisteredTool, permission string) string {
+	required := ""
+	for _, registered := range tools {
+		if registered.Descriptor.Permission != permission {
+			continue
+		}
+		if contracts.GroupRoleRank(registered.Descriptor.RequiresGroupRole) > contracts.GroupRoleRank(required) {
+			required = registered.Descriptor.RequiresGroupRole
+		}
+	}
+	return required
 }
