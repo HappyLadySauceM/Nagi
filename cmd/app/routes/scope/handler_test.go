@@ -3,9 +3,19 @@
 package scope
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // TestUnknownPermissions verifies that overrides outside the registered
@@ -61,5 +71,133 @@ func TestPolicyUpdateMemoryReadDefaultsOff(t *testing.T) {
 	}
 	if !body.AllowMemoryRead {
 		t.Fatal("explicit allow_memory_read=true was lost")
+	}
+}
+
+// memScopeRepo is a minimal in-memory scope repository for HTTP tests.
+// memScopeRepo 是 HTTP 测试使用的最小内存作用域仓库。
+type memScopeRepo struct{ policies map[string]scopedomain.Policy }
+
+func (m *memScopeRepo) key(botID int64, scopeType scopedomain.ScopeType, scopeID int64) string {
+	return fmt.Sprintf("%d:%s:%d", botID, scopeType, scopeID)
+}
+
+func (m *memScopeRepo) Get(_ context.Context, botID int64, scopeType scopedomain.ScopeType, scopeID int64) (scopedomain.Policy, bool, error) {
+	policy, ok := m.policies[m.key(botID, scopeType, scopeID)]
+	return policy, ok, nil
+}
+
+func (m *memScopeRepo) List(context.Context, *int64) ([]scopedomain.Policy, error) {
+	out := make([]scopedomain.Policy, 0, len(m.policies))
+	for _, policy := range m.policies {
+		out = append(out, policy)
+	}
+	return out, nil
+}
+
+func (m *memScopeRepo) Upsert(_ context.Context, botID int64, policy scopedomain.Policy) error {
+	m.policies[m.key(botID, policy.ScopeType, policy.ScopeID)] = policy
+	return nil
+}
+
+func (m *memScopeRepo) Delete(_ context.Context, botID int64, scopeType scopedomain.ScopeType, scopeID int64) (bool, error) {
+	key := m.key(botID, scopeType, scopeID)
+	_, ok := m.policies[key]
+	delete(m.policies, key)
+	return ok, nil
+}
+
+func putScopeRequest(mux *http.ServeMux, body string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/scopes/private/1552089234?bot_id=1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+type httpGateModels struct{ allowed map[string]bool }
+
+func (m httpGateModels) ResolveModel(_ context.Context, usage string, _ int64, _ string, _ int64) (models.Resolved, error) {
+	if !m.allowed[usage] {
+		return models.Resolved{}, fmt.Errorf("not verified")
+	}
+	return models.Resolved{}, nil
+}
+
+func (httpGateModels) BilibiliCredential(context.Context) (string, error) { return "", nil }
+
+// productionScopeService mirrors the assembly used by the server: generation
+// is tested, the default transcription grant is true, and ASR is unavailable.
+// productionScopeService 模拟服务端装配：生成模型已测试，默认转写授权为 true，ASR 不可用。
+func productionScopeService(t *testing.T, repo scopeapp.Repository) *scopeapp.Service {
+	t.Helper()
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeService.SetModels(httpGateModels{allowed: map[string]bool{"generation": true}})
+	scopeService.SetPermissionResolver(func(overrides map[string]bool) scopeapp.PermissionState {
+		defaults := map[string]bool{"media.voice.transcribe": true, "media.voice.send": false}
+		effective := map[string]bool{}
+		for key, value := range defaults {
+			effective[key] = value
+		}
+		for key, value := range overrides {
+			effective[key] = value
+		}
+		return scopeapp.PermissionState{Defaults: defaults, Effective: effective}
+	})
+	return scopeService
+}
+
+func TestPutFirstEnableReturnsOK(t *testing.T) {
+	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	scopeService := productionScopeService(t, repo)
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Scope: scopeService}).Register(mux)
+	body := `{"max_messages_per_run":0,"max_chars_per_message":4500,"max_total_chars_per_run":0,"message_interval_ms":700,"enabled":true,"reply_mode":"mention_only","store_messages":true,"allow_history_read":false,"allow_memory_read":false,"allow_memory_write":false,"min_reply_interval_ms":10000,"max_replies_per_hour":0,"tool_permissions":{}}`
+	rec := putScopeRequest(mux, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Enabled   bool
+			ScopeID   int64
+			ScopeType string
+		}
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !envelope.Data.Enabled || envelope.Data.ScopeID != 1552089234 || envelope.Data.ScopeType != "private" {
+		t.Fatalf("policy = %+v", envelope.Data)
+	}
+}
+
+func TestPutExplicitVoiceGrantWithoutModelRejected(t *testing.T) {
+	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	scopeService := productionScopeService(t, repo)
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Scope: scopeService}).Register(mux)
+	body := `{"enabled":true,"reply_mode":"mention_only","store_messages":true,"tool_permissions":{"media.voice.transcribe":true}}`
+	rec := putScopeRequest(mux, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutRejectsInvalidPolicy(t *testing.T) {
+	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Scope: scopeService}).Register(mux)
+	body := `{"enabled":true,"reply_mode":"not-a-mode"}`
+	rec := putScopeRequest(mux, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 }
