@@ -5,9 +5,9 @@ package application
 import (
 	"context"
 	"fmt"
-	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"testing"
 
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
@@ -275,65 +275,85 @@ func TestDefaultTemplatesAreIsolatedAndIndependentPoliciesWin(t *testing.T) {
 	}
 }
 
-type gateModels struct{ allowed map[string]bool }
-
-func (m gateModels) ResolveModel(_ context.Context, usage string, _ int64, _ string, _ int64) (models.Resolved, error) {
-	if !m.allowed[usage] {
-		return models.Resolved{}, fmt.Errorf("not verified")
-	}
-	return models.Resolved{}, nil
-}
-func (gateModels) BilibiliCredential(context.Context) (string, error) { return "", nil }
-
-// TestPolicyModelPrerequisites verifies server-side enabling and voice grants cannot bypass model validation.
-// TestPolicyModelPrerequisites 验证后端阻止绕过模型验证启用策略或语音能力。
-func TestPolicyModelPrerequisites(t *testing.T) {
+// TestUpsertEnabledScopeRequiresGenerationModel verifies the existing
+// generation-model readiness gate still applies when a scope is enabled, while
+// the default-granted ASR permission does not require an ASR model.
+// TestUpsertEnabledScopeRequiresGenerationModel 验证启用作用域仍要求生成模型可用，
+// 而默认授予的 ASR 权限不要求 ASR 模型。
+func TestUpsertEnabledScopeRequiresGenerationModel(t *testing.T) {
 	repo := newFakeRepo()
-	s, _ := NewService(repo)
-	allowed := map[string]bool{}
-	s.SetModels(gateModels{allowed})
-	policy := domain.Default(domain.ScopePrivate, 123)
-	policy.Enabled = true
-	if err := s.Upsert(context.Background(), 1, policy); err == nil {
-		t.Fatal("enabled without generation model")
-	}
-	allowed["generation"] = true
-	if err := s.Upsert(context.Background(), 1, policy); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := s.Resolve(context.Background(), 1, domain.ScopePrivate, 123)
-	if got.ToolPermissions["media.voice.transcribe"] {
-		t.Fatal("new scope automatically granted transcription")
-	}
-	policy.ToolPermissions = map[string]bool{"media.voice.send": true}
-	if err := s.Upsert(context.Background(), 1, policy); err == nil {
-		t.Fatal("granted TTS without model")
-	}
-	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": true}
-	if err := s.Upsert(context.Background(), 1, policy); err == nil {
-		t.Fatal("granted ASR without model")
-	}
-	allowed["asr"] = true
-	if err := s.Upsert(context.Background(), 1, policy); err != nil {
-		t.Fatal(err)
-	}
-	delete(allowed, "generation")
-	policy.Enabled = false
-	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": false}
-	if err := s.Upsert(context.Background(), 1, policy); err != nil {
-		t.Fatal("cannot revoke while models unavailable", err)
-	}
-}
-
-func TestUpsertUsesEffectivePermissionChange(t *testing.T) {
-	repo := newFakeRepo()
-	s, err := NewService(repo)
+	svc, err := NewService(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed := map[string]bool{"generation": true}
-	s.SetModels(gateModels{allowed})
-	s.SetPermissionResolver(func(overrides map[string]bool) PermissionState {
+	allowed := map[string]bool{}
+	svc.SetModels(gateModels{allowed: allowed})
+	svc.SetPermissionResolver(func(overrides map[string]bool) PermissionState {
+		defaults := map[string]bool{"media.voice.transcribe": true, "media.voice.send": false}
+		effective := clonePermissions(defaults)
+		for key, value := range overrides {
+			effective[key] = value
+		}
+		return PermissionState{Defaults: defaults, Effective: effective}
+	})
+	policy := domain.Default(domain.ScopePrivate, 123)
+	policy.Enabled = true
+	if err := svc.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("enabled scope without generation model must fail")
+	}
+	allowed["generation"] = true
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("default-granted ASR must not block enable: %v", err)
+	}
+	got, err := svc.Resolve(context.Background(), 1, domain.ScopePrivate, 123)
+	if err != nil || !got.Enabled {
+		t.Fatalf("stored policy = %+v, err=%v", got, err)
+	}
+	if got.ToolPermissions["media.voice.transcribe"] {
+		t.Fatalf("new scope must not persist a default ASR override: %+v", got.ToolPermissions)
+	}
+	if !got.PermissionGranted("media.voice.transcribe") {
+		t.Fatalf("default ASR grant missing: %+v", got)
+	}
+}
+
+// TestUpsertDisabledThenEnabled verifies both create paths work without an
+// intermediate database write.
+// TestUpsertDisabledThenEnabled 验证创建后直接启用与先关闭再启用两条路径都可用。
+func TestUpsertDisabledThenEnabled(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{}
+	svc.SetModels(gateModels{allowed: allowed})
+	policy := domain.Default(domain.ScopePrivate, 124)
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("disabled upsert: %v", err)
+	}
+	allowed["generation"] = true
+	policy.Enabled = true
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("disabled->enabled upsert: %v", err)
+	}
+	got, err := svc.Resolve(context.Background(), 1, domain.ScopePrivate, 124)
+	if err != nil || !got.Enabled {
+		t.Fatalf("stored policy = %+v, err=%v", got, err)
+	}
+}
+
+// TestUpsertPersistsPermissionOverrides verifies explicit capability grants
+// remain data and are not replaced by model-readiness checks.
+// TestUpsertPersistsPermissionOverrides 验证显式能力授权仍作为数据保存，不会被模型就绪检查替换。
+func TestUpsertPersistsPermissionOverrides(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetModels(gateModels{allowed: map[string]bool{"generation": true}})
+	svc.SetPermissionResolver(func(overrides map[string]bool) PermissionState {
 		defaults := map[string]bool{"media.voice.transcribe": true, "media.voice.send": false}
 		effective := clonePermissions(defaults)
 		for key, value := range overrides {
@@ -343,14 +363,10 @@ func TestUpsertUsesEffectivePermissionChange(t *testing.T) {
 	})
 	policy := domain.Default(domain.ScopePrivate, 456)
 	policy.Enabled = true
-	if err := s.Upsert(context.Background(), 1, policy); err == nil {
-		t.Fatal("default-enabled ASR must require an ASR model")
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("default-granted ASR must not block enable: %v", err)
 	}
-	allowed["asr"] = true
-	if err := s.Upsert(context.Background(), 1, policy); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.Resolve(context.Background(), 1, domain.ScopePrivate, 456)
+	got, err := svc.Resolve(context.Background(), 1, domain.ScopePrivate, 456)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,11 +377,95 @@ func TestUpsertUsesEffectivePermissionChange(t *testing.T) {
 		t.Fatalf("effective ASR grant missing: %+v", got)
 	}
 	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": false}
-	if err := s.Upsert(context.Background(), 1, policy); err != nil {
-		t.Fatal(err)
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("explicit deny: %v", err)
 	}
-	got, err = s.Resolve(context.Background(), 1, domain.ScopePrivate, 456)
+	got, err = svc.Resolve(context.Background(), 1, domain.ScopePrivate, 456)
 	if err != nil || got.PermissionGranted("media.voice.transcribe") {
 		t.Fatalf("explicit deny not effective: %+v, %v", got, err)
+	}
+}
+
+type gateModels struct{ allowed map[string]bool }
+
+func (m gateModels) ResolveModel(_ context.Context, usage string, _ int64, _ string, _ int64) (models.Resolved, error) {
+	if !m.allowed[usage] {
+		return models.Resolved{}, fmt.Errorf("not verified")
+	}
+	return models.Resolved{}, nil
+}
+func (gateModels) BilibiliCredential(context.Context) (string, error) { return "", nil }
+
+// TestUpsertExplicitVoiceGrantRequiresModel verifies explicit ASR/TTS grants
+// still require their model while default-granted voice does not block enable.
+// TestUpsertExplicitVoiceGrantRequiresModel 验证显式 ASR/TTS 授权仍要求对应模型，
+// 而默认授予的语音能力不阻塞启用。
+func TestUpsertExplicitVoiceGrantRequiresModel(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{"generation": true}
+	svc.SetModels(gateModels{allowed})
+	policy := domain.Default(domain.ScopePrivate, 789)
+	policy.Enabled = true
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("default-granted voice must not block enable: %v", err)
+	}
+	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": true}
+	if err := svc.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("explicit ASR grant without model must fail")
+	}
+	allowed["asr"] = true
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("explicit ASR with model: %v", err)
+	}
+	policy.ToolPermissions = map[string]bool{"media.voice.send": true}
+	if err := svc.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("explicit TTS grant without model must fail")
+	}
+	allowed["tts"] = true
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("explicit TTS with model: %v", err)
+	}
+}
+
+// TestUpsertExistingExplicitVoiceGrantDoesNotBlockUpdates verifies an existing
+// explicit grant stays editable and disableable when its model later becomes
+// unavailable; only a new grant or a re-enable requires the model again.
+// TestUpsertExistingExplicitVoiceGrantDoesNotBlockUpdates 验证已有显式授权在模型失效后
+// 仍可编辑和关闭；只有新增授权或重新启用才再次要求模型。
+func TestUpsertExistingExplicitVoiceGrantDoesNotBlockUpdates(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{"generation": true, "asr": true}
+	svc.SetModels(gateModels{allowed})
+	policy := domain.Default(domain.ScopePrivate, 790)
+	policy.Enabled = true
+	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": true}
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("initial explicit ASR grant: %v", err)
+	}
+	delete(allowed, "asr")
+	policy.MessageIntervalMS = 800
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("unrelated update must not require ASR model: %v", err)
+	}
+	policy.Enabled = false
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("disable must not require ASR model: %v", err)
+	}
+	policy.Enabled = true
+	if err := svc.Upsert(context.Background(), 1, policy); err == nil {
+		t.Fatal("re-enable with explicit ASR grant and no model must fail")
+	}
+	policy.Enabled = false
+	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": false}
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("revoke explicit ASR while model unavailable: %v", err)
 	}
 }

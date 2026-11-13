@@ -5,9 +5,9 @@ package application
 import (
 	"context"
 	"fmt"
+
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
-
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
@@ -43,8 +43,9 @@ type PermissionState struct {
 // PermissionResolver 在组合根绑定，避免 scope 上下文依赖插件注册表或配置实现。
 type PermissionResolver func(overrides map[string]bool) PermissionState
 
-// SetModels binds model availability checks at composition time.
-// SetModels 在装配时绑定模型可用性校验。
+// SetModels binds model availability checks used when a scope is activated or
+// an explicit voice capability is granted.
+// SetModels 绑定作用域启用与显式语音授权使用的模型可用性检查。
 func (s *Service) SetModels(resolver models.Resolver) { s.models = resolver }
 
 // SetPermissionResolver binds the shared runtime permission resolution rule.
@@ -156,24 +157,27 @@ func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy)
 			return err
 		}
 		policy.ToolPermissions = clonePermissions(policy.ToolPermissions)
-		proposed := policy
-		if s.permissions != nil {
-			state := s.permissions(proposed.ToolPermissions)
-			proposed.PermissionDefaults = clonePermissions(state.Defaults)
-			proposed.EffectiveToolPermissions = clonePermissions(state.Effective)
-		}
+		// Enabling a scope still requires a tested generation model because the
+		// reply runtime cannot start without one. Saving a disabled scope or
+		// editing an enabled one stays a policy decision.
+		// 启用作用域仍要求生成模型已测试可用，因为回复运行时离开它无法启动；
+		// 保存关闭策略或编辑已启用策略仍只属于策略决策。
 		if policy.Enabled && !previous.Enabled {
 			if _, err = s.models.ResolveModel(ctx, "generation", botID, string(policy.ScopeType), policy.ScopeID); err != nil {
 				return fmt.Errorf("请先配置并测试生成模型")
 			}
 		}
+		// Only an explicit voice capability grant requires its model. The
+		// default transcription grant (fallback true) must not block creation or
+		// editing, and an existing explicit grant must not block unrelated
+		// updates or disabling the scope.
+		// 只有显式语音能力授权才要求对应模型可用。默认转写授权（兜底 true）
+		// 不得阻塞创建或编辑；已存在的显式授权也不得阻塞无关更新或关闭作用域。
 		for permission, usage := range map[string]string{"media.voice.transcribe": "asr", "media.voice.send": "tts"} {
-			// Enabling a scope activates already-default-granted capabilities too.
-			// Checking only the permission delta would let a default grant bypass
-			// model readiness on the first activation of a conversation.
-			// 启用作用域会激活默认已授予的能力；仅比较权限差异会让首次
-			// 启用会话时绕过模型就绪校验。
-			if proposed.PermissionGranted(permission) && (!previous.PermissionGranted(permission) || (!previous.Enabled && proposed.Enabled)) {
+			explicit := policy.ToolPermissions[permission]
+			newlyGranted := explicit && !previous.ToolPermissions[permission]
+			activating := explicit && !previous.Enabled && policy.Enabled
+			if newlyGranted || activating {
 				if _, err = s.models.ResolveModel(ctx, usage, 0, "", 0); err != nil {
 					return fmt.Errorf("请先配置并测试 %s 模型", usage)
 				}
