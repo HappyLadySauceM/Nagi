@@ -37,6 +37,7 @@ import {
   toScopeFormValues,
   type ScopeFormValues,
 } from '../../scopes/schema'
+import { useGroupBotRole } from '../queries'
 
 interface ScopeEditDialogProps {
   open: boolean
@@ -71,6 +72,11 @@ export function ScopeEditDialog({
   const [loadTemplate, setLoadTemplate] = useState(false)
   const [templateVersion, setTemplateVersion] = useState<number | undefined>(undefined)
   const tools = useToolsCatalog(scopeType)
+  const groupRole = useGroupBotRole(
+    botId,
+    scopeType === 'group' ? scopeId : 0,
+    open && scopeType === 'group' && scopeId > 0,
+  )
   const save = useSaveScope()
   const remove = useDeleteScope()
 
@@ -221,7 +227,7 @@ export function ScopeEditDialog({
             </div>
           ) : scope.isError ? null : (
             <><ConversationModel botId={botId} kind={scopeType} targetId={scopeId}/><form id="scope-edit-dialog-form" onSubmit={onSubmit} className="min-h-0 min-w-0 overflow-y-auto">
-              <ScopeFormFields modelAvailability={modelAvailability} form={form} disabled={isBusy} catalog={tools.isError || tools.isLoading ? undefined : tools.data} section={section} />
+              <ScopeFormFields modelAvailability={modelAvailability} form={form} disabled={isBusy} catalog={tools.isError || tools.isLoading ? undefined : tools.data} section={section} groupRole={scopeType === 'group' && scopeId > 0 ? { status: groupRole.isLoading ? 'loading' : groupRole.isError ? 'error' : 'ready', role: groupRole.data } : undefined} />
             </form></>
           )}
 

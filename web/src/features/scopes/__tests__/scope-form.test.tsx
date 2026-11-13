@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SCOPE_FORM } from '../../../lib/api/adapters/scope'
 import type { ToolCatalogEntry, ToolsCatalog } from '../../../lib/api/contracts'
-import { ScopeFormFields } from '../components/scope-form'
+import { ScopeFormFields, type GroupRoleState } from '../components/scope-form'
 import { toScopeFormValues, type ScopeFormValues } from '../schema'
 
 function tool(overrides: Partial<ToolCatalogEntry> & { id: string }): ToolCatalogEntry {
@@ -38,12 +38,12 @@ function catalogOf(tools: ToolCatalogEntry[], defaultGranted = true): ToolsCatal
   }
 }
 
-function renderCatalog(catalog: ToolsCatalog, disabled = false, enabled = false, modelsReady = false) {
+function renderCatalog(catalog: ToolsCatalog, disabled = false, enabled = false, modelsReady = false, groupRole?: GroupRoleState) {
   function Harness() {
     const form = useForm<ScopeFormValues>({
       defaultValues: toScopeFormValues({ ...DEFAULT_SCOPE_FORM, enabled }),
     })
-    return <><ScopeFormFields form={form} catalog={catalog} disabled={disabled} modelAvailability={{ generation: modelsReady, asr: modelsReady, tts: modelsReady }} /><output aria-label="权限覆盖">{JSON.stringify(form.watch('toolPermissions'))}</output></>
+    return <><ScopeFormFields form={form} catalog={catalog} disabled={disabled} modelAvailability={{ generation: modelsReady, asr: modelsReady, tts: modelsReady }} groupRole={groupRole} /><output aria-label="权限覆盖">{JSON.stringify(form.watch('toolPermissions'))}</output></>
   }
   render(<Harness />)
 }
@@ -276,4 +276,56 @@ it('revoking media closes voice without closing text sending', () => {
   fireEvent.click(screen.getByRole('button', { name: '一起关闭' }))
   expect(screen.getByRole('checkbox', { name: '发送消息' })).toBeChecked()
   expect(screen.getByRole('checkbox', { name: '合成语音回复' })).not.toBeChecked()
+})
+
+function groupAdminCatalog(required: 'admin' | 'owner', defaultGranted = false): ToolsCatalog {
+  const entry = tool({ id: 'qq.mute_group_member', permission: 'qq.group.admin.mute' })
+  return {
+    providers: ['builtin.qq'],
+    tools: [entry],
+    permissions: [{
+      id: 'qq.group.admin.mute',
+      tools: [entry.id],
+      defaultGranted,
+      requiresGroupRole: required,
+    }],
+  }
+}
+
+describe('ScopeFormFields group role gating', () => {
+  it('disables an admin capability and explains why when the bot is a member', () => {
+    renderCatalog(groupAdminCatalog('admin'), false, false, false, { status: 'ready', role: 'member' })
+    expect(screen.getByRole('checkbox', { name: '禁言群成员' })).toBeDisabled()
+    expect(screen.getByText('机器人不是该群管理员，无法开启。')).toBeVisible()
+  })
+
+  it('allows an admin capability when the bot is an administrator', () => {
+    renderCatalog(groupAdminCatalog('admin'), false, false, false, { status: 'ready', role: 'admin' })
+    expect(screen.getByRole('checkbox', { name: '禁言群成员' })).toBeEnabled()
+    expect(screen.queryByText('机器人不是该群管理员，无法开启。')).toBeNull()
+  })
+
+  it('disables an owner-only capability for an admin and names the owner requirement', () => {
+    renderCatalog(groupAdminCatalog('owner'), false, false, false, { status: 'ready', role: 'admin' })
+    expect(screen.getByRole('checkbox', { name: '禁言群成员' })).toBeDisabled()
+    expect(screen.getByText('该能力仅群主可用，当前机器人是群管理员，无法开启。')).toBeVisible()
+  })
+
+  it('keeps a granted capability revocable when the bot lost the role and warns', () => {
+    renderCatalog(groupAdminCatalog('admin', true), false, false, false, { status: 'ready', role: 'member' })
+    const control = screen.getByRole('checkbox', { name: '禁言群成员' })
+    expect(control).toBeChecked()
+    expect(control).toBeEnabled()
+    expect(screen.getByText('机器人不是该群管理员；该能力已开启但当前无法使用，建议关闭。')).toBeVisible()
+  })
+
+  it.each([
+    ['loading', '正在确认机器人在该群的角色…'],
+    ['error', '无法确认机器人在该群的角色，暂不能开启需要管理员的能力。'],
+    ['ready', '无法确认机器人在该群的角色，暂不能开启需要管理员的能力。'],
+  ] as const)('fails closed while the role is %s', (status, hint) => {
+    renderCatalog(groupAdminCatalog('admin'), false, false, false, { status })
+    expect(screen.getByRole('checkbox', { name: '禁言群成员' })).toBeDisabled()
+    expect(screen.getByText(hint)).toBeVisible()
+  })
 })

@@ -40,13 +40,27 @@ describe('directory adapters', () => {
 
   it('maps the PascalCase group page', () => {
     const page = toGroupPage({
-      Items: [{ GroupID: 555, Name: '值班室', MemberCount: 42, LastSeenAt: '2026-10-23T09:00:00Z' }],
+      Items: [{ GroupID: 555, Name: '值班室', MemberCount: 42, BotRole: 'admin', LastSeenAt: '2026-10-23T09:00:00Z' }],
       Total: 1,
       Page: 1,
       Limit: 20,
     })
 
-    expect(page.items[0]).toMatchObject({ groupId: 555, name: '值班室', memberCount: 42 })
+    expect(page.items[0]).toMatchObject({ groupId: 555, name: '值班室', memberCount: 42, botRole: 'admin' })
+  })
+
+  it('treats a missing or unknown cached BotRole as unknown', () => {
+    const page = toGroupPage({
+      Items: [
+        { GroupID: 1, Name: '缓存为空', MemberCount: 1 },
+        { GroupID: 2, Name: '未来角色', MemberCount: 1, BotRole: 'future-role' },
+      ],
+      Total: 2,
+      Page: 1,
+      Limit: 20,
+    })
+
+    expect(page.items.map((group) => group.botRole)).toEqual(['', ''])
   })
 
   it('maps the PascalCase member page', () => {

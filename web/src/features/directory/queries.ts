@@ -7,6 +7,7 @@ import {
   toMemberPage,
 } from '../../lib/api/adapters/directory'
 import { toQueryString } from '../../lib/api/query-string'
+import type { GroupRole } from '../../lib/api/contracts'
 import { DIRECTORY_QUERY_KEYS, queryKeys, type PageParams } from '../../lib/query-keys'
 
 /** The backend caps sync and member refresh at 30s; leave headroom for the proxy. */
@@ -79,6 +80,34 @@ export function useGroupMembers(
     refetchInterval: 30_000,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[2] === (botId ?? null) ? previousData : undefined,
+  })
+}
+
+/**
+ * Refreshes one group's member cache and returns the bot's own current role.
+ * The group list only exposes a cached BotRole, so opening a policy drawer must
+ * call this to avoid treating a real administrator as a plain member.
+ * 刷新一个群的成员缓存并返回机器人自身的当前角色。群列表只提供缓存
+ * BotRole，打开策略抽屉时必须调用本查询，避免把实际管理员误判为普通成员。
+ */
+export function useGroupBotRole(botId: number | undefined, groupId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['directory', 'group-bot-role', botId ?? null, groupId],
+    enabled: enabled && botId !== undefined && Number.isFinite(groupId) && groupId > 0,
+    queryFn: async ({ signal }): Promise<GroupRole> => {
+      const page = await apiRequest(
+        `/api/v1/groups/${groupId}/members${toQueryString({
+          bot_id: botId,
+          search: String(botId),
+          page: 1,
+          limit: 20,
+          refresh: 'true',
+        })}`,
+        { signal, timeoutMs: SYNC_TIMEOUT_MS },
+      ).then(toMemberPage)
+      const role = page.items.find((member) => member.userId === botId)?.role
+      return role === 'owner' || role === 'admin' || role === 'member' ? role : ''
+    },
   })
 }
 
