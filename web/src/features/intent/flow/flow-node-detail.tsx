@@ -331,6 +331,7 @@ export function FlowNodeDetail({
                 <FieldGrid
                   rows={[
                     ['状态', STATUS_META[runNode.status].label],
+                    ['版本', `v${runNode.version}`],
                     ['分支', runNode.branch],
                     ['原因码', runNode.reasonCode],
                     ['耗时', `${runNode.durationMs} ms`],
