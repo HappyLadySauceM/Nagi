@@ -4,6 +4,7 @@ import type {
   DirectorySyncResult,
   Group,
   GroupMember,
+  GroupRole,
   PageResult,
 } from '../contracts'
 import {
@@ -39,8 +40,20 @@ function toGroup(raw: unknown): Group {
     ...(record.Policy == null ? {} : { policy: toScopePolicy(record.Policy) }),
     name: readString(record, 'Name', GROUPS_ENDPOINT, ''),
     memberCount: readNumber(record, 'MemberCount', GROUPS_ENDPOINT, 0),
+    botRole: toGroupRole(record.BotRole),
     lastSeenAt: readOptionalTime(record, 'LastSeenAt', GROUPS_ENDPOINT),
   }
+}
+
+/** Reads the cached bot role; a missing or unknown value means unknown. */
+function toGroupRole(raw: unknown): GroupRole {
+  if (raw === undefined || raw === null) {
+    return ''
+  }
+  if (typeof raw !== 'string') {
+    throw contractError(GROUPS_ENDPOINT, 'BotRole 不是字符串')
+  }
+  return raw === 'owner' || raw === 'admin' || raw === 'member' ? raw : ''
 }
 
 function toMember(raw: unknown): GroupMember {

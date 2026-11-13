@@ -1,4 +1,5 @@
 import type {
+  GroupRole,
   ScopeType,
   ToolCatalogEntry,
   ToolPermission,
@@ -47,6 +48,7 @@ function toToolEntry(raw: unknown): ToolCatalogEntry {
     readOnly: readBoolean(record, 'ReadOnly', TOOLS_ENDPOINT),
     sideEffect: readBoolean(record, 'SideEffect', TOOLS_ENDPOINT),
     permission: readString(record, 'Permission', TOOLS_ENDPOINT, ''),
+    requiresGroupRole: toGroupRole(record.RequiresGroupRole),
     defaultGranted: readBoolean(record, 'DefaultGranted', TOOLS_ENDPOINT),
     // Legacy backends predate applicability; an unfiltered catalogue treats
     // every tool as usable, so the default stays true.
@@ -100,6 +102,22 @@ function toRiskLevel(raw: unknown): ToolCatalogEntry['riskLevel'] {
   return raw === 'read' || raw === 'write' || raw === 'admin' ? raw : ''
 }
 
+/**
+ * Narrows the group role requirement to the values this build enforces.
+ * A missing or newer value reads as empty (no additional gate), matching the
+ * server's legacy payloads.
+ * 收窄为前端支持的群角色要求；缺失或未知值按空处理（不增加额外门禁）。
+ */
+function toGroupRole(raw: unknown): GroupRole {
+  if (raw === undefined || raw === null) {
+    return ''
+  }
+  if (typeof raw !== 'string') {
+    throw contractError(TOOLS_ENDPOINT, 'RequiresGroupRole 不是字符串')
+  }
+  return raw === 'owner' || raw === 'admin' || raw === 'member' ? raw : ''
+}
+
 function toPermission(raw: unknown): ToolPermission {
   const record = asRecord(raw, TOOLS_ENDPOINT, 'permission')
   return {
@@ -111,6 +129,7 @@ function toPermission(raw: unknown): ToolPermission {
     id: readString(record, 'ID', TOOLS_ENDPOINT),
     description: readString(record, 'Description', TOOLS_ENDPOINT, ''),
     riskLevel: readString(record, 'RiskLevel', TOOLS_ENDPOINT, ''),
+    requiresGroupRole: toGroupRole(record.RequiresGroupRole),
     tools: asArray(record.Tools, TOOLS_ENDPOINT, 'Tools').map((tool) => {
       if (typeof tool !== 'string') {
         throw contractError(TOOLS_ENDPOINT, 'Tools 含非字符串项')

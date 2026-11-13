@@ -30,6 +30,7 @@ import { Switch } from '../../../components/ui/switch'
 import {
   REPLY_MODE_HINTS,
   REPLY_MODE_LABELS,
+  type GroupRole,
   type ReplyMode,
   type ToolPermission,
   type ToolsCatalog,
@@ -173,6 +174,30 @@ interface ScopeFormProps {
    */
   section?: string
   catalog?: ToolsCatalog
+  /**
+   * Bot role for a concrete group scope. Undefined means role gating does not
+   * apply (private scope or the group default template).
+   * 具体群作用域的机器人角色；未传表示不启用角色门禁（好友作用域或群默认模板）。
+   */
+  groupRole?: GroupRoleState
+}
+
+export interface GroupRoleState {
+  status: 'loading' | 'ready' | 'error'
+  role?: GroupRole
+}
+
+/**
+ * Checks whether a bot role satisfies one capability's minimum role.
+ * Owner passes every requirement; admin passes admin; empty role never passes.
+ * 判断机器人角色是否满足能力的最低角色要求：群主满足全部，管理员满足 admin，
+ * 空角色一律不满足。
+ */
+function satisfiesGroupRole(role: GroupRole | undefined, required: GroupRole | undefined): boolean {
+  if (!required) return true
+  if (required === 'owner') return role === 'owner'
+  if (required === 'admin') return role === 'owner' || role === 'admin'
+  return role === 'owner' || role === 'admin' || role === 'member'
 }
 
 /**
@@ -531,6 +556,7 @@ export function ScopeFormFields({
   catalog,
   section,
   modelAvailability,
+  groupRole,
 }: ScopeFormProps) {
   const { register, formState, watch, setValue } = form
   const errors = formState.errors
@@ -763,6 +789,28 @@ export function ScopeFormFields({
                   : granted
                     ? `已授权，但${dependency === 'tts' ? '语音合成' : '语音识别'}模型未就绪。`
                     : `请先配置并测试${dependency === 'tts' ? '语音合成' : '语音识别'}模型，当前能力不可用。`
+                const roleRequirement = permission.requiresGroupRole ?? ''
+                const roleGateEnabled = Boolean(groupRole)
+                const roleAllowed = !roleRequirement || satisfiesGroupRole(groupRole?.role, roleRequirement)
+                const rolePending = roleGateEnabled && Boolean(roleRequirement) && groupRole?.status === 'loading'
+                const roleError = roleGateEnabled && Boolean(roleRequirement) && (groupRole?.status === 'error' || (groupRole?.status === 'ready' && !groupRole.role))
+                const roleBlocked = roleGateEnabled && Boolean(roleRequirement) && Boolean(groupRole?.role) && !roleAllowed
+                const roleHint = rolePending
+                  ? '正在确认机器人在该群的角色…'
+                  : roleError
+                    ? '无法确认机器人在该群的角色，暂不能开启需要管理员的能力。'
+                    : roleBlocked
+                      ? granted
+                        ? roleRequirement === 'owner'
+                          ? '该能力仅群主可用；已开启但当前无法使用，建议关闭。'
+                          : '机器人不是该群管理员；该能力已开启但当前无法使用，建议关闭。'
+                        : roleRequirement === 'owner'
+                          ? groupRole?.role === 'admin'
+                            ? '该能力仅群主可用，当前机器人是群管理员，无法开启。'
+                            : '该能力仅群主可用，当前机器人不是群主，无法开启。'
+                          : '机器人不是该群管理员，无法开启。'
+                      : ''
+                const roleLocksGrant = (rolePending || roleError || roleBlocked) && !granted
                 const id = `tool-${permission.id}`
                 return (
                   <article
@@ -811,15 +859,20 @@ export function ScopeFormFields({
                               </a>
                             </span>
                           )}
+                          {roleHint && (
+                            <span id={`${id}-role`} className="mt-1 block text-amber-500">
+                              {roleHint}
+                            </span>
+                          )}
                         </span>
                       </span>
                       <input
                         id={id}
                         type="checkbox"
                         aria-label={label}
-                        aria-describedby={`${id}-hint`}
+                        aria-describedby={`${id}-hint${roleHint ? ` ${id}-role` : ''}`}
                         checked={granted}
-                        disabled={disabled || (!granted && !ready)}
+                        disabled={disabled || (!granted && !ready) || roleLocksGrant}
                         onChange={(event) =>
                           togglePermission(permission, event.target.checked)
                         }

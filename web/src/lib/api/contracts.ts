@@ -108,11 +108,16 @@ export interface Contact {
   lastSeenAt?: string
 }
 
+/** Bot's role inside one group; empty means the role is not known yet. */
+export type GroupRole = '' | 'owner' | 'admin' | 'member'
+
 export interface Group {
   policy?: ScopePolicy
   groupId: number
   name: string
   memberCount: number
+  /** Cached role from group_members; refresh on demand before relying on it. */
+  botRole?: GroupRole
   lastSeenAt?: string
 }
 
@@ -164,6 +169,8 @@ export interface ToolCatalogEntry {
   readOnly: boolean
   sideEffect: boolean
   permission: string
+  /** Minimum bot role in the target group; empty when no role is required. */
+  requiresGroupRole?: GroupRole
   defaultGranted: boolean
   /**
    * False when the catalogue was requested for a scope kind this tool does not
@@ -187,6 +194,8 @@ export interface ToolPermission {
   riskLevel?: string
   id: string
   tools: string[]
+  /** Minimum bot role in the target group; empty when no role is required. */
+  requiresGroupRole?: GroupRole
   defaultGranted: boolean
   kind?: 'tool' | 'pipeline'
   applicable?: boolean

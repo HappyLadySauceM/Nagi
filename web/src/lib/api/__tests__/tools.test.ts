@@ -68,6 +68,22 @@ describe('tools adapter', () => {
     ).toThrowError(ApiError)
   })
 
+  it('maps RequiresGroupRole and treats unknown role values as empty', () => {
+    const catalog = toToolsCatalog({
+      ...CATALOG,
+      Tools: [{ ...CATALOG.Tools[0], RequiresGroupRole: 'admin' }],
+      Permissions: [{ ...CATALOG.Permissions[0], RequiresGroupRole: 'owner' }],
+    })
+    expect(catalog.tools[0].requiresGroupRole).toBe('admin')
+    expect(catalog.permissions[0].requiresGroupRole).toBe('owner')
+
+    const unknown = toToolsCatalog({
+      ...CATALOG,
+      Permissions: [{ ...CATALOG.Permissions[0], RequiresGroupRole: 'superuser' }],
+    })
+    expect(unknown.permissions[0].requiresGroupRole).toBe('')
+  })
+
   it('maps category, scope kinds, risk level and applicability', () => {
     const catalog = toToolsCatalog({
       ...CATALOG,
