@@ -99,6 +99,11 @@ func validateDescriptor(descriptor contracts.ToolDescriptor) error {
 	default:
 		return fmt.Errorf("tool %q has invalid risk level %q", descriptor.ID, descriptor.RiskLevel)
 	}
+	switch descriptor.RequiresGroupRole {
+	case "", contracts.GroupRoleAdmin, contracts.GroupRoleOwner:
+	default:
+		return fmt.Errorf("tool %q has invalid group role requirement %q", descriptor.ID, descriptor.RequiresGroupRole)
+	}
 	// A read risk level on a side-effecting tool would let the policy treat it
 	// as safe; reject the contradiction instead of guessing.
 	// 有副作用的工具标注只读风险会被策略当成安全工具；

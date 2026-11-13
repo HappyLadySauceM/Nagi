@@ -22,6 +22,12 @@ var ErrBotNotSynced = errors.New("directory: bot account not synced yet")
 // ErrAccountOffline 表示没有已连接的端点服务于该账号。
 var ErrAccountOffline = errors.New("directory: bot account is not connected")
 
+// ErrRoleUnavailable reports that the bot's group role cannot be confirmed:
+// there is no fresh OneBot answer and the cached row is missing or only member.
+// ErrRoleUnavailable 表示无法确认机器人群角色：没有实时 OneBot 结果，
+// 且缓存行缺失或仅为 member。
+var ErrRoleUnavailable = errors.New("directory: bot group role unavailable")
+
 // Repository persists and queries the local directory; implemented by infrastructure.
 // Repository 持久化并查询本地目录；由 infrastructure 实现。
 type Repository interface {
@@ -38,6 +44,10 @@ type Repository interface {
 	// ListBotAccounts returns stored account rows for nickname lookup.
 	// ListBotAccounts 返回已存储的账号行，用于查询昵称。
 	ListBotAccounts(ctx context.Context) ([]domain.BotAccount, error)
+	// BotGroupRole returns the bot's role in one group, or empty when the member
+	// row has not been synced yet.
+	// BotGroupRole 返回机器人在某群的角色；成员行尚未同步时返回空串。
+	BotGroupRole(ctx context.Context, botID, groupID int64) (string, error)
 	// DeleteGroupMember removes one member row after a leave notification.
 	// DeleteGroupMember 在成员退群通知后删除一行成员记录。
 	DeleteGroupMember(ctx context.Context, botID, groupID, userID int64) error
@@ -190,6 +200,46 @@ func (s *Service) Contacts(ctx context.Context, botID int64, q domain.PageQuery)
 // Groups 返回该账号的一页群目录。
 func (s *Service) Groups(ctx context.Context, botID int64, q domain.PageQuery) (domain.GroupPage, error) {
 	return s.repo.ListGroups(ctx, botID, q.Normalized())
+}
+
+// BotGroupRole returns the bot's role in one group for save-time and
+// execution-time admin checks. It prefers the live OneBot answer so a recent
+// promotion or demotion is reflected, then falls back to the cached member row;
+// a missing/member cache without a live answer is reported as unavailable
+// rather than silently treated as non-admin.
+// BotGroupRole 返回机器人在一个群内的角色，供保存与执行时管理员校验。
+// 优先使用实时 OneBot 结果，以反映最近的提升或降权；失败时回退缓存成员行；
+// 无实时结果且缓存缺失或仅为 member 时返回不可用，而不是静默当作非管理员。
+func (s *Service) BotGroupRole(ctx context.Context, botID, groupID int64) (string, error) {
+	if botID <= 0 || groupID <= 0 {
+		return "", fmt.Errorf("directory: bot id and group id must be positive")
+	}
+	if reader, err := s.reader(botID); err == nil {
+		info, infoErr := reader.GetGroupMemberInfo(ctx, obdomain.GroupID(groupID), obdomain.UserID(botID), false)
+		if infoErr == nil {
+			role := string(info.Role)
+			if role != "" {
+				if synced, syncErr := s.repo.BotAccountExists(ctx, botID); syncErr == nil && synced {
+					userID := int64(info.UserID)
+					if userID <= 0 {
+						userID = botID
+					}
+					_ = s.repo.UpsertGroupMembers(ctx, botID, groupID, []domain.GroupMember{{
+						GroupID: groupID, UserID: userID, Nickname: info.Nickname, Card: info.Card, Role: role,
+					}})
+				}
+				return role, nil
+			}
+		}
+	}
+	cached, err := s.repo.BotGroupRole(ctx, botID, groupID)
+	if err != nil {
+		return "", err
+	}
+	if cached == "" || cached == "member" {
+		return "", ErrRoleUnavailable
+	}
+	return cached, nil
 }
 
 // GroupMembers returns one page of group members, optionally refreshing first.

@@ -16,6 +16,11 @@ type PublicOptions struct {
 	// action runs, so a disabled target cannot be administered.
 	// AuthorizeTarget 在破坏性动作执行前校验跨会话群，停用目标不会被操作。
 	AuthorizeTarget func(context.Context, string, int64) error
+	// GroupRole returns the bot's role in a group, checked again before an
+	// admin-only tool executes so a runtime demotion cannot be bypassed.
+	// GroupRole 返回机器人在群内的角色，在管理员工具执行前再次校验，
+	// 防止运行中被降权后仍能执行。
+	GroupRole func(context.Context, int64, int64) (string, error)
 }
 type publicProvider struct{ opts PublicOptions }
 
@@ -28,13 +33,14 @@ func (publicProvider) Manifest() pc.Manifest {
 func (publicProvider) Close(context.Context) error { return nil }
 
 type publicSpec struct {
-	name        ob.ActionName
-	description string
-	params      map[string]pc.Parameter
-	group       bool
-	send        bool
-	sensitive   bool
-	read        bool
+	name         ob.ActionName
+	description  string
+	params       map[string]pc.Parameter
+	group        bool
+	send         bool
+	sensitive    bool
+	read         bool
+	requiresRole string
 }
 
 func param(t string, required bool) pc.Parameter { return pc.Parameter{Type: t, Required: required} }
@@ -85,16 +91,16 @@ func publicSpecs() []publicSpec {
 		{name: ob.ActionGetMessage, description: "获取消息；消息归属未知，需要跨会话权限", params: fields("message_id"), read: true},
 		{name: ob.ActionGetForwardMessage, description: "获取合并转发消息；需要跨会话权限", params: fields("id"), read: true},
 		{name: ob.ActionSendLike, description: "发送好友赞，默认一次", params: fields("user_id", "times")},
-		{name: ob.ActionSetGroupKick, description: "群组踢人，可选择拒绝再次申请", params: fields("group_id", "user_id", "reject_add_request"), group: true},
-		{name: ob.ActionSetGroupBan, description: "群成员禁言，默认 1800 秒，0 解除禁言", params: fields("group_id", "user_id", "duration"), group: true},
-		{name: ob.ActionSetGroupAnonymousBan, description: "匿名成员禁言，传入 anonymous 对象或 anonymous_flag/flag", params: fields("group_id", "anonymous_flag", "flag", "duration"), group: true},
-		{name: ob.ActionSetGroupWholeBan, description: "群组全员禁言，enable 必须显式给出", params: required(fields("group_id", "enable"), "enable"), group: true},
-		{name: ob.ActionSetGroupAdmin, description: "设置或取消群管理员，enable 默认 true", params: fields("group_id", "user_id", "enable"), group: true},
-		{name: ob.ActionSetGroupAnonymous, description: "允许或关闭群匿名聊天，enable 默认 true", params: fields("group_id", "enable"), group: true},
-		{name: ob.ActionSetGroupCard, description: "设置群名片，card 必填，空字符串清除名片", params: required(fields("group_id", "user_id", "card"), "card"), group: true},
-		{name: ob.ActionSetGroupName, description: "修改群名称", params: fields("group_id", "group_name"), group: true},
+		{name: ob.ActionSetGroupKick, description: "将成员移出群；省略 group_id 时操作当前群，指定其他群需跨会话授权", params: fields("group_id", "user_id", "reject_add_request"), group: true, requiresRole: pc.GroupRoleAdmin},
+		{name: ob.ActionSetGroupBan, description: "禁言群成员；省略 group_id 时操作当前群，指定其他群需跨会话授权；duration 为 0 时解除禁言", params: fields("group_id", "user_id", "duration"), group: true, requiresRole: pc.GroupRoleAdmin},
+		{name: ob.ActionSetGroupAnonymousBan, description: "匿名成员禁言，传入 anonymous 对象或 anonymous_flag/flag", params: fields("group_id", "anonymous_flag", "flag", "duration"), group: true, requiresRole: pc.GroupRoleAdmin},
+		{name: ob.ActionSetGroupWholeBan, description: "群组全员禁言，enable 必须显式给出；省略 group_id 时操作当前群", params: required(fields("group_id", "enable"), "enable"), group: true, requiresRole: pc.GroupRoleAdmin},
+		{name: ob.ActionSetGroupAdmin, description: "设置或取消群管理员，enable 默认 true；只有群主可以执行", params: fields("group_id", "user_id", "enable"), group: true, requiresRole: pc.GroupRoleOwner},
+		{name: ob.ActionSetGroupAnonymous, description: "允许或关闭群匿名聊天，enable 默认 true", params: fields("group_id", "enable"), group: true, requiresRole: pc.GroupRoleAdmin},
+		{name: ob.ActionSetGroupCard, description: "设置群名片，card 必填，空字符串清除名片；省略 group_id 时操作当前群", params: required(fields("group_id", "user_id", "card"), "card"), group: true, requiresRole: pc.GroupRoleAdmin},
+		{name: ob.ActionSetGroupName, description: "修改群名称；省略 group_id 时操作当前群", params: fields("group_id", "group_name"), group: true, requiresRole: pc.GroupRoleAdmin},
 		{name: ob.ActionSetGroupLeave, description: "退出群；不支持解散群", params: fields("group_id", "is_dismiss"), group: true},
-		{name: ob.ActionSetGroupSpecialTitle, description: "设置专属头衔，special_title 必填，空字符串清除头衔，duration 默认 -1", params: required(fields("group_id", "user_id", "special_title", "duration"), "special_title"), group: true},
+		{name: ob.ActionSetGroupSpecialTitle, description: "设置专属头衔，special_title 必填，空字符串清除头衔，duration 默认 -1；只有群主可以执行", params: required(fields("group_id", "user_id", "special_title", "duration"), "special_title"), group: true, requiresRole: pc.GroupRoleOwner},
 		{name: ob.ActionSetFriendAddRequest, description: "审批好友请求，approve 必须显式给出", params: required(fields("flag", "approve", "remark"), "approve")},
 		{name: ob.ActionSetGroupAddRequest, description: "审批加群请求或邀请，approve 必须显式给出", params: required(fields("flag", "sub_type", "type", "approve", "reason"), "approve")},
 		{name: ob.ActionGetLoginInfo, description: "获取当前机器人登录信息", params: fields(), read: true},
@@ -158,7 +164,15 @@ func publicSpecs() []publicSpec {
 }
 func (p publicProvider) Tools(context.Context) ([]pc.RegisteredTool, error) {
 	out := []pc.RegisteredTool{}
-	legacy := map[ob.ActionName]string{ob.ActionGetGroupInfo: "qq.group.read", ob.ActionGetGroupMemberInfo: "qq.group.member.read", ob.ActionSetGroupWholeBan: "qq.group.admin.wholeban", ob.ActionSetGroupCard: "qq.group.admin.card"}
+	legacy := map[ob.ActionName]string{
+		ob.ActionGetGroupInfo:       "qq.group.read",
+		ob.ActionGetGroupMemberInfo: "qq.group.member.read",
+		ob.ActionSetGroupWholeBan:   "qq.group.admin.wholeban",
+		ob.ActionSetGroupCard:       "qq.group.admin.card",
+		ob.ActionSetGroupKick:       pc.PermissionGroupKick,
+		ob.ActionSetGroupBan:        pc.PermissionGroupMute,
+		ob.ActionSetGroupLeave:      pc.PermissionGroupLeave,
+	}
 	for _, s := range publicSpecs() {
 		allowed := false
 		permission := "qq.api." + string(s.name)
@@ -184,7 +198,7 @@ func (p publicProvider) Tools(context.Context) ([]pc.RegisteredTool, error) {
 			category = pc.CategoryReply
 			risk = pc.RiskWrite
 		}
-		d := pc.ToolDescriptor{ID: "qq." + string(s.name), Description: s.description, Parameters: s.params, Permission: permission, DefaultAllowed: defaultAllowed, ReadOnly: s.read, SideEffect: !s.read, RiskLevel: risk, Category: category, Sensitive: s.sensitive, AdditionalPermissions: nil}
+		d := pc.ToolDescriptor{ID: "qq." + string(s.name), Description: s.description, Parameters: s.params, Permission: permission, DefaultAllowed: defaultAllowed, ReadOnly: s.read, SideEffect: !s.read, RiskLevel: risk, Category: category, Sensitive: s.sensitive, AdditionalPermissions: nil, RequiresGroupRole: s.requiresRole}
 		// Group actions belong to group policies; friend actions belong to private
 		// policies. Account-wide and generic message tools support both kinds.
 		// 群操作只属于群聊策略，好友操作只属于私聊策略；账号级与通用消息工具适用两者。

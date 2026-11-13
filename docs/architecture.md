@@ -143,7 +143,10 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   模型统一使用 `qq.send_msg` 发送文本或消息段，省略目标时发送到当前会话，返回发送序号与投递状态。
   `qq.reply.current` 统一控制工具发送、自动回复和语音回复，默认开启，显式关闭后禁止发送。
   不再单独暴露当前会话、私聊、群聊发送工具及图片／语音支持探测；底层 OneBot API 保留。
-  `builtin.qq.public` 注册 34 项业务工具；合并后的上述基础工具目录共 38 项（不含媒体等其他提供方）。
+  `builtin.qq.public` 注册 34 项业务工具；合并后的上述基础工具目录共 35 项（不含媒体等其他提供方）。
+  群管动作按 OneBot action 去重（`set_group_kick` / `set_group_ban` / `set_group_leave` 只保留一套工具与权限），
+  旧 `qq.api.set_group_*` 覆盖在读写时映射到 `qq.group.admin.*`；群管工具声明 `RequiresGroupRole`，
+  保存策略时校验机器人是 owner/admin，执行前再校验一次，角色不满足时返回/拒绝 `bot_not_group_admin`。
   其他新增 action 权限 `qq.api.<action>` 默认关闭，既有工具沿用原权限。
   跨会话发送同时需要 `qq.reply.current` 与 `qq.cross_conversation`，允许跨私聊／群聊类型。
   `qq.cross_conversation` 仅由来源会话授予，账号固定为来源机器人；跨会话发送仍按目标会话

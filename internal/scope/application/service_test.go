@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -467,5 +468,146 @@ func TestUpsertExistingExplicitVoiceGrantDoesNotBlockUpdates(t *testing.T) {
 	policy.ToolPermissions = map[string]bool{"media.voice.transcribe": false}
 	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
 		t.Fatalf("revoke explicit ASR while model unavailable: %v", err)
+	}
+}
+
+// TestUpsertRequiresBotGroupRoleCanonicalizesLegacyAlias verifies the save guard
+// reads the unified permission and rejects member/unknown roles while allowing
+// admin and owner; the stored override is rewritten to the canonical key.
+// TestUpsertRequiresBotGroupRoleCanonicalizesLegacyAlias 验证保存守卫按统一权限
+// 判断，member/未知角色被拒，admin/owner 通过，旧键落库时改写为新键。
+func TestUpsertRequiresBotGroupRoleCanonicalizesLegacyAlias(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetGroupRoleRequirement(func(permission string) string {
+		if permission == "qq.group.admin.kick" {
+			return "admin"
+		}
+		return ""
+	})
+	role := "member"
+	svc.SetGroupRoleResolver(func(context.Context, int64, int64) (string, error) { return role, nil })
+	policy := domain.Default(domain.ScopeGroup, 700)
+	policy.ToolPermissions = map[string]bool{"qq.api.set_group_kick": true}
+
+	if err := svc.Upsert(context.Background(), 1, policy); !errors.Is(err, domain.ErrBotNotGroupAdmin) {
+		t.Fatalf("member role error = %v, want bot_not_group_admin", err)
+	}
+	role = "admin"
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("admin role must pass: %v", err)
+	}
+	stored, found, err := repo.Get(context.Background(), 1, domain.ScopeGroup, 700)
+	if err != nil || !found {
+		t.Fatalf("stored = %+v found=%v err=%v", stored, found, err)
+	}
+	if !stored.ToolPermissions["qq.group.admin.kick"] || stored.ToolPermissions["qq.api.set_group_kick"] {
+		t.Fatalf("legacy override not canonicalized: %+v", stored.ToolPermissions)
+	}
+	emptyRolePolicy := domain.Default(domain.ScopeGroup, 704)
+	emptyRolePolicy.ToolPermissions = map[string]bool{"qq.group.admin.kick": true}
+	role = ""
+	if err := svc.Upsert(context.Background(), 1, emptyRolePolicy); !errors.Is(err, domain.ErrBotNotGroupAdmin) {
+		t.Fatalf("empty role error = %v, want bot_not_group_admin", err)
+	}
+	role = "owner"
+	if err := svc.Upsert(context.Background(), 1, emptyRolePolicy); err != nil {
+		t.Fatalf("owner role must pass: %v", err)
+	}
+}
+
+// TestResolveCanonicalizesLegacyPermissionOverrides verifies stored rows from
+// before the dedupe still expose the unified permission to callers.
+// TestResolveCanonicalizesLegacyPermissionOverrides 验证去重前的旧行仍向调用方
+// 暴露统一权限。
+func TestResolveCanonicalizesLegacyPermissionOverrides(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.stored[serviceCacheKeyForTest(1, domain.ScopeGroup, 701)] = domain.Policy{
+		ScopeType: domain.ScopeGroup, ScopeID: 701, Enabled: true, ReplyMode: domain.ModeMentionOnly,
+		ToolPermissions: map[string]bool{"qq.api.set_group_ban": true},
+	}
+	got, err := svc.Resolve(context.Background(), 1, domain.ScopeGroup, 701)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.ToolPermissions["qq.group.admin.mute"] || got.ToolPermissions["qq.api.set_group_ban"] {
+		t.Fatalf("stored legacy override not canonicalized: %+v", got.ToolPermissions)
+	}
+}
+
+// TestUpsertExistingAdminGrantDoesNotBlockUpdates verifies the save guard only
+// requires a role for a new grant or an enabling transition; an existing grant
+// must stay editable and disableable after the bot is demoted.
+// TestUpsertExistingAdminGrantDoesNotBlockUpdates 验证保存守卫只对新增授权或启用转换
+// 要求角色；机器人被降权后，已有授权仍可编辑和关闭。
+func TestUpsertExistingAdminGrantDoesNotBlockUpdates(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetGroupRoleRequirement(func(permission string) string {
+		if permission == "qq.group.admin.kick" {
+			return "admin"
+		}
+		return ""
+	})
+	role := "admin"
+	svc.SetGroupRoleResolver(func(context.Context, int64, int64) (string, error) { return role, nil })
+	policy := domain.Default(domain.ScopeGroup, 702)
+	policy.Enabled = true
+	policy.ToolPermissions = map[string]bool{"qq.group.admin.kick": true}
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("initial admin grant: %v", err)
+	}
+	role = "member"
+	policy.ReplyMode = domain.ModeAlwaysReply
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("unrelated update must not require role: %v", err)
+	}
+	policy.Enabled = false
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("disable must not require role: %v", err)
+	}
+	policy.Enabled = true
+	if err := svc.Upsert(context.Background(), 1, policy); !errors.Is(err, domain.ErrBotNotGroupAdmin) {
+		t.Fatalf("re-enable error = %v, want bot_not_group_admin", err)
+	}
+	policy.Enabled = false
+	policy.ToolPermissions = map[string]bool{"qq.group.admin.kick": false}
+	if err := svc.Upsert(context.Background(), 1, policy); err != nil {
+		t.Fatalf("revoke must not require role: %v", err)
+	}
+}
+
+// TestUpsertGroupRoleUnavailableIsDistinct verifies a role lookup failure is
+// not collapsed into the confirmed non-admin sentinel.
+// TestUpsertGroupRoleUnavailableIsDistinct 验证角色查询失败不会被折叠成已确认的非管理员错误。
+func TestUpsertGroupRoleUnavailableIsDistinct(t *testing.T) {
+	repo := newFakeRepo()
+	svc, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetGroupRoleRequirement(func(permission string) string {
+		if permission == "qq.group.admin.kick" {
+			return "admin"
+		}
+		return ""
+	})
+	svc.SetGroupRoleResolver(func(context.Context, int64, int64) (string, error) {
+		return "", errors.New("offline")
+	})
+	policy := domain.Default(domain.ScopeGroup, 703)
+	policy.ToolPermissions = map[string]bool{"qq.group.admin.kick": true}
+	if err := svc.Upsert(context.Background(), 1, policy); !errors.Is(err, domain.ErrBotGroupRoleUnavailable) {
+		t.Fatalf("error = %v, want bot_group_role_unavailable", err)
 	}
 }

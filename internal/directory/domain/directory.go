@@ -29,7 +29,12 @@ type Group struct {
 	GroupID     int64
 	Name        string
 	MemberCount int64
-	LastSeenAt  time.Time
+	// BotRole is the bot's role in the group (owner/admin/member), filled from
+	// group_members for the current account.
+	// BotRole 是机器人在该群的角色（owner/admin/member），按当前账号从
+	// group_members 读取。
+	BotRole    string
+	LastSeenAt time.Time
 }
 
 // GroupMember is one member entry of one group.

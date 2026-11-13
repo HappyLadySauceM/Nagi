@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
@@ -198,6 +199,75 @@ func TestPutRejectsInvalidPolicy(t *testing.T) {
 	body := `{"enabled":true,"reply_mode":"not-a-mode"}`
 	rec := putScopeRequest(mux, body)
 	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func putGroupScopeRequest(mux *http.ServeMux, body string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/scopes/group/700?bot_id=1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestPutGroupAdminCapabilityRequiresBotRole verifies the HTTP contract:
+// a member/unknown bot role returns 400 bot_not_group_admin, while admin passes
+// and the legacy alias is persisted under the unified permission.
+// TestPutGroupAdminCapabilityRequiresBotRole 验证 HTTP 契约：机器人为 member/未知角色时
+// 返回 400 bot_not_group_admin，admin 通过，旧别名落库为统一权限。
+func TestPutGroupAdminCapabilityRequiresBotRole(t *testing.T) {
+	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := "member"
+	scopeService.SetGroupRoleRequirement(func(permission string) string {
+		if permission == "qq.group.admin.kick" {
+			return "admin"
+		}
+		return ""
+	})
+	scopeService.SetGroupRoleResolver(func(context.Context, int64, int64) (string, error) { return role, nil })
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Scope: scopeService}).Register(mux)
+	body := `{"enabled":false,"reply_mode":"mention_only","tool_permissions":{"qq.api.set_group_kick":true}}`
+	rec := putGroupScopeRequest(mux, body)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bot_not_group_admin") {
+		t.Fatalf("member status = %d: %s", rec.Code, rec.Body.String())
+	}
+	role = "admin"
+	rec = putGroupScopeRequest(mux, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d: %s", rec.Code, rec.Body.String())
+	}
+	stored := repo.policies[repo.key(1, scopedomain.ScopeGroup, 700)]
+	if !stored.ToolPermissions["qq.group.admin.kick"] || stored.ToolPermissions["qq.api.set_group_kick"] {
+		t.Fatalf("stored override = %+v", stored.ToolPermissions)
+	}
+}
+
+func TestPutGroupAdminRoleUnavailableReturns503(t *testing.T) {
+	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	scopeService, err := scopeapp.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeService.SetGroupRoleRequirement(func(permission string) string {
+		if permission == "qq.group.admin.kick" {
+			return "admin"
+		}
+		return ""
+	})
+	scopeService.SetGroupRoleResolver(func(context.Context, int64, int64) (string, error) {
+		return "", fmt.Errorf("offline")
+	})
+	mux := http.NewServeMux()
+	NewHandler(&svc.ServiceContext{Scope: scopeService}).Register(mux)
+	body := `{"enabled":false,"reply_mode":"mention_only","tool_permissions":{"qq.group.admin.kick":true}}`
+	rec := putGroupScopeRequest(mux, body)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "bot_group_role_unavailable") {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 }

@@ -4,8 +4,10 @@ package application_test
 
 import (
 	"context"
-	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	"strings"
 	"testing"
+
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
@@ -82,7 +84,7 @@ func TestCompletePublicCatalogPreservesExistingTools(t *testing.T) {
 		}
 	}
 	tools := registry.Snapshot()
-	if len(tools) != 38 {
+	if len(tools) != 35 {
 		t.Fatalf("tools=%d", len(tools))
 	}
 	byID := map[string]contracts.ToolDescriptor{}
@@ -97,9 +99,28 @@ func TestCompletePublicCatalogPreservesExistingTools(t *testing.T) {
 			grants[permission] = true
 		}
 	}
-	for id, permission := range map[string]string{"qq.send_msg": "qq.reply.current", "qq.get_group_info": "qq.group.read", "qq.get_group_member_info": "qq.group.member.read", "qq.mute_group_member": "qq.group.admin.mute", "qq.set_group_whole_ban": "qq.group.admin.wholeban", "qq.set_group_card": "qq.group.admin.card", "qq.kick_group_member": "qq.group.admin.kick", "qq.leave_current_group": "qq.group.admin.leave", "system.current_time": "system.time.read"} {
+	for id, permission := range map[string]string{"qq.send_msg": "qq.reply.current", "qq.get_group_info": "qq.group.read", "qq.get_group_member_info": "qq.group.member.read", "qq.set_group_ban": "qq.group.admin.mute", "qq.set_group_whole_ban": "qq.group.admin.wholeban", "qq.set_group_card": "qq.group.admin.card", "qq.set_group_kick": "qq.group.admin.kick", "qq.set_group_leave": "qq.group.admin.leave", "system.current_time": "system.time.read"} {
 		if byID[id].Permission != permission {
 			t.Fatalf("legacy permission changed: %s", id)
+		}
+	}
+	for _, obsolete := range []string{"qq.kick_group_member", "qq.mute_group_member", "qq.leave_current_group"} {
+		if _, ok := byID[obsolete]; ok {
+			t.Fatalf("duplicate tool still registered: %s", obsolete)
+		}
+	}
+	counts := map[string]int{}
+	for _, tool := range tools {
+		counts[strings.TrimPrefix(tool.Descriptor.ID, "qq.")]++
+	}
+	for _, action := range []string{"set_group_kick", "set_group_ban", "set_group_leave"} {
+		if counts[action] != 1 {
+			t.Fatalf("action %s registered %d times", action, counts[action])
+		}
+	}
+	for id, role := range map[string]string{"qq.set_group_kick": "admin", "qq.set_group_ban": "admin", "qq.set_group_whole_ban": "admin", "qq.set_group_card": "admin", "qq.set_group_name": "admin", "qq.set_group_anonymous": "admin", "qq.set_group_admin": "owner", "qq.set_group_special_title": "owner"} {
+		if byID[id].RequiresGroupRole != role {
+			t.Fatalf("role requirement %s = %q, want %q", id, byID[id].RequiresGroupRole, role)
 		}
 	}
 	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 1, ReplyMode: scopedomain.ModeMentionOnly, ToolPermissions: grants}

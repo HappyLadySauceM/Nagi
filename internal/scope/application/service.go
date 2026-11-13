@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -25,10 +26,23 @@ type Repository interface {
 // Service resolves current policies from storage so revocations apply to subsequent calls.
 // Service 从存储解析当前策略，使撤销对后续调用立即生效。
 type Service struct {
-	repo        Repository
-	models      models.Resolver
-	permissions PermissionResolver
+	repo                 Repository
+	models               models.Resolver
+	permissions          PermissionResolver
+	groupRoles           GroupRoleResolver
+	groupRoleRequirement GroupRoleRequirement
 }
+
+// GroupRoleResolver reads the bot's role in one group. It is bound in the
+// composition root so scope does not depend on directory infrastructure.
+// GroupRoleResolver 读取机器人在一个群内的角色；由组合根绑定，
+// 使 scope 不依赖 directory 基础设施。
+type GroupRoleResolver func(ctx context.Context, botID, groupID int64) (string, error)
+
+// GroupRoleRequirement returns the minimum group role required by one
+// permission, or empty when the permission has no group-role prerequisite.
+// GroupRoleRequirement 返回某权限要求的最低群角色；无前置要求时返回空。
+type GroupRoleRequirement func(permission string) string
 
 // PermissionState separates persisted scope overrides from the live baseline
 // and calculated result returned to callers.
@@ -51,6 +65,17 @@ func (s *Service) SetModels(resolver models.Resolver) { s.models = resolver }
 // SetPermissionResolver binds the shared runtime permission resolution rule.
 // SetPermissionResolver 绑定运行时共用的权限解析规则。
 func (s *Service) SetPermissionResolver(resolver PermissionResolver) { s.permissions = resolver }
+
+// SetGroupRoleResolver binds the bot group-role lookup used by save-time checks.
+// SetGroupRoleResolver 绑定保存时校验使用的机器人群角色查询。
+func (s *Service) SetGroupRoleResolver(resolver GroupRoleResolver) { s.groupRoles = resolver }
+
+// SetGroupRoleRequirement binds the permission-to-role metadata used by
+// save-time checks.
+// SetGroupRoleRequirement 绑定保存时校验使用的权限到群角色元数据。
+func (s *Service) SetGroupRoleRequirement(requirement GroupRoleRequirement) {
+	s.groupRoleRequirement = requirement
+}
 
 // NewService validates dependencies and builds the service.
 // NewService 校验依赖并构建服务。
@@ -89,7 +114,7 @@ func (s *Service) Resolve(ctx context.Context, botID int64, scopeType domain.Sco
 		stored.TemplateVersion = stored.Version
 	}
 	effective := stored.WithDefaults()
-	effective.ToolPermissions = clonePermissions(effective.ToolPermissions)
+	effective.ToolPermissions = pluginscontracts.NormalizePermissionOverrides(clonePermissions(effective.ToolPermissions))
 	if s.permissions != nil {
 		state := s.permissions(effective.ToolPermissions)
 		effective.PermissionDefaults = clonePermissions(state.Defaults)
@@ -111,7 +136,7 @@ func (s *Service) List(ctx context.Context, botID *int64) ([]domain.Policy, erro
 		return nil, err
 	}
 	for index := range policies {
-		policies[index].ToolPermissions = clonePermissions(policies[index].ToolPermissions)
+		policies[index].ToolPermissions = pluginscontracts.NormalizePermissionOverrides(clonePermissions(policies[index].ToolPermissions))
 		if s.permissions != nil {
 			state := s.permissions(policies[index].ToolPermissions)
 			policies[index].PermissionDefaults = clonePermissions(state.Defaults)
@@ -151,11 +176,17 @@ func (s *Service) ResolveMemoryAuthorization(ctx context.Context, botID int64, s
 // Upsert validates and persists one complete policy.
 // Upsert 校验并持久化一份完整策略。
 func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy) error {
-	if s.models != nil {
-		previous, err := s.Resolve(ctx, botID, policy.ScopeType, policy.ScopeID)
+	policy.ToolPermissions = pluginscontracts.NormalizePermissionOverrides(policy.ToolPermissions)
+	needsPrevious := s.models != nil || (s.groupRoles != nil && s.groupRoleRequirement != nil)
+	var previous domain.Policy
+	if needsPrevious {
+		var err error
+		previous, err = s.Resolve(ctx, botID, policy.ScopeType, policy.ScopeID)
 		if err != nil {
 			return err
 		}
+	}
+	if s.models != nil {
 		policy.ToolPermissions = clonePermissions(policy.ToolPermissions)
 		// Enabling a scope still requires a tested generation model because the
 		// reply runtime cannot start without one. Saving a disabled scope or
@@ -163,7 +194,7 @@ func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy)
 		// 启用作用域仍要求生成模型已测试可用，因为回复运行时离开它无法启动；
 		// 保存关闭策略或编辑已启用策略仍只属于策略决策。
 		if policy.Enabled && !previous.Enabled {
-			if _, err = s.models.ResolveModel(ctx, "generation", botID, string(policy.ScopeType), policy.ScopeID); err != nil {
+			if _, resolveErr := s.models.ResolveModel(ctx, "generation", botID, string(policy.ScopeType), policy.ScopeID); resolveErr != nil {
 				return fmt.Errorf("请先配置并测试生成模型")
 			}
 		}
@@ -178,7 +209,7 @@ func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy)
 			newlyGranted := explicit && !previous.ToolPermissions[permission]
 			activating := explicit && !previous.Enabled && policy.Enabled
 			if newlyGranted || activating {
-				if _, err = s.models.ResolveModel(ctx, usage, 0, "", 0); err != nil {
+				if _, resolveErr := s.models.ResolveModel(ctx, usage, 0, "", 0); resolveErr != nil {
 					return fmt.Errorf("请先配置并测试 %s 模型", usage)
 				}
 			}
@@ -186,6 +217,11 @@ func (s *Service) Upsert(ctx context.Context, botID int64, policy domain.Policy)
 	}
 	if err := policy.Validate(); err != nil {
 		return err
+	}
+	if needsPrevious {
+		if err := s.requireGroupRole(ctx, botID, policy, previous); err != nil {
+			return err
+		}
 	}
 	policy = policy.WithDefaults()
 	policy.Source = "independent"
@@ -245,7 +281,7 @@ func (s *Service) ResolveMany(ctx context.Context, botID int64, kind domain.Scop
 		p.ScopeType = kind
 		p.ScopeID = id
 		p = p.WithDefaults()
-		p.ToolPermissions = clonePermissions(p.ToolPermissions)
+		p.ToolPermissions = pluginscontracts.NormalizePermissionOverrides(clonePermissions(p.ToolPermissions))
 		if s.permissions != nil {
 			state := s.permissions(p.ToolPermissions)
 			p.PermissionDefaults = clonePermissions(state.Defaults)
@@ -265,4 +301,46 @@ func clonePermissions(source map[string]bool) map[string]bool {
 		copy[key] = value
 	}
 	return copy
+}
+
+// requireGroupRole blocks granting group-admin capabilities when the bot is not
+// an owner/admin in that group. A missing role row or member role fails closed.
+// requireGroupRole 在机器人不是该群群主/管理员时阻止授予群管能力；
+// 缺少角色行或角色为 member 时按拒绝处理。
+func (s *Service) requireGroupRole(ctx context.Context, botID int64, policy, previous domain.Policy) error {
+	if s.groupRoles == nil || s.groupRoleRequirement == nil {
+		return nil
+	}
+	if policy.ScopeType != domain.ScopeGroup || policy.ScopeID <= 0 {
+		return nil
+	}
+	activating := !previous.Enabled && policy.Enabled
+	required := ""
+	for permission, granted := range policy.ToolPermissions {
+		if !granted {
+			continue
+		}
+		// Only a newly granted capability, or one activated by enabling the
+		// scope, needs a role check. Disabling or editing unrelated fields must
+		// stay possible after the bot loses its admin role.
+		// 只有新增授权或随启用作用域生效的能力才校验角色；
+		// 撤权、关闭或修改无关字段不因机器人被降权而阻塞。
+		if !activating && previous.ToolPermissions[permission] {
+			continue
+		}
+		if candidate := s.groupRoleRequirement(permission); pluginscontracts.GroupRoleRank(candidate) > pluginscontracts.GroupRoleRank(required) {
+			required = candidate
+		}
+	}
+	if required == "" {
+		return nil
+	}
+	role, err := s.groupRoles(ctx, botID, policy.ScopeID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", domain.ErrBotGroupRoleUnavailable, err)
+	}
+	if !pluginscontracts.GroupRoleSatisfies(role, required) {
+		return domain.ErrBotNotGroupAdmin
+	}
+	return nil
 }

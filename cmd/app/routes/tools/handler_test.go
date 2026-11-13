@@ -400,3 +400,37 @@ func TestPublicCatalogSeparatesConversationKinds(t *testing.T) {
 		})
 	}
 }
+
+// TestListExposesGroupRoleRequirements verifies the catalog carries the
+// requires_group_role metadata used by the frontend to disable switches.
+// TestListExposesGroupRoleRequirements 验证目录返回 requires_group_role 元数据，
+// 供前端禁用开关。
+func TestListExposesGroupRoleRequirements(t *testing.T) {
+	registry := pluginsapp.NewRegistry()
+	if err := registry.Register(context.Background(), builtin.NewPublicProvider(builtin.PublicOptions{})); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(&svc.ServiceContext{Config: &config.Config{}, Tools: registry})
+	rec := httptest.NewRecorder()
+	handler.List(rec, httptest.NewRequest(http.MethodGet, "/api/v1/tools?scope_kind=group", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var envelope struct{ Data catalog }
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"qq.set_group_kick": "admin", "qq.set_group_admin": "owner", "qq.set_group_leave": ""} {
+		if got := toolByID(t, envelope.Data.Tools, id).RequiresGroupRole; got != want {
+			t.Fatalf("%s requires_group_role = %q, want %q", id, got, want)
+		}
+	}
+	for _, permission := range envelope.Data.Permissions {
+		if permission.ID == "qq.group.admin.kick" && permission.RequiresGroupRole != "admin" {
+			t.Fatalf("permission role = %q", permission.RequiresGroupRole)
+		}
+		if permission.ID == "qq.group.admin.leave" && permission.RequiresGroupRole != "" {
+			t.Fatalf("leave permission must not require admin: %q", permission.RequiresGroupRole)
+		}
+	}
+}

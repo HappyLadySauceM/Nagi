@@ -52,6 +52,16 @@ func (m ReplyMode) Valid() bool {
 // ErrTemplateConflict 表示预期模板版本已过期。
 var ErrTemplateConflict = errors.New("scope: template version conflict")
 
+// ErrBotNotGroupAdmin reports a group policy granting an admin capability while
+// the bot itself is not an owner/admin in that group.
+// ErrBotNotGroupAdmin 表示群策略授予了管理员能力，但机器人自身不是该群群主或管理员。
+var ErrBotNotGroupAdmin = errors.New("scope: bot is not group admin")
+
+// ErrBotGroupRoleUnavailable reports that the bot's role could not be resolved,
+// distinct from a confirmed non-admin role.
+// ErrBotGroupRoleUnavailable 表示无法解析机器人群角色，与已确认的非管理员角色区分。
+var ErrBotGroupRoleUnavailable = errors.New("scope: bot group role unavailable")
+
 // Policy is one scope policy row. A zero sending limit means unlimited.
 // Policy 是一条作用域策略；发送上限的零值表示不限。
 type Policy struct {
