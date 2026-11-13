@@ -1,0 +1,117 @@
+{
+  "agent": {
+    "max-run-duration": "30s",
+    "max-steps": 6,
+    "max-tool-calls": 5,
+    "sending": {
+      "max-chars-per-message": 4500,
+      "max-messages-per-run": 0,
+      "max-total-chars-per-run": 0
+    }
+  },
+  "ai": {
+    "api-key": "REPLACE_WITH_LLM_API_KEY",
+    "base-url": "https://YOUR_LLM_ENDPOINT/v1",
+    "enabled": false,
+    "generation-timeout": "25s",
+    "max-output-tokens": 400,
+    "model": "your-chat-model"
+  },
+  "database": {
+    "dsn": "postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent?sslmode=disable",
+    "max-conns": 10
+  },
+  "echo": {
+    "enabled": true,
+    "prefix": "/echo"
+  },
+  "intent": {
+    "active-window": "3m0s",
+    "addressed-other-max": 0.6,
+    "api-key": "",
+    "bot-name": "",
+    "continuation-threshold": 0.8,
+    "enabled": false,
+    "endpoint": "https://api.typesafe.ai/v1/systemone",
+    "history-limit": 30,
+    "interjection-threshold": 0.95,
+    "model": "jev-latest",
+    "provider": "jev",
+    "timeout": "3s"
+  },
+  "log": {
+    "level": "info"
+  },
+  "memory": {
+    "extraction": {
+      "batch-max-messages": 10,
+      "batch-max-runes": 4000,
+      "concurrency": 1,
+      "enabled": false,
+      "lease-duration": "2m0s",
+      "max-attempts": 3,
+      "max-wait": "5s",
+      "poll-interval": "1s",
+      "retry-delays": [
+        "30s",
+        "2m0s"
+      ]
+    }
+  },
+  "messages": {
+    "retention-days": 30
+  },
+  "observability": {
+    "base-url": "http://127.0.0.1:3010",
+    "enabled": false,
+    "environment": "local",
+    "export-raw-content": true,
+    "ingestion-version": "4",
+    "media-archive": {
+      "access-key": "",
+      "bucket": "nagi-audit",
+      "enabled": false,
+      "endpoint": "http://127.0.0.1:9000",
+      "prefix": "nagi/",
+      "public-endpoint": "http://100.100.100.4:9000",
+      "retention-days": 30,
+      "secret-key": ""
+    },
+    "public-key": "pk-lf-nagi-local",
+    "raw-identifiers": false,
+    "secret-key": "sk-lf-nagi-local",
+    "user-id-secret": ""
+  },
+  "onebot": {
+    "call-timeout": "10s",
+    "endpoints": [
+      {
+        "access-token": "REPLACE_WITH_SNOWLUMA_TOKEN",
+        "expect-qq": 10001,
+        "url": "ws://127.0.0.1:3001"
+      }
+    ],
+    "heartbeat-timeout": "1m0s",
+    "reconnect": {
+      "initial": "1s",
+      "max": "30s"
+    }
+  },
+  "server": {
+    "admin-token": "",
+    "enabled": true,
+    "listen": "127.0.0.1:5080"
+  },
+  "tools": {
+    "max-result-bytes": 8192,
+    "permission-defaults": {
+      "qq.reply.current": true
+    },
+    "timeout": "5s"
+  },
+  "worker": {
+    "concurrency": 4,
+    "max-pending-jobs": 1000,
+    "poll-interval": "200ms"
+  }
+}
