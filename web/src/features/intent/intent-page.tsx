@@ -10,16 +10,12 @@ import { asRecord, readNumber } from '../../lib/api/adapters/guard'
 import { Select } from '../../components/ui/select'
 import { RulesPage, SimulationPanel } from './rules-page'
 import { FlowWorkbench } from './flow/flow-workbench'
-import { FlowRunView } from './flow/flow-run-view'
-import { LegacyStepTimeline } from './flow/legacy-step-timeline'
+import { DecisionDetailSheet } from './flow/decision-detail-sheet'
 import { Input } from '../../components/ui/input'
-import { OutboundTimeline } from './outbound-timeline'
-import { AuditTimeline } from './audit-timeline'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { FeedbackState } from '../../components/feedback-state'
 import { PageHeader } from '../../components/page-header'
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../components/ui/sheet'
 import { Skeleton } from '../../components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import {
@@ -29,7 +25,7 @@ import {
 import { formatCount, formatDateTime, formatRelativeTime } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useAccountContext } from '../accounts/account-context'
-import { useDecision, useDecisions } from './queries'
+import { useDecisions } from './queries'
 
 const KIND_VARIANTS: Record<DecisionEntry['decision'], 'success' | 'secondary' | 'warning'> = {
   reply: 'success', silent: 'secondary', defer: 'warning',
@@ -148,7 +144,6 @@ function DecisionLog({ recent = false, onViewAll }: { recent?: boolean; onViewAl
   const [reason, setReason] = useState('')
   const [cursor, setCursor] = useState(0)
   const decisions = useDecisions(selectedBotId, conversation, 20, cursor, reason)
-  const detail = useDecision(selected)
   const rows = decisions.data?.items ?? []
   const visibleRows = recent ? rows.slice(0, 7) : rows
   return (
@@ -168,8 +163,8 @@ function DecisionLog({ recent = false, onViewAll }: { recent?: boolean; onViewAl
           <Table label="意图决策记录">
             <TableHeader><TableRow><TableHead>决策 / 会话</TableHead><TableHead>原因</TableHead><TableHead>模型</TableHead><TableHead>时间</TableHead><TableHead className="text-right">耗时</TableHead></TableRow></TableHeader>
             <TableBody>{visibleRows.map(entry => (
-              <TableRow key={entry.id} className="cursor-pointer" onClick={() => setSelected(entry.id)}>
-                <TableCell><button type="button" className="flex flex-col items-start gap-1.5 text-left" aria-label={`查看决策 ${entry.id}`} onClick={event => { event.stopPropagation(); setSelected(entry.id) }}><Badge variant={KIND_VARIANTS[entry.decision]}>{DECISION_KIND_LABELS[entry.decision]}</Badge><span className="max-w-56 truncate font-mono text-caption text-muted-foreground">{entry.conversationId || `#${entry.id}`}</span></button></TableCell>
+              <TableRow key={entry.id} tabIndex={0} aria-haspopup="dialog" aria-label={`查看决策 ${entry.id}`} className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring" onClick={() => setSelected(entry.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(entry.id) } }}>
+                <TableCell><div className="flex flex-col items-start gap-1.5 text-left"><Badge variant={KIND_VARIANTS[entry.decision]}>{DECISION_KIND_LABELS[entry.decision]}</Badge><span className="max-w-56 truncate font-mono text-caption text-muted-foreground">{entry.conversationId || `#${entry.id}`}</span></div></TableCell>
                 <TableCell className="font-mono text-meta">{entry.reasonCode || '—'}</TableCell>
                 <TableCell className="text-meta text-muted-foreground">{entry.model || '未调用语义模型'}</TableCell>
                 <TableCell className="whitespace-nowrap text-meta text-muted-foreground" title={entry.createdAt ? formatDateTime(entry.createdAt) : undefined}>{entry.createdAt ? formatRelativeTime(entry.createdAt) : '—'}</TableCell>
@@ -180,18 +175,7 @@ function DecisionLog({ recent = false, onViewAll }: { recent?: boolean; onViewAl
         </div>
       )}
       {!recent ? <div className="flex items-center justify-between gap-2 border-t border-border pt-3"><span className="text-meta text-muted-foreground">{cursor ? '正在查看历史记录' : '最新记录'}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={!cursor || decisions.isFetching} onClick={() => { setSelected(null); setCursor(0) }}>最新记录</Button><Button variant="outline" size="sm" disabled={!rows.length || decisions.isFetching} onClick={() => { setSelected(null); setCursor(rows.at(-1)!.id) }}>更早记录</Button></div></div> : null}
-      <Sheet open={selected !== null} onOpenChange={open => { if (!open) setSelected(null) }}>
-        <SheetContent side="right" className="w-full overflow-y-auto bg-background p-6 sm:max-w-6xl">
-          <div className="border-b border-border pb-5 pr-6"><SheetTitle className="text-lg font-semibold">决策详情</SheetTitle><SheetDescription className="mt-2 leading-relaxed">还原策略、规则、语义与最终投递的实际过程。</SheetDescription></div>
-          {detail.isLoading ? <Skeleton className="mt-4 h-40 w-full" /> : detail.isError ? <FeedbackState variant="error" title="读取决策详情失败" error={detail.error} onRetry={() => void detail.refetch()} /> : detail.data ? (
-            detail.data.run && detail.data.run.snapshotStatus !== 'legacy' ? (
-              <><FlowRunView run={detail.data.run} /><AuditTimeline botId={detail.data.botId} jobId={detail.data.jobId} /></>
-            ) : (
-              <><LegacyStepTimeline detail={detail.data} /><AuditTimeline botId={detail.data.botId} jobId={detail.data.jobId} /><OutboundTimeline botId={detail.data.botId} jobId={detail.data.jobId} /></>
-            )
-          ) : null}
-        </SheetContent>
-      </Sheet>
+      <DecisionDetailSheet decisionId={selected} onClose={() => setSelected(null)} />
     </section>
   )
 }
