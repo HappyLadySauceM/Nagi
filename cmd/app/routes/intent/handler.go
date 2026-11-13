@@ -153,6 +153,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取决策详情失败")
 		return
 	}
+	record = attachSnapshotContext(r.Context(), h.svcCtx.Decisions, record)
 	delivery := h.deliveryFor(r.Context(), record.BotID, record.JobID)
 	detail := decisionDetail{decisionInfo: toInfo(record), Scores: record.Scores, Run: intentapp.BuildRunFromRecord(record, delivery)}
 	for _, step := range record.Steps {
@@ -161,6 +162,80 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	common.WriteSuccess(w, detail)
+}
+
+// snapshotSource loads the immutable decision input when the reader supports it.
+// snapshotSource 在读取器支持时加载不可变的决策输入。
+type snapshotSource interface {
+	Snapshot(context.Context, int64) (intentdomain.DecisionSnapshot, error)
+}
+
+// attachSnapshotContext copies the saved history into the context step so the
+// console can show the exact messages the decision used. A missing snapshot
+// leaves the step unchanged.
+// attachSnapshotContext 把已保存的历史写入上下文步骤，控制台因此能展示决策当时
+// 使用的消息。没有快照时保持步骤原样。
+func attachSnapshotContext(ctx context.Context, decisions intentcontracts.DecisionReader, record intentcontracts.DecisionRecord) intentcontracts.DecisionRecord {
+	source, ok := decisions.(snapshotSource)
+	if !ok {
+		return record
+	}
+	snapshot, err := source.Snapshot(ctx, record.ID)
+	if err != nil {
+		return record
+	}
+	messages := snapshotContextMessages(snapshot.Input)
+	for i := range record.Steps {
+		step := &record.Steps[i]
+		if step.NodeID != intentdomain.NodeContext && step.Phase != intentdomain.StepContext {
+			continue
+		}
+		if step.Detail == nil {
+			step.Detail = map[string]any{}
+		}
+		step.Detail["Messages"] = messages
+	}
+	return record
+}
+
+// snapshotContextMessages returns the authorized history and marks the message
+// under decision. Text is bounded so one long message cannot dominate the detail.
+// snapshotContextMessages 返回已授权历史，并标出正在判定的那一条。
+// 正文有长度上限，避免单条超长消息占满详情。
+func snapshotContextMessages(in intentdomain.SnapshotInput) []map[string]any {
+	currentID := in.Task.Message.MessageID
+	out := make([]map[string]any, 0, len(in.Recent)+1)
+	seenCurrent := false
+	for _, message := range in.Recent {
+		current := currentID != 0 && message.MessageID == currentID
+		if current {
+			seenCurrent = true
+		}
+		out = append(out, contextMessageView(message, current))
+	}
+	if !seenCurrent {
+		out = append(out, contextMessageView(in.Task.Message, true))
+	}
+	return out
+}
+
+func contextMessageView(message intentdomain.Message, current bool) map[string]any {
+	return map[string]any{
+		"MessageID": message.MessageID,
+		"SenderID":  message.SenderID,
+		"IsBot":     message.IsBot,
+		"Text":      boundContextText(message.Text),
+		"Current":   current,
+	}
+}
+
+func boundContextText(text string) string {
+	const limit = 800
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 func toInfo(record intentcontracts.DecisionRecord) decisionInfo {

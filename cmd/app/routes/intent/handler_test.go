@@ -142,6 +142,65 @@ func TestGetReturnsSteps(t *testing.T) {
 	}
 }
 
+func TestGetAttachesSnapshotContext(t *testing.T) {
+	reader := &snapshotReader{fakeReader: fakeReader{detail: intentcontracts.DecisionRecord{
+		ID: 5, Decision: "reply", ReasonCode: "explicit_mention",
+		Steps: []intentcontracts.DecisionStep{{
+			Index: 1, Phase: "context", NodeID: "context", Detail: map[string]any{"HistoryCount": 1},
+		}},
+	}}, snapshot: intentdomain.DecisionSnapshot{Input: intentdomain.SnapshotInput{
+		Task: intentdomain.Task{Message: intentdomain.Message{MessageID: 8, SenderID: 3, Text: "当前这句话"}},
+		Recent: []intentdomain.Message{
+			{MessageID: 7, SenderID: 1, IsBot: true, Text: "上一句"},
+			{MessageID: 8, SenderID: 3, Text: "当前这句话"},
+		},
+	}}}
+	mux := newServer(reader)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/intent/decisions/5", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var env envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	var data struct {
+		Run struct {
+			Nodes []struct {
+				NodeID string
+				Detail map[string]any
+			}
+		}
+	}
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if len(data.Run.Nodes) != 1 || data.Run.Nodes[0].NodeID != "context" {
+		t.Fatalf("nodes = %+v", data.Run.Nodes)
+	}
+	raw, _ := json.Marshal(data.Run.Nodes[0].Detail["Messages"])
+	var messages []struct {
+		Text    string
+		Current bool
+	}
+	if err := json.Unmarshal(raw, &messages); err != nil {
+		t.Fatalf("messages: %v", err)
+	}
+	if len(messages) != 2 || messages[0].Text != "上一句" || !messages[1].Current || messages[1].Text != "当前这句话" {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
+type snapshotReader struct {
+	fakeReader
+	snapshot intentdomain.DecisionSnapshot
+}
+
+func (s *snapshotReader) Snapshot(context.Context, int64) (intentdomain.DecisionSnapshot, error) {
+	return s.snapshot, nil
+}
+
 func TestGetMissingDecisionReturns404(t *testing.T) {
 	mux := newServer(&fakeReader{detail: intentcontracts.DecisionRecord{ID: 1}})
 	rec := httptest.NewRecorder()

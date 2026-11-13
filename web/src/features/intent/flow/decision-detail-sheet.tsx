@@ -28,7 +28,7 @@ export function DecisionDetailSheet({
         if (!next) onClose()
       }}
     >
-      <SheetContent side="right" className="w-full overflow-y-auto bg-background p-6 sm:max-w-6xl">
+      <SheetContent side="right" className="w-[calc(100vw-1rem)] max-w-none overflow-y-auto bg-background p-6 sm:max-w-none">
         <div className="border-b border-border pb-5 pr-10">
           <SheetTitle className="text-lg font-semibold">决策详情</SheetTitle>
           <SheetDescription className="mt-2 leading-relaxed">
