@@ -1,0 +1,83 @@
+{
+  "FlowVersion": "intent-flow-v1",
+  "SnapshotVersion": "intent-decision-snapshot-v1",
+  "Nodes": [
+    {
+      "NodeID": "policy",
+      "Kind": "policy",
+      "Title": "策略与权限",
+      "Description": "读取生效作用域策略并检查权限、观察模式与频率闸门",
+      "StageIndex": 0,
+      "Version": 1
+    },
+    {
+      "NodeID": "context",
+      "Kind": "context",
+      "Title": "上下文",
+      "Description": "按授权读取历史上下文，并记录记忆读写授权状态",
+      "StageIndex": 1,
+      "Version": 1
+    },
+    {
+      "NodeID": "rules",
+      "Kind": "rules",
+      "Title": "规则",
+      "Description": "执行内置规则和版本化规则",
+      "StageIndex": 2,
+      "Version": 1
+    },
+    {
+      "NodeID": "semantic",
+      "Kind": "semantic",
+      "Title": "语义判定",
+      "Description": "按需调用当前 Prompt/模型，记录跳过、失败或降级",
+      "StageIndex": 3,
+      "Version": 1
+    },
+    {
+      "NodeID": "decision",
+      "Kind": "decision",
+      "Title": "最终决策",
+      "Description": "按规则与语义结果计算回复/沉默/延后",
+      "StageIndex": 4,
+      "Version": 1
+    }
+  ],
+  "Edges": [
+    {
+      "EdgeID": "e_policy_context",
+      "FromNodeID": "policy",
+      "ToNodeID": "context",
+      "Label": "继续",
+      "Condition": "策略已解析"
+    },
+    {
+      "EdgeID": "e_context_rules",
+      "FromNodeID": "context",
+      "ToNodeID": "rules",
+      "Label": "继续",
+      "Condition": "上下文处理完成"
+    },
+    {
+      "EdgeID": "e_rules_semantic",
+      "FromNodeID": "rules",
+      "ToNodeID": "semantic",
+      "Label": "需要语义",
+      "Condition": "SemanticCalled"
+    },
+    {
+      "EdgeID": "e_rules_decision",
+      "FromNodeID": "rules",
+      "ToNodeID": "decision",
+      "Label": "规则直接结束",
+      "Condition": "!SemanticCalled"
+    },
+    {
+      "EdgeID": "e_semantic_decision",
+      "FromNodeID": "semantic",
+      "ToNodeID": "decision",
+      "Label": "语义完成",
+      "Condition": "SemanticCalled"
+    }
+  ]
+}
