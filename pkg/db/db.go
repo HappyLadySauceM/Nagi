@@ -41,12 +41,22 @@ func Connect(ctx context.Context, dsn string, maxConns int32) (*Pool, error) {
 		database.Close()
 		return nil, err
 	}
-	if version < 170000 || version >= 180000 {
+	if err := validateServerVersion(version); err != nil {
 		database.Close()
-		return nil, fmt.Errorf("PostgreSQL 17 required, found server version %d", version)
+		return nil, err
 	}
 	return &Pool{DB: database, Client: ent.NewClient(ent.Driver(entsql.OpenDB(dialect.Postgres, database)))}, nil
 }
+
+// validateServerVersion ensures the server is PostgreSQL 17 or 18.
+// validateServerVersion 确保服务端为 PostgreSQL 17 或 18。
+func validateServerVersion(version int) error {
+	if version < 170000 || version >= 190000 {
+		return fmt.Errorf("PostgreSQL 17 or 18 required, found server version %d", version)
+	}
+	return nil
+}
+
 func (p *Pool) Close()                         { _ = p.Client.Close() }
 func (p *Pool) Ping(ctx context.Context) error { return p.DB.PingContext(ctx) }
 func (p *Pool) Query(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
