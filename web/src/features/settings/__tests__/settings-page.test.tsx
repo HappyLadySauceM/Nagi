@@ -14,6 +14,12 @@ const mockedRequest = vi.mocked(apiRequest)
 
 function settingsView(overrides: Record<string, unknown> = {}) {
   const settings = {
+    Role: {
+      BotName: 'Nagi',
+    },
+    Context: {
+      HistoryLimit: 30,
+    },
     AI: {
       Enabled: true,
       BaseURL: 'https://llm.example/v1',
@@ -26,12 +32,10 @@ function settingsView(overrides: Record<string, unknown> = {}) {
       Provider: 'jev',
       Endpoint: 'https://api.example/v1/systemone',
       Model: 'jev-latest',
-      BotName: 'Nagi',
       TimeoutSeconds: 3,
       ContinuationThreshold: 0.8,
       InterjectionThreshold: 0.95,
       AddressedOtherMax: 0.6,
-      HistoryLimit: 30,
     },
     Agent: {
       MaxSteps: 6,
