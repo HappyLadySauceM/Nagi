@@ -70,6 +70,15 @@ type DedupeRepository interface {
 	FindByDedupeKey(ctx context.Context, key string) (domain.Memory, bool, error)
 }
 
+// SummaryRepository is the optional aggregate read port used by the knowledge
+// summary endpoint. It returns counts only and never memory or message bodies.
+// SummaryRepository 是知识摘要接口使用的可选聚合读取端口；只返回计数，
+// 绝不返回记忆或消息正文。
+type SummaryRepository interface {
+	MemorySummary(ctx context.Context, botID int64) (domain.MemorySummary, error)
+	ExtractionSummary(ctx context.Context, botID int64) (domain.ExtractionSummary, error)
+}
+
 // Service implements the candidate → dedupe → approve/merge → active workflow.
 // Service 实现 候选 → 去重 → 审核/合并 → 激活 流程。
 type Service struct {
@@ -250,6 +259,27 @@ func (s *Service) Get(ctx context.Context, memoryID string) (domain.Memory, bool
 // List 返回管理用的一页记忆。
 func (s *Service) List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, int64, error) {
 	return s.repo.List(ctx, f.Normalized())
+}
+
+// Summary returns aggregate memory and extraction counts for one bot.
+// Summary 返回单个机器人的记忆与抽取聚合计数。
+func (s *Service) Summary(ctx context.Context, botID int64) (domain.KnowledgeSummary, error) {
+	if botID <= 0 {
+		return domain.KnowledgeSummary{}, fmt.Errorf("memory: bot id must be positive")
+	}
+	repo, ok := s.repo.(SummaryRepository)
+	if !ok {
+		return domain.KnowledgeSummary{}, fmt.Errorf("memory: summary repository unavailable")
+	}
+	memories, err := repo.MemorySummary(ctx, botID)
+	if err != nil {
+		return domain.KnowledgeSummary{}, err
+	}
+	extraction, err := repo.ExtractionSummary(ctx, botID)
+	if err != nil {
+		return domain.KnowledgeSummary{}, err
+	}
+	return domain.KnowledgeSummary{Memories: memories, Extraction: extraction}, nil
 }
 
 // SearchVisible returns active, unexpired memories the conversation may read:
