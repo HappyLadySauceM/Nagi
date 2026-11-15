@@ -38,6 +38,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
@@ -97,6 +98,8 @@ type Client struct {
 	MemoryExtractionCursor *MemoryExtractionCursorClient
 	// MemoryExtractionJob is the client for interacting with the MemoryExtractionJob builders.
 	MemoryExtractionJob *MemoryExtractionJobClient
+	// MemoryReplacement is the client for interacting with the MemoryReplacement builders.
+	MemoryReplacement *MemoryReplacementClient
 	// Message is the client for interacting with the Message builders.
 	Message *MessageClient
 	// MessageJob is the client for interacting with the MessageJob builders.
@@ -142,6 +145,7 @@ func (c *Client) init() {
 	c.Memory = NewMemoryClient(c.config)
 	c.MemoryExtractionCursor = NewMemoryExtractionCursorClient(c.config)
 	c.MemoryExtractionJob = NewMemoryExtractionJobClient(c.config)
+	c.MemoryReplacement = NewMemoryReplacementClient(c.config)
 	c.Message = NewMessageClient(c.config)
 	c.MessageJob = NewMessageJobClient(c.config)
 	c.QQGroup = NewQQGroupClient(c.config)
@@ -262,6 +266,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Memory:                        NewMemoryClient(cfg),
 		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
 		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
+		MemoryReplacement:             NewMemoryReplacementClient(cfg),
 		Message:                       NewMessageClient(cfg),
 		MessageJob:                    NewMessageJobClient(cfg),
 		QQGroup:                       NewQQGroupClient(cfg),
@@ -309,6 +314,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Memory:                        NewMemoryClient(cfg),
 		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
 		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
+		MemoryReplacement:             NewMemoryReplacementClient(cfg),
 		Message:                       NewMessageClient(cfg),
 		MessageJob:                    NewMessageJobClient(cfg),
 		QQGroup:                       NewQQGroupClient(cfg),
@@ -350,8 +356,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
 		c.IntentReplayEvaluation, c.IntentRuleActivation, c.IntentRuleEntry,
 		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
-		c.ScopePolicy, c.SystemSetting,
+		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Use(hooks...)
 	}
@@ -367,8 +373,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
 		c.IntentReplayEvaluation, c.IntentRuleActivation, c.IntentRuleEntry,
 		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.Message, c.MessageJob, c.QQGroup, c.ScopeMemoryAuthorizationEvent,
-		c.ScopePolicy, c.SystemSetting,
+		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -421,6 +427,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.MemoryExtractionCursor.mutate(ctx, m)
 	case *MemoryExtractionJobMutation:
 		return c.MemoryExtractionJob.mutate(ctx, m)
+	case *MemoryReplacementMutation:
+		return c.MemoryReplacement.mutate(ctx, m)
 	case *MessageMutation:
 		return c.Message.mutate(ctx, m)
 	case *MessageJobMutation:
@@ -4020,6 +4028,139 @@ func (c *MemoryExtractionJobClient) mutate(ctx context.Context, m *MemoryExtract
 	}
 }
 
+// MemoryReplacementClient is a client for the MemoryReplacement schema.
+type MemoryReplacementClient struct {
+	config
+}
+
+// NewMemoryReplacementClient returns a client for the MemoryReplacement from the given config.
+func NewMemoryReplacementClient(c config) *MemoryReplacementClient {
+	return &MemoryReplacementClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `memoryreplacement.Hooks(f(g(h())))`.
+func (c *MemoryReplacementClient) Use(hooks ...Hook) {
+	c.hooks.MemoryReplacement = append(c.hooks.MemoryReplacement, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `memoryreplacement.Intercept(f(g(h())))`.
+func (c *MemoryReplacementClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MemoryReplacement = append(c.inters.MemoryReplacement, interceptors...)
+}
+
+// Create returns a builder for creating a MemoryReplacement entity.
+func (c *MemoryReplacementClient) Create() *MemoryReplacementCreate {
+	mutation := newMemoryReplacementMutation(c.config, OpCreate)
+	return &MemoryReplacementCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MemoryReplacement entities.
+func (c *MemoryReplacementClient) CreateBulk(builders ...*MemoryReplacementCreate) *MemoryReplacementCreateBulk {
+	return &MemoryReplacementCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MemoryReplacementClient) MapCreateBulk(slice any, setFunc func(*MemoryReplacementCreate, int)) *MemoryReplacementCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MemoryReplacementCreateBulk{err: fmt.Errorf("calling to MemoryReplacementClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MemoryReplacementCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MemoryReplacementCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MemoryReplacement.
+func (c *MemoryReplacementClient) Update() *MemoryReplacementUpdate {
+	mutation := newMemoryReplacementMutation(c.config, OpUpdate)
+	return &MemoryReplacementUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MemoryReplacementClient) UpdateOne(_m *MemoryReplacement) *MemoryReplacementUpdateOne {
+	mutation := newMemoryReplacementMutation(c.config, OpUpdateOne, withMemoryReplacement(_m))
+	return &MemoryReplacementUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MemoryReplacementClient) UpdateOneID(id uuid.UUID) *MemoryReplacementUpdateOne {
+	mutation := newMemoryReplacementMutation(c.config, OpUpdateOne, withMemoryReplacementID(id))
+	return &MemoryReplacementUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MemoryReplacement.
+func (c *MemoryReplacementClient) Delete() *MemoryReplacementDelete {
+	mutation := newMemoryReplacementMutation(c.config, OpDelete)
+	return &MemoryReplacementDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MemoryReplacementClient) DeleteOne(_m *MemoryReplacement) *MemoryReplacementDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MemoryReplacementClient) DeleteOneID(id uuid.UUID) *MemoryReplacementDeleteOne {
+	builder := c.Delete().Where(memoryreplacement.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MemoryReplacementDeleteOne{builder}
+}
+
+// Query returns a query builder for MemoryReplacement.
+func (c *MemoryReplacementClient) Query() *MemoryReplacementQuery {
+	return &MemoryReplacementQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMemoryReplacement},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MemoryReplacement entity by its id.
+func (c *MemoryReplacementClient) Get(ctx context.Context, id uuid.UUID) (*MemoryReplacement, error) {
+	return c.Query().Where(memoryreplacement.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MemoryReplacementClient) GetX(ctx context.Context, id uuid.UUID) *MemoryReplacement {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *MemoryReplacementClient) Hooks() []Hook {
+	return c.hooks.MemoryReplacement
+}
+
+// Interceptors returns the client interceptors.
+func (c *MemoryReplacementClient) Interceptors() []Interceptor {
+	return c.inters.MemoryReplacement
+}
+
+func (c *MemoryReplacementClient) mutate(ctx context.Context, m *MemoryReplacementMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MemoryReplacementCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MemoryReplacementUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MemoryReplacementUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MemoryReplacementDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MemoryReplacement mutation op: %q", m.Op())
+	}
+}
+
 // MessageClient is a client for the Message schema.
 type MessageClient struct {
 	config
@@ -5034,7 +5175,7 @@ type (
 		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
 		IntentPromptVersion, IntentReplayEvaluation, IntentRuleActivation,
 		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
-		MemoryExtractionJob, Message, MessageJob, QQGroup,
+		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
 		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Hook
 	}
 	inters struct {
@@ -5043,7 +5184,7 @@ type (
 		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
 		IntentPromptVersion, IntentReplayEvaluation, IntentRuleActivation,
 		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
-		MemoryExtractionJob, Message, MessageJob, QQGroup,
+		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
 		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Interceptor
 	}
 )

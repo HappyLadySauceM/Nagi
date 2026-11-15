@@ -34,6 +34,17 @@ var (
 	ErrExtractionRetryLimit           = errors.New("memory: extraction retry limit reached")
 )
 
+// Memory mutation errors are stable API-facing causes for handler mapping.
+// 记忆变更错误是供处理器映射的稳定接口原因。
+var (
+	ErrMemoryInvalid        = errors.New("memory: invalid memory fields")
+	ErrMemoryStatusConflict = errors.New("memory: memory status conflict")
+	ErrSubjectMismatch      = errors.New("memory: subject mismatch")
+	ErrSubjectAmbiguous     = errors.New("memory: subject ambiguous")
+	ErrIdempotencyConflict  = errors.New("memory: idempotency conflict")
+	ErrReplacementInvalid   = errors.New("memory: replacement invalid")
+)
+
 // DefaultManualRetryLimit is the maximum number of manual retries per job.
 // DefaultManualRetryLimit 是每个任务的最大手动重试次数。
 const DefaultManualRetryLimit = 1
@@ -53,6 +64,26 @@ type Repository interface {
 	List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, int64, error)
 	FindSame(ctx context.Context, botID int64, visibility domain.Visibility, ownerKey, content string) (domain.Memory, bool, error)
 	SearchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error)
+}
+
+// AtomicMemoryRepository applies status/content changes under the shared
+// memory:mutate lock and row lock. Production repositories implement it.
+// AtomicMemoryRepository 在共享 memory:mutate 锁与行锁下应用状态/内容变更；
+// 生产仓储实现该接口。
+type AtomicMemoryRepository interface {
+	ApproveMemory(ctx context.Context, memoryID, actor string) error
+	ApproveMemoryWithEdit(ctx context.Context, memoryID, actor, content string, visibility domain.Visibility, ownerKey *string) error
+	UpdateMemoryLocked(ctx context.Context, m domain.Memory) error
+	DeleteMemory(ctx context.Context, memoryID string) (bool, error)
+	InsertCandidateLocked(ctx context.Context, m domain.Memory) (string, bool, error)
+}
+
+// ReplacementRepository provides the explicit supersede transaction and
+// management replacement view.
+// ReplacementRepository 提供显式替代事务与管理端替代关系视图。
+type ReplacementRepository interface {
+	Supersede(ctx context.Context, in domain.SupersedeInput) (domain.SupersedeResult, error)
+	Management(ctx context.Context, memoryID string, botID int64) (domain.Memory, []domain.ReplacementView, bool, error)
 }
 
 // ExtractionJobRepository is an optional management read/retry port.
@@ -165,6 +196,9 @@ func (s *Service) Propose(ctx context.Context, in CandidateInput) (string, bool,
 	if err := m.Validate(); err != nil {
 		return "", false, err
 	}
+	if writer, ok := s.repo.(AtomicMemoryRepository); ok {
+		return writer.InsertCandidateLocked(ctx, m)
+	}
 	var existing domain.Memory
 	var found bool
 	var err error
@@ -196,16 +230,50 @@ func (s *Service) Approve(ctx context.Context, memoryID, approvedBy string) erro
 	if strings.TrimSpace(approvedBy) == "" {
 		return fmt.Errorf("memory: approver is required")
 	}
+	if writer, ok := s.repo.(AtomicMemoryRepository); ok {
+		return writer.ApproveMemory(ctx, memoryID, approvedBy)
+	}
 	m, found, err := s.repo.Get(ctx, memoryID)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return fmt.Errorf("memory: memory %s not found", memoryID)
+		return fmt.Errorf("%w: %s", ErrMemoryNotFound, memoryID)
+	}
+	if m.Status != domain.StatusCandidate {
+		return ErrMemoryStatusConflict
 	}
 	m.Status = domain.StatusActive
 	m.ApprovedBy = approvedBy
 	return s.repo.Update(ctx, m)
+}
+
+// ApproveWithEdit validates and applies an edit together with candidate ->
+// active in one repository transaction, so a failed approval cannot leave the
+// edit committed.
+// ApproveWithEdit 在同一仓储事务中校验并应用编辑与 candidate -> active，避免审批
+// 失败时编辑已落库。
+func (s *Service) ApproveWithEdit(ctx context.Context, memoryID, actor, content string, visibility domain.Visibility, ownerKey *string) error {
+	if strings.TrimSpace(actor) == "" {
+		return fmt.Errorf("memory: approver is required")
+	}
+	if writer, ok := s.repo.(AtomicMemoryRepository); ok {
+		return writer.ApproveMemoryWithEdit(ctx, memoryID, actor, content, visibility, ownerKey)
+	}
+	m, found, err := s.repo.Get(ctx, memoryID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("%w: %s", ErrMemoryNotFound, memoryID)
+	}
+	if m.Status != domain.StatusCandidate {
+		return ErrMemoryStatusConflict
+	}
+	if err := s.Revise(ctx, memoryID, content, visibility, ownerKey); err != nil {
+		return err
+	}
+	return s.Approve(ctx, memoryID, actor)
 }
 
 // Revise updates content, visibility or owner of one memory after validation.
@@ -216,7 +284,7 @@ func (s *Service) Revise(ctx context.Context, memoryID string, content string, v
 		return err
 	}
 	if !found {
-		return fmt.Errorf("memory: memory %s not found", memoryID)
+		return fmt.Errorf("%w: %s", ErrMemoryNotFound, memoryID)
 	}
 	if strings.TrimSpace(content) != "" {
 		m.Content = strings.TrimSpace(content)
@@ -231,7 +299,13 @@ func (s *Service) Revise(ctx context.Context, memoryID string, content string, v
 		m.DedupeKey = domain.ComputeDedupeKey(m.BotID, m.Visibility, m.OwnerKey, m.SubjectType, m.SubjectID, m.Content)
 	}
 	if err := m.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrMemoryInvalid, err)
+	}
+	if m.Status == domain.StatusSuperseded || m.Status == domain.StatusDeleted {
+		return ErrMemoryStatusConflict
+	}
+	if writer, ok := s.repo.(AtomicMemoryRepository); ok {
+		return writer.UpdateMemoryLocked(ctx, m)
 	}
 	return s.repo.Update(ctx, m)
 }
@@ -239,6 +313,16 @@ func (s *Service) Revise(ctx context.Context, memoryID string, content string, v
 // Delete permanently removes one memory row.
 // Delete 永久删除一条记忆行。
 func (s *Service) Delete(ctx context.Context, memoryID string) error {
+	if writer, ok := s.repo.(AtomicMemoryRepository); ok {
+		deleted, err := writer.DeleteMemory(ctx, memoryID)
+		if err != nil {
+			return err
+		}
+		if !deleted {
+			return ErrMemoryNotFound
+		}
+		return nil
+	}
 	deleted, err := s.repo.Delete(ctx, memoryID)
 	if err != nil {
 		return err
@@ -247,6 +331,52 @@ func (s *Service) Delete(ctx context.Context, memoryID string) error {
 		return ErrMemoryNotFound
 	}
 	return nil
+}
+
+// Supersede explicitly replaces one active memory with a candidate in one
+// transaction. The repository owns the shared memory:mutate lock and row locks.
+// Supersede 在一个事务中显式用候选替代一条 active 记忆。仓储负责共享
+// memory:mutate 锁与行锁。
+func (s *Service) Supersede(ctx context.Context, in domain.SupersedeInput) (domain.SupersedeResult, error) {
+	in.NewMemoryID = strings.TrimSpace(in.NewMemoryID)
+	in.OldMemoryID = strings.TrimSpace(in.OldMemoryID)
+	in.Actor = strings.TrimSpace(in.Actor)
+	in.Reason = strings.TrimSpace(in.Reason)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	if _, err := uuid.Parse(in.NewMemoryID); err != nil {
+		return domain.SupersedeResult{}, fmt.Errorf("%w: invalid new memory id", ErrReplacementInvalid)
+	}
+	if _, err := uuid.Parse(in.OldMemoryID); err != nil {
+		return domain.SupersedeResult{}, fmt.Errorf("%w: invalid old memory id", ErrReplacementInvalid)
+	}
+	if in.Actor == "" {
+		return domain.SupersedeResult{}, fmt.Errorf("%w: actor is required", ErrReplacementInvalid)
+	}
+	if len([]rune(in.IdempotencyKey)) < 1 || len([]rune(in.IdempotencyKey)) > 128 {
+		return domain.SupersedeResult{}, fmt.Errorf("%w: idempotency key must be 1-128 characters", ErrReplacementInvalid)
+	}
+	repo, ok := s.repo.(ReplacementRepository)
+	if !ok {
+		return domain.SupersedeResult{}, fmt.Errorf("memory: replacement repository unavailable")
+	}
+	return repo.Supersede(ctx, in)
+}
+
+// Management returns one memory in any lifecycle state plus its replacement
+// relations for the administrator detail endpoint.
+// Management 返回任意生命周期状态的一条记忆及其替代关系，供管理员详情接口使用。
+func (s *Service) Management(ctx context.Context, memoryID string, botID int64) (domain.Memory, []domain.ReplacementView, bool, error) {
+	if _, err := uuid.Parse(strings.TrimSpace(memoryID)); err != nil {
+		return domain.Memory{}, nil, false, fmt.Errorf("%w: %q", ErrInvalidID, memoryID)
+	}
+	if botID <= 0 {
+		return domain.Memory{}, nil, false, fmt.Errorf("memory: bot id must be positive")
+	}
+	repo, ok := s.repo.(ReplacementRepository)
+	if !ok {
+		return domain.Memory{}, nil, false, fmt.Errorf("memory: replacement repository unavailable")
+	}
+	return repo.Management(ctx, strings.TrimSpace(memoryID), botID)
 }
 
 // Get returns one memory when it exists.

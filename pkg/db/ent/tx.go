@@ -58,6 +58,8 @@ type Tx struct {
 	MemoryExtractionCursor *MemoryExtractionCursorClient
 	// MemoryExtractionJob is the client for interacting with the MemoryExtractionJob builders.
 	MemoryExtractionJob *MemoryExtractionJobClient
+	// MemoryReplacement is the client for interacting with the MemoryReplacement builders.
+	MemoryReplacement *MemoryReplacementClient
 	// Message is the client for interacting with the Message builders.
 	Message *MessageClient
 	// MessageJob is the client for interacting with the MessageJob builders.
@@ -223,6 +225,7 @@ func (tx *Tx) init() {
 	tx.Memory = NewMemoryClient(tx.config)
 	tx.MemoryExtractionCursor = NewMemoryExtractionCursorClient(tx.config)
 	tx.MemoryExtractionJob = NewMemoryExtractionJobClient(tx.config)
+	tx.MemoryReplacement = NewMemoryReplacementClient(tx.config)
 	tx.Message = NewMessageClient(tx.config)
 	tx.MessageJob = NewMessageJobClient(tx.config)
 	tx.QQGroup = NewQQGroupClient(tx.config)

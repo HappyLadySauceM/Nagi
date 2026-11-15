@@ -27,6 +27,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
@@ -555,6 +556,16 @@ func init() {
 	memoryextractionjobDescID := memoryextractionjobFields[0].Descriptor()
 	// memoryextractionjob.DefaultID holds the default value on creation for the id field.
 	memoryextractionjob.DefaultID = memoryextractionjobDescID.Default.(func() uuid.UUID)
+	memoryreplacementFields := nagi.MemoryReplacement{}.Fields()
+	_ = memoryreplacementFields
+	// memoryreplacementDescReason is the schema descriptor for reason field.
+	memoryreplacementDescReason := memoryreplacementFields[5].Descriptor()
+	// memoryreplacement.DefaultReason holds the default value on creation for the reason field.
+	memoryreplacement.DefaultReason = memoryreplacementDescReason.Default.(string)
+	// memoryreplacementDescCreatedAt is the schema descriptor for created_at field.
+	memoryreplacementDescCreatedAt := memoryreplacementFields[7].Descriptor()
+	// memoryreplacement.DefaultCreatedAt holds the default value on creation for the created_at field.
+	memoryreplacement.DefaultCreatedAt = memoryreplacementDescCreatedAt.Default.(func() time.Time)
 	messageFields := nagi.Message{}.Fields()
 	_ = messageFields
 	// messageDescTextContent is the schema descriptor for text_content field.

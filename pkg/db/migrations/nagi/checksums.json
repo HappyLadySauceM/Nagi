@@ -18,5 +18,7 @@
   "20261112150134_intent_p1_replay_evaluations.down.sql": "f2a31363cd87de7f468ea010975daeb619a55c84ce93e702c0a31d536f0accb0",
   "20261112150134_intent_p1_replay_evaluations.up.sql": "06901e0edea46e926b6d9d579051f43e25ef7d9d641d7a2bea72c3b6c55537a6",
   "20261115180000_prompt_unified_management.down.sql": "e6a4879cd8fc2ca4dd4da46ad3bab371f385ddc7f8c0fcdeebbfd309b4e92f25",
-  "20261115180000_prompt_unified_management.up.sql": "cd9ec28d2bd8d84886c6a1baa29c822328d555f5c2f31fc720c428afb484e162"
+  "20261115180000_prompt_unified_management.up.sql": "cd9ec28d2bd8d84886c6a1baa29c822328d555f5c2f31fc720c428afb484e162",
+  "20261115201828_memory_replacements.down.sql": "2a3eb1b187f66f8ab336e728a38f36ad3d6b0eb807bebbe82d3d8a6a7b1f3d35",
+  "20261115201828_memory_replacements.up.sql": "6181a440d104982a4a7156168f2b4217076fa00751a309e929986e2297719a03"
 }

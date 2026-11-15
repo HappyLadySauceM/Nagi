@@ -34,6 +34,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
@@ -122,6 +123,7 @@ func checkColumn(t, c string) error {
 			memory.Table:                        memory.ValidColumn,
 			memoryextractioncursor.Table:        memoryextractioncursor.ValidColumn,
 			memoryextractionjob.Table:           memoryextractionjob.ValidColumn,
+			memoryreplacement.Table:             memoryreplacement.ValidColumn,
 			message.Table:                       message.ValidColumn,
 			messagejob.Table:                    messagejob.ValidColumn,
 			qqgroup.Table:                       qqgroup.ValidColumn,

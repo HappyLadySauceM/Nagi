@@ -44,8 +44,10 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/memories", h.List)
+	mux.HandleFunc("GET /api/v1/memories/{id}/management", h.Management)
 	mux.HandleFunc("GET /api/v1/memories/{id}", h.Get)
 	mux.HandleFunc("POST /api/v1/memories", h.Create)
+	mux.HandleFunc("POST /api/v1/memories/{candidate_id}/supersede", h.Supersede)
 	mux.HandleFunc("PATCH /api/v1/memories/{id}", h.Patch)
 	mux.HandleFunc("DELETE /api/v1/memories/{id}", h.Delete)
 	mux.HandleFunc("POST /api/v1/memories/recall-preview", h.RecallPreview)
@@ -296,6 +298,136 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, item)
 }
 
+// supersedeRequest is the explicit memory supersede input.
+// supersedeRequest 是显式记忆替代输入。
+type supersedeRequest struct {
+	OldMemoryID    string `json:"old_memory_id"`
+	Reason         string `json:"reason"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+// Supersede explicitly replaces one active memory with a candidate. It never
+// infers an old memory from content similarity.
+// Supersede 显式用一个候选替代一条 active 记忆，绝不按正文相似度推断旧记忆。
+func (h *Handler) Supersede(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDB(w) {
+		return
+	}
+	candidateID := r.PathValue("candidate_id")
+	if !validMemoryID(candidateID) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid candidate memory id")
+		return
+	}
+	var body supersedeRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.WriteFailure(w, http.StatusUnprocessableEntity, "replacement_invalid")
+		return
+	}
+	result, err := h.svcCtx.Memory.Supersede(r.Context(), memorydomain.SupersedeInput{
+		NewMemoryID: candidateID, OldMemoryID: body.OldMemoryID,
+		Actor: middlewareActor(r), Reason: body.Reason, IdempotencyKey: body.IdempotencyKey,
+	})
+	if err != nil {
+		writeMemoryMutationError(w, err)
+		return
+	}
+	common.WriteSuccess(w, result)
+}
+
+// Management returns one memory in any lifecycle state with its replacement
+// relations for the administrator detail page.
+// Management 返回任意生命周期状态的记忆及其替代关系，供管理员详情页使用。
+func (h *Handler) Management(w http.ResponseWriter, r *http.Request) {
+	if !h.requireDB(w) {
+		return
+	}
+	memoryID := r.PathValue("id")
+	if !validMemoryID(memoryID) {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+		return
+	}
+	botID, err := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
+	if err != nil || botID <= 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "bot_id is required")
+		return
+	}
+	memory, replacements, found, err := h.svcCtx.Memory.Management(r.Context(), memoryID, botID)
+	if err != nil {
+		if errors.Is(err, memoryapp.ErrInvalidID) {
+			common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
+			return
+		}
+		common.WriteFailure(w, http.StatusInternalServerError, "read memory management failed")
+		return
+	}
+	if !found {
+		common.WriteFailure(w, http.StatusNotFound, "memory_not_found")
+		return
+	}
+	common.WriteSuccess(w, map[string]any{"Memory": managementMemoryViewOf(memory), "Replacements": replacements})
+}
+
+// managementMemoryView is the stable administrator detail shape. It keeps the
+// internal dedupe/confidence/review fields out of the response and renders an
+// absent expiry as null.
+// managementMemoryView 是稳定的管理员详情结构：不暴露内部去重/置信度/审核字段，
+// 无过期时间时输出 null。
+type managementMemoryView struct {
+	ID              string
+	BotID           int64
+	Status          memorydomain.Status
+	Visibility      memorydomain.Visibility
+	OwnerKey        string
+	Content         string
+	Source          string
+	SourceMessageID int64
+	SourceSenderID  int64
+	Confidence      float64
+	SubjectType     memorydomain.SubjectType
+	SubjectID       string
+	Origin          memorydomain.Origin
+	ApprovedBy      string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	ExpiresAt       *time.Time
+}
+
+func managementMemoryViewOf(memory memorydomain.Memory) managementMemoryView {
+	view := managementMemoryView{
+		ID: memory.ID, BotID: memory.BotID, Status: memory.Status, Visibility: memory.Visibility,
+		OwnerKey: memory.OwnerKey, Content: memory.Content, Source: memory.Source,
+		SourceMessageID: memory.SourceMessageID, SourceSenderID: memory.SourceSenderID, Confidence: memory.Confidence,
+		SubjectType: memory.SubjectType, SubjectID: memory.SubjectID,
+		Origin: memory.Origin, ApprovedBy: memory.ApprovedBy, CreatedAt: memory.CreatedAt, UpdatedAt: memory.UpdatedAt,
+	}
+	if !memory.ExpiresAt.IsZero() {
+		expiresAt := memory.ExpiresAt
+		view.ExpiresAt = &expiresAt
+	}
+	return view
+}
+
+func writeMemoryMutationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, memoryapp.ErrMemoryNotFound):
+		common.WriteFailure(w, http.StatusNotFound, "memory_not_found")
+	case errors.Is(err, memoryapp.ErrMemoryStatusConflict):
+		common.WriteFailure(w, http.StatusConflict, "memory_status_conflict")
+	case errors.Is(err, memoryapp.ErrSubjectMismatch):
+		common.WriteFailure(w, http.StatusConflict, "subject_mismatch")
+	case errors.Is(err, memoryapp.ErrSubjectAmbiguous):
+		common.WriteFailure(w, http.StatusConflict, "subject_ambiguous")
+	case errors.Is(err, memoryapp.ErrIdempotencyConflict):
+		common.WriteFailure(w, http.StatusConflict, "idempotency_conflict")
+	case errors.Is(err, memoryapp.ErrMemoryInvalid):
+		common.WriteFailure(w, http.StatusBadRequest, "revise memory failed")
+	case errors.Is(err, memoryapp.ErrReplacementInvalid), errors.Is(err, memoryapp.ErrInvalidID):
+		common.WriteFailure(w, http.StatusUnprocessableEntity, "replacement_invalid")
+	default:
+		common.WriteFailure(w, http.StatusInternalServerError, "memory mutation failed")
+	}
+}
+
 // createRequest is the POST body; approve=true activates the memory immediately.
 // createRequest 是 POST 请求体；approve=true 时立即激活记忆。
 type createRequest struct {
@@ -419,22 +551,23 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	if body.OwnerKey != nil {
 		ownerKey = body.OwnerKey
 	}
-	if err := h.svcCtx.Memory.Revise(r.Context(), id, content, memorydomain.Visibility(body.Visibility), ownerKey); err != nil {
-		common.WriteFailure(w, http.StatusBadRequest, "revise memory failed")
+	if action == statusApprove {
+		if err := h.svcCtx.Memory.ApproveWithEdit(r.Context(), id, middlewareActor(r), content, memorydomain.Visibility(body.Visibility), ownerKey); err != nil {
+			writeMemoryMutationError(w, err)
+			return
+		}
+		common.WriteSuccess(w, map[string]any{"id": id})
 		return
 	}
-	switch action {
-	case statusApprove:
-		if err := h.svcCtx.Memory.Approve(r.Context(), id, middlewareActor(r)); err != nil {
-			common.WriteFailure(w, http.StatusInternalServerError, "approve memory failed")
-			return
-		}
-	case statusDelete:
+	if err := h.svcCtx.Memory.Revise(r.Context(), id, content, memorydomain.Visibility(body.Visibility), ownerKey); err != nil {
+		writeMemoryMutationError(w, err)
+		return
+	}
+	if action == statusDelete {
 		if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
-			common.WriteFailure(w, http.StatusInternalServerError, "delete memory failed")
+			writeMemoryMutationError(w, err)
 			return
 		}
-	case statusNone:
 	}
 	common.WriteSuccess(w, map[string]any{"id": id})
 }

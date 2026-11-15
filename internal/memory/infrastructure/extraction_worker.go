@@ -405,6 +405,15 @@ func (r *Repo) FinalizeExtractionBatch(ctx context.Context, batch domain.Extract
 		return domain.FinalizeResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	// Memory row writes take the per-bot mutation lock before the existing
+	// memory-authorization locks; claim/scan paths keep conversation ->
+	// authorization and do not take this lock, so the two orders cannot form
+	// an ABBA cycle. The memory rows are then written under this transaction.
+	// 记忆行写入先取按 bot 的记忆变更锁，再取既有记忆授权锁；认领/扫描路径
+	// 保持 conversation -> authorization 且不取该锁，因此不会形成 ABBA 环。
+	if err := LockMemoryMutation(ctx, tx, batch.Scope.BotID); err != nil {
+		return domain.FinalizeResult{}, err
+	}
 	if err := scopeinfra.LockMemoryAuthorization(ctx, tx, batch.Scope.BotID, batch.Scope.ScopeType, batch.Scope.ScopeID); err != nil {
 		return domain.FinalizeResult{}, err
 	}

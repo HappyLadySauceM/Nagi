@@ -72,6 +72,9 @@ type MemoryExtractionCursor func(*sql.Selector)
 // MemoryExtractionJob is the predicate function for memoryextractionjob builders.
 type MemoryExtractionJob func(*sql.Selector)
 
+// MemoryReplacement is the predicate function for memoryreplacement builders.
+type MemoryReplacement func(*sql.Selector)
+
 // Message is the predicate function for message builders.
 type Message func(*sql.Selector)
 
