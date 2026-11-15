@@ -1,8 +1,10 @@
 import type {
   SettingsAgent,
   SettingsAI,
+  SettingsContext,
   SettingsIntent,
   SettingsMessages,
+  SettingsRole,
   SettingsTools,
   SystemSettings,
   SystemSettingsView,
@@ -52,11 +54,27 @@ export function toSettingsView(raw: unknown): SystemSettingsView {
 export function toSettings(raw: unknown): SystemSettings {
   const record = asRecord(raw, SETTINGS_ENDPOINT, 'Settings')
   return {
+    role: toRole(record.Role),
+    context: toContext(record.Context),
     ai: toAI(record.AI),
     intent: toIntent(record.Intent),
     agent: toAgent(record.Agent),
     messages: toMessages(record.Messages),
     tools: toTools(record.Tools),
+  }
+}
+
+function toRole(raw: unknown): SettingsRole {
+  const record = asRecord(raw, SETTINGS_ENDPOINT, 'Role')
+  return {
+    botName: readString(record, 'BotName', SETTINGS_ENDPOINT, ''),
+  }
+}
+
+function toContext(raw: unknown): SettingsContext {
+  const record = asRecord(raw, SETTINGS_ENDPOINT, 'Context')
+  return {
+    historyLimit: readNumber(record, 'HistoryLimit', SETTINGS_ENDPOINT),
   }
 }
 
@@ -79,12 +97,10 @@ function toIntent(raw: unknown): SettingsIntent {
     provider: provider === 'jev' || provider === 'openai' ? provider : '',
     endpoint: readString(record, 'Endpoint', SETTINGS_ENDPOINT, ''),
     model: readString(record, 'Model', SETTINGS_ENDPOINT, ''),
-    botName: readString(record, 'BotName', SETTINGS_ENDPOINT, ''),
     timeoutSeconds: readNumber(record, 'TimeoutSeconds', SETTINGS_ENDPOINT),
     continuationThreshold: readNumber(record, 'ContinuationThreshold', SETTINGS_ENDPOINT),
     interjectionThreshold: readNumber(record, 'InterjectionThreshold', SETTINGS_ENDPOINT),
     addressedOtherMax: readNumber(record, 'AddressedOtherMax', SETTINGS_ENDPOINT),
-    historyLimit: readNumber(record, 'HistoryLimit', SETTINGS_ENDPOINT),
   }
 }
 
@@ -137,6 +153,12 @@ export function toSettingsPutBody(settings: SystemSettings, version: number): un
   return {
     Version: version,
     Settings: {
+      Role: {
+        BotName: settings.role.botName,
+      },
+      Context: {
+        HistoryLimit: settings.context.historyLimit,
+      },
       AI: {
         Enabled: settings.ai.enabled,
         BaseURL: settings.ai.baseURL,
@@ -149,12 +171,10 @@ export function toSettingsPutBody(settings: SystemSettings, version: number): un
         Provider: settings.intent.provider,
         Endpoint: settings.intent.endpoint,
         Model: settings.intent.model,
-        BotName: settings.intent.botName,
         TimeoutSeconds: settings.intent.timeoutSeconds,
         ContinuationThreshold: settings.intent.continuationThreshold,
         InterjectionThreshold: settings.intent.interjectionThreshold,
         AddressedOtherMax: settings.intent.addressedOtherMax,
-        HistoryLimit: settings.intent.historyLimit,
       },
       Agent: {
         MaxSteps: settings.agent.maxSteps,

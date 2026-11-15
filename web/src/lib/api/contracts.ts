@@ -218,18 +218,26 @@ export interface SettingsAI {
   generationTimeoutSeconds: number
 }
 
-/** Intent pipeline section of the system settings. */
+/** Bot identity shared by intent judgment and reply generation. */
+export interface SettingsRole {
+  botName: string
+}
+
+/** Conversation history budget shared by intent and generation. */
+export interface SettingsContext {
+  historyLimit: number
+}
+
+/** Intent pipeline section of the system settings. Connection fields mirror the model catalogue. */
 export interface SettingsIntent {
   enabled: boolean
   provider: 'jev' | 'openai' | ''
   endpoint: string
   model: string
-  botName: string
   timeoutSeconds: number
   continuationThreshold: number
   interjectionThreshold: number
   addressedOtherMax: number
-  historyLimit: number
 }
 
 /** Outbound budget of one agent run; zero means unlimited. */
@@ -269,6 +277,8 @@ export interface SettingsTools {
 
 /** Mutable, process-wide configuration managed from the console. */
 export interface SystemSettings {
+  role: SettingsRole
+  context: SettingsContext
   ai: SettingsAI
   intent: SettingsIntent
   agent: SettingsAgent

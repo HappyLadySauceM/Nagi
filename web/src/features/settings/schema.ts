@@ -11,7 +11,7 @@ const RANGES = {
   'AI.MaxOutputTokens': [1, 32000, '取值范围 1-32000'],
   'AI.GenerationTimeoutSeconds': [1, 300, '取值范围 1-300 秒'],
   'Intent.TimeoutSeconds': [1, 120, '取值范围 1-120 秒'],
-  'Intent.HistoryLimit': [1, 200, '取值范围 1-200'],
+  'Context.HistoryLimit': [1, 200, '取值范围 1-200'],
   'Agent.MaxSteps': [1, 50, '取值范围 1-50'],
   'Agent.MaxToolCalls': [1, 100, '取值范围 1-100'],
   'Agent.MaxRunDurationSeconds': [1, 600, '取值范围 1-600 秒'],
@@ -63,6 +63,7 @@ export function validateSettings(draft: SystemSettings): SettingsErrors {
   }
   checkRange(errors, 'AI.MaxOutputTokens', draft.ai.maxOutputTokens)
   checkRange(errors, 'AI.GenerationTimeoutSeconds', draft.ai.generationTimeoutSeconds)
+  checkRange(errors, 'Context.HistoryLimit', draft.context.historyLimit)
 
   if (draft.intent.provider !== 'jev' && draft.intent.provider !== 'openai') {
     add(errors, 'Intent.Provider', '仅支持 jev 或 openai')
@@ -84,7 +85,6 @@ export function validateSettings(draft: SystemSettings): SettingsErrors {
       }
     }
     checkRange(errors, 'Intent.TimeoutSeconds', draft.intent.timeoutSeconds)
-    checkRange(errors, 'Intent.HistoryLimit', draft.intent.historyLimit)
   }
 
   checkRange(errors, 'Agent.MaxSteps', draft.agent.maxSteps)
