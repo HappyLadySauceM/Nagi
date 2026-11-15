@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -272,11 +273,17 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 		return domain.ExtractionBatch{}, false, err
 	}
 
+	// Keep one claimed batch homogeneous: jobs with a stored prompt snapshot and
+	// newly created jobs without one must never be mixed, otherwise a retried
+	// job and a fresh job in the same conversation would block each other on
+	// every claim. The earliest ready job by (next_run_at, id) defines the group.
+	// 同一批任务必须保持快照同质：已固定快照的重试任务与新建无快照任务不能混批，
+	// 否则同一会话中的两者会反复互相卡住；由最早到期的任务决定本批快照。
 	rows, err := tx.Query(ctx, `
 		SELECT j.id::text, j.bot_id, j.conversation_id::text, j.scope_type, j.scope_id,
 			j.message_id, j.authorization_event_id, j.status, j.attempts, j.round_attempts,
 			j.next_run_at, COALESCE(j.last_error_code, ''), j.manual_retries,
-			j.created_at, j.updated_at,
+			j.created_at, j.updated_at, j.extraction_payload,
 			m.id, m.sender_id, m.text_content, m.created_at
 		FROM memory_extraction_jobs j
 		JOIN messages m ON m.id=j.message_id
@@ -284,6 +291,15 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 			AND j.authorization_event_id=$2
 			AND j.status='pending' AND j.next_run_at<=clock_timestamp()
 			AND m.memory_authorization_event_id=$2
+			AND j.extraction_payload IS NOT DISTINCT FROM (
+				SELECT j2.extraction_payload
+				FROM memory_extraction_jobs j2
+				WHERE j2.conversation_id=$1::uuid
+					AND j2.authorization_event_id=$2
+					AND j2.status='pending' AND j2.next_run_at<=clock_timestamp()
+				ORDER BY j2.next_run_at, j2.id
+				LIMIT 1
+			)
 		ORDER BY j.next_run_at, j.id
 		LIMIT $3
 		FOR UPDATE OF j`, conversationID, currentEventID, options.MaxMessages)
@@ -297,10 +313,11 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 		var job domain.ExtractionJob
 		var message domain.ExtractionSourceMessage
 		var messageID sql.NullInt64
+		var promptPayload []byte
 		if err := rows.Scan(&job.ID, &job.BotID, &job.ConversationID, &job.ScopeType, &job.ScopeID,
 			&messageID, &job.AuthorizationEventID, &job.Status, &job.Attempts, &job.RoundAttempts,
 			&job.NextRunAt, &job.LastErrorCode, &job.ManualRetries, &job.CreatedAt, &job.UpdatedAt,
-			&message.ID, &message.SenderID, &message.Text, &message.CreatedAt); err != nil {
+			&promptPayload, &message.ID, &message.SenderID, &message.Text, &message.CreatedAt); err != nil {
 			rows.Close()
 			return domain.ExtractionBatch{}, false, err
 		}
@@ -308,6 +325,14 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 			continue
 		}
 		job.MessageID = messageID.Int64
+		if len(promptPayload) > 0 {
+			snapshot, err := decodePromptSnapshot(promptPayload)
+			if err != nil {
+				rows.Close()
+				return domain.ExtractionBatch{}, false, err
+			}
+			job.PromptSnapshot = &snapshot
+		}
 		message.BotID = botID
 		message.ConversationID = conversationID
 		message.ScopeType = scopeType
@@ -329,6 +354,24 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 	if len(jobs) == 0 {
 		return domain.ExtractionBatch{}, false, nil
 	}
+	var batchSnapshot *domain.PromptSnapshot
+	for index := range jobs {
+		if jobs[index].PromptSnapshot == nil {
+			if batchSnapshot != nil {
+				rows.Close()
+				return domain.ExtractionBatch{}, false, fmt.Errorf("memory extraction: mixed prompt snapshots in batch")
+			}
+			continue
+		}
+		if batchSnapshot == nil {
+			batchSnapshot = jobs[index].PromptSnapshot
+			continue
+		}
+		if !reflect.DeepEqual(batchSnapshot, jobs[index].PromptSnapshot) {
+			rows.Close()
+			return domain.ExtractionBatch{}, false, fmt.Errorf("memory extraction: mixed prompt snapshots in batch")
+		}
+	}
 	claimToken := uuid.NewString()
 	leaseExpiresAt := time.Now().Add(options.Lease)
 	for _, job := range jobs {
@@ -348,7 +391,7 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 	}
 	return domain.ExtractionBatch{
 		Scope: domain.ExtractionScope{BotID: botID, ConversationID: conversationID, ScopeType: scopeType, ScopeID: targetID, AuthorizationEventID: currentEventID},
-		Jobs:  jobs, Messages: messages, ClaimToken: claimToken, LeaseExpiresAt: leaseExpiresAt,
+		Jobs:  jobs, Messages: messages, PromptSnapshot: batchSnapshot, ClaimToken: claimToken, LeaseExpiresAt: leaseExpiresAt,
 	}, true, nil
 }
 

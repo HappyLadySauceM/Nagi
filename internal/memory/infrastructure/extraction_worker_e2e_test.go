@@ -42,6 +42,26 @@ func (r *recordingExtractor) Extract(_ context.Context, request domain.Extractio
 	return out, nil
 }
 
+// stubExtractionPromptResolver freezes a deterministic prompt snapshot for the
+// worker end-to-end tests without touching the live prompt service.
+// stubExtractionPromptResolver 为工作器端到端测试固定确定性的 Prompt 快照，
+// 不访问线上 Prompt 服务。
+type stubExtractionPromptResolver struct{}
+
+func (stubExtractionPromptResolver) Resolve(_ context.Context, request domain.ExtractionRequest) (domain.ExtractionPrompt, error) {
+	return domain.ExtractionPrompt{
+		Snapshot: domain.PromptSnapshot{
+			PromptID: "memory.extraction", Kind: "memory_extraction", Provider: "openai",
+			BotID: request.Scope.BotID, TargetType: request.Scope.ScopeType, TargetID: request.Scope.ScopeID,
+			ConversationID: request.Scope.ConversationID,
+			FinalHash:      "stub-final-hash", RenderedHash: "stub-rendered-hash",
+			Layers: []domain.PromptSnapshotLayer{{Layer: "account_default", VersionID: 1, Version: 1, Source: "builtin", Hash: "stub-layer-hash"}},
+		},
+		SystemPrompt: extractionSystemPrompt,
+		UserTemplate: "聊天消息：\n{{messages_json}}",
+	}, nil
+}
+
 // TestExtractionWorkerEndToEndWithRealPostgres verifies bounded batching from
 // real stored messages through one model call, candidate persistence, and the
 // approval gate on recall.
@@ -110,6 +130,7 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 		MaxAttempts:      3,
 		RetryDelays:      []time.Duration{30 * time.Millisecond, 60 * time.Millisecond},
 		Lease:            time.Second,
+		PromptResolver:   stubExtractionPromptResolver{},
 	}, logger)
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
