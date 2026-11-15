@@ -1,7 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiRequest } from '../../lib/api/client'
-import { toRuleset, toRulesetList, toRuleSimulation, toRuleEntriesRequest } from '../../lib/api/adapters/rules'
-import type { RuleEntry, RuleTarget, ScopeType } from '../../lib/api/contracts'
+import {
+  toBuiltinRuleCatalog,
+  toRulesEffective,
+  toRuleset,
+  toRulesetList,
+  toRuleSimulation,
+  toRuleEntriesRequest,
+} from '../../lib/api/adapters/rules'
+import type {
+  BuiltinRuleCatalog,
+  RuleEntry,
+  RuleTarget,
+  RulesEffectiveView,
+  ScopeType,
+} from '../../lib/api/contracts'
 import { queryKeys } from '../../lib/query-keys'
 
 export interface ScopeRef {
@@ -22,6 +35,26 @@ export function useRulesets(scope: ScopeRef | null) {
   })
 }
 
+export function useBuiltinRuleCatalog() {
+  return useQuery({
+    queryKey: ['intent', 'builtin-rules'] as const,
+    queryFn: ({ signal }): Promise<BuiltinRuleCatalog> =>
+      apiRequest('/api/v1/intent/builtin-rules', { signal }).then(toBuiltinRuleCatalog),
+  })
+}
+
+export function useEffectiveRules(scope: ScopeRef | null) {
+  return useQuery({
+    queryKey: ['intent', 'rules-effective', scope] as const,
+    enabled: scope !== null,
+    queryFn: ({ signal }): Promise<RulesEffectiveView> =>
+      apiRequest(
+        `/api/v1/intent/rules/effective?bot_id=${scope!.botId}&scope_type=${scope!.scopeType}&scope_id=${scope!.scopeId}`,
+        { signal },
+      ).then(toRulesEffective),
+  })
+}
+
 export function useRuleset(id: number | null) {
   return useQuery({
     queryKey: queryKeys.ruleset(id ?? 0),
@@ -32,7 +65,7 @@ export function useRuleset(id: number | null) {
 
 function useInvalidateRules() {
   const queryClient = useQueryClient()
-  return () => Promise.all([queryClient.invalidateQueries({ queryKey: ['intent', 'rulesets'] }), queryClient.invalidateQueries({ queryKey: ['intent', 'ruleset'] })])
+  return () => Promise.all([queryClient.invalidateQueries({ queryKey: ['intent', 'rulesets'] }), queryClient.invalidateQueries({ queryKey: ['intent', 'ruleset'] }), queryClient.invalidateQueries({ queryKey: ['intent', 'rules-effective'] })])
 }
 
 export function useCreateDraft(scope: ScopeRef) {

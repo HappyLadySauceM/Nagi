@@ -11,6 +11,7 @@ import { Card } from '../../components/ui/card'
 import { FeedbackState } from '../../components/feedback-state'
 import { PageHeader } from '../../components/page-header'
 import { Input } from '../../components/ui/input'
+import { Skeleton } from '../../components/ui/skeleton'
 import { Switch } from '../../components/ui/switch'
 import { Select } from '../../components/ui/select'
 import {
@@ -33,7 +34,9 @@ import { ApiError } from '../../lib/api/client'
 import { useContacts, useGroups } from '../directory/queries'
 import { useAccountContext } from '../accounts/account-context'
 import { FlowRunView } from './flow/flow-run-view'
+import { BuiltinRulesPanel } from './components/builtin-rules-panel'
 import {
+  useBuiltinRuleCatalog,
   useCreateDraft,
   useDeleteRuleset,
   usePublishRuleset,
@@ -74,6 +77,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   }, [selectedBotId, scopeType, scopeId])
 
   const versions = useRulesets(selectedBotId ? { botId: selectedBotId, scopeType: 'group', scopeId: -1 } : null)
+  const builtinCatalog = useBuiltinRuleCatalog()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const detail = useRuleset(selectedId)
   const [entries, setEntries] = useState<RuleEntry[]>([])
@@ -133,9 +137,11 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
     <div className="space-y-5">
       {!embedded ? <PageHeader
         title="规则管理"
-        description="指定适用会话并维护版本化规则：草稿可编辑，发布后不可改，可回滚到历史版本；模拟只做求值，不会发送。"
+        description="指定适用会话并维护版本化规则：内置规则目录始终可见，草稿可编辑，发布后不可改，可回滚历史版本；规则预览只做求值，不调用模型、不发送。"
         className="xl:col-span-2"
       /> : null}
+
+      <BuiltinRulesPanel botId={selectedBotId} scopeType={scopeType} scopeId={Number(scopeId) || 0} />
 
       <Card className="p-4">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -274,9 +280,37 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
             </div>:null}
             <p className="text-xs text-muted-foreground">指定会话规则优先；未命中再执行全局规则。发布时检查目标冲突。</p>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {Object.entries({ closing: '告别时保持安静', continuation: '延续机器人话题', directed_to_bot: '识别对机器人发言', addressed_to_other: '避免打断其他人', interjection: '判断是否适合插话' }).map(([key,label]) => <label key={key} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"><span className="text-sm">{label}{builtinRules[key] === undefined ? <span className="ml-2 text-xs text-muted-foreground">{allTargets ? '内置默认' : '继承全局'}</span> : null}</span><Switch aria-label={label} checked={builtinRules[key] ?? (!allTargets ? globalBuiltinRules[key] : undefined) ?? true} disabled={!isDraft || busy} onCheckedChange={value => { setBuiltinRules(old => ({...old,[key]:value})); setDirty(true) }} /></label>)}
-          </div>
+          {builtinCatalog.isLoading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : builtinCatalog.isError ? (
+            <FeedbackState
+              compact
+              variant="error"
+              title="读取内置规则开关失败"
+              error={builtinCatalog.error}
+              onRetry={() => void builtinCatalog.refetch()}
+            />
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {(builtinCatalog.data?.rules ?? []).map((rule) => (
+                <label key={rule.ruleId} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                  <span className="text-sm">
+                    {rule.title}
+                    <span className="ml-2 text-xs text-muted-foreground">{rule.condition || '无额外条件'}</span>
+                  </span>
+                  <Switch
+                    aria-label={rule.title}
+                    checked={builtinRules[rule.ruleId] ?? (!allTargets ? globalBuiltinRules[rule.ruleId] : undefined) ?? true}
+                    disabled={!isDraft || busy}
+                    onCheckedChange={(value) => {
+                      setBuiltinRules((old) => ({ ...old, [rule.ruleId]: value }))
+                      setDirty(true)
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">参与授权、观察模式、回复模式、冷却和小时额度始终生效。</p>
 
           {entries.length === 0 ? (
@@ -444,9 +478,9 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
       <div className="grid gap-2 sm:grid-cols-2"><Select aria-label="模拟实际会话类型" value={simulationKind} onChange={event=>{setSimulationKind(event.target.value as ScopeType);simulate.reset()}}><option value="private">好友私聊</option><option value="group">群聊</option></Select><Input aria-label="模拟实际目标号码" placeholder="输入用于判断范围的 QQ 号或群号" value={simulationTarget} onChange={event=>{setSimulationTarget(event.target.value);simulate.reset()}}/></div>
       <div className="text-xs text-muted-foreground">实际模拟对象：{simulationKind==='private'?'好友':'群聊'} {simulationTarget || '未选择'}</div>
       {!targetAllowed ? <p role="alert" className="text-warning">测试对象不在当前编辑的适用范围内，请调整测试对象或规则范围。</p> : null}
-      <div className="text-sm font-medium">只读规则模拟 · {entries ? '当前编辑内容' : '当前生效版本'}</div>
-      <Select aria-label="验证方式" value={mode} onChange={e => { setMode(e.target.value as 'rules' | 'semantic'); simulate.reset() }}><option value="rules">规则验证 · 不调用模型</option><option value="semantic">完整语义验证 · 使用真实模型</option></Select>
-      <p className="text-meta text-muted-foreground">{mode === 'semantic' ? '使用当前参与权限、真实会话活动与获准读取的历史，以及服务 Provider 和严格阈值；会调用真实模型并可能产生费用，不保存决策或发送 QQ 消息。' : '只验证规则闸门，不调用语义模型，也不发送 QQ 消息。'}</p>
+      <div className="text-sm font-medium">只读规则预览 · {entries ? '当前编辑内容' : '当前生效版本'}</div>
+      <Select aria-label="验证方式" value={mode} onChange={e => { setMode(e.target.value as 'rules' | 'semantic'); simulate.reset() }}><option value="rules">规则预览 · 不调用模型</option><option value="semantic">完整语义验证 · 使用真实模型</option></Select>
+      <p className="text-meta text-muted-foreground">{mode === 'semantic' ? '使用当前参与权限、真实会话活动与获准读取的历史，以及服务 Provider 和严格阈值；会调用真实模型并可能产生费用，不保存决策或发送 QQ 消息。' : '只读规则预览：不调用模型、不发送、不含实际频率限制。'}</p>
       <div className="flex gap-2"><Select aria-label="模拟回复模式" value={replyMode} onChange={e => setReplyMode(e.target.value)}><option value="intent_based">智能判断</option><option value="always_reply">始终回复</option><option value="mention_only">仅明确指向</option><option value="observe_only">仅观察</option></Select><Input aria-label="距上次回复秒数" disabled={mode==='semantic'} value={seconds} onChange={e => setSeconds(e.target.value)} inputMode="numeric" /></div>
       <div className={`grid gap-2 ${layout === 'stacked' ? 'grid-cols-[minmax(0,1fr)_auto]' : 'sm:grid-cols-4'}`}>
         <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="输入一条消息" className={layout === 'stacked' ? 'col-span-2' : 'sm:col-span-2'} />
@@ -465,7 +499,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
           }}
         >
           <Send />
-          {mode === 'semantic' ? '调用模型重放' : '运行规则验证'}
+          {mode === 'semantic' ? '调用模型重放' : '运行规则预览'}
         </Button>
       </div>
       </div>
@@ -486,7 +520,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
           </div>
         ) : (
           <div className="rounded-md bg-muted/40 p-3 text-meta">
-            <div>最终判断：{simulate.data.decision ?? '规则验证尚未进行语义判断'}</div>
+            <div>最终判断：{simulate.data.decision ?? '规则预览尚未进行语义判断'}</div>
             <div>语义类别：{simulate.data.semanticCategory || '未调用或不可用'}</div>
             <div>模型：{simulate.data.provider || '未调用'} / {simulate.data.model || '—'} · {simulate.data.latencyMs ?? 0} ms</div>
             {simulate.data.semanticAvailable === false ? <p role="alert">语义服务不可用：{simulate.data.failureCode || '已降级'}</p> : null}

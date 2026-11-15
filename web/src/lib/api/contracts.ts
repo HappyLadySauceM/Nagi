@@ -594,6 +594,57 @@ export interface RuleEntry {
 
 export interface RuleTarget { kind: ScopeType; id: number }
 
+export interface BuiltinRuleDefinition {
+  ruleId: string
+  order: number
+  title: string
+  condition: string
+  action: RuleActionType
+  editable: boolean
+  source: string
+}
+
+export interface BuiltinRuleState extends BuiltinRuleDefinition {
+  enabled: boolean
+  applicable: boolean
+  status: string
+  reason: string
+}
+
+export interface FixedConstraintDefinition {
+  constraintId: string
+  order: number
+  title: string
+  condition: string
+  action: string
+  reasonCode: string
+  editable: boolean
+  source: string
+}
+
+export interface FixedConstraintState extends FixedConstraintDefinition {
+  value?: unknown
+  applicable: boolean
+  status: string
+  reason: string
+}
+
+export interface BuiltinRuleCatalog {
+  version: string
+  source: string
+  fixedConstraints: FixedConstraintDefinition[]
+  rules: BuiltinRuleDefinition[]
+}
+
+export interface RulesEffectiveView {
+  builtinRules: BuiltinRuleState[]
+  fixedConstraints: FixedConstraintState[]
+  activeRuleset: Ruleset | null
+  version: string
+  builtinRulesVersion: string
+  source: string
+}
+
 export interface Ruleset {
  builtinRules?: Record<string, boolean>
  targets?: RuleTarget[]
