@@ -1,4 +1,16 @@
-import type { RuleActionType, RuleEntry, RuleSimulation, Ruleset, ScopeType } from '../contracts'
+import type {
+  BuiltinRuleCatalog,
+  BuiltinRuleDefinition,
+  BuiltinRuleState,
+  FixedConstraintDefinition,
+  FixedConstraintState,
+  RuleActionType,
+  RuleEntry,
+  RuleSimulation,
+  RulesEffectiveView,
+  Ruleset,
+  ScopeType,
+} from '../contracts'
 import { asArray, asRecord, readBoolean, readNumber, readOptionalString, readString } from './guard'
 import { toIntentCost, toIntentRun } from './flow'
 
@@ -34,6 +46,101 @@ export function toRuleset(raw: unknown): Ruleset {
     builtinRules: record.BuiltinRules == null ? {} : Object.fromEntries(Object.entries(asRecord(record.BuiltinRules, RULES_ENDPOINT, 'BuiltinRules')).map(([key,value]) => { if (typeof value !== 'boolean') throw new Error('Invalid builtin rule'); return [key,value] })),
     targets: record.Targets == null ? [] : asArray(record.Targets, RULES_ENDPOINT, 'Targets').map(raw => { const target = asRecord(raw, RULES_ENDPOINT, 'Target'); const kind = readString(target, 'kind', RULES_ENDPOINT); if (kind !== 'private' && kind !== 'group') throw new Error('Invalid target kind'); return {kind, id: readNumber(target, 'id', RULES_ENDPOINT)} }),
     entries: record.Entries == null ? [] : asArray(record.Entries, RULES_ENDPOINT, 'Entries').map(toEntry),
+  }
+}
+
+function toBuiltinRuleDefinition(value: unknown, endpoint: string): BuiltinRuleDefinition {
+  const rule = asRecord(value, endpoint, 'Rule')
+  const action = readString(rule, 'Action', endpoint)
+  if (!ACTIONS.includes(action as RuleActionType)) {
+    throw new Error(`内置规则动作未知：${action}`)
+  }
+  return {
+    ruleId: readString(rule, 'RuleID', endpoint),
+    order: readNumber(rule, 'Order', endpoint),
+    title: readString(rule, 'Title', endpoint),
+    condition: readString(rule, 'Condition', endpoint, ''),
+    action: action as RuleActionType,
+    editable: readBoolean(rule, 'Editable', endpoint, false),
+    source: readString(rule, 'Source', endpoint, ''),
+  }
+}
+
+function toFixedConstraintDefinition(value: unknown, endpoint: string): FixedConstraintDefinition {
+  const constraint = asRecord(value, endpoint, 'FixedConstraint')
+  return {
+    constraintId: readString(constraint, 'ConstraintID', endpoint),
+    order: readNumber(constraint, 'Order', endpoint),
+    title: readString(constraint, 'Title', endpoint),
+    condition: readString(constraint, 'Condition', endpoint, ''),
+    action: readString(constraint, 'Action', endpoint, ''),
+    reasonCode: readString(constraint, 'ReasonCode', endpoint, ''),
+    editable: readBoolean(constraint, 'Editable', endpoint, false),
+    source: readString(constraint, 'Source', endpoint, ''),
+  }
+}
+
+/** Parses the backend-owned builtin rule catalog; titles, order and conditions are never duplicated in the page.
+ * 解析后端持有的内置规则目录；标题、顺序与条件不在页面重复定义。
+ */
+export function toBuiltinRuleCatalog(raw: unknown): BuiltinRuleCatalog {
+  const endpoint = '/api/v1/intent/builtin-rules'
+  const record = asRecord(raw, endpoint, 'catalog')
+  return {
+    version: readString(record, 'Version', endpoint, ''),
+    source: readString(record, 'Source', endpoint, ''),
+    fixedConstraints:
+      record.FixedConstraints == null
+        ? []
+        : asArray(record.FixedConstraints, endpoint, 'FixedConstraints').map((value) =>
+            toFixedConstraintDefinition(value, endpoint),
+          ),
+    rules: asArray(record.Rules, endpoint, 'Rules').map((value) =>
+      toBuiltinRuleDefinition(value, endpoint),
+    ),
+  }
+}
+
+/** Parses the effective rules view for one exact target.
+ * 解析一个精确目标的实际生效规则视图。
+ */
+export function toRulesEffective(raw: unknown): RulesEffectiveView {
+  const endpoint = '/api/v1/intent/rules/effective'
+  const record = asRecord(raw, endpoint, 'effective')
+  const builtinRules: BuiltinRuleState[] = asArray(record.BuiltinRules, endpoint, 'BuiltinRules').map(
+    (value): BuiltinRuleState => {
+      const definition = toBuiltinRuleDefinition(value, endpoint)
+      const rule = asRecord(value, endpoint, 'Rule')
+      return {
+        ...definition,
+        enabled: readBoolean(rule, 'Enabled', endpoint, true),
+        applicable: readBoolean(rule, 'Applicable', endpoint, true),
+        status: readString(rule, 'Status', endpoint, ''),
+        reason: readString(rule, 'Reason', endpoint, ''),
+      }
+    },
+  )
+  const fixedConstraints: FixedConstraintState[] =
+    record.FixedConstraints == null
+      ? []
+      : asArray(record.FixedConstraints, endpoint, 'FixedConstraints').map((value): FixedConstraintState => {
+          const definition = toFixedConstraintDefinition(value, endpoint)
+          const constraint = asRecord(value, endpoint, 'FixedConstraint')
+          return {
+            ...definition,
+            ...(constraint.Value === undefined ? {} : { value: constraint.Value }),
+            applicable: readBoolean(constraint, 'Applicable', endpoint, true),
+            status: readString(constraint, 'Status', endpoint, ''),
+            reason: readString(constraint, 'Reason', endpoint, ''),
+          }
+        })
+  return {
+    builtinRules,
+    fixedConstraints,
+    activeRuleset: record.ActiveRuleset == null ? null : toRuleset(record.ActiveRuleset),
+    version: readString(record, 'Version', endpoint, ''),
+    builtinRulesVersion: readString(record, 'BuiltinRulesVersion', endpoint, ''),
+    source: readString(record, 'Source', endpoint, ''),
   }
 }
 

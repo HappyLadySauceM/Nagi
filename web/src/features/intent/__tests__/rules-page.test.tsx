@@ -6,6 +6,30 @@ import { RulesPage, SimulateCard } from '../rules-page'
 vi.mock('../../accounts/account-context', () => ({ useAccountContext: () => ({ selectedBotId: 1 }) }))
 const response = (data: unknown) => new Response(JSON.stringify({ code: 200, message: 'success', data }), { headers: { 'Content-Type': 'application/json' } })
 const version = (id: number, note: string, scopeId: number) => ({ ID: id, BotID: 1, ScopeType: 'private', ScopeID: scopeId, Version: 1, Status: 'published', Note: note, Entries: [], BuiltinRules: {}, Targets: [{ kind: 'private', id: scopeId }] })
+const builtinCatalog = {
+  Version: 'builtin-v1',
+  Rules: [
+    { RuleID: 'closing', Order: 10, Title: '告别结束', Condition: 'intent=closing', Action: 'silent', Editable: true, Source: 'builtin' },
+    { RuleID: 'addressed_to_other', Order: 20, Title: '对他人说话优先抑制', Condition: 'addressed_to_other >= AddressedOtherMax', Action: 'silent', Editable: true, Source: 'builtin' },
+    { RuleID: 'continuation', Order: 30, Title: '延续机器人话题', Condition: 'continues_bot_thread >= Continuation', Action: 'reply', Editable: true, Source: 'builtin' },
+    { RuleID: 'interjection', Order: 40, Title: '自然插话', Condition: 'reply_mode=intent_based && appropriate_to_join >= Interjection', Action: 'reply', Editable: true, Source: 'builtin' },
+    { RuleID: 'directed_to_bot', Order: 50, Title: '指向机器人', Condition: 'directed_to_bot >= Continuation', Action: 'reply', Editable: true, Source: 'builtin' },
+  ],
+}
+const effectiveRules = {
+  BuiltinRules: [
+    { RuleID: 'closing', Order: 10, Title: '告别结束', Condition: 'intent=closing', Action: 'silent', Editable: true, Source: 'builtin', Enabled: false, Applicable: true, Status: 'not_applicable', Reason: 'disabled' },
+    { RuleID: 'addressed_to_other', Order: 20, Title: '对他人说话优先抑制', Condition: 'addressed_to_other >= AddressedOtherMax', Action: 'silent', Editable: true, Source: 'builtin', Enabled: true, Applicable: true, Status: 'active', Reason: '' },
+    { RuleID: 'continuation', Order: 30, Title: '延续机器人话题', Condition: 'continues_bot_thread >= Continuation', Action: 'reply', Editable: true, Source: 'builtin', Enabled: true, Applicable: true, Status: 'active', Reason: '' },
+    { RuleID: 'interjection', Order: 40, Title: '自然插话', Condition: 'reply_mode=intent_based && appropriate_to_join >= Interjection', Action: 'reply', Editable: true, Source: 'builtin', Enabled: true, Applicable: true, Status: 'active', Reason: '' },
+    { RuleID: 'directed_to_bot', Order: 50, Title: '指向机器人', Condition: 'directed_to_bot >= Continuation', Action: 'reply', Editable: true, Source: 'builtin', Enabled: true, Applicable: true, Status: 'active', Reason: '' },
+  ],
+  FixedConstraints: [],
+  ActiveRuleset: null,
+  Version: 'builtin-v1',
+  BuiltinRulesVersion: 'builtin-v1',
+  Source: 'builtin',
+}
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); window.history.replaceState({}, '', '/') })
 
 it('keeps the selected rule family fixed while its cloned draft is being created', async () => {
@@ -26,6 +50,8 @@ it('keeps the selected rule family fixed while its cloned draft is being created
     if (url.pathname.endsWith('/rulesets/3')) return Promise.resolve(response(created))
     if (url.pathname.endsWith('/rulesets')) return Promise.resolve(response({ Items: [first, second] }))
     if (url.pathname.endsWith('/contacts')) return Promise.resolve(response({ Items: [], Total: 0, Page: 1, Limit: 20 }))
+    if (url.pathname === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (url.pathname === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
     throw new Error('Unexpected request '+url.pathname)
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -41,7 +67,7 @@ it('keeps the selected rule family fixed while its cloned draft is being created
   await waitFor(() => expect(reads).toContain('/api/v1/intent/rulesets/3'))
   await waitFor(() => expect(screen.getByRole('button', { name: '添加条目' })).toBeEnabled())
   expect(reads).not.toContain('/api/v1/intent/rulesets/2')
-  expect(screen.getByText('只读规则模拟 · 当前编辑内容')).toBeVisible()
+  expect(screen.getByText('只读规则预览 · 当前编辑内容')).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: '添加条目' }))
   fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
   expect(await screen.findByRole('alertdialog')).toBeVisible()
@@ -70,6 +96,8 @@ it.each([false, true])('confirms deletion and preserves the editor on failure=%s
     }
     if (path.endsWith('/rulesets')) return Promise.resolve(response({ Items: removed ? [] : [row] }))
     if (path.endsWith('/rulesets/1')) return Promise.resolve(response(row))
+    if (path === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (path === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
     throw new Error('Unexpected request ' + path)
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -107,6 +135,8 @@ it('deletes from the version list without opening the editor', async () => {
     }
     if (url.pathname.endsWith('/rulesets')) return Promise.resolve(response({ Items: removed ? [] : [row] }))
     if (url.pathname.endsWith('/rulesets/1')) return Promise.resolve(response(row))
+    if (url.pathname === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (url.pathname === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
     throw new Error('Unexpected request ' + url.pathname)
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -126,6 +156,8 @@ it('resets the editor pane to editing after the version sheet closes', async () 
     const path = new URL(String(input), 'http://localhost').pathname
     if (path.endsWith('/rulesets')) return Promise.resolve(response({ Items: [row] }))
     if (path.endsWith('/rulesets/1')) return Promise.resolve(response(row))
+    if (path === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (path === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
     throw new Error('Unexpected request ' + path)
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -151,13 +183,13 @@ it('serializes unsaved rules and invalidates an old response when scope changes'
   const props = { scope: { botId: 1, scopeType: 'private' as const, scopeId: 123 }, entries: [{ priority: 0, match: {}, action: { type: 'reply' as const, reasonCode: 'preview_reason' } }], previewGlobal: false }
   const { rerender } = render(<QueryClientProvider client={client}><SimulateCard {...props} previewTargetsText="private:123" /></QueryClientProvider>)
   fireEvent.change(screen.getByPlaceholderText('输入一条消息'), { target: { value: 'hello' } })
-  fireEvent.click(screen.getByRole('button', { name: '运行规则验证' }))
+  fireEvent.click(screen.getByRole('button', { name: '运行规则预览' }))
   await waitFor(() => expect(body).toBeDefined())
   expect(body).toMatchObject({ entries: [{ action: { type: 'reply', reason_code: 'preview_reason' } }] })
   rerender(<QueryClientProvider client={client}><SimulateCard {...props} previewTargetsText="private:456" /></QueryClientProvider>)
   finish?.(response({ Blocked: false, Explicit: false, NeedSemantic: false, AlwaysReply: false, ForceReply: true, ReasonCode: 'preview_reason', RulesetVersion: 'draft' }))
   expect(await screen.findByText('内容已变化，请重新测试')).toBeVisible()
   expect(screen.queryByText('原因码：preview_reason')).toBeNull()
-  expect(screen.getByRole('button', { name: '运行规则验证' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '运行规则预览' })).toBeDisabled()
   client.clear()
 })
