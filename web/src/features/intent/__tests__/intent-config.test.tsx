@@ -160,8 +160,8 @@ describe('IntentConfig', () => {
     expect(screen.getByText('Intent Model')).toBeVisible()
     expect(screen.getByText('0.80 / 0.95 / 0.60 是默认起点，不是准确率承诺。')).toBeVisible()
     expect(screen.getByText('私聊正常回复按会话策略处理，不受以上三个群聊门槛控制。')).toBeVisible()
-    expect(screen.getByText('内置规则「自然插话」已关闭')).toBeVisible()
-    expect(screen.getByText('内置规则「对他人说话优先抑制」已关闭')).toBeVisible()
+    expect(screen.getByText('全局默认规则「自然插话」已关闭；具体群聊覆盖时仍使用该阈值。')).toBeVisible()
+    expect(screen.getByText('全局默认规则「对他人说话优先抑制」已关闭；具体群聊覆盖时仍使用该阈值。')).toBeVisible()
     expect(screen.queryByLabelText('接口地址')).toBeNull()
     expect(screen.queryByLabelText('模型名称')).toBeNull()
     expect(screen.queryByLabelText('请求超时')).toBeNull()
@@ -221,7 +221,22 @@ describe('IntentConfig', () => {
     })
     renderConfig()
 
-    expect(await screen.findByText('内置规则「延续机器人话题」、「指向机器人」已关闭')).toBeVisible()
-    expect(screen.queryByRole('spinbutton', { name: '接续话题阈值' })).toBeNull()
+    expect(await screen.findByText('全局默认规则「延续机器人话题」、「指向机器人」已关闭；具体群聊覆盖时仍使用该阈值。')).toBeVisible()
+    expect(screen.getByRole('spinbutton', { name: '接续话题阈值' })).toBeVisible()
+  })
+
+  it('blocks saving when the history limit is cleared', async () => {
+    mockedRequest.mockImplementation((path: string) => {
+      if (path === '/api/v1/settings') return Promise.resolve(settingsView())
+      if (path === '/api/v1/models') return Promise.resolve(modelsView)
+      if (path.startsWith('/api/v1/intent/rules/effective')) return Promise.resolve(effectiveRules)
+      throw new Error(`unexpected request: ${path}`)
+    })
+    renderConfig()
+
+    fireEvent.change(await screen.findByLabelText('历史条数上限'), { target: { value: '' } })
+    expect(await screen.findByText('请填写 1–200 的整数')).toBeVisible()
+    expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled()
+    expect(mockedRequest.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
   })
 })

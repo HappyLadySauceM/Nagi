@@ -119,7 +119,25 @@ function IntentConfigForm() {
   const intentModel = models.data?.Catalog.Profiles.find(
     (profile) => profile.ID === models.data?.Catalog.Defaults.intent,
   )
+  const configErrors = useMemo(() => {
+    const errors: Record<string, string> = {}
+    if (!draft) return errors
+    if (!Number.isInteger(draft.context.historyLimit) || draft.context.historyLimit < 1 || draft.context.historyLimit > 200) {
+      errors['Context.HistoryLimit'] = '请填写 1–200 的整数'
+    }
+    for (const [field, value] of [
+      ['Intent.ContinuationThreshold', draft.intent.continuationThreshold],
+      ['Intent.InterjectionThreshold', draft.intent.interjectionThreshold],
+      ['Intent.AddressedOtherMax', draft.intent.addressedOtherMax],
+    ] as const) {
+      if (!Number.isFinite(value) || value <= 0 || value > 1) {
+        errors[field] = '阈值必须在 0.001–1 之间'
+      }
+    }
+    return errors
+  }, [draft])
   const dirty = !!draft && serialize(draft) !== serialize(baseline.current)
+  const hasConfigErrors = Object.keys(configErrors).length > 0
   useEditGuard(dirty, change.isPending)
 
   if (query.isError) {
@@ -141,7 +159,7 @@ function IntentConfigForm() {
       className="max-w-3xl space-y-4"
       onSubmit={(event) => {
         event.preventDefault()
-        if (!dirty || change.isPending) return
+        if (!dirty || change.isPending || hasConfigErrors) return
         change.mutate()
       }}
     >
@@ -194,6 +212,7 @@ function IntentConfigForm() {
           }
           unit="条"
           hint="默认 30，范围 1–200。按条数读取；只有会话策略允许读取历史时才会读取。"
+          error={configErrors['Context.HistoryLimit']}
         />
       </SettingsCard>
 
@@ -251,9 +270,10 @@ function IntentConfigForm() {
             hint="同时用于「延续机器人话题」和「指向机器人」。升高会减少这两类回复；取值范围 0.001–1。"
             unavailableReason={
               continuationOff
-                ? `内置规则${reasonFor(['continuation', 'directed_to_bot'])}已关闭`
+                ? `全局默认规则${reasonFor(['continuation', 'directed_to_bot'])}已关闭；具体群聊覆盖时仍使用该阈值。`
                 : undefined
             }
+            error={configErrors['Intent.ContinuationThreshold']}
           />
           <ThresholdField
             id="intent-interjection-threshold"
@@ -262,8 +282,11 @@ function IntentConfigForm() {
             onChange={(interjectionThreshold) => updateIntent({ interjectionThreshold })}
             hint="用于「自然插话」。升高会减少主动插话；取值范围 0.001–1。"
             unavailableReason={
-              interjectionOff ? `内置规则${reasonFor(['interjection'])}已关闭` : undefined
+              interjectionOff
+                ? `全局默认规则${reasonFor(['interjection'])}已关闭；具体群聊覆盖时仍使用该阈值。`
+                : undefined
             }
+            error={configErrors['Intent.InterjectionThreshold']}
           />
           <ThresholdField
             id="intent-addressed-other-max"
@@ -273,9 +296,10 @@ function IntentConfigForm() {
             hint="用于「对他人说话优先抑制」。降低上限会更容易判定为对他人说话并抑制回复；取值范围 0.001–1。"
             unavailableReason={
               addressedOtherOff
-                ? `内置规则${reasonFor(['addressed_to_other'])}已关闭`
+                ? `全局默认规则${reasonFor(['addressed_to_other'])}已关闭；具体群聊覆盖时仍使用该阈值。`
                 : undefined
             }
+            error={configErrors['Intent.AddressedOtherMax']}
           />
         </div>
         <p className="mt-1 text-meta leading-relaxed text-muted-foreground">
@@ -283,7 +307,7 @@ function IntentConfigForm() {
         </p>
         {selectedBotId === undefined ? (
           <p className="mt-1 text-meta text-muted-foreground">
-            选择机器人账号后，会根据该账号的内置规则开关显示「不适用」。
+            选择机器人账号后，会显示全局默认规则开关；具体群聊覆盖时阈值仍可编辑。
           </p>
         ) : effective.isLoading ? (
           <p role="status" className="mt-1 text-meta text-muted-foreground">
@@ -305,9 +329,9 @@ function IntentConfigForm() {
       <div className="sticky bottom-3 z-20 rounded-xl border border-border/80 bg-card/92 p-3 shadow-lg shadow-black/5 backdrop-blur">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 text-meta text-muted-foreground" aria-live="polite">
-            {dirty ? '有未保存的修改' : '配置已保存'}
+            {hasConfigErrors ? '有配置项需要修正' : dirty ? '有未保存的修改' : '配置已保存'}
           </div>
-          <Button type="submit" disabled={!dirty || change.isPending}>
+          <Button type="submit" disabled={!dirty || change.isPending || hasConfigErrors}>
             {change.isPending ? '保存中…' : '保存配置'}
           </Button>
         </div>
@@ -323,6 +347,7 @@ function ThresholdField({
   onChange,
   hint,
   unavailableReason,
+  error,
 }: {
   id: string
   label: string
@@ -330,36 +355,46 @@ function ThresholdField({
   onChange: (value: number) => void
   hint: string
   unavailableReason?: string
+  error?: string
 }) {
   return (
     <div className="py-2.5" data-field={id}>
-      <Label htmlFor={`${id}-input`} className="text-sm">
-        {label}
-      </Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor={`${id}-input`} className="text-sm">
+          {label}
+        </Label>
+        {unavailableReason ? (
+          <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-caption text-warning">
+            不适用
+          </span>
+        ) : null}
+      </div>
+      <Input
+        id={`${id}-input`}
+        type="number"
+        inputMode="decimal"
+        required
+        min={0.001}
+        max={1}
+        step="any"
+        value={Number.isFinite(value) ? value : ''}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className="mt-1.5 font-mono tabular-nums"
+        onChange={(event) => onChange(event.target.valueAsNumber)}
+      />
       {unavailableReason ? (
-        <div
-          id={`${id}-input`}
-          role="status"
-          className="mt-1.5 rounded-md border border-dashed border-border bg-secondary/30 px-3 py-2 text-sm text-muted-foreground"
-        >
-          <span className="font-medium text-foreground">不适用</span>
-          <span className="ml-2">{unavailableReason}</span>
-        </div>
+        <p role="status" className="mt-1 text-meta leading-relaxed text-warning">
+          {unavailableReason}
+        </p>
+      ) : null}
+      {error ? (
+        <p id={`${id}-error`} role="alert" className="mt-1 text-meta text-destructive">
+          {error}
+        </p>
       ) : (
-        <Input
-          id={`${id}-input`}
-          type="number"
-          inputMode="decimal"
-          required
-          min={0.001}
-          max={1}
-          step="any"
-          value={Number.isFinite(value) ? value : ''}
-          className="mt-1.5 font-mono tabular-nums"
-          onChange={(event) => onChange(event.target.valueAsNumber)}
-        />
+        <p className="mt-1 text-meta leading-relaxed text-muted-foreground">{hint}</p>
       )}
-      <p className="mt-1 text-meta leading-relaxed text-muted-foreground">{hint}</p>
     </div>
   )
 }
