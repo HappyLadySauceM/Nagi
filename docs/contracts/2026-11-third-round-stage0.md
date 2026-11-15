@@ -564,13 +564,15 @@ deleted: 物理删除，终态；deleted 不召回
       "OldMemoryID": "uuid",
       "Actor": "admin",
       "Reason": "新事实替代旧事实",
+      "NewStatus": "active",
+      "OldStatus": "superseded",
       "CreatedAt": "2026-11-15T08:01:00Z",
       "Counterpart": {"MemoryID": "uuid", "Status": "active", "Missing": false}
     }
   ]
 }
 ```
-`Direction` 为 `as_new|as_old`；每条关系同时展示双方 ID、actor、time、reason，但不复制旧正文、来源消息或 subject。`Counterpart.Missing=true` 表示关联条目已物理删除，此时 `Status` 为空且页面显示“已删除”，不能伪造 `active`。
+`Direction` 为 `as_new|as_old`；每条关系同时展示双方 ID、current status、actor、time、reason，但不复制旧正文、来源消息或 subject。`Counterpart.Missing=true` 表示关联条目已物理删除，此时 `Status` 为空且页面显示“已删除”，不能伪造 `active`。
 
 **人工创建已知主体候选**（现有 `POST /api/v1/memories` 的明确契约）
 ```json
