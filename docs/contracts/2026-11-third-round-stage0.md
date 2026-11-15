@@ -268,7 +268,7 @@ draft ──publish──> published ──publish(new)──> archived
 仅 `draft` 可编辑，其他状态返回 409；响应为更新后的 `PromptVersion`。
 
 **版本 diff** `GET /api/v1/prompts/{prompt_id}/diff`
-`from` 允许 `builtin|active|version`，`to` 允许 `draft|active|version`；`from_version_id`/`to_version_id` 仅在对应值为 `version` 时必填，均为同层版本行 ID。`from` 默认有 Active 时取 `active`，否则取 `builtin`；`to` 默认取同层最新 `draft`，没有 draft 时返回 422。目标不存在、跨 prompt/层或没有可比较版本返回 422；首个草稿可以与 `builtin` 比较，不能因无 Active 就拒绝。
+`from` 允许 `builtin|empty|active|version`，`to` 允许 `draft|active|version`；`from_version_id`/`to_version_id` 仅在对应值为 `version` 时必填，均为同层版本行 ID。`from=builtin` 仅用于 `account`，`from=empty` 仅用于 `group|private` 补充层；`from` 默认有 Active 时取 `active`，否则 account 取 `builtin`、补充层取 `empty`；`to` 默认取同层最新 `draft`，没有 draft 时返回 422。目标不存在、跨 prompt/层或没有可比较版本返回 422；首个草稿可以与 `builtin` 或 `empty` 比较，不能因无 Active 就拒绝。
 ```json
 {
   "PromptID": "intent.participation",
@@ -280,7 +280,7 @@ draft ──publish──> published ──publish(new)──> archived
   "Lines": [{"Op": "-", "Text": "旧行"}, {"Op": "+", "Text": "新行"}]
 }
 ```
-`From` 为 builtin 时不带数据库 `ID`；为 active/version 时带 `ID`。`Op` 仅允许 `+`、`-`、空格（上下文行）。
+`From` 为 builtin/empty 时不带数据库 `ID`（`Status` 分别为 `builtin`/`empty`）；为 active/version 时带 `ID`。`Op` 仅允许 `+`、`-`、空格（上下文行）。
 
 **发布** `POST /api/v1/prompts/versions/{id}/publish`：无 body；目标必须是同层 `draft`，否则 409。响应：
 ```json
