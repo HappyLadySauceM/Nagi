@@ -21,6 +21,7 @@ import { describeError } from '../../lib/errors'
 import { formatDateTime } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useAccountContext } from '../accounts/account-context'
+import { KnowledgePreviewCard } from '../knowledge/components/context-preview'
 import {
   PROMPT_KIND_IDS,
   PROMPT_KIND_LABELS,
@@ -223,8 +224,8 @@ export function PromptManagementPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Prompt 管理"
-        description={`三类 Prompt 的内置默认、实际生效与编辑草稿。当前账号：${selectedAccount?.nickname || selectedBotId}。不依赖 Langfuse；Langfuse 仅作为可选来源标签。`}
+        title="角色与提示词"
+        description={`默认聊天 System 与默认抽取 System 可编辑，走 Prompt 版本管理；最终 Prompt 按层展示账号默认、群聊/私聊补充与服务端约束。当前账号：${selectedAccount?.nickname || selectedBotId}。不依赖 Langfuse；Langfuse 仅作为可选来源标签。`}
         actions={
           <Button variant="outline" size="sm" onClick={() => void catalog.refetch()}>
             <RefreshCw className={cn('size-3.5', catalog.isFetching && 'animate-spin')} aria-hidden />
@@ -233,7 +234,7 @@ export function PromptManagementPage() {
         }
       />
 
-      <Card className="flex flex-wrap items-center gap-2 p-2">
+      <Card className="flex flex-row flex-wrap items-center gap-2 p-2">
         {KINDS.map((value) => (
           <Button
             key={value}
@@ -418,7 +419,7 @@ export function PromptManagementPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-sm font-semibold">内置默认 v{detail.data.builtin.version}</h2>
                     <Badge variant="secondary">只读</Badge>
-                    <code className="text-xs text-muted-foreground">{detail.data.builtin.hash}</code>
+                    <code className="max-w-full break-all text-xs text-muted-foreground">{detail.data.builtin.hash}</code>
                   </div>
                   <PromptContentView kind={detail.data.kind} provider={detail.data.provider} content={detail.data.builtin.content} />
                 </>
@@ -438,7 +439,7 @@ export function PromptManagementPage() {
                     <h2 className="text-sm font-semibold">{selectedVersion.name || promptId} · v{selectedVersion.version}</h2>
                     <Badge variant={STATUS_VARIANTS[selectedVersion.status]}>{PROMPT_STATUS_LABELS[selectedVersion.status]}</Badge>
                     <Badge variant="outline">{PROMPT_SOURCE_LABELS[selectedVersion.source]}</Badge>
-                    <code className="text-xs text-muted-foreground">{selectedVersion.hash}</code>
+                    <code className="max-w-full break-all text-xs text-muted-foreground">{selectedVersion.hash}</code>
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>创建：{formatDateTime(selectedVersion.createdAt)}</span>
@@ -566,6 +567,8 @@ export function PromptManagementPage() {
           </Card>
         </>
       ) : null}
+
+      <KnowledgePreviewCard botId={selectedBotId} />
 
       <CreateDraftDialog
         open={createOpen}

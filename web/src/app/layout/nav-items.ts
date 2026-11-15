@@ -44,7 +44,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: '智能',
     items: [
-      { to: '/memories', label: '知识与记忆', hint: '候选、审批与可见性', icon: BrainCircuit },
+      { to: '/memories', label: '知识与记忆', hint: '条目、提示词与抽取设置', icon: BrainCircuit },
       { to: '/decisions', label: '意图识别', hint: '规则、语义与决策过程', icon: ScrollText },
     ],
   },
