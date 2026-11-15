@@ -111,4 +111,20 @@ describe('managed prompt adapters', () => {
     expect(preview.final.variables.bot_name).toBe('Nagi')
     expect(preview.warnings).toEqual(['示例数据'])
   })
+
+  it('treats an empty preview target as no target', () => {
+    const preview = toManagedPromptPreview({
+      PromptID: 'chat.reply',
+      Kind: 'chat_reply',
+      Provider: 'openai',
+      PreviewMode: 'example',
+      VersionID: 13,
+      Target: { Type: '', ID: 0 },
+      Layers: [],
+      Final: { Content: { Provider: 'openai', OpenAI: { SystemPrompt: '你好' } }, Variables: {} },
+      Warnings: [],
+      PreviewHash: 'sha256:preview',
+    })
+    expect(preview.target).toBeUndefined()
+  })
 })

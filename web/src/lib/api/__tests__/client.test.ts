@@ -122,6 +122,15 @@ describe('apiRequest', () => {
     expect(error.kind).toBe('contract')
   })
 
+  it('accepts a matching 201 envelope code on a created response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ code: 201, message: 'success', data: { id: 1 } }, 201)),
+    )
+
+    await expect(apiRequest('/api/v1/prompts/chat.reply/versions', { method: 'POST' })).resolves.toEqual({ id: 1 })
+  })
+
   it('treats a non-200 envelope code on a 2xx response as an error', async () => {
     vi.stubGlobal(
       'fetch',

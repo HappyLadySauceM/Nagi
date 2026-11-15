@@ -321,12 +321,17 @@ export function toManagedPromptPreview(raw: unknown): ManagedPromptPreview {
   }
   if (targetRaw != null) {
     const target = asRecord(targetRaw, PROMPTS_ENDPOINT, 'Target')
-    result.target = {
-      type: readEnum(target, 'Type', PROMPTS_ENDPOINT, ['group', 'private'] as const),
-      id: readNumber(target, 'ID', PROMPTS_ENDPOINT, 0),
-      ...(readOptionalString(target, 'ConversationID', PROMPTS_ENDPOINT) !== undefined
-        ? { conversationId: readOptionalString(target, 'ConversationID', PROMPTS_ENDPOINT) }
-        : {}),
+    const type = readString(target, 'Type', PROMPTS_ENDPOINT, '')
+    const id = readNumber(target, 'ID', PROMPTS_ENDPOINT, 0)
+    const conversationId = readOptionalString(target, 'ConversationID', PROMPTS_ENDPOINT)
+    // Example previews have no real target, so the backend sends an empty target.
+    // 示例预览没有真实目标，后端会返回空 target。
+    if (type !== '' || id !== 0 || conversationId !== undefined) {
+      result.target = {
+        type: readEnum(target, 'Type', PROMPTS_ENDPOINT, ['group', 'private'] as const),
+        id,
+        ...(conversationId !== undefined ? { conversationId } : {}),
+      }
     }
   }
   return result
