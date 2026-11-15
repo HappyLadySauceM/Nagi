@@ -110,6 +110,15 @@ func (d *Decider) runtimeFor(ctx context.Context) RuntimeConfig {
 	return d.runtime()
 }
 
+// currentBotName resolves the display name used to render prompt variables.
+// currentBotName 解析用于渲染 Prompt 变量的展示名。
+func (d *Decider) currentBotName() string {
+	if d.botNameNow != nil {
+		return d.botNameNow()
+	}
+	return d.botName
+}
+
 type TranscriptRecorder interface {
 	SaveTranscript(context.Context, int64, string, string) error
 }
@@ -131,10 +140,12 @@ type Options struct {
 	HistoryLimit int
 	Provider     string
 	Model        string
+	BotName      string
 	// Dynamic optionally overrides the static values above per task.
 	// Dynamic 可选地按任务覆盖上面的静态取值。
-	Dynamic RuntimeConfigProvider
-	Logger  *slog.Logger
+	Dynamic         RuntimeConfigProvider
+	BotNameProvider func() string
+	Logger          *slog.Logger
 }
 
 // Decider orchestrates rules, optional semantic judgment, reply policy and recording.
@@ -154,6 +165,8 @@ type Decider struct {
 	historyLimit int
 	provider     string
 	model        string
+	botName      string
+	botNameNow   func() string
 	dynamic      RuntimeConfigProvider
 	logger       *slog.Logger
 }
@@ -172,7 +185,7 @@ func NewDecider(opts Options) (*Decider, error) {
 		semantic: opts.Semantic, prompts: opts.Prompts,
 		rules: opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
 		th: opts.Thresholds, historyLimit: opts.HistoryLimit,
-		provider: opts.Provider, model: opts.Model, dynamic: opts.Dynamic, logger: opts.Logger,
+		provider: opts.Provider, model: opts.Model, botName: opts.BotName, botNameNow: opts.BotNameProvider, dynamic: opts.Dynamic, logger: opts.Logger,
 	}, nil
 }
 
@@ -246,8 +259,17 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	}
 	prompt := domain.BuiltinPrompt(runtime.Provider)
 	if d.prompts != nil {
-		prompt = d.prompts.Resolve(ctx, runtime.Provider)
+		if layered, ok := d.prompts.(LayeredPromptProvider); ok {
+			variables := map[string]string{"scope_type": task.Kind}
+			if name := d.currentBotName(); name != "" {
+				variables["bot_name"] = name
+			}
+			prompt = layered.ResolveFor(ctx, domain.PromptIDIntentParticipation, domain.PromptKindIntentParticipation, runtime.Provider, task.BotID, task.Kind, task.TargetID, variables)
+		} else {
+			prompt = d.prompts.Resolve(ctx, runtime.Provider)
+		}
 	}
+	prompt.ConversationID = task.ConversationID
 	runID := uuid.NewString()
 	in := domain.Input{Task: task, Recent: history, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
 

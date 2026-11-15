@@ -21,10 +21,18 @@ type IntentPromptVersion struct {
 	ID int64 `json:"id,omitempty"`
 	// PromptID holds the value of the "prompt_id" field.
 	PromptID string `json:"prompt_id,omitempty"`
+	// PromptKind holds the value of the "prompt_kind" field.
+	PromptKind string `json:"prompt_kind,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
 	// Provider holds the value of the "provider" field.
 	Provider string `json:"provider,omitempty"`
+	// BotID holds the value of the "bot_id" field.
+	BotID int64 `json:"bot_id,omitempty"`
+	// ScopeType holds the value of the "scope_type" field.
+	ScopeType string `json:"scope_type,omitempty"`
+	// ScopeID holds the value of the "scope_id" field.
+	ScopeID int64 `json:"scope_id,omitempty"`
 	// Version holds the value of the "version" field.
 	Version int `json:"version,omitempty"`
 	// Status holds the value of the "status" field.
@@ -42,7 +50,9 @@ type IntentPromptVersion struct {
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// PublishedAt holds the value of the "published_at" field.
-	PublishedAt  *time.Time `json:"published_at,omitempty"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
+	// ArchivedAt holds the value of the "archived_at" field.
+	ArchivedAt   *time.Time `json:"archived_at,omitempty"`
 	selectValues sql.SelectValues
 }
 
@@ -53,11 +63,11 @@ func (*IntentPromptVersion) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case intentpromptversion.FieldContent:
 			values[i] = new([]byte)
-		case intentpromptversion.FieldID, intentpromptversion.FieldVersion:
+		case intentpromptversion.FieldID, intentpromptversion.FieldBotID, intentpromptversion.FieldScopeID, intentpromptversion.FieldVersion:
 			values[i] = new(sql.NullInt64)
-		case intentpromptversion.FieldPromptID, intentpromptversion.FieldName, intentpromptversion.FieldProvider, intentpromptversion.FieldStatus, intentpromptversion.FieldSource, intentpromptversion.FieldSourceRef, intentpromptversion.FieldHash, intentpromptversion.FieldNote:
+		case intentpromptversion.FieldPromptID, intentpromptversion.FieldPromptKind, intentpromptversion.FieldName, intentpromptversion.FieldProvider, intentpromptversion.FieldScopeType, intentpromptversion.FieldStatus, intentpromptversion.FieldSource, intentpromptversion.FieldSourceRef, intentpromptversion.FieldHash, intentpromptversion.FieldNote:
 			values[i] = new(sql.NullString)
-		case intentpromptversion.FieldCreatedAt, intentpromptversion.FieldPublishedAt:
+		case intentpromptversion.FieldCreatedAt, intentpromptversion.FieldPublishedAt, intentpromptversion.FieldArchivedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -86,6 +96,12 @@ func (_m *IntentPromptVersion) assignValues(columns []string, values []any) erro
 			} else if value.Valid {
 				_m.PromptID = value.String
 			}
+		case intentpromptversion.FieldPromptKind:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field prompt_kind", values[i])
+			} else if value.Valid {
+				_m.PromptKind = value.String
+			}
 		case intentpromptversion.FieldName:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field name", values[i])
@@ -97,6 +113,24 @@ func (_m *IntentPromptVersion) assignValues(columns []string, values []any) erro
 				return fmt.Errorf("unexpected type %T for field provider", values[i])
 			} else if value.Valid {
 				_m.Provider = value.String
+			}
+		case intentpromptversion.FieldBotID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field bot_id", values[i])
+			} else if value.Valid {
+				_m.BotID = value.Int64
+			}
+		case intentpromptversion.FieldScopeType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field scope_type", values[i])
+			} else if value.Valid {
+				_m.ScopeType = value.String
+			}
+		case intentpromptversion.FieldScopeID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field scope_id", values[i])
+			} else if value.Valid {
+				_m.ScopeID = value.Int64
 			}
 		case intentpromptversion.FieldVersion:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -155,6 +189,13 @@ func (_m *IntentPromptVersion) assignValues(columns []string, values []any) erro
 				_m.PublishedAt = new(time.Time)
 				*_m.PublishedAt = value.Time
 			}
+		case intentpromptversion.FieldArchivedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field archived_at", values[i])
+			} else if value.Valid {
+				_m.ArchivedAt = new(time.Time)
+				*_m.ArchivedAt = value.Time
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -194,11 +235,23 @@ func (_m *IntentPromptVersion) String() string {
 	builder.WriteString("prompt_id=")
 	builder.WriteString(_m.PromptID)
 	builder.WriteString(", ")
+	builder.WriteString("prompt_kind=")
+	builder.WriteString(_m.PromptKind)
+	builder.WriteString(", ")
 	builder.WriteString("name=")
 	builder.WriteString(_m.Name)
 	builder.WriteString(", ")
 	builder.WriteString("provider=")
 	builder.WriteString(_m.Provider)
+	builder.WriteString(", ")
+	builder.WriteString("bot_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.BotID))
+	builder.WriteString(", ")
+	builder.WriteString("scope_type=")
+	builder.WriteString(_m.ScopeType)
+	builder.WriteString(", ")
+	builder.WriteString("scope_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ScopeID))
 	builder.WriteString(", ")
 	builder.WriteString("version=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Version))
@@ -226,6 +279,11 @@ func (_m *IntentPromptVersion) String() string {
 	builder.WriteString(", ")
 	if v := _m.PublishedAt; v != nil {
 		builder.WriteString("published_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.ArchivedAt; v != nil {
+		builder.WriteString("archived_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
 	builder.WriteByte(')')

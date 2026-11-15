@@ -368,9 +368,15 @@ func (r *DecisionsRepo) snapshotByDecision(ctx context.Context, decisionID int64
 }
 
 func promptInfo(prompt domain.Prompt) contracts.PromptInfo {
+	finalHash := prompt.FinalHash
+	if finalHash == "" {
+		finalHash = prompt.Hash
+	}
 	return contracts.PromptInfo{
-		ID: prompt.ID, Name: prompt.Name, Version: prompt.Version,
+		ID: prompt.ID, Kind: prompt.Kind, Name: prompt.Name, Version: prompt.Version,
 		Source: prompt.Source, SourceRef: prompt.SourceRef, Hash: prompt.Hash,
+		FinalHash: finalHash, RenderedHash: prompt.RenderedHash, Content: domain.PromptContentJSON(prompt),
+		TargetType: prompt.TargetType, TargetID: prompt.TargetID, ConversationID: prompt.ConversationID, Layers: prompt.Layers,
 	}
 }
 

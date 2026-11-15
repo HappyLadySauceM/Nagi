@@ -16,10 +16,18 @@ const (
 	FieldID = "id"
 	// FieldPromptID holds the string denoting the prompt_id field in the database.
 	FieldPromptID = "prompt_id"
+	// FieldPromptKind holds the string denoting the prompt_kind field in the database.
+	FieldPromptKind = "prompt_kind"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
 	// FieldProvider holds the string denoting the provider field in the database.
 	FieldProvider = "provider"
+	// FieldBotID holds the string denoting the bot_id field in the database.
+	FieldBotID = "bot_id"
+	// FieldScopeType holds the string denoting the scope_type field in the database.
+	FieldScopeType = "scope_type"
+	// FieldScopeID holds the string denoting the scope_id field in the database.
+	FieldScopeID = "scope_id"
 	// FieldVersion holds the string denoting the version field in the database.
 	FieldVersion = "version"
 	// FieldStatus holds the string denoting the status field in the database.
@@ -38,6 +46,8 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldPublishedAt holds the string denoting the published_at field in the database.
 	FieldPublishedAt = "published_at"
+	// FieldArchivedAt holds the string denoting the archived_at field in the database.
+	FieldArchivedAt = "archived_at"
 	// Table holds the table name of the intentpromptversion in the database.
 	Table = "intent_prompt_versions"
 )
@@ -46,8 +56,12 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldPromptID,
+	FieldPromptKind,
 	FieldName,
 	FieldProvider,
+	FieldBotID,
+	FieldScopeType,
+	FieldScopeID,
 	FieldVersion,
 	FieldStatus,
 	FieldSource,
@@ -57,6 +71,7 @@ var Columns = []string{
 	FieldContent,
 	FieldCreatedAt,
 	FieldPublishedAt,
+	FieldArchivedAt,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -70,6 +85,14 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// DefaultPromptKind holds the default value on creation for the "prompt_kind" field.
+	DefaultPromptKind string
+	// DefaultBotID holds the default value on creation for the "bot_id" field.
+	DefaultBotID int64
+	// DefaultScopeType holds the default value on creation for the "scope_type" field.
+	DefaultScopeType string
+	// DefaultScopeID holds the default value on creation for the "scope_id" field.
+	DefaultScopeID int64
 	// DefaultSource holds the default value on creation for the "source" field.
 	DefaultSource string
 	// DefaultSourceRef holds the default value on creation for the "source_ref" field.
@@ -97,6 +120,11 @@ func ByPromptID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPromptID, opts...).ToFunc()
 }
 
+// ByPromptKind orders the results by the prompt_kind field.
+func ByPromptKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPromptKind, opts...).ToFunc()
+}
+
 // ByName orders the results by the name field.
 func ByName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldName, opts...).ToFunc()
@@ -105,6 +133,21 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByProvider orders the results by the provider field.
 func ByProvider(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProvider, opts...).ToFunc()
+}
+
+// ByBotID orders the results by the bot_id field.
+func ByBotID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBotID, opts...).ToFunc()
+}
+
+// ByScopeType orders the results by the scope_type field.
+func ByScopeType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldScopeType, opts...).ToFunc()
+}
+
+// ByScopeID orders the results by the scope_id field.
+func ByScopeID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldScopeID, opts...).ToFunc()
 }
 
 // ByVersion orders the results by the version field.
@@ -145,4 +188,9 @@ func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByPublishedAt orders the results by the published_at field.
 func ByPublishedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPublishedAt, opts...).ToFunc()
+}
+
+// ByArchivedAt orders the results by the archived_at field.
+func ByArchivedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldArchivedAt, opts...).ToFunc()
 }

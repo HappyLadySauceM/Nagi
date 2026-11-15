@@ -397,6 +397,10 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		})
 		rt.Settings = settingsService
 		rt.SettingsProvider = settingsProvider
+		promptService, promptErr := buildPromptService(cfg, logger, pool)
+		if promptErr != nil {
+			return nil, promptErr
+		}
 		if cfg.Memory.Extraction.Enabled {
 			extractionRepo, extractionRepoErr := memoryinfra.NewRepo(pool)
 			if extractionRepoErr != nil {
@@ -408,7 +412,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			}
 			extractionWorker, extractionWorkerErr := memoryapp.NewExtractionWorker(
 				extractionRepo,
-				memoryinfra.NewModelExtractor(settingsService),
+				memoryinfra.NewModelExtractor(settingsService, promptService),
 				rt.Scope,
 				memoryapp.ExtractionWorkerOptions{
 					Enabled:          func() bool { return cfg.Memory.Extraction.Enabled },
@@ -420,6 +424,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 					MaxAttempts:      cfg.Memory.Extraction.MaxAttempts,
 					RetryDelays:      extractionRetryDelays,
 					Lease:            cfg.Memory.Extraction.LeaseDuration.D(),
+					BotName:          func() string { return settingsProvider.Settings().Intent.BotName },
 				},
 				logger,
 			)
@@ -433,7 +438,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			"providers", len(toolRegistry.Manifests()))
 		mediaService.Models = settingsService
 		toolsResolver = buildToolsResolver(settingsProvider, toolRegistry, rt.Scope)
-		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, rt.Memory, registry, callbacks, sensitiveCallbacks, ledger,
+		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, settingsService, promptService, mediaService, rt.Scope, rt.Conversation, rt.Memory, registry, callbacks, sensitiveCallbacks, ledger,
 			func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits {
 				limits, err := sendingLimitsFor(ctx, policiesRepo, settingsProvider.Settings(), botID, kind, targetID)
 				if err != nil {
@@ -458,7 +463,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 				return handler.Shutdown(ctx)
 			}
 		}
-		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets, rt.AIAudit)
+		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, promptService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets, rt.AIAudit)
 		if workerErr != nil {
 			return nil, workerErr
 		}

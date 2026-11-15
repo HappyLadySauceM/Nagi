@@ -29,6 +29,20 @@ func (_c *IntentPromptVersionCreate) SetPromptID(v string) *IntentPromptVersionC
 	return _c
 }
 
+// SetPromptKind sets the "prompt_kind" field.
+func (_c *IntentPromptVersionCreate) SetPromptKind(v string) *IntentPromptVersionCreate {
+	_c.mutation.SetPromptKind(v)
+	return _c
+}
+
+// SetNillablePromptKind sets the "prompt_kind" field if the given value is not nil.
+func (_c *IntentPromptVersionCreate) SetNillablePromptKind(v *string) *IntentPromptVersionCreate {
+	if v != nil {
+		_c.SetPromptKind(*v)
+	}
+	return _c
+}
+
 // SetName sets the "name" field.
 func (_c *IntentPromptVersionCreate) SetName(v string) *IntentPromptVersionCreate {
 	_c.mutation.SetName(v)
@@ -38,6 +52,48 @@ func (_c *IntentPromptVersionCreate) SetName(v string) *IntentPromptVersionCreat
 // SetProvider sets the "provider" field.
 func (_c *IntentPromptVersionCreate) SetProvider(v string) *IntentPromptVersionCreate {
 	_c.mutation.SetProvider(v)
+	return _c
+}
+
+// SetBotID sets the "bot_id" field.
+func (_c *IntentPromptVersionCreate) SetBotID(v int64) *IntentPromptVersionCreate {
+	_c.mutation.SetBotID(v)
+	return _c
+}
+
+// SetNillableBotID sets the "bot_id" field if the given value is not nil.
+func (_c *IntentPromptVersionCreate) SetNillableBotID(v *int64) *IntentPromptVersionCreate {
+	if v != nil {
+		_c.SetBotID(*v)
+	}
+	return _c
+}
+
+// SetScopeType sets the "scope_type" field.
+func (_c *IntentPromptVersionCreate) SetScopeType(v string) *IntentPromptVersionCreate {
+	_c.mutation.SetScopeType(v)
+	return _c
+}
+
+// SetNillableScopeType sets the "scope_type" field if the given value is not nil.
+func (_c *IntentPromptVersionCreate) SetNillableScopeType(v *string) *IntentPromptVersionCreate {
+	if v != nil {
+		_c.SetScopeType(*v)
+	}
+	return _c
+}
+
+// SetScopeID sets the "scope_id" field.
+func (_c *IntentPromptVersionCreate) SetScopeID(v int64) *IntentPromptVersionCreate {
+	_c.mutation.SetScopeID(v)
+	return _c
+}
+
+// SetNillableScopeID sets the "scope_id" field if the given value is not nil.
+func (_c *IntentPromptVersionCreate) SetNillableScopeID(v *int64) *IntentPromptVersionCreate {
+	if v != nil {
+		_c.SetScopeID(*v)
+	}
 	return _c
 }
 
@@ -143,6 +199,20 @@ func (_c *IntentPromptVersionCreate) SetNillablePublishedAt(v *time.Time) *Inten
 	return _c
 }
 
+// SetArchivedAt sets the "archived_at" field.
+func (_c *IntentPromptVersionCreate) SetArchivedAt(v time.Time) *IntentPromptVersionCreate {
+	_c.mutation.SetArchivedAt(v)
+	return _c
+}
+
+// SetNillableArchivedAt sets the "archived_at" field if the given value is not nil.
+func (_c *IntentPromptVersionCreate) SetNillableArchivedAt(v *time.Time) *IntentPromptVersionCreate {
+	if v != nil {
+		_c.SetArchivedAt(*v)
+	}
+	return _c
+}
+
 // SetID sets the "id" field.
 func (_c *IntentPromptVersionCreate) SetID(v int64) *IntentPromptVersionCreate {
 	_c.mutation.SetID(v)
@@ -184,6 +254,22 @@ func (_c *IntentPromptVersionCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *IntentPromptVersionCreate) defaults() {
+	if _, ok := _c.mutation.PromptKind(); !ok {
+		v := intentpromptversion.DefaultPromptKind
+		_c.mutation.SetPromptKind(v)
+	}
+	if _, ok := _c.mutation.BotID(); !ok {
+		v := intentpromptversion.DefaultBotID
+		_c.mutation.SetBotID(v)
+	}
+	if _, ok := _c.mutation.ScopeType(); !ok {
+		v := intentpromptversion.DefaultScopeType
+		_c.mutation.SetScopeType(v)
+	}
+	if _, ok := _c.mutation.ScopeID(); !ok {
+		v := intentpromptversion.DefaultScopeID
+		_c.mutation.SetScopeID(v)
+	}
 	if _, ok := _c.mutation.Source(); !ok {
 		v := intentpromptversion.DefaultSource
 		_c.mutation.SetSource(v)
@@ -264,6 +350,10 @@ func (_c *IntentPromptVersionCreate) createSpec() (*IntentPromptVersion, *sqlgra
 		_spec.SetField(intentpromptversion.FieldPromptID, field.TypeString, value)
 		_node.PromptID = value
 	}
+	if value, ok := _c.mutation.PromptKind(); ok {
+		_spec.SetField(intentpromptversion.FieldPromptKind, field.TypeString, value)
+		_node.PromptKind = value
+	}
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(intentpromptversion.FieldName, field.TypeString, value)
 		_node.Name = value
@@ -271,6 +361,18 @@ func (_c *IntentPromptVersionCreate) createSpec() (*IntentPromptVersion, *sqlgra
 	if value, ok := _c.mutation.Provider(); ok {
 		_spec.SetField(intentpromptversion.FieldProvider, field.TypeString, value)
 		_node.Provider = value
+	}
+	if value, ok := _c.mutation.BotID(); ok {
+		_spec.SetField(intentpromptversion.FieldBotID, field.TypeInt64, value)
+		_node.BotID = value
+	}
+	if value, ok := _c.mutation.ScopeType(); ok {
+		_spec.SetField(intentpromptversion.FieldScopeType, field.TypeString, value)
+		_node.ScopeType = value
+	}
+	if value, ok := _c.mutation.ScopeID(); ok {
+		_spec.SetField(intentpromptversion.FieldScopeID, field.TypeInt64, value)
+		_node.ScopeID = value
 	}
 	if value, ok := _c.mutation.Version(); ok {
 		_spec.SetField(intentpromptversion.FieldVersion, field.TypeInt, value)
@@ -307,6 +409,10 @@ func (_c *IntentPromptVersionCreate) createSpec() (*IntentPromptVersion, *sqlgra
 	if value, ok := _c.mutation.PublishedAt(); ok {
 		_spec.SetField(intentpromptversion.FieldPublishedAt, field.TypeTime, value)
 		_node.PublishedAt = &value
+	}
+	if value, ok := _c.mutation.ArchivedAt(); ok {
+		_spec.SetField(intentpromptversion.FieldArchivedAt, field.TypeTime, value)
+		_node.ArchivedAt = &value
 	}
 	return _node, _spec
 }
@@ -372,6 +478,18 @@ func (u *IntentPromptVersionUpsert) UpdatePromptID() *IntentPromptVersionUpsert 
 	return u
 }
 
+// SetPromptKind sets the "prompt_kind" field.
+func (u *IntentPromptVersionUpsert) SetPromptKind(v string) *IntentPromptVersionUpsert {
+	u.Set(intentpromptversion.FieldPromptKind, v)
+	return u
+}
+
+// UpdatePromptKind sets the "prompt_kind" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsert) UpdatePromptKind() *IntentPromptVersionUpsert {
+	u.SetExcluded(intentpromptversion.FieldPromptKind)
+	return u
+}
+
 // SetName sets the "name" field.
 func (u *IntentPromptVersionUpsert) SetName(v string) *IntentPromptVersionUpsert {
 	u.Set(intentpromptversion.FieldName, v)
@@ -393,6 +511,54 @@ func (u *IntentPromptVersionUpsert) SetProvider(v string) *IntentPromptVersionUp
 // UpdateProvider sets the "provider" field to the value that was provided on create.
 func (u *IntentPromptVersionUpsert) UpdateProvider() *IntentPromptVersionUpsert {
 	u.SetExcluded(intentpromptversion.FieldProvider)
+	return u
+}
+
+// SetBotID sets the "bot_id" field.
+func (u *IntentPromptVersionUpsert) SetBotID(v int64) *IntentPromptVersionUpsert {
+	u.Set(intentpromptversion.FieldBotID, v)
+	return u
+}
+
+// UpdateBotID sets the "bot_id" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsert) UpdateBotID() *IntentPromptVersionUpsert {
+	u.SetExcluded(intentpromptversion.FieldBotID)
+	return u
+}
+
+// AddBotID adds v to the "bot_id" field.
+func (u *IntentPromptVersionUpsert) AddBotID(v int64) *IntentPromptVersionUpsert {
+	u.Add(intentpromptversion.FieldBotID, v)
+	return u
+}
+
+// SetScopeType sets the "scope_type" field.
+func (u *IntentPromptVersionUpsert) SetScopeType(v string) *IntentPromptVersionUpsert {
+	u.Set(intentpromptversion.FieldScopeType, v)
+	return u
+}
+
+// UpdateScopeType sets the "scope_type" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsert) UpdateScopeType() *IntentPromptVersionUpsert {
+	u.SetExcluded(intentpromptversion.FieldScopeType)
+	return u
+}
+
+// SetScopeID sets the "scope_id" field.
+func (u *IntentPromptVersionUpsert) SetScopeID(v int64) *IntentPromptVersionUpsert {
+	u.Set(intentpromptversion.FieldScopeID, v)
+	return u
+}
+
+// UpdateScopeID sets the "scope_id" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsert) UpdateScopeID() *IntentPromptVersionUpsert {
+	u.SetExcluded(intentpromptversion.FieldScopeID)
+	return u
+}
+
+// AddScopeID adds v to the "scope_id" field.
+func (u *IntentPromptVersionUpsert) AddScopeID(v int64) *IntentPromptVersionUpsert {
+	u.Add(intentpromptversion.FieldScopeID, v)
 	return u
 }
 
@@ -516,6 +682,24 @@ func (u *IntentPromptVersionUpsert) ClearPublishedAt() *IntentPromptVersionUpser
 	return u
 }
 
+// SetArchivedAt sets the "archived_at" field.
+func (u *IntentPromptVersionUpsert) SetArchivedAt(v time.Time) *IntentPromptVersionUpsert {
+	u.Set(intentpromptversion.FieldArchivedAt, v)
+	return u
+}
+
+// UpdateArchivedAt sets the "archived_at" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsert) UpdateArchivedAt() *IntentPromptVersionUpsert {
+	u.SetExcluded(intentpromptversion.FieldArchivedAt)
+	return u
+}
+
+// ClearArchivedAt clears the value of the "archived_at" field.
+func (u *IntentPromptVersionUpsert) ClearArchivedAt() *IntentPromptVersionUpsert {
+	u.SetNull(intentpromptversion.FieldArchivedAt)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create except the ID field.
 // Using this option is equivalent to using:
 //
@@ -578,6 +762,20 @@ func (u *IntentPromptVersionUpsertOne) UpdatePromptID() *IntentPromptVersionUpse
 	})
 }
 
+// SetPromptKind sets the "prompt_kind" field.
+func (u *IntentPromptVersionUpsertOne) SetPromptKind(v string) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetPromptKind(v)
+	})
+}
+
+// UpdatePromptKind sets the "prompt_kind" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertOne) UpdatePromptKind() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdatePromptKind()
+	})
+}
+
 // SetName sets the "name" field.
 func (u *IntentPromptVersionUpsertOne) SetName(v string) *IntentPromptVersionUpsertOne {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
@@ -603,6 +801,62 @@ func (u *IntentPromptVersionUpsertOne) SetProvider(v string) *IntentPromptVersio
 func (u *IntentPromptVersionUpsertOne) UpdateProvider() *IntentPromptVersionUpsertOne {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
 		s.UpdateProvider()
+	})
+}
+
+// SetBotID sets the "bot_id" field.
+func (u *IntentPromptVersionUpsertOne) SetBotID(v int64) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetBotID(v)
+	})
+}
+
+// AddBotID adds v to the "bot_id" field.
+func (u *IntentPromptVersionUpsertOne) AddBotID(v int64) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.AddBotID(v)
+	})
+}
+
+// UpdateBotID sets the "bot_id" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertOne) UpdateBotID() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateBotID()
+	})
+}
+
+// SetScopeType sets the "scope_type" field.
+func (u *IntentPromptVersionUpsertOne) SetScopeType(v string) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetScopeType(v)
+	})
+}
+
+// UpdateScopeType sets the "scope_type" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertOne) UpdateScopeType() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateScopeType()
+	})
+}
+
+// SetScopeID sets the "scope_id" field.
+func (u *IntentPromptVersionUpsertOne) SetScopeID(v int64) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetScopeID(v)
+	})
+}
+
+// AddScopeID adds v to the "scope_id" field.
+func (u *IntentPromptVersionUpsertOne) AddScopeID(v int64) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.AddScopeID(v)
+	})
+}
+
+// UpdateScopeID sets the "scope_id" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertOne) UpdateScopeID() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateScopeID()
 	})
 }
 
@@ -743,6 +997,27 @@ func (u *IntentPromptVersionUpsertOne) UpdatePublishedAt() *IntentPromptVersionU
 func (u *IntentPromptVersionUpsertOne) ClearPublishedAt() *IntentPromptVersionUpsertOne {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
 		s.ClearPublishedAt()
+	})
+}
+
+// SetArchivedAt sets the "archived_at" field.
+func (u *IntentPromptVersionUpsertOne) SetArchivedAt(v time.Time) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetArchivedAt(v)
+	})
+}
+
+// UpdateArchivedAt sets the "archived_at" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertOne) UpdateArchivedAt() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateArchivedAt()
+	})
+}
+
+// ClearArchivedAt clears the value of the "archived_at" field.
+func (u *IntentPromptVersionUpsertOne) ClearArchivedAt() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.ClearArchivedAt()
 	})
 }
 
@@ -974,6 +1249,20 @@ func (u *IntentPromptVersionUpsertBulk) UpdatePromptID() *IntentPromptVersionUps
 	})
 }
 
+// SetPromptKind sets the "prompt_kind" field.
+func (u *IntentPromptVersionUpsertBulk) SetPromptKind(v string) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetPromptKind(v)
+	})
+}
+
+// UpdatePromptKind sets the "prompt_kind" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertBulk) UpdatePromptKind() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdatePromptKind()
+	})
+}
+
 // SetName sets the "name" field.
 func (u *IntentPromptVersionUpsertBulk) SetName(v string) *IntentPromptVersionUpsertBulk {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
@@ -999,6 +1288,62 @@ func (u *IntentPromptVersionUpsertBulk) SetProvider(v string) *IntentPromptVersi
 func (u *IntentPromptVersionUpsertBulk) UpdateProvider() *IntentPromptVersionUpsertBulk {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
 		s.UpdateProvider()
+	})
+}
+
+// SetBotID sets the "bot_id" field.
+func (u *IntentPromptVersionUpsertBulk) SetBotID(v int64) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetBotID(v)
+	})
+}
+
+// AddBotID adds v to the "bot_id" field.
+func (u *IntentPromptVersionUpsertBulk) AddBotID(v int64) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.AddBotID(v)
+	})
+}
+
+// UpdateBotID sets the "bot_id" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertBulk) UpdateBotID() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateBotID()
+	})
+}
+
+// SetScopeType sets the "scope_type" field.
+func (u *IntentPromptVersionUpsertBulk) SetScopeType(v string) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetScopeType(v)
+	})
+}
+
+// UpdateScopeType sets the "scope_type" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertBulk) UpdateScopeType() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateScopeType()
+	})
+}
+
+// SetScopeID sets the "scope_id" field.
+func (u *IntentPromptVersionUpsertBulk) SetScopeID(v int64) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetScopeID(v)
+	})
+}
+
+// AddScopeID adds v to the "scope_id" field.
+func (u *IntentPromptVersionUpsertBulk) AddScopeID(v int64) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.AddScopeID(v)
+	})
+}
+
+// UpdateScopeID sets the "scope_id" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertBulk) UpdateScopeID() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateScopeID()
 	})
 }
 
@@ -1139,6 +1484,27 @@ func (u *IntentPromptVersionUpsertBulk) UpdatePublishedAt() *IntentPromptVersion
 func (u *IntentPromptVersionUpsertBulk) ClearPublishedAt() *IntentPromptVersionUpsertBulk {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
 		s.ClearPublishedAt()
+	})
+}
+
+// SetArchivedAt sets the "archived_at" field.
+func (u *IntentPromptVersionUpsertBulk) SetArchivedAt(v time.Time) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetArchivedAt(v)
+	})
+}
+
+// UpdateArchivedAt sets the "archived_at" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertBulk) UpdateArchivedAt() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateArchivedAt()
+	})
+}
+
+// ClearArchivedAt clears the value of the "archived_at" field.
+func (u *IntentPromptVersionUpsertBulk) ClearArchivedAt() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.ClearArchivedAt()
 	})
 }
 

@@ -357,28 +357,44 @@ func init() {
 	intentdecisionstep.DefaultCreatedAt = intentdecisionstepDescCreatedAt.Default.(func() time.Time)
 	intentpromptversionFields := nagi.IntentPromptVersion{}.Fields()
 	_ = intentpromptversionFields
+	// intentpromptversionDescPromptKind is the schema descriptor for prompt_kind field.
+	intentpromptversionDescPromptKind := intentpromptversionFields[2].Descriptor()
+	// intentpromptversion.DefaultPromptKind holds the default value on creation for the prompt_kind field.
+	intentpromptversion.DefaultPromptKind = intentpromptversionDescPromptKind.Default.(string)
+	// intentpromptversionDescBotID is the schema descriptor for bot_id field.
+	intentpromptversionDescBotID := intentpromptversionFields[5].Descriptor()
+	// intentpromptversion.DefaultBotID holds the default value on creation for the bot_id field.
+	intentpromptversion.DefaultBotID = intentpromptversionDescBotID.Default.(int64)
+	// intentpromptversionDescScopeType is the schema descriptor for scope_type field.
+	intentpromptversionDescScopeType := intentpromptversionFields[6].Descriptor()
+	// intentpromptversion.DefaultScopeType holds the default value on creation for the scope_type field.
+	intentpromptversion.DefaultScopeType = intentpromptversionDescScopeType.Default.(string)
+	// intentpromptversionDescScopeID is the schema descriptor for scope_id field.
+	intentpromptversionDescScopeID := intentpromptversionFields[7].Descriptor()
+	// intentpromptversion.DefaultScopeID holds the default value on creation for the scope_id field.
+	intentpromptversion.DefaultScopeID = intentpromptversionDescScopeID.Default.(int64)
 	// intentpromptversionDescSource is the schema descriptor for source field.
-	intentpromptversionDescSource := intentpromptversionFields[6].Descriptor()
+	intentpromptversionDescSource := intentpromptversionFields[10].Descriptor()
 	// intentpromptversion.DefaultSource holds the default value on creation for the source field.
 	intentpromptversion.DefaultSource = intentpromptversionDescSource.Default.(string)
 	// intentpromptversionDescSourceRef is the schema descriptor for source_ref field.
-	intentpromptversionDescSourceRef := intentpromptversionFields[7].Descriptor()
+	intentpromptversionDescSourceRef := intentpromptversionFields[11].Descriptor()
 	// intentpromptversion.DefaultSourceRef holds the default value on creation for the source_ref field.
 	intentpromptversion.DefaultSourceRef = intentpromptversionDescSourceRef.Default.(string)
 	// intentpromptversionDescHash is the schema descriptor for hash field.
-	intentpromptversionDescHash := intentpromptversionFields[8].Descriptor()
+	intentpromptversionDescHash := intentpromptversionFields[12].Descriptor()
 	// intentpromptversion.DefaultHash holds the default value on creation for the hash field.
 	intentpromptversion.DefaultHash = intentpromptversionDescHash.Default.(string)
 	// intentpromptversionDescNote is the schema descriptor for note field.
-	intentpromptversionDescNote := intentpromptversionFields[9].Descriptor()
+	intentpromptversionDescNote := intentpromptversionFields[13].Descriptor()
 	// intentpromptversion.DefaultNote holds the default value on creation for the note field.
 	intentpromptversion.DefaultNote = intentpromptversionDescNote.Default.(string)
 	// intentpromptversionDescContent is the schema descriptor for content field.
-	intentpromptversionDescContent := intentpromptversionFields[10].Descriptor()
+	intentpromptversionDescContent := intentpromptversionFields[14].Descriptor()
 	// intentpromptversion.DefaultContent holds the default value on creation for the content field.
 	intentpromptversion.DefaultContent = intentpromptversionDescContent.Default.(jsontext.Value)
 	// intentpromptversionDescCreatedAt is the schema descriptor for created_at field.
-	intentpromptversionDescCreatedAt := intentpromptversionFields[11].Descriptor()
+	intentpromptversionDescCreatedAt := intentpromptversionFields[15].Descriptor()
 	// intentpromptversion.DefaultCreatedAt holds the default value on creation for the created_at field.
 	intentpromptversion.DefaultCreatedAt = intentpromptversionDescCreatedAt.Default.(func() time.Time)
 	intentreplayevaluationFields := nagi.IntentReplayEvaluation{}.Fields()

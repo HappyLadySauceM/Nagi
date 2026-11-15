@@ -5,6 +5,7 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -134,6 +135,9 @@ func (s *PromptService) Get(ctx context.Context, id int64) (domain.PromptRecord,
 // CreateDraft validates provider-specific content before storage.
 // CreateDraft 在存储前校验提供方专属内容。
 func (s *PromptService) CreateDraft(ctx context.Context, promptID, name, provider string, content domain.Prompt, note, source, sourceRef string) (domain.PromptRecord, error) {
+	if promptID != domain.BuiltinPromptID {
+		return domain.PromptRecord{}, ErrPromptNotFound
+	}
 	if err := validatePromptForProvider(provider, content); err != nil {
 		return domain.PromptRecord{}, err
 	}
@@ -148,6 +152,9 @@ func (s *PromptService) UpdateDraft(ctx context.Context, id int64, note string, 
 	if err != nil {
 		return domain.PromptRecord{}, err
 	}
+	if err := validateLegacyPromptRecord(rec); err != nil {
+		return domain.PromptRecord{}, err
+	}
 	if err := validatePromptForProvider(rec.Provider, content); err != nil {
 		return domain.PromptRecord{}, err
 	}
@@ -155,6 +162,13 @@ func (s *PromptService) UpdateDraft(ctx context.Context, id int64, note string, 
 }
 
 func (s *PromptService) Publish(ctx context.Context, id int64) error {
+	rec, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := validateLegacyPromptRecord(rec); err != nil {
+		return err
+	}
 	return s.repo.Publish(ctx, id)
 }
 
@@ -379,6 +393,14 @@ func promptSyncError(err error) (string, string) {
 	}
 }
 
+func validateLegacyPromptRecord(rec domain.PromptRecord) error {
+	if rec.PromptID != domain.BuiltinPromptID || rec.Kind != domain.PromptKindIntentParticipation ||
+		rec.BotID != 0 || rec.ScopeType != domain.PromptScopeAccount || rec.ScopeID != 0 {
+		return ErrPromptNotFound
+	}
+	return nil
+}
+
 func validatePromptForProvider(provider string, content domain.Prompt) error {
 	switch provider {
 	case domain.PromptProviderOpenAI:
@@ -390,14 +412,51 @@ func validatePromptForProvider(provider string, content domain.Prompt) error {
 	}
 }
 
-// DecodePromptRequest parses a provider-specific prompt from admin JSON.
-// DecodePromptRequest 从管理 JSON 解析提供方专属 Prompt。
+// DecodePromptRequest parses a provider-specific intent prompt from admin JSON.
+// DecodePromptRequest 从管理 JSON 解析提供方专属意图 Prompt。
 func DecodePromptRequest(provider string, raw json.RawMessage) (domain.Prompt, error) {
-	p, err := domain.ParsePromptContent(provider, raw)
+	return DecodePromptRequestFor(domain.PromptKindIntentParticipation, provider, raw)
+}
+
+// DecodePromptRequestFor parses one kind/provider prompt from admin JSON.
+// DecodePromptRequestFor 从管理 JSON 解析指定 kind/provider 的 Prompt。
+func DecodePromptRequestFor(kind, provider string, raw json.RawMessage) (domain.Prompt, error) {
+	p, err := domain.ParsePromptContentFor(kind, provider, raw)
 	if err != nil {
 		return domain.Prompt{}, err
 	}
 	return p, nil
 }
 
+// DecodePromptSupplementRequestFor parses additive-only group/private supplement content.
+// DecodePromptSupplementRequestFor 解析仅追加的群聊/私聊类型补充层内容。
+func DecodePromptSupplementRequestFor(kind, provider string, raw json.RawMessage) (domain.Prompt, error) {
+	var payload struct {
+		Provider  string
+		SystemOne *domain.SystemOnePrompt
+		OpenAI    *domain.OpenAIPrompt
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return domain.Prompt{}, err
+	}
+	if payload.Provider != "" && payload.Provider != provider {
+		return domain.Prompt{}, fmt.Errorf("intent: invalid prompt: provider mismatch")
+	}
+	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: payload.SystemOne, OpenAI: payload.OpenAI}
+	if err := domain.ValidatePromptSupplement(kind, provider, &p); err != nil {
+		return domain.Prompt{}, err
+	}
+	return p, nil
+}
+
 var ErrPromptStoreUnavailable = errors.New("intent: prompt store unavailable")
+
+// ErrPromptNotFound is returned when a prompt version is not in the legacy layer.
+// ErrPromptNotFound 表示版本不在旧版全局层。
+var ErrPromptNotFound = errors.New("intent: prompt not found")
+
+// ErrPromptImmutable is returned when a draft is edited after publication.
+// ErrPromptImmutable 表示草稿在发布后被修改。
+var ErrPromptImmutable = errors.New("intent: prompt version is not a draft")

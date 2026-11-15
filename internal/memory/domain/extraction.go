@@ -109,6 +109,7 @@ type ExtractionCandidate struct {
 type ExtractionRequest struct {
 	Scope    ExtractionScope
 	Messages []ExtractionSourceMessage
+	BotName  string
 	// MaxRunes bounds the serialized prompt including source labels, IDs and senders.
 	// MaxRunes 限制序列化提示词的总字符数（含来源标签、ID 与发送者）。
 	MaxRunes int

@@ -471,8 +471,12 @@ var (
 	IntentPromptVersionsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "prompt_id", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "prompt_kind", Type: field.TypeString, Default: schema.Expr("'intent_participation'::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "name", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "provider", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "bot_id", Type: field.TypeInt64, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "scope_type", Type: field.TypeString, Default: schema.Expr("'account'::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "scope_id", Type: field.TypeInt64, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "version", Type: field.TypeInt, SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "status", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "source", Type: field.TypeString, Default: schema.Expr("'local'::text"), SchemaType: map[string]string{"postgres": "text"}},
@@ -482,6 +486,7 @@ var (
 		{Name: "content", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "published_at", Type: field.TypeTime, Nullable: true},
+		{Name: "archived_at", Type: field.TypeTime, Nullable: true},
 	}
 	// IntentPromptVersionsTable holds the schema information for the "intent_prompt_versions" table.
 	IntentPromptVersionsTable = &schema.Table{
@@ -490,14 +495,14 @@ var (
 		PrimaryKey: []*schema.Column{IntentPromptVersionsColumns[0]},
 		Indexes: []*schema.Index{
 			{
-				Name:    "intent_prompt_versions_prompt_id_version_key",
+				Name:    "intent_prompt_versions_layer_version_key",
 				Unique:  true,
-				Columns: []*schema.Column{IntentPromptVersionsColumns[1], IntentPromptVersionsColumns[4]},
+				Columns: []*schema.Column{IntentPromptVersionsColumns[1], IntentPromptVersionsColumns[5], IntentPromptVersionsColumns[6], IntentPromptVersionsColumns[7], IntentPromptVersionsColumns[4], IntentPromptVersionsColumns[8]},
 			},
 			{
 				Name:    "intent_prompt_versions_prompt_status",
 				Unique:  false,
-				Columns: []*schema.Column{IntentPromptVersionsColumns[1], IntentPromptVersionsColumns[5]},
+				Columns: []*schema.Column{IntentPromptVersionsColumns[1], IntentPromptVersionsColumns[9]},
 			},
 		},
 	}
@@ -1155,9 +1160,12 @@ func init() {
 		Table: "intent_prompt_versions",
 	}
 	IntentPromptVersionsTable.Annotation.Checks = map[string]string{
-		"intent_prompt_versions_provider_check": "((provider = ANY (ARRAY['jev'::text, 'openai'::text])))",
-		"intent_prompt_versions_status_check":   "((status = ANY (ARRAY['draft'::text, 'published'::text, 'archived'::text])))",
-		"intent_prompt_versions_version_check":  "((version > 0))",
+		"intent_prompt_versions_kind_check":       "((prompt_kind = ANY (ARRAY['chat_reply'::text, 'intent_participation'::text, 'memory_extraction'::text])))",
+		"intent_prompt_versions_provider_check":   "((provider = ANY (ARRAY['jev'::text, 'openai'::text])))",
+		"intent_prompt_versions_scope_id_check":   "((scope_id = 0))",
+		"intent_prompt_versions_scope_type_check": "((scope_type = ANY (ARRAY['account'::text, 'group'::text, 'private'::text])))",
+		"intent_prompt_versions_status_check":     "((status = ANY (ARRAY['draft'::text, 'published'::text, 'archived'::text])))",
+		"intent_prompt_versions_version_check":    "((version > 0))",
 	}
 	IntentReplayEvaluationsTable.ForeignKeys[0].RefTable = IntentDecisionsTable
 	IntentReplayEvaluationsTable.Annotation = &entsql.Annotation{

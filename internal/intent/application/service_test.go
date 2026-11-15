@@ -551,3 +551,59 @@ func TestTranscriptionRevocationDiscardsDerivedText(t *testing.T) {
 		})
 	}
 }
+
+type fakeLayeredPrompt struct {
+	prompt     domain.Prompt
+	calls      int
+	promptID   string
+	kind       string
+	provider   string
+	botID      int64
+	targetType string
+	targetID   int64
+	variables  map[string]string
+}
+
+func (f *fakeLayeredPrompt) Resolve(context.Context, string) domain.Prompt {
+	return f.prompt
+}
+
+func (f *fakeLayeredPrompt) ResolveFor(_ context.Context, promptID, kind, provider string, botID int64, targetType string, targetID int64, variables map[string]string) domain.Prompt {
+	f.calls++
+	f.promptID = promptID
+	f.kind = kind
+	f.provider = provider
+	f.botID = botID
+	f.targetType = targetType
+	f.targetID = targetID
+	f.variables = variables
+	return f.prompt
+}
+
+func TestProcessTaskUsesLayeredIntentPrompt(t *testing.T) {
+	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, DirectedToBot: 1, ContinuesBotThread: 1, AppropriateToJoin: 1, IntentCategory: "chat"}}
+	prompts := &fakeLayeredPrompt{prompt: domain.Prompt{
+		ID: domain.PromptIDIntentParticipation, Kind: domain.PromptKindIntentParticipation,
+		Provider: "jev", OpenAI: &domain.OpenAIPrompt{SystemPrompt: "自定义意图 Prompt"},
+	}}
+	d := newDecider(t, Options{
+		Scopes:   &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
+		Semantic: semantic, Prompts: prompts, Recorder: &fakeRecorder{},
+		Thresholds: thresholds, Provider: "jev", Model: "jev-latest", BotName: "Nagi",
+	})
+	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if prompts.calls != 1 || prompts.promptID != domain.PromptIDIntentParticipation || prompts.kind != domain.PromptKindIntentParticipation ||
+		prompts.provider != "jev" || prompts.botID != 100 || prompts.targetType != "group" || prompts.targetID != 700 {
+		t.Fatalf("layered prompt args = %+v", prompts)
+	}
+	if prompts.variables["bot_name"] != "Nagi" || prompts.variables["scope_type"] != "group" {
+		t.Fatalf("layered prompt variables = %+v", prompts.variables)
+	}
+	if semantic.calls != 1 || semantic.input.Prompt.OpenAI == nil || semantic.input.Prompt.OpenAI.SystemPrompt != "自定义意图 Prompt" {
+		t.Fatalf("semantic prompt = %+v calls=%d", semantic.input.Prompt, semantic.calls)
+	}
+}

@@ -42,6 +42,7 @@ type promptVersionInfo struct {
 }
 
 func (h *Handler) RegisterPrompts(mux *http.ServeMux) {
+	h.RegisterUnifiedPrompts(mux)
 	mux.HandleFunc("GET /api/v1/intent/prompts", h.ListPrompts)
 	mux.HandleFunc("GET /api/v1/intent/prompts/sync-status", h.PromptSyncStatus)
 	mux.HandleFunc("POST /api/v1/intent/prompts/{prompt_id}/sync", h.SyncPrompt)
@@ -74,10 +75,23 @@ func (h *Handler) ListPrompts(w http.ResponseWriter, r *http.Request) {
 	byID := make(map[string][]intentdomain.PromptRecord)
 	order := make([]string, 0)
 	for _, rec := range records {
+		// The legacy intent prompt endpoint only exposes intent.participation;
+		// chat.reply and memory.extraction belong to /api/v1/prompts.
+		if rec.PromptID != intentdomain.BuiltinPromptID {
+			continue
+		}
 		if _, ok := byID[rec.PromptID]; !ok {
 			order = append(order, rec.PromptID)
 		}
 		byID[rec.PromptID] = append(byID[rec.PromptID], rec)
+	}
+	if len(order) == 0 {
+		builtin := intentdomain.BuiltinPrompt(intentdomain.PromptProviderJev)
+		common.WriteSuccess(w, map[string]any{"Items": []promptSummary{{
+			PromptID: builtin.ID, Name: builtin.Name, ActiveVersion: builtin.Version,
+			Status: intentdomain.PromptStatusPublished, Source: intentdomain.PromptSourceBuiltin,
+		}}})
+		return
 	}
 	items := make([]promptSummary, 0, len(order))
 	for _, id := range order {
@@ -147,6 +161,10 @@ func (h *Handler) GetPromptVersion(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取 Prompt 版本失败")
 		return
 	}
+	if !isLegacyPromptRecord(rec) {
+		common.WriteFailure(w, http.StatusNotFound, "Prompt 版本不存在")
+		return
+	}
 	common.WriteSuccess(w, toPromptVersion(rec))
 }
 
@@ -199,6 +217,10 @@ func (h *Handler) UpdatePromptDraft(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取 Prompt 版本失败")
 		return
 	}
+	if !isLegacyPromptRecord(rec) {
+		common.WriteFailure(w, http.StatusNotFound, "Prompt 版本不存在")
+		return
+	}
 	var body struct {
 		Content json.RawMessage `json:"content"`
 		Note    string          `json:"note"`
@@ -213,7 +235,7 @@ func (h *Handler) UpdatePromptDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := h.svcCtx.Prompts.UpdateDraft(r.Context(), id, body.Note, content)
-	if errors.Is(err, intentinfra.ErrPromptImmutable) {
+	if errors.Is(err, intentinfra.ErrPromptImmutable) || errors.Is(err, intentapp.ErrPromptImmutable) {
 		common.WriteFailure(w, http.StatusConflict, "已发布或已归档版本不可修改")
 		return
 	}
@@ -235,7 +257,7 @@ func (h *Handler) PublishPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svcCtx.Prompts.Publish(r.Context(), id); err != nil {
-		if errors.Is(err, intentinfra.ErrPromptNotFound) {
+		if errors.Is(err, intentinfra.ErrPromptNotFound) || errors.Is(err, intentapp.ErrPromptNotFound) {
 			common.WriteFailure(w, http.StatusNotFound, "Prompt 版本不存在")
 			return
 		}
@@ -350,4 +372,9 @@ func toPromptVersion(rec intentdomain.PromptRecord) promptVersionInfo {
 		Hash: rec.Hash, Note: rec.Note, Content: rec.Content,
 		CreatedAt: rec.CreatedAt, PublishedAt: rec.PublishedAt,
 	}
+}
+
+func isLegacyPromptRecord(rec intentdomain.PromptRecord) bool {
+	return rec.PromptID == intentdomain.BuiltinPromptID && rec.Kind == intentdomain.PromptKindIntentParticipation &&
+		rec.BotID == 0 && rec.ScopeType == intentdomain.PromptScopeAccount && rec.ScopeID == 0
 }
