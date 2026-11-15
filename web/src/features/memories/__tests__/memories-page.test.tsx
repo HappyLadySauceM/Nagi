@@ -30,6 +30,28 @@ function response(data: unknown): Response {
   })
 }
 
+const knowledgeSummary = {
+  Memories: {
+    Total: 1,
+    Active: 1,
+    Candidate: 0,
+    Superseded: 0,
+    ByVisibility: { bot_shared: 0, group: 1, private_user: 0, conversation: 0 },
+  },
+  Extraction: {
+    Enabled: false,
+    PendingJobs: 0,
+    ProcessingJobs: 0,
+    FailedJobs: 0,
+    LastErrorCode: '',
+  },
+  Prompts: {
+    'chat.reply': { ActiveVersion: 1, Source: 'builtin' },
+    'intent.participation': { ActiveVersion: 1, Source: 'builtin' },
+    'memory.extraction': { ActiveVersion: 1, Source: 'builtin' },
+  },
+}
+
 function memory() {
   return {
     ID: 'memory-1',
@@ -83,6 +105,9 @@ it('confirms permanent deletion and removes the memory after success', async () 
     vi.fn((input: string, init?: RequestInit) => {
       const url = new URL(String(input), 'http://localhost')
       const method = init?.method ?? 'GET'
+      if (url.pathname === '/api/v1/knowledge/summary' && method === 'GET') {
+        return Promise.resolve(response(knowledgeSummary))
+      }
       if (url.pathname === '/api/v1/memories' && method === 'GET') {
         return Promise.resolve(
           response({

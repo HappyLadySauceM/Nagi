@@ -382,6 +382,156 @@ export const MEMORY_VISIBILITY_HINTS: Record<MemoryVisibility, string> = {
   conversation: '仅单个会话可见，需要会话归属标识。',
 }
 
+export type KnowledgePromptId = 'chat.reply' | 'intent.participation' | 'memory.extraction'
+
+export interface KnowledgeMemorySummary {
+  total: number
+  active: number
+  candidate: number
+  superseded: number
+  byVisibility: Record<MemoryVisibility, number>
+}
+
+export interface KnowledgeExtractionSummary {
+  enabled: boolean
+  pendingJobs: number
+  processingJobs: number
+  failedJobs: number
+  lastErrorCode: string
+}
+
+export interface KnowledgePromptSummary {
+  activeVersion: number
+  source: string
+}
+
+export interface KnowledgeSummary {
+  memories: KnowledgeMemorySummary
+  extraction: KnowledgeExtractionSummary
+  prompts: Record<KnowledgePromptId, KnowledgePromptSummary>
+}
+
+export type ExtractionJobStatus = 'pending' | 'processing' | 'done' | 'failed' | 'cancelled'
+
+export const EXTRACTION_JOB_STATUS_LABELS: Record<ExtractionJobStatus, string> = {
+  pending: '等待',
+  processing: '处理中',
+  done: '完成',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
+export interface ExtractionJob {
+  id: string
+  botId: number
+  conversationId: string
+  scopeType: string
+  scopeId: number
+  messageId: number
+  status: ExtractionJobStatus
+  attempts: number
+  roundAttempts: number
+  nextRunAt?: string
+  lastErrorCode: string
+  manualRetries: number
+  sourceAvailable: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ExtractionSettings {
+  scope: 'global'
+  enabled: boolean
+  concurrency: number
+  batchMaxMessages: number
+  batchMaxRunes: number
+  maxWaitMs: number
+  pollIntervalMs: number
+  leaseDurationMs: number
+  maxAttempts: number
+  retryDelaysMs: number[]
+  source: string
+  editable: boolean
+}
+
+export interface KnowledgePreviewTarget {
+  type: 'group' | 'private'
+  id: number
+  conversationId: string
+}
+
+export interface KnowledgePreviewPolicy {
+  enabled: boolean
+  replyMode: string
+  storeMessages: boolean
+  allowMemoryRead: boolean
+  allowHistoryRead: boolean
+}
+
+export interface KnowledgePreviewTools {
+  skipped: boolean
+  reason: string
+  policy: KnowledgePreviewPolicy
+  effectivePermissions: string[]
+  explicitOverrides: Record<string, boolean>
+}
+
+export interface KnowledgePreviewMemory {
+  id: string
+  visibility: MemoryVisibility
+  ownerKey: string
+  content: string
+  status: MemoryStatus
+  source?: string
+  subjectType?: string
+  subjectId?: string
+  updatedAt?: string
+}
+
+export interface KnowledgePreviewMessage {
+  id: number
+  messageId: number
+  senderId: number
+  isBot: boolean
+  text: string
+  createdAt?: string
+}
+
+export interface KnowledgePreviewPrompt {
+  promptId: string
+  name: string
+  kind: ManagedPromptKind
+  provider: ManagedPromptProvider
+  version: number
+  source: string
+  hash: string
+  finalHash: string
+  layers: ManagedPromptEffectiveLayer[]
+  content: ManagedPromptContent
+  variables: Record<string, string>
+}
+
+export interface KnowledgePreview {
+  previewMode: 'example' | 'real'
+  target: KnowledgePreviewTarget
+  defaults: {
+    chatSystem: string
+    extractionSystem: string
+  }
+  prompts: Record<string, KnowledgePreviewPrompt>
+  tools: KnowledgePreviewTools
+  memory: {
+    skipped: boolean
+    reason: string
+    items: KnowledgePreviewMemory[]
+  }
+  history: {
+    skipped: boolean
+    reason: string
+    messages: KnowledgePreviewMessage[]
+  }
+}
+
 export type IntentDecisionKind = 'reply' | 'silent' | 'defer'
 
 export interface DecisionStepEntry {
