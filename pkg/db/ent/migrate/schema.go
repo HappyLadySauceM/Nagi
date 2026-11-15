@@ -803,6 +803,40 @@ var (
 			},
 		},
 	}
+	// MemoryReplacementsColumns holds the columns for the "memory_replacements" table.
+	MemoryReplacementsColumns = []*schema.Column{
+		{Name: "replacement_id", Type: field.TypeUUID},
+		{Name: "bot_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "new_memory_id", Type: field.TypeUUID},
+		{Name: "old_memory_id", Type: field.TypeUUID},
+		{Name: "actor", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "reason", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "idempotency_key", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+	}
+	// MemoryReplacementsTable holds the schema information for the "memory_replacements" table.
+	MemoryReplacementsTable = &schema.Table{
+		Name:       "memory_replacements",
+		Columns:    MemoryReplacementsColumns,
+		PrimaryKey: []*schema.Column{MemoryReplacementsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "memory_replacements_pair",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryReplacementsColumns[2], MemoryReplacementsColumns[3]},
+			},
+			{
+				Name:    "memory_replacements_idempotency",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryReplacementsColumns[1], MemoryReplacementsColumns[6]},
+			},
+			{
+				Name:    "memory_replacements_old",
+				Unique:  false,
+				Columns: []*schema.Column{MemoryReplacementsColumns[3]},
+			},
+		},
+	}
 	// MessagesColumns holds the columns for the "messages" table.
 	MessagesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
@@ -1073,6 +1107,7 @@ var (
 		MemoriesTable,
 		MemoryExtractionCursorsTable,
 		MemoryExtractionJobsTable,
+		MemoryReplacementsTable,
 		MessagesTable,
 		MessageJobsTable,
 		QqGroupsTable,
@@ -1219,6 +1254,12 @@ func init() {
 		"memory_extraction_jobs_round_attempts_check": "(round_attempts >= 0)",
 		"memory_extraction_jobs_scope_type_check":     "((scope_type = ANY (ARRAY['group'::text, 'private'::text])))",
 		"memory_extraction_jobs_status_check":         "((status = ANY (ARRAY['pending'::text, 'processing'::text, 'done'::text, 'failed'::text, 'cancelled'::text])))",
+	}
+	MemoryReplacementsTable.Annotation = &entsql.Annotation{
+		Table: "memory_replacements",
+	}
+	MemoryReplacementsTable.Annotation.Checks = map[string]string{
+		"memory_replacements_idempotency_key_check": "(char_length(idempotency_key) >= 1 AND char_length(idempotency_key) <= 128)",
 	}
 	MessagesTable.ForeignKeys[0].RefTable = AgentOutboundMessagesTable
 	MessagesTable.ForeignKeys[1].RefTable = BotAccountsTable

@@ -229,3 +229,145 @@ func TestRecallPreviewExampleReturnsAudit(t *testing.T) {
 		t.Fatalf("hi preview status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+type handlerReplacementRepo struct {
+	handlerMemoryRepo
+	supersedeResult domain.SupersedeResult
+	supersedeErr    error
+	management      domain.Memory
+	replacements    []domain.ReplacementView
+	managementFound bool
+}
+
+func (f handlerReplacementRepo) Supersede(context.Context, domain.SupersedeInput) (domain.SupersedeResult, error) {
+	return f.supersedeResult, f.supersedeErr
+}
+
+func (f handlerReplacementRepo) Management(context.Context, string, int64) (domain.Memory, []domain.ReplacementView, bool, error) {
+	return f.management, f.replacements, f.managementFound, nil
+}
+
+// TestSupersedeRequiresIdempotencyKey verifies the stable replacement_invalid
+// mapping before the repository is reached.
+// TestSupersedeRequiresIdempotencyKey 验证请求校验在到达仓储前返回稳定的
+// replacement_invalid。
+func TestSupersedeRequiresIdempotencyKey(t *testing.T) {
+	service, err := memoryapp.NewService(handlerMemoryRepo{})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	body := `{"old_memory_id":"11111111-1111-4111-8111-111111111111"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/memories/22222222-2222-4222-8222-222222222222/supersede", strings.NewReader(body))
+	req.SetPathValue("candidate_id", "22222222-2222-4222-8222-222222222222")
+	rec := httptest.NewRecorder()
+	h.Supersede(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "replacement_invalid") {
+		t.Fatalf("status = %d body=%s, want 422 replacement_invalid", rec.Code, rec.Body.String())
+	}
+}
+
+// TestSupersedeMapsSubjectAmbiguous verifies repository conflicts map to 409.
+// TestSupersedeMapsSubjectAmbiguous 验证仓储主体歧义映射为 409。
+func TestSupersedeMapsSubjectAmbiguous(t *testing.T) {
+	service, err := memoryapp.NewService(handlerReplacementRepo{supersedeErr: memoryapp.ErrSubjectAmbiguous})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	body := `{"old_memory_id":"11111111-1111-4111-8111-111111111111","idempotency_key":"k1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/memories/22222222-2222-4222-8222-222222222222/supersede", strings.NewReader(body))
+	req.SetPathValue("candidate_id", "22222222-2222-4222-8222-222222222222")
+	rec := httptest.NewRecorder()
+	h.Supersede(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "subject_ambiguous") {
+		t.Fatalf("status = %d body=%s, want 409 subject_ambiguous", rec.Code, rec.Body.String())
+	}
+}
+
+// TestManagementRequiresBotID verifies the administrator detail endpoint
+// requires an explicit bot scope.
+// TestManagementRequiresBotID 验证管理员详情接口必须显式携带 bot 作用域。
+func TestManagementRequiresBotID(t *testing.T) {
+	service, err := memoryapp.NewService(handlerReplacementRepo{})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/memories/11111111-1111-4111-8111-111111111111/management", nil)
+	req.SetPathValue("id", "11111111-1111-4111-8111-111111111111")
+	rec := httptest.NewRecorder()
+	h.Management(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bot_id is required") {
+		t.Fatalf("status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+type patchMemoryRepo struct {
+	handlerMemoryRepo
+	memory       domain.Memory
+	updateCalled bool
+}
+
+func (f *patchMemoryRepo) Get(context.Context, string) (domain.Memory, bool, error) {
+	return f.memory, true, nil
+}
+
+func (f *patchMemoryRepo) Update(context.Context, domain.Memory) error {
+	f.updateCalled = true
+	return nil
+}
+
+// TestPatchReviseValidationReturnsBadRequest verifies PATCH keeps the
+// baseline 400 for invalid edited fields instead of mapping them to 500.
+// TestPatchReviseValidationReturnsBadRequest 验证 PATCH 对非法编辑字段保持基线
+// 400，而不是映射为 500。
+func TestPatchReviseValidationReturnsBadRequest(t *testing.T) {
+	repo := &patchMemoryRepo{memory: domain.Memory{
+		ID: "11111111-1111-4111-8111-111111111111", BotID: 1,
+		Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "old",
+		Status: domain.StatusCandidate, Origin: domain.OriginManual,
+	}}
+	service, err := memoryapp.NewService(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/memories/11111111-1111-4111-8111-111111111111", strings.NewReader(`{"visibility":"invalid"}`))
+	req.SetPathValue("id", "11111111-1111-4111-8111-111111111111")
+	rec := httptest.NewRecorder()
+	h.Patch(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "revise memory failed") {
+		t.Fatalf("status = %d body=%s, want 400 revise memory failed", rec.Code, rec.Body.String())
+	}
+	if repo.updateCalled {
+		t.Fatal("invalid revise reached repository update")
+	}
+}
+
+// TestPatchApproveRejectsNonCandidateBeforeEdit verifies an edit bundled with
+// status=active cannot be committed before the status conflict is reported.
+// TestPatchApproveRejectsNonCandidateBeforeEdit 验证与 status=active 同请求的编辑
+// 不会在状态冲突返回前先落库。
+func TestPatchApproveRejectsNonCandidateBeforeEdit(t *testing.T) {
+	repo := &patchMemoryRepo{memory: domain.Memory{
+		ID: "22222222-2222-4222-8222-222222222222", BotID: 1,
+		Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "old",
+		Status: domain.StatusActive, Origin: domain.OriginManual,
+	}}
+	service, err := memoryapp.NewService(repo)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/memories/22222222-2222-4222-8222-222222222222", strings.NewReader(`{"content":"new","status":"active"}`))
+	req.SetPathValue("id", "22222222-2222-4222-8222-222222222222")
+	rec := httptest.NewRecorder()
+	h.Patch(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "memory_status_conflict") {
+		t.Fatalf("status = %d body=%s, want 409 memory_status_conflict", rec.Code, rec.Body.String())
+	}
+	if repo.updateCalled {
+		t.Fatal("edit before approve conflict reached repository update")
+	}
+}

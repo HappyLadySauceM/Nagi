@@ -273,6 +273,18 @@ func (f MemoryExtractionJobFunc) Mutate(ctx context.Context, m ent.Mutation) (en
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryExtractionJobMutation", m)
 }
 
+// The MemoryReplacementFunc type is an adapter to allow the use of ordinary
+// function as MemoryReplacement mutator.
+type MemoryReplacementFunc func(context.Context, *ent.MemoryReplacementMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MemoryReplacementFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MemoryReplacementMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryReplacementMutation", m)
+}
+
 // The MessageFunc type is an adapter to allow the use of ordinary
 // function as Message mutator.
 type MessageFunc func(context.Context, *ent.MessageMutation) (ent.Value, error)

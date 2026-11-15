@@ -34,6 +34,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -75,6 +76,7 @@ const (
 	TypeMemory                        = "Memory"
 	TypeMemoryExtractionCursor        = "MemoryExtractionCursor"
 	TypeMemoryExtractionJob           = "MemoryExtractionJob"
+	TypeMemoryReplacement             = "MemoryReplacement"
 	TypeMessage                       = "Message"
 	TypeMessageJob                    = "MessageJob"
 	TypeQQGroup                       = "QQGroup"
@@ -23618,6 +23620,698 @@ func (m *MemoryExtractionJobMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown MemoryExtractionJob edge %s", name)
+}
+
+// MemoryReplacementMutation represents an operation that mutates the MemoryReplacement nodes in the graph.
+type MemoryReplacementMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *uuid.UUID
+	bot_id          *int64
+	addbot_id       *int64
+	new_memory_id   *uuid.UUID
+	old_memory_id   *uuid.UUID
+	actor           *string
+	reason          *string
+	idempotency_key *string
+	created_at      *time.Time
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*MemoryReplacement, error)
+	predicates      []predicate.MemoryReplacement
+}
+
+var _ ent.Mutation = (*MemoryReplacementMutation)(nil)
+
+// memoryreplacementOption allows management of the mutation configuration using functional options.
+type memoryreplacementOption func(*MemoryReplacementMutation)
+
+// newMemoryReplacementMutation creates new mutation for the MemoryReplacement entity.
+func newMemoryReplacementMutation(c config, op Op, opts ...memoryreplacementOption) *MemoryReplacementMutation {
+	m := &MemoryReplacementMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMemoryReplacement,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMemoryReplacementID sets the ID field of the mutation.
+func withMemoryReplacementID(id uuid.UUID) memoryreplacementOption {
+	return func(m *MemoryReplacementMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MemoryReplacement
+		)
+		m.oldValue = func(ctx context.Context) (*MemoryReplacement, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MemoryReplacement.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMemoryReplacement sets the old MemoryReplacement of the mutation.
+func withMemoryReplacement(node *MemoryReplacement) memoryreplacementOption {
+	return func(m *MemoryReplacementMutation) {
+		m.oldValue = func(context.Context) (*MemoryReplacement, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MemoryReplacementMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MemoryReplacementMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of MemoryReplacement entities.
+func (m *MemoryReplacementMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MemoryReplacementMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MemoryReplacementMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MemoryReplacement.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *MemoryReplacementMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *MemoryReplacementMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the MemoryReplacement entity.
+// If the MemoryReplacement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryReplacementMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *MemoryReplacementMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *MemoryReplacementMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *MemoryReplacementMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetNewMemoryID sets the "new_memory_id" field.
+func (m *MemoryReplacementMutation) SetNewMemoryID(u uuid.UUID) {
+	m.new_memory_id = &u
+}
+
+// NewMemoryID returns the value of the "new_memory_id" field in the mutation.
+func (m *MemoryReplacementMutation) NewMemoryID() (r uuid.UUID, exists bool) {
+	v := m.new_memory_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNewMemoryID returns the old "new_memory_id" field's value of the MemoryReplacement entity.
+// If the MemoryReplacement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryReplacementMutation) OldNewMemoryID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNewMemoryID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNewMemoryID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNewMemoryID: %w", err)
+	}
+	return oldValue.NewMemoryID, nil
+}
+
+// ResetNewMemoryID resets all changes to the "new_memory_id" field.
+func (m *MemoryReplacementMutation) ResetNewMemoryID() {
+	m.new_memory_id = nil
+}
+
+// SetOldMemoryID sets the "old_memory_id" field.
+func (m *MemoryReplacementMutation) SetOldMemoryID(u uuid.UUID) {
+	m.old_memory_id = &u
+}
+
+// OldMemoryID returns the value of the "old_memory_id" field in the mutation.
+func (m *MemoryReplacementMutation) OldMemoryID() (r uuid.UUID, exists bool) {
+	v := m.old_memory_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOldMemoryID returns the old "old_memory_id" field's value of the MemoryReplacement entity.
+// If the MemoryReplacement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryReplacementMutation) OldOldMemoryID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOldMemoryID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOldMemoryID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOldMemoryID: %w", err)
+	}
+	return oldValue.OldMemoryID, nil
+}
+
+// ResetOldMemoryID resets all changes to the "old_memory_id" field.
+func (m *MemoryReplacementMutation) ResetOldMemoryID() {
+	m.old_memory_id = nil
+}
+
+// SetActor sets the "actor" field.
+func (m *MemoryReplacementMutation) SetActor(s string) {
+	m.actor = &s
+}
+
+// Actor returns the value of the "actor" field in the mutation.
+func (m *MemoryReplacementMutation) Actor() (r string, exists bool) {
+	v := m.actor
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldActor returns the old "actor" field's value of the MemoryReplacement entity.
+// If the MemoryReplacement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryReplacementMutation) OldActor(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldActor is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldActor requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldActor: %w", err)
+	}
+	return oldValue.Actor, nil
+}
+
+// ResetActor resets all changes to the "actor" field.
+func (m *MemoryReplacementMutation) ResetActor() {
+	m.actor = nil
+}
+
+// SetReason sets the "reason" field.
+func (m *MemoryReplacementMutation) SetReason(s string) {
+	m.reason = &s
+}
+
+// Reason returns the value of the "reason" field in the mutation.
+func (m *MemoryReplacementMutation) Reason() (r string, exists bool) {
+	v := m.reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReason returns the old "reason" field's value of the MemoryReplacement entity.
+// If the MemoryReplacement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryReplacementMutation) OldReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReason: %w", err)
+	}
+	return oldValue.Reason, nil
+}
+
+// ResetReason resets all changes to the "reason" field.
+func (m *MemoryReplacementMutation) ResetReason() {
+	m.reason = nil
+}
+
+// SetIdempotencyKey sets the "idempotency_key" field.
+func (m *MemoryReplacementMutation) SetIdempotencyKey(s string) {
+	m.idempotency_key = &s
+}
+
+// IdempotencyKey returns the value of the "idempotency_key" field in the mutation.
+func (m *MemoryReplacementMutation) IdempotencyKey() (r string, exists bool) {
+	v := m.idempotency_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIdempotencyKey returns the old "idempotency_key" field's value of the MemoryReplacement entity.
+// If the MemoryReplacement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryReplacementMutation) OldIdempotencyKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIdempotencyKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIdempotencyKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIdempotencyKey: %w", err)
+	}
+	return oldValue.IdempotencyKey, nil
+}
+
+// ResetIdempotencyKey resets all changes to the "idempotency_key" field.
+func (m *MemoryReplacementMutation) ResetIdempotencyKey() {
+	m.idempotency_key = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *MemoryReplacementMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *MemoryReplacementMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the MemoryReplacement entity.
+// If the MemoryReplacement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryReplacementMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *MemoryReplacementMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// Where appends a list predicates to the MemoryReplacementMutation builder.
+func (m *MemoryReplacementMutation) Where(ps ...predicate.MemoryReplacement) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MemoryReplacementMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MemoryReplacementMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MemoryReplacement, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MemoryReplacementMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MemoryReplacementMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MemoryReplacement).
+func (m *MemoryReplacementMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MemoryReplacementMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.bot_id != nil {
+		fields = append(fields, memoryreplacement.FieldBotID)
+	}
+	if m.new_memory_id != nil {
+		fields = append(fields, memoryreplacement.FieldNewMemoryID)
+	}
+	if m.old_memory_id != nil {
+		fields = append(fields, memoryreplacement.FieldOldMemoryID)
+	}
+	if m.actor != nil {
+		fields = append(fields, memoryreplacement.FieldActor)
+	}
+	if m.reason != nil {
+		fields = append(fields, memoryreplacement.FieldReason)
+	}
+	if m.idempotency_key != nil {
+		fields = append(fields, memoryreplacement.FieldIdempotencyKey)
+	}
+	if m.created_at != nil {
+		fields = append(fields, memoryreplacement.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MemoryReplacementMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case memoryreplacement.FieldBotID:
+		return m.BotID()
+	case memoryreplacement.FieldNewMemoryID:
+		return m.NewMemoryID()
+	case memoryreplacement.FieldOldMemoryID:
+		return m.OldMemoryID()
+	case memoryreplacement.FieldActor:
+		return m.Actor()
+	case memoryreplacement.FieldReason:
+		return m.Reason()
+	case memoryreplacement.FieldIdempotencyKey:
+		return m.IdempotencyKey()
+	case memoryreplacement.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MemoryReplacementMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case memoryreplacement.FieldBotID:
+		return m.OldBotID(ctx)
+	case memoryreplacement.FieldNewMemoryID:
+		return m.OldNewMemoryID(ctx)
+	case memoryreplacement.FieldOldMemoryID:
+		return m.OldOldMemoryID(ctx)
+	case memoryreplacement.FieldActor:
+		return m.OldActor(ctx)
+	case memoryreplacement.FieldReason:
+		return m.OldReason(ctx)
+	case memoryreplacement.FieldIdempotencyKey:
+		return m.OldIdempotencyKey(ctx)
+	case memoryreplacement.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown MemoryReplacement field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryReplacementMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case memoryreplacement.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case memoryreplacement.FieldNewMemoryID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNewMemoryID(v)
+		return nil
+	case memoryreplacement.FieldOldMemoryID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOldMemoryID(v)
+		return nil
+	case memoryreplacement.FieldActor:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetActor(v)
+		return nil
+	case memoryreplacement.FieldReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReason(v)
+		return nil
+	case memoryreplacement.FieldIdempotencyKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIdempotencyKey(v)
+		return nil
+	case memoryreplacement.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryReplacement field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MemoryReplacementMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, memoryreplacement.FieldBotID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MemoryReplacementMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case memoryreplacement.FieldBotID:
+		return m.AddedBotID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryReplacementMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case memoryreplacement.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryReplacement numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MemoryReplacementMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MemoryReplacementMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MemoryReplacementMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown MemoryReplacement nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MemoryReplacementMutation) ResetField(name string) error {
+	switch name {
+	case memoryreplacement.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case memoryreplacement.FieldNewMemoryID:
+		m.ResetNewMemoryID()
+		return nil
+	case memoryreplacement.FieldOldMemoryID:
+		m.ResetOldMemoryID()
+		return nil
+	case memoryreplacement.FieldActor:
+		m.ResetActor()
+		return nil
+	case memoryreplacement.FieldReason:
+		m.ResetReason()
+		return nil
+	case memoryreplacement.FieldIdempotencyKey:
+		m.ResetIdempotencyKey()
+		return nil
+	case memoryreplacement.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryReplacement field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MemoryReplacementMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MemoryReplacementMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MemoryReplacementMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MemoryReplacementMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MemoryReplacementMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MemoryReplacementMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MemoryReplacementMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown MemoryReplacement unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MemoryReplacementMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown MemoryReplacement edge %s", name)
 }
 
 // MessageMutation represents an operation that mutates the Message nodes in the graph.
