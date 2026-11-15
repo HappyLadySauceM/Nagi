@@ -46,6 +46,8 @@ type entryInfo struct {
 // RegisterRules wires the ruleset endpoints.
 // RegisterRules 注册规则集接口。
 func (h *Handler) RegisterRules(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/intent/builtin-rules", h.BuiltinRules)
+	mux.HandleFunc("GET /api/v1/intent/rules/effective", h.EffectiveRules)
 	mux.HandleFunc("GET /api/v1/intent/rulesets", h.ListRulesets)
 	mux.HandleFunc("POST /api/v1/intent/rulesets", h.CreateRuleset)
 	mux.HandleFunc("GET /api/v1/intent/rulesets/{id}", h.GetRuleset)
