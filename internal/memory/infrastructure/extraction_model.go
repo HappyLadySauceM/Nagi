@@ -21,13 +21,23 @@ import (
 // ModelExtractor implements Extractor with one OpenAI-compatible chat call.
 // ModelExtractor 使用一次 OpenAI 兼容聊天调用实现 Extractor。
 type ModelExtractor struct {
-	resolver models.Resolver
-	prompts  PromptProvider
+	resolver       models.Resolver
+	prompts        PromptProvider
+	promptResolver *ExtractionPromptResolver
 }
 
 // PromptProvider resolves the editable memory.extraction prompt for one scope.
 type PromptProvider interface {
 	ResolveFor(ctx context.Context, promptID, kind, provider string, botID int64, targetType string, targetID int64, variables map[string]string) intentdomain.Prompt
+}
+
+// Resolve returns the immutable extraction prompt and snapshot for one request.
+// Resolve 返回单个请求的不可变抽取 Prompt 与快照。
+func (e *ModelExtractor) Resolve(ctx context.Context, request domain.ExtractionRequest) (domain.ExtractionPrompt, error) {
+	if e == nil || e.promptResolver == nil {
+		return domain.ExtractionPrompt{}, fmt.Errorf("memory extraction: prompt snapshot resolver unavailable")
+	}
+	return e.promptResolver.Resolve(ctx, request)
 }
 
 // NewModelExtractor builds an extractor around the live model resolver.
@@ -36,6 +46,9 @@ func NewModelExtractor(resolver models.Resolver, prompts ...PromptProvider) *Mod
 	e := &ModelExtractor{resolver: resolver}
 	if len(prompts) > 0 {
 		e.prompts = prompts[0]
+		if provider, ok := prompts[0].(ExtractionPromptProvider); ok {
+			e.promptResolver = NewExtractionPromptResolver(provider)
+		}
 	}
 	return e
 }
@@ -136,7 +149,24 @@ func (e *ModelExtractor) Extract(ctx context.Context, request domain.ExtractionR
 	if err != nil {
 		return nil, fmt.Errorf("memory extraction: build model: %w", err)
 	}
-	systemPrompt, userTemplate := e.resolvePrompt(ctx, request)
+	var systemPrompt, userTemplate string
+	switch {
+	case request.Prompt != nil:
+		systemPrompt = request.Prompt.SystemPrompt
+		userTemplate = request.Prompt.UserTemplate
+	case request.PromptSnapshot != nil:
+		if e.promptResolver == nil {
+			return nil, fmt.Errorf("memory extraction: prompt snapshot resolver unavailable")
+		}
+		resolved, resolveErr := e.promptResolver.Resolve(ctx, request)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		systemPrompt = resolved.SystemPrompt
+		userTemplate = resolved.UserTemplate
+	default:
+		systemPrompt, userTemplate = e.resolvePrompt(ctx, request)
+	}
 	response, err := chatModel.Generate(ctx, []*einoschema.Message{
 		einoschema.SystemMessage(systemPrompt),
 		einoschema.UserMessage(strings.ReplaceAll(userTemplate, "{{messages_json}}", string(payload))),

@@ -14,16 +14,18 @@ import (
 )
 
 type fakeExtractionRepo struct {
-	scopes      []domain.ExtractionScope
-	messages    []domain.ExtractionSourceMessage
-	batch       domain.ExtractionBatch
-	created     int
-	createdWait time.Duration
-	finalized   [][]domain.Memory
-	cancelled   string
-	failed      string
-	scopesCalls int
-	claimCalls  int
+	scopes             []domain.ExtractionScope
+	messages           []domain.ExtractionSourceMessage
+	batch              domain.ExtractionBatch
+	created            int
+	createdWait        time.Duration
+	finalized          [][]domain.Memory
+	cancelled          string
+	failed             string
+	persistedSnapshots []domain.PromptSnapshot
+	persistErr         error
+	scopesCalls        int
+	claimCalls         int
 }
 
 func (f *fakeExtractionRepo) ListAuthorizedScopes(context.Context, int) ([]domain.ExtractionScope, error) {
@@ -64,6 +66,14 @@ func (f *fakeExtractionRepo) CancelExtractionBatch(_ context.Context, _ domain.E
 	return nil
 }
 
+func (f *fakeExtractionRepo) PersistExtractionPromptSnapshot(_ context.Context, _ domain.ExtractionBatch, snapshot domain.PromptSnapshot) error {
+	if f.persistErr != nil {
+		return f.persistErr
+	}
+	f.persistedSnapshots = append(f.persistedSnapshots, snapshot)
+	return nil
+}
+
 func (f *fakeExtractionRepo) RecoverStaleExtractionJobs(context.Context, int, []time.Duration) error {
 	return nil
 }
@@ -78,13 +88,15 @@ func (f fakeMemoryAuthorizer) ResolveMemoryAuthorization(context.Context, int64,
 }
 
 type fakeExtractor struct {
-	candidates []domain.ExtractionCandidate
-	err        error
-	calls      int
+	candidates  []domain.ExtractionCandidate
+	err         error
+	calls       int
+	lastRequest *domain.ExtractionRequest
 }
 
-func (f *fakeExtractor) Extract(context.Context, domain.ExtractionRequest) ([]domain.ExtractionCandidate, error) {
+func (f *fakeExtractor) Extract(_ context.Context, request domain.ExtractionRequest) ([]domain.ExtractionCandidate, error) {
 	f.calls++
+	f.lastRequest = &request
 	return f.candidates, f.err
 }
 
@@ -93,6 +105,7 @@ func newTestExtractionWorker(t *testing.T, repo ExtractionRepository, extractor 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	worker, err := NewExtractionWorker(repo, extractor, authorizer, ExtractionWorkerOptions{
 		Enabled: func() bool { return true }, Concurrency: 1, BatchMaxMessages: 10, BatchMaxRunes: 4000, MaxWait: 5 * time.Second, PollInterval: time.Second,
+		PromptResolver: &fakeExtractionPromptResolver{resolved: domain.ExtractionPrompt{Snapshot: testPromptSnapshot(), SystemPrompt: "test system", UserTemplate: "test user {{messages_json}}"}},
 	}, logger)
 	if err != nil {
 		t.Fatalf("new worker: %v", err)

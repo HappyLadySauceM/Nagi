@@ -24,6 +24,7 @@ type ExtractionJob struct {
 	LastErrorCode               string
 	ManualRetries               int
 	SourceAvailable             bool
+	PromptSnapshot              *PromptSnapshot
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
 }
@@ -78,6 +79,7 @@ type ExtractionBatch struct {
 	Scope          ExtractionScope
 	Jobs           []ExtractionJob
 	Messages       []ExtractionSourceMessage
+	PromptSnapshot *PromptSnapshot
 	ClaimToken     string
 	LeaseExpiresAt time.Time
 }
@@ -110,6 +112,12 @@ type ExtractionRequest struct {
 	Scope    ExtractionScope
 	Messages []ExtractionSourceMessage
 	BotName  string
+	// Prompt is the pre-resolved immutable prompt for this extraction call.
+	// Prompt 是本次抽取调用预先解析的不可变 Prompt。
+	Prompt *ExtractionPrompt
+	// PromptSnapshot requests reconstruction from an already persisted task snapshot.
+	// PromptSnapshot 请求按已持久化任务快照重建 Prompt。
+	PromptSnapshot *PromptSnapshot
 	// MaxRunes bounds the serialized prompt including source labels, IDs and senders.
 	// MaxRunes 限制序列化提示词的总字符数（含来源标签、ID 与发送者）。
 	MaxRunes int

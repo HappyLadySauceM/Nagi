@@ -18,7 +18,7 @@ const extractionJobColumns = `
 	j.next_run_at, COALESCE(j.last_error_code, ''), j.manual_retries,
 	(j.message_id IS NOT NULL AND EXISTS(SELECT 1 FROM messages m WHERE m.id=j.message_id)) AS source_available,
 	COALESCE((SELECT m.memory_authorization_event_id FROM messages m WHERE m.id=j.message_id), 0) AS message_authorization_event_id,
-	j.created_at, j.updated_at`
+	j.created_at, j.updated_at, j.extraction_payload`
 
 // ListExtractionJobs returns one page of extraction jobs for management.
 // ListExtractionJobs 返回一页管理用提取任务。
@@ -168,11 +168,12 @@ func scanExtractionJob(row extractionJobScanner) (domain.ExtractionJob, error) {
 	var item domain.ExtractionJob
 	var messageID sql.NullInt64
 	var nextRunAt, createdAt, updatedAt time.Time
+	var promptPayload []byte
 	err := row.Scan(
 		&item.ID, &item.BotID, &item.ConversationID, &item.ScopeType, &item.ScopeID,
 		&messageID, &item.AuthorizationEventID, &item.Status, &item.Attempts, &item.RoundAttempts,
 		&nextRunAt, &item.LastErrorCode, &item.ManualRetries, &item.SourceAvailable,
-		&item.MessageAuthorizationEventID, &createdAt, &updatedAt,
+		&item.MessageAuthorizationEventID, &createdAt, &updatedAt, &promptPayload,
 	)
 	if err != nil {
 		return domain.ExtractionJob{}, err
@@ -183,5 +184,12 @@ func scanExtractionJob(row extractionJobScanner) (domain.ExtractionJob, error) {
 	item.NextRunAt = nextRunAt
 	item.CreatedAt = createdAt
 	item.UpdatedAt = updatedAt
+	if len(promptPayload) > 0 {
+		snapshot, err := decodePromptSnapshot(promptPayload)
+		if err != nil {
+			return domain.ExtractionJob{}, err
+		}
+		item.PromptSnapshot = &snapshot
+	}
 	return item, nil
 }

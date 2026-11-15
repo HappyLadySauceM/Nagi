@@ -425,6 +425,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 					RetryDelays:      extractionRetryDelays,
 					Lease:            cfg.Memory.Extraction.LeaseDuration.D(),
 					BotName:          func() string { return settingsProvider.Settings().Intent.BotName },
+					PromptResolver:   memoryinfra.NewExtractionPromptResolver(promptService),
 				},
 				logger,
 			)

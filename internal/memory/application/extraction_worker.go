@@ -40,6 +40,20 @@ type Extractor interface {
 	Extract(ctx context.Context, request domain.ExtractionRequest) ([]domain.ExtractionCandidate, error)
 }
 
+// ExtractionPromptResolver resolves the immutable extraction prompt and its
+// snapshot before a model call.
+// ExtractionPromptResolver 在模型调用前解析不可变抽取 Prompt 及其快照。
+type ExtractionPromptResolver interface {
+	Resolve(ctx context.Context, request domain.ExtractionRequest) (domain.ExtractionPrompt, error)
+}
+
+// ExtractionPromptSnapshotRepository persists a prompt snapshot on every job
+// in one claimed batch before the model call.
+// ExtractionPromptSnapshotRepository 在模型调用前把 Prompt 快照写入批次内每个任务。
+type ExtractionPromptSnapshotRepository interface {
+	PersistExtractionPromptSnapshot(ctx context.Context, batch domain.ExtractionBatch, snapshot domain.PromptSnapshot) error
+}
+
 // ExtractionWorkerOptions bounds scanning, coalescing and retry behavior.
 // ExtractionWorkerOptions 限定扫描、合批与重试行为。
 type ExtractionWorkerOptions struct {
@@ -57,6 +71,12 @@ type ExtractionWorkerOptions struct {
 	RetryDelays      []time.Duration
 	Lease            time.Duration
 	BotName          func() string
+	// PromptResolver freezes the prompt snapshot before the model call. When it
+	// is nil the worker fails the claimed batch with prompt_snapshot_unavailable
+	// instead of silently falling back to the currently published prompt.
+	// PromptResolver 在模型调用前固定 Prompt 快照；为 nil 时批次以
+	// prompt_snapshot_unavailable 明确失败，不静默改用当前发布 Prompt。
+	PromptResolver ExtractionPromptResolver
 }
 
 // ExtractionWorker incrementally scans authorized sessions and processes
@@ -106,6 +126,11 @@ func NewExtractionWorker(repo ExtractionRepository, extractor Extractor, authori
 	}
 	if opts.Lease <= 0 {
 		opts.Lease = 2 * time.Minute
+	}
+	if opts.PromptResolver == nil {
+		if resolver, ok := extractor.(ExtractionPromptResolver); ok {
+			opts.PromptResolver = resolver
+		}
 	}
 	return &ExtractionWorker{repo: repo, extractor: extractor, authorizer: authorizer, opts: opts, logger: logger}, nil
 }
@@ -224,7 +249,29 @@ func (w *ExtractionWorker) processBatch(ctx context.Context, batch domain.Extrac
 		_ = w.repo.CancelExtractionBatch(ctx, batch, "disabled")
 		return
 	}
-	candidates, err := w.extractor.Extract(ctx, domain.ExtractionRequest{Scope: batch.Scope, Messages: batch.Messages, BotName: w.botName(), MaxRunes: w.opts.BatchMaxRunes})
+	if w.opts.PromptResolver == nil {
+		w.failBatch(ctx, batch, "prompt_snapshot_unavailable", fmt.Errorf("memory extraction: prompt resolver unavailable"))
+		return
+	}
+	request := domain.ExtractionRequest{Scope: batch.Scope, Messages: batch.Messages, BotName: w.botName(), PromptSnapshot: batch.PromptSnapshot, MaxRunes: w.opts.BatchMaxRunes}
+	resolved, err := w.opts.PromptResolver.Resolve(ctx, request)
+	if err != nil {
+		w.failBatch(ctx, batch, "prompt_snapshot_failed", err)
+		return
+	}
+	if batch.PromptSnapshot == nil {
+		repo, ok := w.repo.(ExtractionPromptSnapshotRepository)
+		if !ok {
+			w.failBatch(ctx, batch, "prompt_snapshot_unavailable", fmt.Errorf("memory extraction: prompt snapshot repository unavailable"))
+			return
+		}
+		if err := repo.PersistExtractionPromptSnapshot(ctx, batch, resolved.Snapshot); err != nil {
+			w.failBatch(ctx, batch, "prompt_snapshot_failed", err)
+			return
+		}
+	}
+	request.Prompt = &resolved
+	candidates, err := w.extractor.Extract(ctx, request)
 	if err != nil {
 		w.failBatch(ctx, batch, "extractor_failed", err)
 		return

@@ -86,6 +86,7 @@ func TestExtractionWorkerRealModelEndToEnd(t *testing.T) {
 		MaxAttempts:      2,
 		RetryDelays:      []time.Duration{time.Second},
 		Lease:            30 * time.Second,
+		PromptResolver:   stubExtractionPromptResolver{},
 	}, testLogger())
 	if err != nil {
 		t.Fatalf("new worker: %v", err)
