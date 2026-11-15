@@ -4,6 +4,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -181,5 +182,50 @@ func TestRetryExtractionJobRejectsMalformedID(t *testing.T) {
 	h.RetryExtractionJob(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRecallPreviewExampleReturnsAudit verifies the read-only example preview
+// exposes hit keywords and selection reasons without touching the repository.
+// TestRecallPreviewExampleReturnsAudit 验证只读示例预览返回命中词与选入原因，
+// 且不访问仓库。
+func TestRecallPreviewExampleReturnsAudit(t *testing.T) {
+	service, err := memoryapp.NewService(handlerMemoryRepo{})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	h := NewHandler(&svc.ServiceContext{Memory: service})
+	rec := httptest.NewRecorder()
+	h.RecallPreview(rec, httptest.NewRequest(http.MethodPost, "/api/v1/memories/recall-preview", strings.NewReader(`{"preview_mode":"example","query":"咖啡","subject_type":"unknown"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Items     []map[string]any
+			NoKeyword bool
+			Limit     int
+			Reason    string
+		}
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(envelope.Data.Items) != 1 || envelope.Data.NoKeyword {
+		t.Fatalf("preview = %+v", envelope.Data)
+	}
+	item := envelope.Data.Items[0]
+	if item["SubjectMatch"] != "none" || item["SelectionReason"] != "unknown_subject_keyword" {
+		t.Fatalf("item audit = %#v", item)
+	}
+	keywords, _ := item["HitKeywords"].([]any)
+	if len(keywords) != 1 || keywords[0] != "咖啡" {
+		t.Fatalf("hit keywords = %#v", item["HitKeywords"])
+	}
+
+	rec = httptest.NewRecorder()
+	h.RecallPreview(rec, httptest.NewRequest(http.MethodPost, "/api/v1/memories/recall-preview", strings.NewReader(`{"preview_mode":"example","query":"hi"}`)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"NoKeyword":true`) {
+		t.Fatalf("hi preview status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }

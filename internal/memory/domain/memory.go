@@ -244,35 +244,51 @@ func (f ListFilter) Normalized() ListFilter {
 // Offset 返回规范化过滤条件的 SQL 偏移量。
 func (f ListFilter) Offset() int { return (f.Page - 1) * f.Limit }
 
+// QueryTerm is one normalized search term and its weight class.
+// QueryTerm 是一个规范化检索词及其权重类别。
+type QueryTerm struct {
+	Term   string
+	Kind   string
+	Common bool
+}
+
 // KeywordLimit bounds the number of search tokens extracted from one query.
 // KeywordLimit 限制单条查询提取的检索词数量。
 const KeywordLimit = 8
 
-// queryStopWords drops low-signal Chinese bigrams that would otherwise turn
-// short chatter into an overly broad recall.
-// queryStopWords 过滤低信息量的中文双字词，避免短句触发过宽的召回。
+// queryStopWords drops true stop words before scoring. Low-information words
+// that still carry some context are retained as Common terms instead.
+// queryStopWords 在评分前丢弃真正的停用词；仍携带少量上下文的低信息词保留为
+// Common 词，而不是直接丢弃。
 var queryStopWords = map[string]struct{}{
-	"的是": {}, "了吗": {}, "什么": {}, "怎么": {}, "这个": {}, "那个": {},
-	"我们": {}, "你们": {}, "他们": {}, "可以": {}, "一下": {}, "就是": {},
-	"不是": {}, "没有": {}, "还是": {}, "然后": {}, "现在": {}, "时候": {},
-	"觉得": {}, "那么": {}, "这么": {}, "如果": {}, "因为": {}, "所以": {},
-	"但是": {}, "而且": {}, "已经": {}, "一个": {}, "一种": {}, "能否": {},
-	"是否": {}, "好的": {}, "嗯嗯": {},
+	"的是": {}, "了吗": {}, "嗯嗯": {}, "啊啊": {}, "哦哦": {},
 }
 
-// QueryKeywords extracts bounded keyword tokens from a free-form chat query.
+// queryCommonWords marks low-information terms that cannot establish recall
+// eligibility on their own; they only add a small amount to the score.
+// queryCommonWords 标记不能单独建立召回资格的低信息词；它们只贡献少量分数。
+var queryCommonWords = map[string]struct{}{
+	"这个": {}, "那个": {}, "什么": {}, "怎么": {}, "觉得": {}, "我们": {},
+	"你们": {}, "他们": {}, "可以": {}, "一下": {}, "还是": {}, "没有": {},
+	"就是": {}, "不是": {}, "然后": {}, "现在": {}, "时候": {}, "那么": {},
+	"这么": {}, "如果": {}, "因为": {}, "所以": {}, "但是": {}, "而且": {},
+	"已经": {}, "一个": {}, "一种": {}, "能否": {}, "是否": {}, "好的": {},
+	"hi": {},
+}
+
+// QueryKeywords extracts bounded keyword terms from a free-form chat query.
 // Han runs become overlapping two-rune windows; ASCII/digit runs stay whole.
 // The result is de-duplicated and capped by KeywordLimit.
 // QueryKeywords 从自由文本查询中提取有界检索词：中文按双字滑窗，ASCII/数字整体保留；
 // 结果去重并受 KeywordLimit 限制。
-func QueryKeywords(query string) []string {
+func QueryKeywords(query string) []QueryTerm {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil
 	}
-	out := make([]string, 0, KeywordLimit)
+	out := make([]QueryTerm, 0, KeywordLimit)
 	seen := make(map[string]struct{}, KeywordLimit)
-	add := func(token string) {
+	add := func(token, kind string) {
 		if token == "" || len(out) >= KeywordLimit {
 			return
 		}
@@ -282,39 +298,51 @@ func QueryKeywords(query string) []string {
 		if _, stop := queryStopWords[token]; stop {
 			return
 		}
+		_, common := queryCommonWords[token]
 		seen[token] = struct{}{}
-		out = append(out, token)
+		out = append(out, QueryTerm{Term: token, Kind: kind, Common: common})
 	}
 	run := make([]rune, 0, 16)
+	runASCII := false
 	flush := func() {
 		if len(run) == 0 {
 			return
 		}
-		ascii := true
-		for _, r := range run {
-			if r > unicode.MaxASCII {
-				ascii = false
-				break
-			}
-		}
-		if ascii {
+		if runASCII {
 			if len(run) >= 2 {
-				add(strings.ToLower(string(run)))
+				add(strings.ToLower(string(run)), "ascii")
 			}
 		} else {
 			for i := 0; i+1 < len(run); i++ {
-				add(string(run[i : i+2]))
+				add(string(run[i:i+2]), "cjk_bigram")
 			}
 		}
 		run = run[:0]
 	}
 	for _, r := range query {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			run = append(run, r)
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
 			continue
 		}
-		flush()
+		ascii := r <= unicode.MaxASCII
+		if len(run) > 0 && ascii != runASCII {
+			flush()
+		}
+		runASCII = ascii
+		run = append(run, r)
 	}
 	flush()
 	return out
+}
+
+// HasRecallKeyword reports whether the query contains at least one term that
+// is allowed to establish recall eligibility.
+// HasRecallKeyword 报告查询是否至少包含一个可建立召回资格的词。
+func HasRecallKeyword(query string) bool {
+	for _, term := range QueryKeywords(query) {
+		if !term.Common {
+			return true
+		}
+	}
+	return false
 }

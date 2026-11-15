@@ -293,24 +293,62 @@ func (s *Service) SearchVisible(ctx context.Context, in domain.SearchRequest) ([
 	return s.repo.SearchVisible(ctx, in)
 }
 
-// Recall returns a bounded, visibility-scoped read model for reply generation.
-// Unlike management listing, it is intentionally limited to the few entries a
-// reply prompt can safely carry.
-// Recall 返回供回复生成使用的有界、按可见性过滤的读模型。
+// Recall returns a bounded, visibility-scoped ranked read model for reply
+// generation. Unlike management listing, it is intentionally limited to the
+// few entries a reply prompt can safely carry.
+// Recall 返回供回复生成使用的有界、按可见性过滤的排序读模型。
 // 与后台列表不同，它刻意只返回回复提示可以安全承载的少量条目。
-func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) ([]contracts.Memory, error) {
+func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contracts.RecallResult, error) {
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit > 5 {
+		limit = 5
+	}
+	result := contracts.RecallResult{Items: []contracts.RecallItem{}, Limit: limit}
 	if in.BotID <= 0 {
-		return nil, fmt.Errorf("memory: bot id must be positive")
+		return result, fmt.Errorf("memory: bot id must be positive")
 	}
 	if in.Kind != "group" && in.Kind != "private" {
-		return nil, fmt.Errorf("memory: invalid conversation kind %q", in.Kind)
+		return result, fmt.Errorf("memory: invalid conversation kind %q", in.Kind)
 	}
 	if in.TargetID <= 0 {
-		return nil, fmt.Errorf("memory: target id must be positive")
+		return result, fmt.Errorf("memory: target id must be positive")
 	}
-	limit := in.Limit
-	if limit <= 0 || limit > 5 {
-		limit = 5
+	speakerType, err := recallSubjectType(in.SpeakerType, false)
+	if err != nil {
+		return result, fmt.Errorf("memory: invalid speaker type %q", in.SpeakerType)
+	}
+	subjectType, err := recallSubjectType(in.SubjectType, true)
+	if err != nil {
+		return result, fmt.Errorf("memory: invalid subject type %q", in.SubjectType)
+	}
+	subjectID := strings.TrimSpace(in.SubjectID)
+	if subjectType != domain.SubjectUnknown && subjectID == "" {
+		return result, fmt.Errorf("memory: subject id is required for subject type %s", subjectType)
+	}
+	if subjectType == domain.SubjectGroup && in.Kind != "group" {
+		return result, fmt.Errorf("memory: group subject requires a group conversation")
+	}
+	if in.SubjectAmbiguous {
+		subjectType = domain.SubjectUnknown
+		subjectID = ""
+	}
+	if speakerType != domain.SubjectUser && speakerType != domain.SubjectUnknown {
+		return result, fmt.Errorf("memory: invalid speaker type %q", in.SpeakerType)
+	}
+	source := strings.TrimSpace(in.SubjectSource)
+	if source == "" {
+		source = "unknown"
+	}
+	if !validRecallSubjectSource(source) {
+		return result, fmt.Errorf("memory: invalid subject source %q", source)
+	}
+	if !domain.HasRecallKeyword(in.Query) {
+		result.NoKeyword = true
+		result.Reason = "no_keyword"
+		return result, nil
 	}
 	items, err := s.repo.SearchVisible(ctx, domain.SearchRequest{
 		BotID:          in.BotID,
@@ -318,28 +356,72 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) ([]con
 		TargetID:       in.TargetID,
 		ConversationID: in.ConversationID,
 		Query:          in.Query,
-		Limit:          limit,
+		Limit:          0,
 	})
 	if err != nil {
-		return nil, err
+		return result, err
 	}
-	out := make([]contracts.Memory, 0, len(items))
-	for _, item := range items {
-		out = append(out, contracts.Memory{
-			ID:              item.ID,
-			Content:         item.Content,
-			Visibility:      string(item.Visibility),
-			Source:          item.Source,
-			SourceMessageID: item.SourceMessageID,
-			SourceSenderID:  item.SourceSenderID,
-			Origin:          string(item.Origin),
-			SubjectType:     string(item.SubjectType),
-			SubjectID:       item.SubjectID,
-			ReviewReason:    item.ReviewReason,
-			UpdatedAt:       item.UpdatedAt,
+	hits, noKeyword, reason := domain.RankRecall(items, domain.RecallQuery{
+		Kind:        in.Kind,
+		TargetID:    in.TargetID,
+		Query:       in.Query,
+		SubjectType: subjectType,
+		SubjectID:   subjectID,
+		Limit:       limit,
+	})
+	if noKeyword {
+		result.NoKeyword = true
+		result.Reason = reason
+		return result, nil
+	}
+	result.Items = make([]contracts.RecallItem, 0, len(hits))
+	for _, hit := range hits {
+		result.Items = append(result.Items, contracts.RecallItem{
+			MemoryID:        hit.Memory.ID,
+			Content:         hit.Memory.Content,
+			Visibility:      string(hit.Memory.Visibility),
+			SubjectType:     string(hit.Memory.SubjectType),
+			SubjectID:       hit.Memory.SubjectID,
+			Source:          hit.Memory.Source,
+			SourceMessageID: hit.Memory.SourceMessageID,
+			SourceSenderID:  hit.Memory.SourceSenderID,
+			Score:           hit.Score,
+			HitKeywords:     hit.HitKeywords,
+			SubjectMatch:    hit.SubjectMatch,
+			SelectionReason: hit.SelectionReason,
+			UpdatedAt:       hit.Memory.UpdatedAt,
+			Memory:          hit.Memory,
 		})
 	}
-	return out, nil
+	return result, nil
+}
+
+// recallSubjectType normalizes an API subject type. Speaker values cannot be
+// group; query subjects may be user, group or unknown.
+// recallSubjectType 规范化 API 主体类型；当前发言者不能是 group，查询主体
+// 可以是 user、group 或 unknown。
+func recallSubjectType(raw string, allowGroup bool) (domain.SubjectType, error) {
+	switch strings.TrimSpace(raw) {
+	case "", "unknown":
+		return domain.SubjectUnknown, nil
+	case "user":
+		return domain.SubjectUser, nil
+	case "group":
+		if allowGroup {
+			return domain.SubjectGroup, nil
+		}
+	}
+	return "", fmt.Errorf("invalid subject type")
+}
+
+// validRecallSubjectSource checks the deterministic source vocabulary.
+// validRecallSubjectSource 校验确定性来源词表。
+func validRecallSubjectSource(source string) bool {
+	switch source {
+	case "self", "mention", "qq_id", "reply_target", "explicit_group", "admin_explicit", "unknown":
+		return true
+	}
+	return false
 }
 
 // RecallDetail returns one active, unexpired memory only when it is visible to

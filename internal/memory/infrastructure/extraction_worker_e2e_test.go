@@ -165,8 +165,8 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 		t.Fatalf("new memory service: %v", err)
 	}
 	before, err := memoryService.Recall(ctx, memoryContractsRecall(botID, groupID))
-	if err != nil || len(before) != 0 {
-		t.Fatalf("candidate recall before approval = %d err=%v", len(before), err)
+	if err != nil || len(before.Items) != 0 {
+		t.Fatalf("candidate recall before approval = %d err=%v", len(before.Items), err)
 	}
 	var memoryID string
 	if err := pool.QueryRow(ctx, `SELECT memory_id::text FROM memories WHERE bot_id=$1 AND status='candidate' ORDER BY created_at LIMIT 1`, botID).Scan(&memoryID); err != nil {
@@ -176,13 +176,13 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 		t.Fatalf("approve candidate: %v", err)
 	}
 	after, err := memoryService.Recall(ctx, memoryContractsRecall(botID, groupID))
-	if err != nil || len(after) != 1 || !strings.Contains(after[0].Content, "记忆:") {
+	if err != nil || len(after.Items) != 1 || !strings.Contains(after.Items[0].Content, "记忆:") {
 		t.Fatalf("approved recall = %+v err=%v", after, err)
 	}
 }
 
 func memoryContractsRecall(botID, groupID int64) memorycontracts.RecallRequest {
-	return memorycontracts.RecallRequest{BotID: botID, Kind: "group", TargetID: groupID, Limit: 5}
+	return memorycontracts.RecallRequest{BotID: botID, Kind: "group", TargetID: groupID, Query: "记忆", Limit: 5}
 }
 
 func waitForExtractionCount(t *testing.T, pool interface {

@@ -10,6 +10,7 @@ import (
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -199,7 +200,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if !policy.AllowHistoryRead {
 		history = nil
 	}
-	memories := r.recallMemories(ctx, task, policy)
+	memories := r.recallMemories(ctx, task, policy, history)
 	messages := r.buildMessages(ctx, task, history, memories)
 	runtimeMessages := toRuntimeMessages(messages)
 	if r.media != nil {
@@ -652,7 +653,7 @@ func errorText(err error) string {
 // buildMessages assembles the system prompt, approved long-term memory,
 // authorized history and the current message.
 // buildMessages 组装系统提示、已批准长期记忆、授权历史与当前消息。
-func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, history []intentdomain.Message, memories []memorycontracts.Memory) []domain.ChatMessage {
+func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, history []intentdomain.Message, memories []memorycontracts.RecallItem) []domain.ChatMessage {
 	var b strings.Builder
 	name := r.currentBotName(ctx)
 	if name == "" {
@@ -710,23 +711,136 @@ func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, his
 // recallMemories 为单次回复加载有界记忆上下文。记忆属于可选上下文：
 // 召回失败即降级为无记忆，绝不阻断聊天；召回必须获得作用域独立的
 // allow_memory_read 授权，且绝不读取聊天历史或自行改变权限。
-func (r *Replier) recallMemories(ctx context.Context, task intentdomain.Task, policy scopedomain.Policy) []memorycontracts.Memory {
+func (r *Replier) recallMemories(ctx context.Context, task intentdomain.Task, policy scopedomain.Policy, history []intentdomain.Message) []memorycontracts.RecallItem {
 	if r.memory == nil || !policy.AllowMemoryRead {
 		return nil
 	}
-	items, err := r.memory.Recall(ctx, memorycontracts.RecallRequest{
+	req := recallRequest(task, history)
+	result, err := r.memory.Recall(ctx, req)
+	if err != nil {
+		r.logger.Warn("memory recall failed; replying without long-term memory", "error", err, "job_id", task.JobID)
+		return nil
+	}
+	if result.NoKeyword {
+		r.logger.Debug("memory recall skipped", "reason", result.Reason, "job_id", task.JobID)
+		return nil
+	}
+	return boundMemories(result.Items)
+}
+
+// recallRequest builds the subject-aware recall request from the current
+// message. Speaker and subject are kept separate; the current speaker is never
+// silently used as the subject of a group query.
+// recallRequest 从当前消息构造主体感知的召回请求。发言者与查询主体分离；
+// 群聊查询绝不把当前发言者悄悄当作主体。
+func recallRequest(task intentdomain.Task, history []intentdomain.Message) memorycontracts.RecallRequest {
+	req := memorycontracts.RecallRequest{
 		BotID:          task.BotID,
 		Kind:           task.Kind,
 		TargetID:       task.TargetID,
 		ConversationID: task.ConversationID,
 		Query:          task.Message.Text,
 		Limit:          maxMemoryEntries,
-	})
-	if err != nil {
-		r.logger.Warn("memory recall failed; replying without long-term memory", "error", err, "job_id", task.JobID)
-		return nil
+		SpeakerType:    "unknown",
+		SubjectType:    "unknown",
+		SubjectSource:  "unknown",
 	}
-	return boundMemories(items)
+	if task.Message.SenderID > 0 {
+		req.SpeakerType = "user"
+		req.SpeakerID = fmt.Sprintf("%d", task.Message.SenderID)
+	}
+	subjectType, subjectID, source, evidence, ambiguous := recallSubject(task, history)
+	req.SubjectType = subjectType
+	req.SubjectID = subjectID
+	req.SubjectSource = source
+	req.SubjectEvidence = evidence
+	req.SubjectAmbiguous = ambiguous
+	return req
+}
+
+// recallSubject resolves deterministic subject evidence from the current
+// message segments and authorized history.
+// recallSubject 从当前消息段与已授权历史解析确定性的主体证据。
+func recallSubject(task intentdomain.Task, history []intentdomain.Message) (string, string, string, string, bool) {
+	speakerID := ""
+	if task.Message.SenderID > 0 {
+		speakerID = fmt.Sprintf("%d", task.Message.SenderID)
+	}
+	if task.Kind == "private" {
+		if speakerID == "" {
+			return "unknown", "", "unknown", "", false
+		}
+		return "user", speakerID, "self", "self", false
+	}
+	if task.Kind != "group" {
+		return "unknown", "", "unknown", "", false
+	}
+
+	segments := task.Segments
+	if len(segments) == 0 {
+		segments = task.Message.Segments
+	}
+	mentions := make([]string, 0, 2)
+	seenMention := make(map[string]struct{}, 2)
+	replyID := ""
+	for _, segment := range segments {
+		switch segment.Type {
+		case obdomain.SegAt:
+			qq := strings.TrimSpace(segment.Data["qq"])
+			if qq == "" || qq == fmt.Sprintf("%d", task.BotID) {
+				continue
+			}
+			if _, err := strconv.ParseInt(qq, 10, 64); err != nil {
+				continue
+			}
+			if _, exists := seenMention[qq]; exists {
+				continue
+			}
+			seenMention[qq] = struct{}{}
+			mentions = append(mentions, qq)
+		case obdomain.SegReply:
+			if id := strings.TrimSpace(segment.Data["id"]); id != "" {
+				replyID = id
+			}
+		}
+	}
+	if len(mentions) > 1 {
+		return "unknown", "", "unknown", "", true
+	}
+	if len(mentions) == 1 {
+		return "user", mentions[0], "mention", "mention:" + mentions[0], false
+	}
+	if replyID != "" {
+		for _, message := range history {
+			if fmt.Sprintf("%d", message.MessageID) != replyID || message.IsBot || message.SenderID <= 0 {
+				continue
+			}
+			id := fmt.Sprintf("%d", message.SenderID)
+			return "user", id, "reply_target", "reply:" + id, false
+		}
+		return "unknown", "", "reply_target", "reply:" + replyID, false
+	}
+	if firstPersonSelf(task.Message.Text) && speakerID != "" {
+		return "user", speakerID, "self", "self", false
+	}
+	return "unknown", "", "unknown", "", false
+}
+
+// firstPersonSelf recognizes a narrow first-person self statement; ambiguous
+// aliases and group facts remain unknown instead of being guessed.
+// firstPersonSelf 识别窄范围的第一人称自述；模糊别名与群体事实保持 unknown，
+// 不做猜测。
+func firstPersonSelf(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || strings.Contains(text, "我们") {
+		return false
+	}
+	for _, marker := range []string{"我觉得", "我喜欢", "我爱", "我是", "我叫", "我在", "我住"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // maxMemoryEntries bounds how many memory entries reach one prompt.
@@ -747,10 +861,14 @@ const maxMemorySourceRunes = 120
 // field and label, not only the body text.
 // memoryLine 按系统提示中的实际格式渲染一条记忆；预算因此能计入所有序列化
 // 字段和标签，而不只是正文。
-func memoryLine(memory memorycontracts.Memory) string {
+func memoryLine(memory memorycontracts.RecallItem) string {
 	version := "unknown"
 	if !memory.UpdatedAt.IsZero() {
 		version = memory.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	subject := ""
+	if memory.SubjectType != "" && memory.SubjectType != "unknown" && memory.SubjectID != "" {
+		subject = fmt.Sprintf("|主体=%s:%s", memory.SubjectType, memory.SubjectID)
 	}
 	source := ""
 	if memory.SourceMessageID > 0 {
@@ -763,16 +881,16 @@ func memoryLine(memory memorycontracts.Memory) string {
 		source += memory.Source
 	}
 	if source == "" {
-		return fmt.Sprintf("\n- [记忆ID=%s|%s|更新于%s] %s", memory.ID, memory.Visibility, version, memory.Content)
+		return fmt.Sprintf("\n- [记忆ID=%s|%s%s|更新于%s] %s", memory.MemoryID, memory.Visibility, subject, version, memory.Content)
 	}
-	return fmt.Sprintf("\n- [记忆ID=%s|%s|更新于%s|来源：%s] %s", memory.ID, memory.Visibility, version, source, memory.Content)
+	return fmt.Sprintf("\n- [记忆ID=%s|%s%s|更新于%s|来源：%s] %s", memory.MemoryID, memory.Visibility, subject, version, source, memory.Content)
 }
 
 // boundMemories enforces the entry and rune budgets, trimming the tail with an
 // ellipsis when needed.
 // boundMemories 执行条数与字数预算，必要时用省略号截断尾部。
-func boundMemories(items []memorycontracts.Memory) []memorycontracts.Memory {
-	out := make([]memorycontracts.Memory, 0, maxMemoryEntries)
+func boundMemories(items []memorycontracts.RecallItem) []memorycontracts.RecallItem {
+	out := make([]memorycontracts.RecallItem, 0, maxMemoryEntries)
 	remaining := maxMemoryRunes
 	for _, item := range items {
 		content := strings.TrimSpace(item.Content)
@@ -798,7 +916,7 @@ func boundMemories(items []memorycontracts.Memory) []memorycontracts.Memory {
 // rendered line fits the remaining budget. It never returns a partial line.
 // fitMemoryLine 先裁剪来源元数据、再裁剪正文，直到整行适配剩余预算；
 // 不会返回半行。
-func fitMemoryLine(item memorycontracts.Memory, budget int) (memorycontracts.Memory, string, bool) {
+func fitMemoryLine(item memorycontracts.RecallItem, budget int) (memorycontracts.RecallItem, string, bool) {
 	if budget <= 0 {
 		return item, "", false
 	}
@@ -843,30 +961,44 @@ func boundMemorySource(source string) string {
 // memoryHit is the compact metadata recorded for one recalled memory.
 // memoryHit 是一条召回记忆的紧凑元数据。
 type memoryHit struct {
-	ID              string `json:"id"`
-	Visibility      string `json:"visibility"`
-	Source          string `json:"source,omitempty"`
-	SourceMessageID int64  `json:"source_message_id,omitempty"`
-	UpdatedAt       string `json:"updated_at"`
+	ID              string   `json:"id"`
+	Visibility      string   `json:"visibility"`
+	SubjectType     string   `json:"subject_type,omitempty"`
+	SubjectID       string   `json:"subject_id,omitempty"`
+	Source          string   `json:"source,omitempty"`
+	SourceMessageID int64    `json:"source_message_id,omitempty"`
+	Score           float64  `json:"score,omitempty"`
+	HitKeywords     []string `json:"hit_keywords,omitempty"`
+	SubjectMatch    string   `json:"subject_match,omitempty"`
+	SelectionReason string   `json:"selection_reason,omitempty"`
+	UpdatedAt       string   `json:"updated_at"`
 }
 
-// memoryHitMetadata renders hit identity and version without message content.
-// memoryHitMetadata 只渲染命中标识与版本，不含正文。
-func memoryHitMetadata(items []memorycontracts.Memory) []memoryHit {
+// memoryHitMetadata renders hit identity, subject and scoring audit without
+// message content.
+// memoryHitMetadata 渲染命中标识、主体与评分审计，不含正文。
+func memoryHitMetadata(items []memorycontracts.RecallItem) []memoryHit {
 	out := make([]memoryHit, 0, len(items))
 	for _, item := range items {
 		version := "unknown"
 		if !item.UpdatedAt.IsZero() {
 			version = item.UpdatedAt.UTC().Format(time.RFC3339)
 		}
-		out = append(out, memoryHit{ID: item.ID, Visibility: item.Visibility, Source: boundMemorySource(item.Source), SourceMessageID: item.SourceMessageID, UpdatedAt: version})
+		out = append(out, memoryHit{
+			ID: item.MemoryID, Visibility: item.Visibility,
+			SubjectType: item.SubjectType, SubjectID: item.SubjectID,
+			Source: boundMemorySource(item.Source), SourceMessageID: item.SourceMessageID,
+			Score: item.Score, HitKeywords: item.HitKeywords,
+			SubjectMatch: item.SubjectMatch, SelectionReason: item.SelectionReason,
+			UpdatedAt: version,
+		})
 	}
 	return out
 }
 
 // memoryHitsJSON renders hit metadata for a span attribute.
 // memoryHitsJSON 将命中元数据渲染为 span 属性。
-func memoryHitsJSON(items []memorycontracts.Memory) string {
+func memoryHitsJSON(items []memorycontracts.RecallItem) string {
 	payload, err := json.Marshal(memoryHitMetadata(items))
 	if err != nil {
 		return ""

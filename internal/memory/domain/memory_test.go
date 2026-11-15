@@ -15,22 +15,30 @@ func TestQueryKeywordsExtractsChineseBigrams(t *testing.T) {
 	tokens := QueryKeywords("我喜欢吃苹果")
 	want := map[string]bool{"喜欢": true, "苹果": true}
 	for _, token := range tokens {
-		delete(want, token)
+		delete(want, token.Term)
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing keyword tokens %v in %v", want, tokens)
 	}
 }
 
-// TestQueryKeywordsDropsStopWordsAndCaps verifies low-signal bigrams are removed
-// and the result never exceeds KeywordLimit.
-// TestQueryKeywordsDropsStopWordsAndCaps 验证低信息量双字词被过滤，结果不超过上限。
-func TestQueryKeywordsDropsStopWordsAndCaps(t *testing.T) {
-	for _, token := range QueryKeywords("这是什么 这个怎么弄") {
-		switch token {
-		case "什么", "这个", "怎么":
-			t.Fatalf("stop word %q leaked into %v", token, QueryKeywords("这是什么 这个怎么弄"))
+// TestQueryKeywordsMarksCommonWordsAndCaps verifies low-signal words stay as
+// auxiliary Common terms and the result never exceeds KeywordLimit.
+// TestQueryKeywordsMarksCommonWordsAndCaps 验证低信息词保留为辅助 Common 词，
+// 且结果不超过上限。
+func TestQueryKeywordsMarksCommonWordsAndCaps(t *testing.T) {
+	got := QueryKeywords("这是什么 这个怎么弄")
+	foundCommon := map[string]bool{}
+	for _, token := range got {
+		if token.Term == "什么" || token.Term == "这个" || token.Term == "怎么" {
+			if !token.Common {
+				t.Fatalf("term %q must be Common: %+v", token.Term, got)
+			}
+			foundCommon[token.Term] = true
 		}
+	}
+	if len(foundCommon) != 3 {
+		t.Fatalf("common terms = %v in %+v", foundCommon, got)
 	}
 	tokens := QueryKeywords(strings.Repeat("长", 40))
 	if len(tokens) > KeywordLimit {
@@ -42,10 +50,10 @@ func TestQueryKeywordsDropsStopWordsAndCaps(t *testing.T) {
 // Han function character is ignored.
 // TestQueryKeywordsKeepsASCIIWords 验证 ASCII 单词整体保留，单个汉字虚词被忽略。
 func TestQueryKeywordsKeepsASCIIWords(t *testing.T) {
-	tokens := QueryKeywords("Go 和 Rust 的性能")
+	tokens := QueryKeywords("Go和Rust 的性能")
 	want := map[string]bool{"go": true, "rust": true}
 	for _, token := range tokens {
-		delete(want, token)
+		delete(want, token.Term)
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing ASCII tokens %v in %v", want, tokens)

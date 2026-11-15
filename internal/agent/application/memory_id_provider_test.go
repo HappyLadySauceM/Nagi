@@ -129,8 +129,8 @@ func TestBoundMemoryLineKeepsFullIDUnderSourceBudget(t *testing.T) {
 		ID: memoryID, Content: strings.Repeat("正文", maxMemoryRunes),
 		Visibility: "group", Source: strings.Repeat("来源", 1000), SourceMessageID: 42,
 	}
-	bounded := boundMemories([]memorycontracts.Memory{item})
-	if len(bounded) != 1 || bounded[0].ID != memoryID {
+	bounded := boundMemories(recallItemsFromMemories([]memorycontracts.Memory{item}))
+	if len(bounded) != 1 || bounded[0].MemoryID != memoryID {
 		t.Fatalf("bounded = %+v", bounded)
 	}
 	line := memoryLine(bounded[0])
@@ -151,7 +151,7 @@ func TestBoundMemoriesOmitsEntryWhenMetadataCannotFit(t *testing.T) {
 	item := memorycontracts.Memory{
 		ID: memoryID, Content: "正文", Visibility: strings.Repeat("可", maxMemoryRunes),
 	}
-	if bounded := boundMemories([]memorycontracts.Memory{item}); len(bounded) != 0 {
+	if bounded := boundMemories(recallItemsFromMemories([]memorycontracts.Memory{item})); len(bounded) != 0 {
 		t.Fatalf("over-budget entry was emitted: %+v", bounded)
 	}
 }
