@@ -7,8 +7,8 @@
 ## 0. 公共约定
 
 - 管理 API 统一响应：`{ "code": 200, "message": "", "data": ... }`。
-- **响应字段使用 PascalCase**；**请求 body 使用现有管理 API 的 snake_case**。
-- 所有作用域参数：`bot_id` 必填；`scope_type` 为 `group|private`；`scope_id` 为群号或私聊目标号；账号默认层使用 `scope_type=account, scope_id=0`。
+- **响应字段使用 PascalCase**；**请求 body 使用现有管理 API 的 snake_case**。本文列出的既有接口例外见 4.3。
+- 所有作用域参数：`bot_id` 必填。Prompt API 的 `scope_type` 为 `account|group|private`（`account` 时 `scope_id=0`；`group|private` 时 `scope_id` 为群号或私聊目标号）；召回与抽取设置接口的 `scope_type` 为 `group|private`。
 - 管理 API 只对已登录管理员开放；页面不持有 Langfuse 密钥，不直接访问远端 Prompt。
 - 契约中的 `source=langfuse` 仅代表候选来源标签；没有显式同步、校验和本地发布前，不能视为真实 Langfuse 集成生效。
 - 本契约不改变现有权限、消息留存、记忆可见性和发送权限。
@@ -38,14 +38,18 @@
 
 所有 content 均带 `Provider`，且只能包含该 provider 的协议字段。
 
-**chat.reply**
+`PromptContent` 是按 `Kind + Provider` 区分的联合类型，只允许出现对应分支的字段，服务端拒绝多余字段。所有 OpenAI 类统一使用 `OpenAI` 对象，不把 `SystemPrompt` 放在顶层。
+
+**chat.reply（OpenAI）**
 ```json
 {
   "Provider": "openai",
-  "SystemPrompt": "你是 QQ 群聊中的智能助手「Nagi」。用简体中文、自然口语、简洁回复。"
+  "OpenAI": {
+    "SystemPrompt": "你是 QQ 群聊中的智能助手「Nagi」。用简体中文、自然口语、简洁回复。"
+  }
 }
 ```
-`SystemPrompt` 是唯一可编辑字段；服务端固定追加安全、工具、发送、记忆格式约束。不得通过 Prompt 修改工具权限或发送权限。
+`OpenAI.SystemPrompt` 是唯一可编辑字段；服务端固定追加安全、工具、发送、记忆格式约束。不得通过 Prompt 修改工具权限或发送权限。
 
 **intent.participation（Jev）**
 ```json
@@ -76,15 +80,19 @@
 ```
 `ResponseShape` 仅允许 `single-letter`（本轮不在此 Prompt 中引入单次结构化评估）。
 
-**memory.extraction**
+**memory.extraction（OpenAI）**
 ```json
 {
   "Provider": "openai",
-  "SystemPrompt": "你是长期记忆候选抽取器。只从输入消息中提取值得长期保存的事实或偏好候选；不提取密码、令牌、验证码或一次性任务。",
-  "UserTemplate": "聊天消息：\n{{messages_json}}"
+  "OpenAI": {
+    "SystemPrompt": "你是长期记忆候选抽取器。只从输入消息中提取值得长期保存的事实或偏好候选；不提取密码、令牌、验证码或一次性任务。",
+    "UserTemplate": "聊天消息：\n{{messages_json}}"
+  }
 }
 ```
-`UserTemplate` 必须包含 `{{messages_json}}`。服务端固定校验输出 JSON 字段（`candidates[].content/confidence/source_message_id/subject/review_reason`），Prompt 不能改变输出 schema、候选来源绑定或审批规则；空候选合法，非法 JSON/超长/无来源候选整批失败，不能当空结果。
+`OpenAI.UserTemplate` 必须包含 `{{messages_json}}`。服务端固定校验输出 JSON 字段（`candidates[].content/confidence/source_message_id/subject/review_reason`），并允许可选的 `candidates[].subject_label` 作为展示标签（不参与主体匹配）。Prompt 不能改变输出 schema、候选来源绑定或审批规则；空候选合法，非法 JSON/超长/无来源候选整批失败，不能当空结果。
+
+**内容 Hash 规则**：版本 `Hash` 对 1.3 的完整 `PromptContent` 对象（自身含 `Provider`）按固定键序、无多余空白序列化为 UTF-8 JSON 后计算 SHA-256；`FinalHash` 对有序 `Layers[{Layer,VersionID,Version,Source,Hash}]` 与最终 `Final.Content` 按同一规范化规则计算；`PreviewHash` 在 `FinalHash` 基础上再纳入 `preview_mode` 与实际参与预览的样例/上下文摘要。运行时变量、真实消息和授权历史不参与 `Hash`；`server_constraints` 的固定模板参与 `FinalHash`。
 
 ### 1.4 版本状态机
 
@@ -101,30 +109,55 @@ draft ──publish──> published ──publish(new)──> archived
 - `draft`：可编辑；不能直接用于新 Run。
 - `published`：该层当前生效；同层新发布时旧 published 原子转为 `archived`。
 - `archived`：只读历史；仅曾发布过（`published_at` 非空）的 archived 版本允许 rollback。
-- rollback 目标是 `draft`：HTTP 409，当前 published 不变；目标不属于该 prompt：404。
+- rollback 目标是 `draft`：HTTP 409，当前 published 不变；目标不属于该 prompt：404；只有 `archived` 且 `published_at` 非空的版本可回滚。
 - `restore-builtin`：事务内归档当前本地 published，清除本地生效绑定，之后解析到内置版本；不删除历史版本。
 - 每次发布只影响下一次 Run；正在执行的 Run 使用其启动时固定的 Prompt 快照。
 - `source`：`builtin|local|langfuse`；来源只用于展示/审计，不等于内容已通过 Langfuse 同步。
 
 ### 1.5 Prompt API
 
-所有路径为管理端；响应 `data` 见下。
+所有路径为管理端；`scope_type` 枚举见第 0 节：`account|group|private`，`account` 只允许 `scope_id=0`，`group|private` 要求 `scope_id>0`。响应 `data` 见下。
+
+**版本标识**：响应中的 `ID` 是版本行主键，`Version` 是同一 `(prompt_id,bot_id,scope_type,scope_id,provider)` 层内的递增序号。请求中所有版本选择参数统一使用 `version_id`，不使用含义不明的 `version`。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/api/v1/prompts?bot_id=&kind=&scope_type=&scope_id=` | 三类 Prompt 列表/当前层摘要 |
 | GET | `/api/v1/prompts/{prompt_id}?bot_id=&scope_type=&scope_id=&provider=` | 版本、内置默认、当前层 |
-| GET | `/api/v1/prompts/versions/{id}` | 单版本详情 |
+| GET | `/api/v1/prompts/versions/{id}` | 单版本详情（响应为 `PromptVersion`） |
 | POST | `/api/v1/prompts/{prompt_id}/versions` | 从默认/指定版本建草稿 |
 | PATCH | `/api/v1/prompts/versions/{id}` | 编辑草稿 |
-| GET | `/api/v1/prompts/{prompt_id}/diff?bot_id=&scope_type=&scope_id=&from_version=&to_version=&provider=` | 草稿/版本 diff |
+| GET | `/api/v1/prompts/{prompt_id}/diff?bot_id=&scope_type=&scope_id=&provider=&from_version_id=&to_version_id=` | 草稿/版本 diff |
 | GET | `/api/v1/prompts/{prompt_id}/effective?bot_id=&scope_type=&scope_id=&provider=` | 分层最终 Prompt |
 | POST | `/api/v1/prompts/{prompt_id}/preview` | 示例/真实上下文预览（不调用模型、不发送） |
 | POST | `/api/v1/prompts/versions/{id}/publish` | 发布草稿 |
 | POST | `/api/v1/prompts/{prompt_id}/rollback` | 回滚 archived 版本 |
 | POST | `/api/v1/prompts/{prompt_id}/restore-builtin` | 恢复内置 |
 
-兼容：现有 `GET/POST /api/v1/intent/prompts...` 保留为旧的 `intent.participation` 兼容入口，M1 前端迁移后标明 deprecated；新页面只使用 `/api/v1/prompts`。
+**公共对象 PromptVersion**
+```json
+{
+  "ID": 12,
+  "PromptID": "intent.participation",
+  "Kind": "intent_participation",
+  "Name": "群聊意图补充",
+  "Provider": "jev",
+  "BotID": 1,
+  "ScopeType": "group",
+  "ScopeID": 700,
+  "Version": 3,
+  "Status": "draft",
+  "Source": "local",
+  "SourceRef": "",
+  "Hash": "...",
+  "Note": "",
+  "Content": {},
+  "CreatedAt": "2026-11-15T08:00:00Z",
+  "PublishedAt": null,
+  "ArchivedAt": null
+}
+```
+`Status` 为 `draft|published|archived`；`Content` 必须符合 1.3 对应分支。
 
 **列表响应**
 ```json
@@ -137,7 +170,7 @@ draft ──publish──> published ──publish(new)──> archived
       "Provider": "openai",
       "BuiltinVersion": 1,
       "Layers": [
-        {"BotID": 1, "ScopeType": "account", "ScopeID": 0, "ActiveVersion": 3, "ActiveSource": "local", "Status": "published", "UpdatedAt": "2026-11-15T08:00:00Z"}
+        {"BotID": 1, "ScopeType": "account", "ScopeID": 0, "ActiveVersion": 3, "ActiveVersionID": 12, "ActiveSource": "local", "Status": "published", "UpdatedAt": "2026-11-15T08:00:00Z"}
       ]
     }
   ]
@@ -150,15 +183,14 @@ draft ──publish──> published ──publish(new)──> archived
   "PromptID": "intent.participation",
   "Kind": "intent_participation",
   "Provider": "jev",
-  "Builtin": {"Version": 1, "Source": "builtin", "Hash": "...", "Content": {}},
-  "Active": {"VersionID": 12, "Version": 3, "Status": "published", "Source": "local", "Hash": "...", "Content": {}},
-  "Versions": [
-    {"ID": 12, "PromptID": "intent.participation", "Version": 3, "Status": "published", "Source": "local", "SourceRef": "", "Hash": "...", "Note": "", "Content": {}, "CreatedAt": "2026-11-15T08:00:00Z", "PublishedAt": "2026-11-15T08:01:00Z"}
-  ]
+  "Builtin": {"Version": 1, "Status": "builtin", "Source": "builtin", "Hash": "...", "Content": {}},
+  "Active": {"ID": 12, "PromptID": "intent.participation", "Kind": "intent_participation", "Name": "群聊意图补充", "Provider": "jev", "BotID": 1, "ScopeType": "group", "ScopeID": 700, "Version": 3, "Status": "published", "Source": "local", "SourceRef": "", "Hash": "...", "Note": "", "Content": {}, "CreatedAt": "2026-11-15T08:00:00Z", "PublishedAt": "2026-11-15T08:01:00Z", "ArchivedAt": null},
+  "Versions": []
 }
 ```
+`Active` 在该层没有本地发布版本时为 `null`；`Versions` 元素使用同一 `PromptVersion` 对象。
 
-**创建草稿请求**
+**创建草稿请求**（HTTP 201）
 ```json
 {
   "bot_id": 1,
@@ -170,16 +202,63 @@ draft ──publish──> published ──publish(new)──> archived
   "note": "从当前生效版本复制",
   "source": "local",
   "source_ref": "",
-  "clone_from_version": 3
+  "clone_from_version_id": 12
 }
 ```
-`clone_from_version` 可选；无 `content` 时必须提供，服务端复制该层指定版本内容；有 `content` 时以传入内容校验后创建。
+`clone_from_version_id` 可选，指向同层版本行 ID；无 `content` 时必须提供，服务端复制该版本内容；有 `content` 时校验后创建。响应为 `PromptVersion`。
 
-**发布/回滚/恢复内置请求**
+**编辑草稿** `PATCH /api/v1/prompts/versions/{id}`
 ```json
-{"bot_id":1,"scope_type":"group","scope_id":700,"provider":"jev","version":3}
+{"content": {}, "note": "修订说明"}
 ```
-`restore-builtin` 同样使用 scope 三元组，不需要 version。
+仅 `draft` 可编辑，其他状态返回 409；响应为更新后的 `PromptVersion`。
+
+**版本 diff** `GET /api/v1/prompts/{prompt_id}/diff`
+`from_version_id`、`to_version_id` 均为同层版本行 ID；省略 `from_version_id` 时取当前 `Active`，省略 `to_version_id` 时取同层最新 `draft`。目标不存在、跨 prompt/层或没有可比较版本返回 422。
+```json
+{
+  "PromptID": "intent.participation",
+  "Provider": "jev",
+  "From": {"ID": 12, "Version": 3, "Status": "published", "Hash": "..."},
+  "To": {"ID": 15, "Version": 4, "Status": "draft", "Hash": "..."},
+  "Changed": true,
+  "UnifiedDiff": "--- published v3\n+++ draft v4\n@@ ...",
+  "Lines": [{"Op": "-", "Text": "旧行"}, {"Op": "+", "Text": "新行"}]
+}
+```
+`Op` 仅允许 `+`、`-`、空格（上下文行）。
+
+**发布** `POST /api/v1/prompts/versions/{id}/publish`：无 body；目标必须是同层 `draft`，否则 409。响应：
+```json
+{
+  "Version": {"ID": 15, "PromptID": "intent.participation", "Kind": "intent_participation", "Name": "群聊意图补充", "Provider": "jev", "BotID": 1, "ScopeType": "group", "ScopeID": 700, "Version": 4, "Status": "published", "Source": "local", "SourceRef": "", "Hash": "...", "Note": "", "Content": {}, "CreatedAt": "2026-11-15T08:00:00Z", "PublishedAt": "2026-11-15T08:02:00Z", "ArchivedAt": null},
+  "ArchivedVersionID": 12
+}
+```
+没有旧 published 时 `ArchivedVersionID=0`。
+
+**回滚** `POST /api/v1/prompts/{prompt_id}/rollback`
+```json
+{"bot_id": 1, "scope_type": "group", "scope_id": 700, "provider": "jev", "version_id": 12}
+```
+目标必须是该 prompt、该层、`status=archived` 且 `published_at` 非空的版本；否则 409，当前 published 不变；跨 prompt 404。成功响应与发布相同：目标 archived→published，当前 published→archived。
+
+**恢复内置** `POST /api/v1/prompts/{prompt_id}/restore-builtin`
+```json
+{"bot_id": 1, "scope_type": "account", "scope_id": 0, "provider": "openai"}
+```
+```json
+{
+  "PromptID": "chat.reply",
+  "ScopeType": "account",
+  "ScopeID": 0,
+  "Provider": "openai",
+  "Active": null,
+  "Resolved": {"Source": "builtin", "Version": 1, "Hash": "..."},
+  "ArchivedVersionID": 4
+}
+```
+没有本地 published 时 `ArchivedVersionID=0`。
 
 **分层最终结果**
 ```json
@@ -195,23 +274,41 @@ draft ──publish──> published ──publish(new)──> archived
     {"Layer": "scope_supplement", "VersionID": 7, "Version": 1, "Source": "local", "Hash": "...", "Content": {}},
     {"Layer": "server_constraints", "Editable": false, "Hash": "...", "Summary": "工具权限、发送权限、JSON 结构由服务端固定"}
   ],
-  "Final": {"SystemPrompt": "组合后的最终 System", "Variables": {"bot_name": "Nagi", "scope_type": "group"}},
+  "Final": {"Content": {"Provider": "openai", "OpenAI": {"SystemPrompt": "组合后的最终 System"}}, "Variables": {"bot_name": "Nagi", "scope_type": "group"}},
   "Hash": "..."
 }
 ```
+`Final.Content` 始终使用 1.3 对应 `Kind/Provider` 分支：`chat.reply` 与 `memory.extraction` 使用 `OpenAI` 对象，`intent.participation` 使用 Jev `SystemOne` 或 OpenAI `OpenAI` 对象。
 
-**预览请求/响应**
+**预览请求/响应** `POST /api/v1/prompts/{prompt_id}/preview`
 ```json
 {
   "bot_id": 1,
   "scope_type": "group",
   "scope_id": 700,
   "provider": "jev",
-  "mode": "example",
+  "preview_mode": "example",
+  "version_id": 15,
   "sample": {"current_message": "在吗", "recent": []}
 }
 ```
-`mode=example` 只使用示例数据，不读取真实记忆/历史；`mode=real` 必须按当前 scope 授权构造上下文，未授权的历史/记忆层返回 `Skipped:true` 和原因，不扩权。响应返回 `Layers`、`Final`、`Warnings`、`PreviewHash`。预览不调用模型、不发送、不创建决策。
+`version_id` 可选；提供时精确预览该层该版本（可以是 draft），省略时预览当前生效分层。`preview_mode=example` 只使用示例数据，不读取真实记忆/历史；`preview_mode=real` 必须按当前 scope 授权构造上下文，未授权的历史/记忆层返回 `Skipped:true` 和原因，不扩权。响应：
+```json
+{
+  "PromptID": "intent.participation",
+  "Kind": "intent_participation",
+  "Provider": "jev",
+  "PreviewMode": "example",
+  "VersionID": 15,
+  "Layers": [],
+  "Final": {"Content": {"Provider": "jev", "SystemOne": {"Questions": {}}}, "Variables": {"bot_name": "Nagi", "scope_type": "group"}},
+  "Warnings": [],
+  "PreviewHash": "..."
+}
+```
+`VersionID=0` 表示预览的是当前生效分层而非单个版本。预览不调用模型、不发送、不创建决策。
+
+**兼容**：现有 `GET/POST /api/v1/intent/prompts...` 保留为旧的 `intent.participation` 兼容入口，M1 前端迁移后标明 deprecated；新页面只使用 `/api/v1/prompts`。
 
 ### 1.6 单 Run 固定版本
 
@@ -291,19 +388,42 @@ RecallResult {
 | `private_user` | 同 bot 且 `kind=private`、`owner_key=target_id` |
 | `conversation` | 同 bot 且 `conversation_id` 完全匹配 |
 
-无论哪种 Visibility，只有 `status=active` 且未过期才可召回；`candidate/deleted/superseded/expired` 一律不召回。不得跨 bot、跨群、把群事实注入私聊，也不得因 Prompt/角色设置扩权。回复侧仍先检查 `allow_memory_read`。
+无论哪种 Visibility，只有 `status=active` 且 `expires_at` 为空或晚于当前时间才可召回；`candidate/deleted/superseded` 一律不召回，过期只通过 `expires_at` 判断，不新增 `expired` 状态。不得跨 bot、跨群、把群事实注入私聊，也不得因 Prompt/角色设置扩权。回复侧仍先检查 `allow_memory_read`。
 
 ### 2.3 关键词、排序与命中审计
 
 - `QueryKeywords(query)`：中文连续文本取重叠双字词；ASCII/数字词整体保留；过滤停用词（`这个/什么/怎么/觉得` 等低信息词）；去重；最多 8 个。
 - `QueryKeywords` 返回空集合时，**Recall 直接返回空 Items，`NoKeyword=true`**；管理列表的空搜索仍可浏览，两者语义不同。
 - 候选集：可见性/生命周期过滤后，至少命中一个 `HitKeyword`（按 `ContentContainsFold`，大小写不敏感，但正文存储不改写）。
-- 排序键（降序）：
-  1. `SubjectMatch=exact`（请求主体与记忆主体完全一致）
-  2. `SubjectMatch=group`（当前为群事实且 scope 匹配）
-  3. `Score`（命中的不同关键词数 + 主体权重；不能仅凭通用双字词抬高）
-  4. `UpdatedAt` 降序
-  5. `MemoryID` 稳定兜底
+
+**SubjectMatch 判定（按以下优先级从高到低，首个命中即定级）**
+
+| SubjectMatch | 触发条件 |
+|---|---|
+| `none` | 请求 `SubjectType=unknown`；此时不论记忆主体为何，一律只做关键词命中 |
+| `exact` | 请求与记忆的 `SubjectType` 相同，且两者的 `SubjectID` 非空并完全相等 |
+| `group` | 请求为群会话，记忆 `SubjectType=group` 且 `SubjectID=TargetID`，且不是上一行的 exact 命中 |
+| `shared` | 记忆 `Visibility=bot_shared` 且记忆主体为 `unknown`/空，属于无主体共享事实 |
+| `other` | 记忆主体已知但与请求主体不同，且 Visibility/生命周期允许当前会话读取 |
+| `none` | 其余情况（主体未知或无法对应） |
+
+**SelectionReason 映射**
+
+| SubjectMatch | 条件 | SelectionReason |
+|---|---|---|
+| `none` | 请求主体 `unknown` | `unknown_subject_keyword` |
+| `exact` | 任意 | `subject_exact` |
+| `group` | 任意 | `group_match` |
+| `shared` | 结果集没有 exact/group 项 | `shared_fallback` |
+| `shared` | 结果集存在 exact/group 项 | `keyword_match` |
+| `other` / `none` | 请求主体已知 | `keyword_match` |
+
+- 排序键（依次）：
+  1. `SubjectMatch` 等级：`exact` > `group` > `shared` > `other` > `none`；
+  2. `Score` 降序；
+  3. `UpdatedAt` 降序；
+  4. `MemoryID` 升序（UTF-8 字节序）稳定兜底。
+- `Score = min(2.0, 0.25 * len(HitKeywords)) + SubjectWeight`；`HitKeywords` 为去重后实际命中的关键词，最多 8 个；`SubjectWeight` 为 exact=2.0、group=1.5、shared=0.5、other=0、none=0。
 - 响应必须带 `HitKeywords`（实际命中的词，不含未命中的查询词）、`SubjectMatch`、`SelectionReason`、`Score`。
 - 注入预算保持：回复 Prompt 最多 3 条、总计 600 runes；`Limit` 默认 3，API 最大 5，超出由调用方裁剪；裁剪时优先保留 exact/group 命中。
 - 管理端召回预览接口：
@@ -339,6 +459,8 @@ deleted: 物理删除，终态；deleted 不召回
 ```json
 {"old_memory_id":"uuid","reason":"新事实替代旧事实","idempotency_key":"uuid-or-stable-key"}
 ```
+`idempotency_key` 必填，长度 1–128；同一对 old/new 的重复请求必须复用同一 key。缺失或超长返回 `replacement_invalid`。
+
 响应：
 ```json
 {
@@ -360,17 +482,19 @@ deleted: 物理删除，终态；deleted 不召回
 | 409 | `memory_status_conflict` | 新不是 candidate、旧不是 active，或已被替代 |
 | 409 | `subject_mismatch` | bot/visibility/owner/subject 不一致 |
 | 409 | `subject_ambiguous` | 主体 unknown/缺失，不能安全替代 |
-| 409 | `idempotency_conflict` | 同一 idempotency key 对应不同 pair |
-| 422 | `replacement_invalid` | 请求字段/原因非法 |
+| 409 | `idempotency_conflict` | 同一 `idempotency_key` 对应不同 pair，或同一 pair 使用了不同 key |
+| 422 | `replacement_invalid` | 请求字段/原因非法，或 `idempotency_key` 缺失/超长 |
 
 ### 3.4 事务、锁与幂等
 
-1. 开始事务；以 `pg_advisory_xact_lock(hashtextextended('memory:supersede:' || bot_id, 0))` 串行化同 bot 的替代操作。
-2. 以 UUID 稳定顺序 `SELECT ... FOR UPDATE` 锁定新候选和旧 active；重新读取状态，不能只依赖事务外快照。
-3. 校验同 bot/visibility/owner/subject；主体 unknown/空直接 `subject_ambiguous`。
-4. 插入 `memory_replacements` 关系行；`UNIQUE(new_memory_id, old_memory_id)` 和可选 `UNIQUE(idempotency_key)` 处理重复。
-5. 同事务把旧条 `status=superseded`、新条 `status=active`、`approved_by=actor`、`updated_at=now()`；提交。
-6. 重复同一 pair/key：返回原关系，`Idempotent=true`，不重复写状态；同一 key 不同 pair：`idempotency_conflict`。
+1. 先按候选 ID 读取 `bot_id`（不存在返回 `memory_not_found`），开始事务；以 `pg_advisory_xact_lock(hashtextextended('memory:supersede:' || bot_id, 0))` 串行化同 bot 的替代操作。
+2. 持锁后先查询 `memory_replacements`：
+   - 同 pair 且同 `idempotency_key`：返回原关系，`Idempotent=true`，不再校验当前状态、不重复写状态；
+   - `idempotency_key` 已存在但 pair 不同，或同 pair 已存在但 key 不同：`idempotency_conflict`；
+   - 无已有关系：继续。
+3. 以 UUID 稳定顺序 `SELECT ... FOR UPDATE` 锁定新候选和旧 active；不存在返回 `memory_not_found`；重新读取状态，不能只依赖事务外快照。
+4. 校验新条为 `candidate`、旧条为 `active`，且同 bot/visibility/owner/subject；主体 unknown/空直接 `subject_ambiguous`。
+5. 插入 `memory_replacements` 关系行；同事务把旧条 `status=superseded`、新条 `status=active`、`approved_by=actor`、`updated_at=now()`；提交。
 
 ### 3.5 迁移与回滚
 
@@ -384,12 +508,11 @@ CREATE TABLE memory_replacements (
   old_memory_id uuid NOT NULL,
   actor text NOT NULL,
   reason text NOT NULL DEFAULT '',
-  idempotency_key text NULL,
+  idempotency_key text NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 128),
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (new_memory_id, old_memory_id)
+  UNIQUE (new_memory_id, old_memory_id),
+  UNIQUE (idempotency_key)
 );
-CREATE UNIQUE INDEX memory_replacements_idempotency_key_key
-  ON memory_replacements (idempotency_key) WHERE idempotency_key IS NOT NULL;
 ```
 
 - 不新增外键到 `memories`，以便物理删除后仍保留审计关系；不改变 `memories.status` 枚举。
@@ -447,11 +570,11 @@ CREATE UNIQUE INDEX memory_replacements_idempotency_key_key
 - `Enabled=false` 时页面必须显示“未开启”，不能显示“运行中”。
 - 参数仅展示当前实际配置；不在本契约中引入自动开启或新的默认开启行为。
 
-`GET /api/v1/memory-extraction/jobs` 沿用现有接口，响应：
+`GET /api/v1/memory-extraction/jobs` 与 `POST /api/v1/memory-extraction/jobs/{id}/retry` 是既有接口，按兼容要求保留现有响应大小写：外层分页键为小写 `items/total/page/limit`，任务字段沿用现有 Go JSON 字段名（PascalCase），重试成功为 `{"retried":true}`。这是本文第 0 节 PascalCase 约定的既有接口例外。
 ```json
 {"items":[{"ID":"...","BotID":1,"ConversationID":"...","ScopeType":"group","ScopeID":700,"MessageID":123,"Status":"failed","Attempts":3,"RoundAttempts":1,"NextRunAt":"...","LastErrorCode":"model_timeout","ManualRetries":0,"SourceAvailable":true,"CreatedAt":"...","UpdatedAt":"..."}],"total":1,"page":1,"limit":50}
 ```
-`POST /api/v1/memory-extraction/jobs/{id}/retry` 无 body；成功 `{Retried:true}`；404/409/410 与现有语义一致，最多 1 轮手动重试。
+`POST /api/v1/memory-extraction/jobs/{id}/retry` 无 body；成功 `{"retried":true}`；404/409/410 与现有语义一致，最多 1 轮手动重试。
 
 ### 4.4 规则页面
 
