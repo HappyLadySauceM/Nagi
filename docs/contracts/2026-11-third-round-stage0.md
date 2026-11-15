@@ -8,7 +8,7 @@
 
 - 管理 API 统一响应：`{ "code": 200, "message": "", "data": ... }`。
 - **响应字段使用 PascalCase**；**请求 body 使用现有管理 API 的 snake_case**。本文列出的既有接口例外见 4.3。
-- Prompt 管理 API 使用 `bot_id` + `scope_type=account|group|private` + `scope_id=0`：`account` 表示账号默认，`group` 表示账号下群聊类型补充，`private` 表示账号下私聊类型补充；不是单群/单私聊独立 Prompt。运行 `effective`/真实预览使用独立的 `target_type=group|private` + `target_id>0` + 可选 `conversation_id` 表示实际目标，编辑层与真实会话不得混用同一个 `scope_id`。召回与抽取设置接口的 `scope_type` 为 `group|private`。
+- Prompt 管理 API 使用 `bot_id` + `scope_type=account|group|private` + `scope_id=0`：`account` 表示账号默认，`group` 表示账号下群聊类型补充，`private` 表示账号下私聊类型补充；不是单群/单私聊独立 Prompt。运行 `effective`/真实预览使用独立的 `target_type=group|private` + `target_id>0` + 可选 `conversation_id` 表示实际目标，编辑层与真实会话不得混用同一个 `scope_id`。召回接口的 `scope_type` 为 `group|private`；抽取设置接口为全局只读，不使用 `scope_type`。
 - 管理 API 只对已登录管理员开放；页面不持有 Langfuse 密钥，不直接访问远端 Prompt。
 - 契约中的 `source=langfuse` 仅代表候选来源标签；没有显式同步、校验和本地发布前，不能视为真实 Langfuse 集成生效。
 - 本契约不改变现有权限、消息留存、记忆可见性和发送权限。
