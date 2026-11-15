@@ -7,7 +7,7 @@
 ## 0. 公共约定
 
 - 管理 API 统一响应：`{ "code": 200, "message": "", "data": ... }`。
-- **响应字段使用 PascalCase**；**请求 body 使用现有管理 API 的 snake_case**。本文列出的既有接口例外见 4.3。
+- **响应字段使用 PascalCase**；**请求 body 使用现有管理 API 的 snake_case**。本文列出的既有接口例外见 3.2/4.3。
 - Prompt 管理 API 使用 `bot_id` + `scope_type=account|group|private` + `scope_id=0`：`account` 表示账号默认，`group` 表示账号下群聊类型补充，`private` 表示账号下私聊类型补充；不是单群/单私聊独立 Prompt。运行 `effective`/真实预览使用独立的 `target_type=group|private` + `target_id>0` + 可选 `conversation_id` 表示实际目标，编辑层与真实会话不得混用同一个 `scope_id`。召回接口的 `scope_type` 为 `group|private`；抽取设置接口为全局只读，不使用 `scope_type`。
 - 管理 API 只对已登录管理员开放；页面不持有 Langfuse 密钥，不直接访问远端 Prompt。
 - 契约中的 `source=langfuse` 仅代表候选来源标签；没有显式同步、校验和本地发布前，不能视为真实 Langfuse 集成生效。
@@ -534,7 +534,7 @@ deleted: 物理删除，终态；deleted 不召回
 | GET | `/api/v1/memories/{id}/management?bot_id=1` | 管理员详情，可查看候选/active/superseded 及双向 replacement |
 | GET | `/api/v1/memories?bot_id=1&status=candidate|active|superseded&page=&limit=` | 管理员列表，可按状态查看候选与历史 |
 
-`GET /api/v1/memories/{id}` 保持为会话记忆工具 `memory.detail` 的入口，只返回当前会话可见且 active 未过期的条目；管理员页面必须使用 `GET /api/v1/memories/{id}/management`，不得复用会话入口判断候选或替代关系。
+`GET /api/v1/memories/{id}` 保持为会话记忆工具 `memory.detail` 的入口，只返回当前会话可见且 active 未过期的条目；管理员页面必须使用 `GET /api/v1/memories/{id}/management`，不得复用会话入口判断候选或替代关系。`GET /api/v1/memories` 是现有管理列表接口，外层分页键沿用现有小写 `items/total/page/limit`，这是第 0 节 PascalCase 约定的另一处既有接口例外。
 
 **管理员详情响应**
 ```json
@@ -542,7 +542,7 @@ deleted: 物理删除，终态；deleted 不召回
   "Memory": {
     "ID": "uuid",
     "BotID": 1,
-    "Status": "candidate",
+    "Status": "active",
     "Visibility": "group",
     "OwnerKey": "700",
     "Content": "A 爱喝美式",
@@ -551,7 +551,7 @@ deleted: 物理删除，终态；deleted 不召回
     "SubjectType": "user",
     "SubjectID": "1001",
     "Origin": "manual",
-    "ApprovedBy": "",
+    "ApprovedBy": "admin",
     "CreatedAt": "2026-11-15T08:00:00Z",
     "UpdatedAt": "2026-11-15T08:00:00Z",
     "ExpiresAt": null
@@ -567,12 +567,12 @@ deleted: 物理删除，终态；deleted 不召回
       "NewStatus": "active",
       "OldStatus": "superseded",
       "CreatedAt": "2026-11-15T08:01:00Z",
-      "Counterpart": {"MemoryID": "uuid", "Status": "active", "Missing": false}
+      "Counterpart": {"MemoryID": "uuid", "Status": "superseded", "Missing": false}
     }
   ]
 }
 ```
-`Direction` 为 `as_new|as_old`；每条关系同时展示双方 ID、current status、actor、time、reason，但不复制旧正文、来源消息或 subject。`Counterpart.Missing=true` 表示关联条目已物理删除，此时 `Status` 为空且页面显示“已删除”，不能伪造 `active`。
+`Direction` 为 `as_new|as_old`；每条关系同时展示双方 ID、current status、actor、time、reason，但不复制旧正文、来源消息或 subject。replacement 只在替代事务提交后出现，`candidate` 不可能拥有 `as_new/as_old` relation。`Counterpart.Missing=true` 表示关联条目已物理删除，此时 `Status` 为空且页面显示“已删除”，不能伪造 `active`。
 
 **人工创建已知主体候选**（现有 `POST /api/v1/memories` 的明确契约）
 ```json
@@ -639,7 +639,7 @@ deleted: 物理删除，终态；deleted 不召回
 
 **supersede 步骤**：
 
-1. 先按候选 ID 读取 `bot_id`（不存在返回 `memory_not_found`），开始事务并取上述 `memory:mutate:{bot_id}` 锁。
+1. 先按候选 ID 读取 `bot_id`。若候选行不存在，立即按 `new_memory_id=$candidate_id`、`old_memory_id=$old_memory_id`、`idempotency_key=$key` 查询 `memory_replacements`：命中则只读返回原关系及当前实际状态（缺失方为 `deleted`，`Idempotent=true`），不得恢复；未命中才返回 `memory_not_found`。候选行存在时开始事务并取上述 `memory:mutate:{bot_id}` 锁。
 2. 持锁后先查询 `memory_replacements`：
    - 同 pair 且同 `idempotency_key`：只读返回原关系，`Idempotent=true`；若任一条目已物理删除，返回对应状态 `deleted`，不得重建、恢复或改状态；
    - `idempotency_key` 已存在但 pair 不同，或同 pair 已存在但 key 不同：`idempotency_conflict`；
