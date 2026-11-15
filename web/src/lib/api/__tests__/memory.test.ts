@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../client'
-import { toMemoryCreateResult, toMemoryPage } from '../adapters/memory'
+import { toMemoryCreateResult, toMemoryManagement, toMemoryPage, toMemorySupersedeResult } from '../adapters/memory'
 
 const ENTRY = {
   ID: '2f7c9a52-4c1f-4f0e-8a2a-3f0f5d9f1c11',
@@ -62,6 +62,64 @@ describe('memory adapter', () => {
     expect(toMemoryCreateResult({ id: 'abc', duplicate: true })).toEqual({
       id: 'abc',
       duplicate: true,
+    })
+  })
+
+  it('reads management detail with subject and replacement relations', () => {
+    const view = toMemoryManagement({
+      Memory: {
+        ...ENTRY,
+        Status: 'superseded',
+        SubjectType: 'user',
+        SubjectID: '42',
+        Origin: 'manual',
+        SourceSenderID: 1001,
+      },
+      Replacements: [
+        {
+          ReplacementID: 'replacement-1',
+          Direction: 'as_old',
+          NewMemoryID: 'new-memory',
+          OldMemoryID: ENTRY.ID,
+          Actor: 'admin',
+          Reason: '用户补充了新事实',
+          NewStatus: 'active',
+          OldStatus: 'superseded',
+          CreatedAt: '2026-11-16T00:00:00Z',
+          Counterpart: { MemoryID: 'new-memory', Status: 'active', Missing: false },
+        },
+      ],
+    })
+    expect(view.memory.subjectType).toBe('user')
+    expect(view.memory.subjectId).toBe('42')
+    expect(view.memory.sourceSenderId).toBe(1001)
+    expect(view.replacements[0]).toMatchObject({
+      direction: 'as_old',
+      actor: 'admin',
+      newStatus: 'active',
+      oldStatus: 'superseded',
+      counterpart: { memoryId: 'new-memory', status: 'active', missing: false },
+    })
+  })
+
+  it('reads the supersede result', () => {
+    expect(
+      toMemorySupersedeResult({
+        NewMemoryID: 'new-memory',
+        OldMemoryID: 'old-memory',
+        NewStatus: 'active',
+        OldStatus: 'superseded',
+        ReplacedAt: '2026-11-16T00:00:00Z',
+        ReplacedBy: 'admin',
+        Idempotent: false,
+      }),
+    ).toMatchObject({
+      newMemoryId: 'new-memory',
+      oldMemoryId: 'old-memory',
+      newStatus: 'active',
+      oldStatus: 'superseded',
+      replacedBy: 'admin',
+      idempotent: false,
     })
   })
 })

@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '../../lib/api/client'
-import { toMemoryCreateResult, toMemoryPage } from '../../lib/api/adapters/memory'
-import type { MemoryVisibility } from '../../lib/api/contracts'
+import {
+  toMemoryCreateResult,
+  toMemoryManagement,
+  toMemoryPage,
+  toMemorySupersedeResult,
+} from '../../lib/api/adapters/memory'
+import type { MemorySubjectType, MemoryVisibility } from '../../lib/api/contracts'
 import { toQueryString } from '../../lib/api/query-string'
 import { queryKeys, type MemoryParams } from '../../lib/query-keys'
 
@@ -43,6 +48,8 @@ export interface CreateMemoryVariables {
   botId: number
   visibility: MemoryVisibility
   ownerKey: string
+  subjectType: MemorySubjectType
+  subjectId: string
   content: string
   source: string
   confidence: number
@@ -64,6 +71,8 @@ export function useCreateMemory() {
           bot_id: variables.botId,
           visibility: variables.visibility,
           owner_key: variables.ownerKey,
+          subject_type: variables.subjectType,
+          subject_id: variables.subjectType === 'unknown' ? '' : variables.subjectId,
           content: variables.content,
           source: variables.source,
           confidence: variables.confidence,
@@ -71,6 +80,51 @@ export function useCreateMemory() {
         },
       }).then(toMemoryCreateResult),
     onSuccess: invalidate,
+  })
+}
+
+export function useMemoryManagement(memoryId: string | null, botId?: number) {
+  return useQuery({
+    queryKey: queryKeys.memoryManagement(botId, memoryId),
+    enabled: memoryId !== null && botId !== undefined,
+    queryFn: ({ signal }) =>
+      apiRequest(`/api/v1/memories/${memoryId}/management?bot_id=${botId}`, { signal }).then(
+        toMemoryManagement,
+      ),
+  })
+}
+
+export interface SupersedeMemoryVariables {
+  candidateId: string
+  oldMemoryId: string
+  reason: string
+  idempotencyKey: string
+}
+
+/**
+ * Explicitly supersedes one active memory with one candidate. The backend
+ * validates same bot, visibility, owner and subject; the UI never infers the
+ * old memory from similar content.
+ * 显式用候选替代一条 active 记忆；后端校验同 bot、可见性、归属与主体，
+ * 前端绝不按相似正文推断旧记忆。
+ */
+export function useSupersedeMemory() {
+  const invalidate = useInvalidateMemories()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (variables: SupersedeMemoryVariables) =>
+      apiRequest(`/api/v1/memories/${variables.candidateId}/supersede`, {
+        method: 'POST',
+        body: {
+          old_memory_id: variables.oldMemoryId,
+          reason: variables.reason,
+          idempotency_key: variables.idempotencyKey,
+        },
+      }).then(toMemorySupersedeResult),
+    onSuccess: () => {
+      invalidate()
+      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'summary'] })
+    },
   })
 }
 

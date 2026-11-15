@@ -34,6 +34,8 @@ export const queryKeys = {
   scope: (botId: number | undefined, scopeType: ScopeType, scopeId: number) =>
     ['scopes', 'detail', botId ?? null, scopeType, scopeId] as const,
   memories: (params: MemoryParams) => ['memories', 'list', params] as const,
+  memoryManagement: (botId: number | undefined, memoryId: string | null) =>
+    ['memories', 'management', botId ?? null, memoryId] as const,
   // The tool registry is process-wide, but applicability depends on the
   // requested scope kind, so that kind is part of the key.
   // 工具注册表属于进程级数据，但适用性取决于请求的会话类型，

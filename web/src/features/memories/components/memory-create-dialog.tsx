@@ -18,8 +18,10 @@ import { Select } from '../../../components/ui/select'
 import { Switch } from '../../../components/ui/switch'
 import { Textarea } from '../../../components/ui/textarea'
 import {
+  MEMORY_SUBJECT_LABELS,
   MEMORY_VISIBILITY_HINTS,
   MEMORY_VISIBILITY_LABELS,
+  type MemorySubjectType,
   type MemoryVisibility,
 } from '../../../lib/api/contracts'
 import { describeError } from '../../../lib/errors'
@@ -33,9 +35,19 @@ const VISIBILITY_OPTIONS: MemoryVisibility[] = [
   'conversation',
 ]
 
+const SUBJECT_OPTIONS: MemorySubjectType[] = ['unknown', 'user', 'group']
+
+const SUBJECT_HINTS: Record<MemorySubjectType, string> = {
+  unknown: '未记录主体；该候选不能用于替代旧事实。',
+  user: '主体是单个用户，需填写其稳定 ID。',
+  group: '主体是群聊，需填写群号。',
+}
+
 const DEFAULT_VALUES: MemoryCreateValues = {
   visibility: 'group',
   ownerKey: '',
+  subjectType: 'unknown',
+  subjectId: '',
   content: '',
   source: '',
   confidence: '0.8',
@@ -57,14 +69,22 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
   })
   const { register, handleSubmit, watch, setValue, reset, formState } = form
   const visibility = watch('visibility')
+  const subjectType = watch('subjectType')
   const errors = formState.errors
   const isBotShared = visibility === 'bot_shared'
+  const isUnknownSubject = subjectType === 'unknown'
 
   useEffect(() => {
     if (isBotShared) {
       setValue('ownerKey', '')
     }
   }, [isBotShared, setValue])
+
+  useEffect(() => {
+    if (isUnknownSubject) {
+      setValue('subjectId', '')
+    }
+  }, [isUnknownSubject, setValue])
 
   const onSubmit = handleSubmit((values) => {
     if (botId === undefined) {
@@ -76,6 +96,8 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
         botId,
         visibility: values.visibility,
         ownerKey: values.visibility === 'bot_shared' ? '' : values.ownerKey,
+        subjectType: values.subjectType,
+        subjectId: values.subjectType === 'unknown' ? '' : values.subjectId,
         content: values.content,
         source: values.source,
         confidence: parseConfidence(values.confidence),
@@ -141,6 +163,62 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
               {...register('ownerKey')}
             />
           </FormField>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormField
+              id="create-subject-type"
+              label="主体类型"
+              hint={SUBJECT_HINTS[subjectType]}
+              error={errors.subjectType?.message}
+            >
+              <Select
+                id="create-subject-type"
+                disabled={create.isPending}
+                aria-invalid={errors.subjectType ? true : undefined}
+                aria-describedby={
+                  errors.subjectType
+                    ? 'create-subject-type-error'
+                    : 'create-subject-type-hint'
+                }
+                {...register('subjectType')}
+              >
+                {SUBJECT_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option === 'unknown' ? '未知（不可替代）' : MEMORY_SUBJECT_LABELS[option]}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+
+            <FormField
+              id="create-subject-id"
+              label="主体 ID"
+              required={!isUnknownSubject}
+              hint={
+                isUnknownSubject
+                  ? '未知主体不填写 ID；替代旧事实前必须先补齐主体。'
+                  : '稳定 ID（QQ 号或群号），需手动填写，不会从来源推断。'
+              }
+              error={errors.subjectId?.message}
+            >
+              <Input
+                id="create-subject-id"
+                disabled={isUnknownSubject || create.isPending}
+                placeholder={
+                  isUnknownSubject
+                    ? '不适用'
+                    : subjectType === 'group'
+                      ? '例如 700001'
+                      : '例如 10001'
+                }
+                aria-invalid={errors.subjectId ? true : undefined}
+                aria-describedby={
+                  errors.subjectId ? 'create-subject-id-error' : 'create-subject-id-hint'
+                }
+                {...register('subjectId')}
+              />
+            </FormField>
+          </div>
 
           <FormField
             id="create-content"
