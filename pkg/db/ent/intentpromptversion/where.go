@@ -59,6 +59,11 @@ func PromptID(v string) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldEQ(FieldPromptID, v))
 }
 
+// PromptKind applies equality check predicate on the "prompt_kind" field. It's identical to PromptKindEQ.
+func PromptKind(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldPromptKind, v))
+}
+
 // Name applies equality check predicate on the "name" field. It's identical to NameEQ.
 func Name(v string) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldEQ(FieldName, v))
@@ -67,6 +72,21 @@ func Name(v string) predicate.IntentPromptVersion {
 // Provider applies equality check predicate on the "provider" field. It's identical to ProviderEQ.
 func Provider(v string) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldEQ(FieldProvider, v))
+}
+
+// BotID applies equality check predicate on the "bot_id" field. It's identical to BotIDEQ.
+func BotID(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldBotID, v))
+}
+
+// ScopeType applies equality check predicate on the "scope_type" field. It's identical to ScopeTypeEQ.
+func ScopeType(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldScopeType, v))
+}
+
+// ScopeID applies equality check predicate on the "scope_id" field. It's identical to ScopeIDEQ.
+func ScopeID(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldScopeID, v))
 }
 
 // Version applies equality check predicate on the "version" field. It's identical to VersionEQ.
@@ -107,6 +127,11 @@ func CreatedAt(v time.Time) predicate.IntentPromptVersion {
 // PublishedAt applies equality check predicate on the "published_at" field. It's identical to PublishedAtEQ.
 func PublishedAt(v time.Time) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldEQ(FieldPublishedAt, v))
+}
+
+// ArchivedAt applies equality check predicate on the "archived_at" field. It's identical to ArchivedAtEQ.
+func ArchivedAt(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldArchivedAt, v))
 }
 
 // PromptIDEQ applies the EQ predicate on the "prompt_id" field.
@@ -172,6 +197,71 @@ func PromptIDEqualFold(v string) predicate.IntentPromptVersion {
 // PromptIDContainsFold applies the ContainsFold predicate on the "prompt_id" field.
 func PromptIDContainsFold(v string) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldContainsFold(FieldPromptID, v))
+}
+
+// PromptKindEQ applies the EQ predicate on the "prompt_kind" field.
+func PromptKindEQ(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldPromptKind, v))
+}
+
+// PromptKindNEQ applies the NEQ predicate on the "prompt_kind" field.
+func PromptKindNEQ(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNEQ(FieldPromptKind, v))
+}
+
+// PromptKindIn applies the In predicate on the "prompt_kind" field.
+func PromptKindIn(vs ...string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIn(FieldPromptKind, vs...))
+}
+
+// PromptKindNotIn applies the NotIn predicate on the "prompt_kind" field.
+func PromptKindNotIn(vs ...string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotIn(FieldPromptKind, vs...))
+}
+
+// PromptKindGT applies the GT predicate on the "prompt_kind" field.
+func PromptKindGT(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGT(FieldPromptKind, v))
+}
+
+// PromptKindGTE applies the GTE predicate on the "prompt_kind" field.
+func PromptKindGTE(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGTE(FieldPromptKind, v))
+}
+
+// PromptKindLT applies the LT predicate on the "prompt_kind" field.
+func PromptKindLT(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLT(FieldPromptKind, v))
+}
+
+// PromptKindLTE applies the LTE predicate on the "prompt_kind" field.
+func PromptKindLTE(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLTE(FieldPromptKind, v))
+}
+
+// PromptKindContains applies the Contains predicate on the "prompt_kind" field.
+func PromptKindContains(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldContains(FieldPromptKind, v))
+}
+
+// PromptKindHasPrefix applies the HasPrefix predicate on the "prompt_kind" field.
+func PromptKindHasPrefix(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldHasPrefix(FieldPromptKind, v))
+}
+
+// PromptKindHasSuffix applies the HasSuffix predicate on the "prompt_kind" field.
+func PromptKindHasSuffix(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldHasSuffix(FieldPromptKind, v))
+}
+
+// PromptKindEqualFold applies the EqualFold predicate on the "prompt_kind" field.
+func PromptKindEqualFold(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEqualFold(FieldPromptKind, v))
+}
+
+// PromptKindContainsFold applies the ContainsFold predicate on the "prompt_kind" field.
+func PromptKindContainsFold(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldContainsFold(FieldPromptKind, v))
 }
 
 // NameEQ applies the EQ predicate on the "name" field.
@@ -302,6 +392,151 @@ func ProviderEqualFold(v string) predicate.IntentPromptVersion {
 // ProviderContainsFold applies the ContainsFold predicate on the "provider" field.
 func ProviderContainsFold(v string) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldContainsFold(FieldProvider, v))
+}
+
+// BotIDEQ applies the EQ predicate on the "bot_id" field.
+func BotIDEQ(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldBotID, v))
+}
+
+// BotIDNEQ applies the NEQ predicate on the "bot_id" field.
+func BotIDNEQ(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNEQ(FieldBotID, v))
+}
+
+// BotIDIn applies the In predicate on the "bot_id" field.
+func BotIDIn(vs ...int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIn(FieldBotID, vs...))
+}
+
+// BotIDNotIn applies the NotIn predicate on the "bot_id" field.
+func BotIDNotIn(vs ...int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotIn(FieldBotID, vs...))
+}
+
+// BotIDGT applies the GT predicate on the "bot_id" field.
+func BotIDGT(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGT(FieldBotID, v))
+}
+
+// BotIDGTE applies the GTE predicate on the "bot_id" field.
+func BotIDGTE(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGTE(FieldBotID, v))
+}
+
+// BotIDLT applies the LT predicate on the "bot_id" field.
+func BotIDLT(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLT(FieldBotID, v))
+}
+
+// BotIDLTE applies the LTE predicate on the "bot_id" field.
+func BotIDLTE(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLTE(FieldBotID, v))
+}
+
+// ScopeTypeEQ applies the EQ predicate on the "scope_type" field.
+func ScopeTypeEQ(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldScopeType, v))
+}
+
+// ScopeTypeNEQ applies the NEQ predicate on the "scope_type" field.
+func ScopeTypeNEQ(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNEQ(FieldScopeType, v))
+}
+
+// ScopeTypeIn applies the In predicate on the "scope_type" field.
+func ScopeTypeIn(vs ...string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIn(FieldScopeType, vs...))
+}
+
+// ScopeTypeNotIn applies the NotIn predicate on the "scope_type" field.
+func ScopeTypeNotIn(vs ...string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotIn(FieldScopeType, vs...))
+}
+
+// ScopeTypeGT applies the GT predicate on the "scope_type" field.
+func ScopeTypeGT(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGT(FieldScopeType, v))
+}
+
+// ScopeTypeGTE applies the GTE predicate on the "scope_type" field.
+func ScopeTypeGTE(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGTE(FieldScopeType, v))
+}
+
+// ScopeTypeLT applies the LT predicate on the "scope_type" field.
+func ScopeTypeLT(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLT(FieldScopeType, v))
+}
+
+// ScopeTypeLTE applies the LTE predicate on the "scope_type" field.
+func ScopeTypeLTE(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLTE(FieldScopeType, v))
+}
+
+// ScopeTypeContains applies the Contains predicate on the "scope_type" field.
+func ScopeTypeContains(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldContains(FieldScopeType, v))
+}
+
+// ScopeTypeHasPrefix applies the HasPrefix predicate on the "scope_type" field.
+func ScopeTypeHasPrefix(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldHasPrefix(FieldScopeType, v))
+}
+
+// ScopeTypeHasSuffix applies the HasSuffix predicate on the "scope_type" field.
+func ScopeTypeHasSuffix(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldHasSuffix(FieldScopeType, v))
+}
+
+// ScopeTypeEqualFold applies the EqualFold predicate on the "scope_type" field.
+func ScopeTypeEqualFold(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEqualFold(FieldScopeType, v))
+}
+
+// ScopeTypeContainsFold applies the ContainsFold predicate on the "scope_type" field.
+func ScopeTypeContainsFold(v string) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldContainsFold(FieldScopeType, v))
+}
+
+// ScopeIDEQ applies the EQ predicate on the "scope_id" field.
+func ScopeIDEQ(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldScopeID, v))
+}
+
+// ScopeIDNEQ applies the NEQ predicate on the "scope_id" field.
+func ScopeIDNEQ(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNEQ(FieldScopeID, v))
+}
+
+// ScopeIDIn applies the In predicate on the "scope_id" field.
+func ScopeIDIn(vs ...int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIn(FieldScopeID, vs...))
+}
+
+// ScopeIDNotIn applies the NotIn predicate on the "scope_id" field.
+func ScopeIDNotIn(vs ...int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotIn(FieldScopeID, vs...))
+}
+
+// ScopeIDGT applies the GT predicate on the "scope_id" field.
+func ScopeIDGT(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGT(FieldScopeID, v))
+}
+
+// ScopeIDGTE applies the GTE predicate on the "scope_id" field.
+func ScopeIDGTE(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGTE(FieldScopeID, v))
+}
+
+// ScopeIDLT applies the LT predicate on the "scope_id" field.
+func ScopeIDLT(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLT(FieldScopeID, v))
+}
+
+// ScopeIDLTE applies the LTE predicate on the "scope_id" field.
+func ScopeIDLTE(v int64) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLTE(FieldScopeID, v))
 }
 
 // VersionEQ applies the EQ predicate on the "version" field.
@@ -757,6 +992,56 @@ func PublishedAtIsNil() predicate.IntentPromptVersion {
 // PublishedAtNotNil applies the NotNil predicate on the "published_at" field.
 func PublishedAtNotNil() predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldNotNull(FieldPublishedAt))
+}
+
+// ArchivedAtEQ applies the EQ predicate on the "archived_at" field.
+func ArchivedAtEQ(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldArchivedAt, v))
+}
+
+// ArchivedAtNEQ applies the NEQ predicate on the "archived_at" field.
+func ArchivedAtNEQ(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNEQ(FieldArchivedAt, v))
+}
+
+// ArchivedAtIn applies the In predicate on the "archived_at" field.
+func ArchivedAtIn(vs ...time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIn(FieldArchivedAt, vs...))
+}
+
+// ArchivedAtNotIn applies the NotIn predicate on the "archived_at" field.
+func ArchivedAtNotIn(vs ...time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotIn(FieldArchivedAt, vs...))
+}
+
+// ArchivedAtGT applies the GT predicate on the "archived_at" field.
+func ArchivedAtGT(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGT(FieldArchivedAt, v))
+}
+
+// ArchivedAtGTE applies the GTE predicate on the "archived_at" field.
+func ArchivedAtGTE(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGTE(FieldArchivedAt, v))
+}
+
+// ArchivedAtLT applies the LT predicate on the "archived_at" field.
+func ArchivedAtLT(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLT(FieldArchivedAt, v))
+}
+
+// ArchivedAtLTE applies the LTE predicate on the "archived_at" field.
+func ArchivedAtLTE(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLTE(FieldArchivedAt, v))
+}
+
+// ArchivedAtIsNil applies the IsNil predicate on the "archived_at" field.
+func ArchivedAtIsNil() predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIsNull(FieldArchivedAt))
+}
+
+// ArchivedAtNotNil applies the NotNil predicate on the "archived_at" field.
+func ArchivedAtNotNil() predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotNull(FieldArchivedAt))
 }
 
 // And groups predicates with the AND operator between them.

@@ -349,6 +349,7 @@ func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sd
 func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
 	catalog *settingsapp.Service,
+	promptService *intentapp.PromptService,
 	mediaService media.MessageReader,
 	scope *scopeapp.Service, conv *conversationapp.Service, memory memorycontracts.Reader, senders agentapp.SenderResolver,
 	handler *langfusecb.CallbackHandler, sensitiveHandler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
@@ -390,6 +391,7 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			MaxTotalChars:      live.Agent.Sending.MaxTotalCharsPerRun,
 		},
 		SendingLimits: limits,
+		Prompts:       promptService,
 		BotName:       live.Intent.BotName,
 		MaxTokens:     live.AI.MaxOutputTokens,
 		BotNameProvider: func(ctx context.Context) string {
@@ -400,6 +402,20 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		},
 		Logger: logger,
 	})
+}
+
+// buildPromptService builds the shared three-kind prompt service. Langfuse is
+// optional and explicit; the decision path never awaits it.
+func buildPromptService(cfg *config.Config, logger *slog.Logger, pool *db.Pool) (*intentapp.PromptService, error) {
+	repo, err := intentinfra.NewPromptsRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	remote := intentinfra.NewLangfusePromptClient(intentinfra.LangfusePromptConfig{
+		BaseURL: cfg.Observability.BaseURL, PublicKey: cfg.Observability.PublicKey,
+		SecretKey: cfg.Observability.SecretKey, Timeout: 5 * time.Second,
+	}, logger)
+	return intentapp.NewPromptService(repo, logger, remote), nil
 }
 
 // buildWorker wires the decision pipeline and the bounded worker. The worker is
@@ -413,6 +429,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	settings *settingsapp.Provider,
 	catalog *settingsapp.Service,
 	mediaService media.Transcriber,
+	promptService *intentapp.PromptService,
 	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder,
 ) (*conversationinfra.Worker, *intentinfra.DecisionsRepo, intentcontracts.SimulationEvaluator, *intentapp.PromptService, *intentapp.ReplayService, error) {
@@ -429,20 +446,9 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	promptsRepo, err := intentinfra.NewPromptsRepo(pool)
-	if err != nil {
-		return nil, nil, nil, nil, nil, err
+	if promptService == nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("assembly: prompt service required")
 	}
-	// Langfuse prompt sync is optional and explicit. The client is always
-	// constructed so the status endpoint can explain a missing configuration,
-	// but the decision path never calls it.
-	// Langfuse Prompt 同步是可选的显式操作。客户端始终构建，便于状态接口说明
-	// 配置缺失；判定路径绝不会调用它。
-	remotePrompts := intentinfra.NewLangfusePromptClient(intentinfra.LangfusePromptConfig{
-		BaseURL: cfg.Observability.BaseURL, PublicKey: cfg.Observability.PublicKey,
-		SecretKey: cfg.Observability.SecretKey, Timeout: 5 * time.Second,
-	}, logger)
-	promptService := intentapp.NewPromptService(promptsRepo, logger, remotePrompts)
 	live := settings.Settings()
 	transcripts, err := conversationinfra.NewRepo(pool)
 	if err != nil {
@@ -465,6 +471,10 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		HistoryLimit: live.Intent.HistoryLimit,
 		Provider:     live.Intent.Provider,
 		Model:        live.Intent.Model,
+		BotName:      live.Intent.BotName,
+		BotNameProvider: func() string {
+			return settings.Settings().Intent.BotName
+		},
 		// The console changes these without a restart, so the decider reads
 		// them per task instead of freezing the startup values.
 		// 控制台可不停机修改这些值，因此决策器按任务读取，而不是固化启动值。

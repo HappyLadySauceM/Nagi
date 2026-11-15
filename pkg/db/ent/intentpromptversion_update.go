@@ -44,6 +44,20 @@ func (_u *IntentPromptVersionUpdate) SetNillablePromptID(v *string) *IntentPromp
 	return _u
 }
 
+// SetPromptKind sets the "prompt_kind" field.
+func (_u *IntentPromptVersionUpdate) SetPromptKind(v string) *IntentPromptVersionUpdate {
+	_u.mutation.SetPromptKind(v)
+	return _u
+}
+
+// SetNillablePromptKind sets the "prompt_kind" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdate) SetNillablePromptKind(v *string) *IntentPromptVersionUpdate {
+	if v != nil {
+		_u.SetPromptKind(*v)
+	}
+	return _u
+}
+
 // SetName sets the "name" field.
 func (_u *IntentPromptVersionUpdate) SetName(v string) *IntentPromptVersionUpdate {
 	_u.mutation.SetName(v)
@@ -69,6 +83,62 @@ func (_u *IntentPromptVersionUpdate) SetNillableProvider(v *string) *IntentPromp
 	if v != nil {
 		_u.SetProvider(*v)
 	}
+	return _u
+}
+
+// SetBotID sets the "bot_id" field.
+func (_u *IntentPromptVersionUpdate) SetBotID(v int64) *IntentPromptVersionUpdate {
+	_u.mutation.ResetBotID()
+	_u.mutation.SetBotID(v)
+	return _u
+}
+
+// SetNillableBotID sets the "bot_id" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdate) SetNillableBotID(v *int64) *IntentPromptVersionUpdate {
+	if v != nil {
+		_u.SetBotID(*v)
+	}
+	return _u
+}
+
+// AddBotID adds value to the "bot_id" field.
+func (_u *IntentPromptVersionUpdate) AddBotID(v int64) *IntentPromptVersionUpdate {
+	_u.mutation.AddBotID(v)
+	return _u
+}
+
+// SetScopeType sets the "scope_type" field.
+func (_u *IntentPromptVersionUpdate) SetScopeType(v string) *IntentPromptVersionUpdate {
+	_u.mutation.SetScopeType(v)
+	return _u
+}
+
+// SetNillableScopeType sets the "scope_type" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdate) SetNillableScopeType(v *string) *IntentPromptVersionUpdate {
+	if v != nil {
+		_u.SetScopeType(*v)
+	}
+	return _u
+}
+
+// SetScopeID sets the "scope_id" field.
+func (_u *IntentPromptVersionUpdate) SetScopeID(v int64) *IntentPromptVersionUpdate {
+	_u.mutation.ResetScopeID()
+	_u.mutation.SetScopeID(v)
+	return _u
+}
+
+// SetNillableScopeID sets the "scope_id" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdate) SetNillableScopeID(v *int64) *IntentPromptVersionUpdate {
+	if v != nil {
+		_u.SetScopeID(*v)
+	}
+	return _u
+}
+
+// AddScopeID adds value to the "scope_id" field.
+func (_u *IntentPromptVersionUpdate) AddScopeID(v int64) *IntentPromptVersionUpdate {
+	_u.mutation.AddScopeID(v)
 	return _u
 }
 
@@ -209,6 +279,26 @@ func (_u *IntentPromptVersionUpdate) ClearPublishedAt() *IntentPromptVersionUpda
 	return _u
 }
 
+// SetArchivedAt sets the "archived_at" field.
+func (_u *IntentPromptVersionUpdate) SetArchivedAt(v time.Time) *IntentPromptVersionUpdate {
+	_u.mutation.SetArchivedAt(v)
+	return _u
+}
+
+// SetNillableArchivedAt sets the "archived_at" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdate) SetNillableArchivedAt(v *time.Time) *IntentPromptVersionUpdate {
+	if v != nil {
+		_u.SetArchivedAt(*v)
+	}
+	return _u
+}
+
+// ClearArchivedAt clears the value of the "archived_at" field.
+func (_u *IntentPromptVersionUpdate) ClearArchivedAt() *IntentPromptVersionUpdate {
+	_u.mutation.ClearArchivedAt()
+	return _u
+}
+
 // Mutation returns the IntentPromptVersionMutation object of the builder.
 func (_u *IntentPromptVersionUpdate) Mutation() *IntentPromptVersionMutation {
 	return _u.mutation
@@ -253,11 +343,29 @@ func (_u *IntentPromptVersionUpdate) sqlSave(ctx context.Context) (_node int, er
 	if value, ok := _u.mutation.PromptID(); ok {
 		_spec.SetField(intentpromptversion.FieldPromptID, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.PromptKind(); ok {
+		_spec.SetField(intentpromptversion.FieldPromptKind, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(intentpromptversion.FieldName, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(intentpromptversion.FieldProvider, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.BotID(); ok {
+		_spec.SetField(intentpromptversion.FieldBotID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedBotID(); ok {
+		_spec.AddField(intentpromptversion.FieldBotID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.ScopeType(); ok {
+		_spec.SetField(intentpromptversion.FieldScopeType, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ScopeID(); ok {
+		_spec.SetField(intentpromptversion.FieldScopeID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedScopeID(); ok {
+		_spec.AddField(intentpromptversion.FieldScopeID, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Version(); ok {
 		_spec.SetField(intentpromptversion.FieldVersion, field.TypeInt, value)
@@ -297,6 +405,12 @@ func (_u *IntentPromptVersionUpdate) sqlSave(ctx context.Context) (_node int, er
 	if _u.mutation.PublishedAtCleared() {
 		_spec.ClearField(intentpromptversion.FieldPublishedAt, field.TypeTime)
 	}
+	if value, ok := _u.mutation.ArchivedAt(); ok {
+		_spec.SetField(intentpromptversion.FieldArchivedAt, field.TypeTime, value)
+	}
+	if _u.mutation.ArchivedAtCleared() {
+		_spec.ClearField(intentpromptversion.FieldArchivedAt, field.TypeTime)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{intentpromptversion.Label}
@@ -331,6 +445,20 @@ func (_u *IntentPromptVersionUpdateOne) SetNillablePromptID(v *string) *IntentPr
 	return _u
 }
 
+// SetPromptKind sets the "prompt_kind" field.
+func (_u *IntentPromptVersionUpdateOne) SetPromptKind(v string) *IntentPromptVersionUpdateOne {
+	_u.mutation.SetPromptKind(v)
+	return _u
+}
+
+// SetNillablePromptKind sets the "prompt_kind" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdateOne) SetNillablePromptKind(v *string) *IntentPromptVersionUpdateOne {
+	if v != nil {
+		_u.SetPromptKind(*v)
+	}
+	return _u
+}
+
 // SetName sets the "name" field.
 func (_u *IntentPromptVersionUpdateOne) SetName(v string) *IntentPromptVersionUpdateOne {
 	_u.mutation.SetName(v)
@@ -356,6 +484,62 @@ func (_u *IntentPromptVersionUpdateOne) SetNillableProvider(v *string) *IntentPr
 	if v != nil {
 		_u.SetProvider(*v)
 	}
+	return _u
+}
+
+// SetBotID sets the "bot_id" field.
+func (_u *IntentPromptVersionUpdateOne) SetBotID(v int64) *IntentPromptVersionUpdateOne {
+	_u.mutation.ResetBotID()
+	_u.mutation.SetBotID(v)
+	return _u
+}
+
+// SetNillableBotID sets the "bot_id" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdateOne) SetNillableBotID(v *int64) *IntentPromptVersionUpdateOne {
+	if v != nil {
+		_u.SetBotID(*v)
+	}
+	return _u
+}
+
+// AddBotID adds value to the "bot_id" field.
+func (_u *IntentPromptVersionUpdateOne) AddBotID(v int64) *IntentPromptVersionUpdateOne {
+	_u.mutation.AddBotID(v)
+	return _u
+}
+
+// SetScopeType sets the "scope_type" field.
+func (_u *IntentPromptVersionUpdateOne) SetScopeType(v string) *IntentPromptVersionUpdateOne {
+	_u.mutation.SetScopeType(v)
+	return _u
+}
+
+// SetNillableScopeType sets the "scope_type" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdateOne) SetNillableScopeType(v *string) *IntentPromptVersionUpdateOne {
+	if v != nil {
+		_u.SetScopeType(*v)
+	}
+	return _u
+}
+
+// SetScopeID sets the "scope_id" field.
+func (_u *IntentPromptVersionUpdateOne) SetScopeID(v int64) *IntentPromptVersionUpdateOne {
+	_u.mutation.ResetScopeID()
+	_u.mutation.SetScopeID(v)
+	return _u
+}
+
+// SetNillableScopeID sets the "scope_id" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdateOne) SetNillableScopeID(v *int64) *IntentPromptVersionUpdateOne {
+	if v != nil {
+		_u.SetScopeID(*v)
+	}
+	return _u
+}
+
+// AddScopeID adds value to the "scope_id" field.
+func (_u *IntentPromptVersionUpdateOne) AddScopeID(v int64) *IntentPromptVersionUpdateOne {
+	_u.mutation.AddScopeID(v)
 	return _u
 }
 
@@ -496,6 +680,26 @@ func (_u *IntentPromptVersionUpdateOne) ClearPublishedAt() *IntentPromptVersionU
 	return _u
 }
 
+// SetArchivedAt sets the "archived_at" field.
+func (_u *IntentPromptVersionUpdateOne) SetArchivedAt(v time.Time) *IntentPromptVersionUpdateOne {
+	_u.mutation.SetArchivedAt(v)
+	return _u
+}
+
+// SetNillableArchivedAt sets the "archived_at" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdateOne) SetNillableArchivedAt(v *time.Time) *IntentPromptVersionUpdateOne {
+	if v != nil {
+		_u.SetArchivedAt(*v)
+	}
+	return _u
+}
+
+// ClearArchivedAt clears the value of the "archived_at" field.
+func (_u *IntentPromptVersionUpdateOne) ClearArchivedAt() *IntentPromptVersionUpdateOne {
+	_u.mutation.ClearArchivedAt()
+	return _u
+}
+
 // Mutation returns the IntentPromptVersionMutation object of the builder.
 func (_u *IntentPromptVersionUpdateOne) Mutation() *IntentPromptVersionMutation {
 	return _u.mutation
@@ -570,11 +774,29 @@ func (_u *IntentPromptVersionUpdateOne) sqlSave(ctx context.Context) (_node *Int
 	if value, ok := _u.mutation.PromptID(); ok {
 		_spec.SetField(intentpromptversion.FieldPromptID, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.PromptKind(); ok {
+		_spec.SetField(intentpromptversion.FieldPromptKind, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(intentpromptversion.FieldName, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(intentpromptversion.FieldProvider, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.BotID(); ok {
+		_spec.SetField(intentpromptversion.FieldBotID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedBotID(); ok {
+		_spec.AddField(intentpromptversion.FieldBotID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.ScopeType(); ok {
+		_spec.SetField(intentpromptversion.FieldScopeType, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ScopeID(); ok {
+		_spec.SetField(intentpromptversion.FieldScopeID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedScopeID(); ok {
+		_spec.AddField(intentpromptversion.FieldScopeID, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Version(); ok {
 		_spec.SetField(intentpromptversion.FieldVersion, field.TypeInt, value)
@@ -613,6 +835,12 @@ func (_u *IntentPromptVersionUpdateOne) sqlSave(ctx context.Context) (_node *Int
 	}
 	if _u.mutation.PublishedAtCleared() {
 		_spec.ClearField(intentpromptversion.FieldPublishedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.ArchivedAt(); ok {
+		_spec.SetField(intentpromptversion.FieldArchivedAt, field.TypeTime, value)
+	}
+	if _u.mutation.ArchivedAtCleared() {
+		_spec.ClearField(intentpromptversion.FieldArchivedAt, field.TypeTime)
 	}
 	_node = &IntentPromptVersion{config: _u.config}
 	_spec.Assign = _node.assignValues

@@ -56,6 +56,7 @@ type ExtractionWorkerOptions struct {
 	RetryBackoff     time.Duration
 	RetryDelays      []time.Duration
 	Lease            time.Duration
+	BotName          func() string
 }
 
 // ExtractionWorker incrementally scans authorized sessions and processes
@@ -223,7 +224,7 @@ func (w *ExtractionWorker) processBatch(ctx context.Context, batch domain.Extrac
 		_ = w.repo.CancelExtractionBatch(ctx, batch, "disabled")
 		return
 	}
-	candidates, err := w.extractor.Extract(ctx, domain.ExtractionRequest{Scope: batch.Scope, Messages: batch.Messages, MaxRunes: w.opts.BatchMaxRunes})
+	candidates, err := w.extractor.Extract(ctx, domain.ExtractionRequest{Scope: batch.Scope, Messages: batch.Messages, BotName: w.botName(), MaxRunes: w.opts.BatchMaxRunes})
 	if err != nil {
 		w.failBatch(ctx, batch, "extractor_failed", err)
 		return
@@ -345,6 +346,13 @@ func (w *ExtractionWorker) materializeCandidates(batch domain.ExtractionBatch, c
 
 func (w *ExtractionWorker) enabled() bool {
 	return w.opts.Enabled == nil || w.opts.Enabled()
+}
+
+func (w *ExtractionWorker) botName() string {
+	if w.opts.BotName == nil {
+		return ""
+	}
+	return w.opts.BotName()
 }
 
 func normalizeReviewReason(value string) string {

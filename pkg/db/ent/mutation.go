@@ -14453,8 +14453,14 @@ type IntentPromptVersionMutation struct {
 	typ           string
 	id            *int64
 	prompt_id     *string
+	prompt_kind   *string
 	name          *string
 	provider      *string
+	bot_id        *int64
+	addbot_id     *int64
+	scope_type    *string
+	scope_id      *int64
+	addscope_id   *int64
 	version       *int
 	addversion    *int
 	status        *string
@@ -14466,6 +14472,7 @@ type IntentPromptVersionMutation struct {
 	appendcontent jsontext.Value
 	created_at    *time.Time
 	published_at  *time.Time
+	archived_at   *time.Time
 	clearedFields map[string]struct{}
 	done          bool
 	oldValue      func(context.Context) (*IntentPromptVersion, error)
@@ -14612,6 +14619,42 @@ func (m *IntentPromptVersionMutation) ResetPromptID() {
 	m.prompt_id = nil
 }
 
+// SetPromptKind sets the "prompt_kind" field.
+func (m *IntentPromptVersionMutation) SetPromptKind(s string) {
+	m.prompt_kind = &s
+}
+
+// PromptKind returns the value of the "prompt_kind" field in the mutation.
+func (m *IntentPromptVersionMutation) PromptKind() (r string, exists bool) {
+	v := m.prompt_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPromptKind returns the old "prompt_kind" field's value of the IntentPromptVersion entity.
+// If the IntentPromptVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentPromptVersionMutation) OldPromptKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPromptKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPromptKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPromptKind: %w", err)
+	}
+	return oldValue.PromptKind, nil
+}
+
+// ResetPromptKind resets all changes to the "prompt_kind" field.
+func (m *IntentPromptVersionMutation) ResetPromptKind() {
+	m.prompt_kind = nil
+}
+
 // SetName sets the "name" field.
 func (m *IntentPromptVersionMutation) SetName(s string) {
 	m.name = &s
@@ -14682,6 +14725,154 @@ func (m *IntentPromptVersionMutation) OldProvider(ctx context.Context) (v string
 // ResetProvider resets all changes to the "provider" field.
 func (m *IntentPromptVersionMutation) ResetProvider() {
 	m.provider = nil
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *IntentPromptVersionMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *IntentPromptVersionMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the IntentPromptVersion entity.
+// If the IntentPromptVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentPromptVersionMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *IntentPromptVersionMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *IntentPromptVersionMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *IntentPromptVersionMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetScopeType sets the "scope_type" field.
+func (m *IntentPromptVersionMutation) SetScopeType(s string) {
+	m.scope_type = &s
+}
+
+// ScopeType returns the value of the "scope_type" field in the mutation.
+func (m *IntentPromptVersionMutation) ScopeType() (r string, exists bool) {
+	v := m.scope_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeType returns the old "scope_type" field's value of the IntentPromptVersion entity.
+// If the IntentPromptVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentPromptVersionMutation) OldScopeType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeType: %w", err)
+	}
+	return oldValue.ScopeType, nil
+}
+
+// ResetScopeType resets all changes to the "scope_type" field.
+func (m *IntentPromptVersionMutation) ResetScopeType() {
+	m.scope_type = nil
+}
+
+// SetScopeID sets the "scope_id" field.
+func (m *IntentPromptVersionMutation) SetScopeID(i int64) {
+	m.scope_id = &i
+	m.addscope_id = nil
+}
+
+// ScopeID returns the value of the "scope_id" field in the mutation.
+func (m *IntentPromptVersionMutation) ScopeID() (r int64, exists bool) {
+	v := m.scope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeID returns the old "scope_id" field's value of the IntentPromptVersion entity.
+// If the IntentPromptVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentPromptVersionMutation) OldScopeID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeID: %w", err)
+	}
+	return oldValue.ScopeID, nil
+}
+
+// AddScopeID adds i to the "scope_id" field.
+func (m *IntentPromptVersionMutation) AddScopeID(i int64) {
+	if m.addscope_id != nil {
+		*m.addscope_id += i
+	} else {
+		m.addscope_id = &i
+	}
+}
+
+// AddedScopeID returns the value that was added to the "scope_id" field in this mutation.
+func (m *IntentPromptVersionMutation) AddedScopeID() (r int64, exists bool) {
+	v := m.addscope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetScopeID resets all changes to the "scope_id" field.
+func (m *IntentPromptVersionMutation) ResetScopeID() {
+	m.scope_id = nil
+	m.addscope_id = nil
 }
 
 // SetVersion sets the "version" field.
@@ -15056,6 +15247,55 @@ func (m *IntentPromptVersionMutation) ResetPublishedAt() {
 	delete(m.clearedFields, intentpromptversion.FieldPublishedAt)
 }
 
+// SetArchivedAt sets the "archived_at" field.
+func (m *IntentPromptVersionMutation) SetArchivedAt(t time.Time) {
+	m.archived_at = &t
+}
+
+// ArchivedAt returns the value of the "archived_at" field in the mutation.
+func (m *IntentPromptVersionMutation) ArchivedAt() (r time.Time, exists bool) {
+	v := m.archived_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldArchivedAt returns the old "archived_at" field's value of the IntentPromptVersion entity.
+// If the IntentPromptVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentPromptVersionMutation) OldArchivedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldArchivedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldArchivedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldArchivedAt: %w", err)
+	}
+	return oldValue.ArchivedAt, nil
+}
+
+// ClearArchivedAt clears the value of the "archived_at" field.
+func (m *IntentPromptVersionMutation) ClearArchivedAt() {
+	m.archived_at = nil
+	m.clearedFields[intentpromptversion.FieldArchivedAt] = struct{}{}
+}
+
+// ArchivedAtCleared returns if the "archived_at" field was cleared in this mutation.
+func (m *IntentPromptVersionMutation) ArchivedAtCleared() bool {
+	_, ok := m.clearedFields[intentpromptversion.FieldArchivedAt]
+	return ok
+}
+
+// ResetArchivedAt resets all changes to the "archived_at" field.
+func (m *IntentPromptVersionMutation) ResetArchivedAt() {
+	m.archived_at = nil
+	delete(m.clearedFields, intentpromptversion.FieldArchivedAt)
+}
+
 // Where appends a list predicates to the IntentPromptVersionMutation builder.
 func (m *IntentPromptVersionMutation) Where(ps ...predicate.IntentPromptVersion) {
 	m.predicates = append(m.predicates, ps...)
@@ -15090,15 +15330,27 @@ func (m *IntentPromptVersionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *IntentPromptVersionMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 17)
 	if m.prompt_id != nil {
 		fields = append(fields, intentpromptversion.FieldPromptID)
+	}
+	if m.prompt_kind != nil {
+		fields = append(fields, intentpromptversion.FieldPromptKind)
 	}
 	if m.name != nil {
 		fields = append(fields, intentpromptversion.FieldName)
 	}
 	if m.provider != nil {
 		fields = append(fields, intentpromptversion.FieldProvider)
+	}
+	if m.bot_id != nil {
+		fields = append(fields, intentpromptversion.FieldBotID)
+	}
+	if m.scope_type != nil {
+		fields = append(fields, intentpromptversion.FieldScopeType)
+	}
+	if m.scope_id != nil {
+		fields = append(fields, intentpromptversion.FieldScopeID)
 	}
 	if m.version != nil {
 		fields = append(fields, intentpromptversion.FieldVersion)
@@ -15127,6 +15379,9 @@ func (m *IntentPromptVersionMutation) Fields() []string {
 	if m.published_at != nil {
 		fields = append(fields, intentpromptversion.FieldPublishedAt)
 	}
+	if m.archived_at != nil {
+		fields = append(fields, intentpromptversion.FieldArchivedAt)
+	}
 	return fields
 }
 
@@ -15137,10 +15392,18 @@ func (m *IntentPromptVersionMutation) Field(name string) (ent.Value, bool) {
 	switch name {
 	case intentpromptversion.FieldPromptID:
 		return m.PromptID()
+	case intentpromptversion.FieldPromptKind:
+		return m.PromptKind()
 	case intentpromptversion.FieldName:
 		return m.Name()
 	case intentpromptversion.FieldProvider:
 		return m.Provider()
+	case intentpromptversion.FieldBotID:
+		return m.BotID()
+	case intentpromptversion.FieldScopeType:
+		return m.ScopeType()
+	case intentpromptversion.FieldScopeID:
+		return m.ScopeID()
 	case intentpromptversion.FieldVersion:
 		return m.Version()
 	case intentpromptversion.FieldStatus:
@@ -15159,6 +15422,8 @@ func (m *IntentPromptVersionMutation) Field(name string) (ent.Value, bool) {
 		return m.CreatedAt()
 	case intentpromptversion.FieldPublishedAt:
 		return m.PublishedAt()
+	case intentpromptversion.FieldArchivedAt:
+		return m.ArchivedAt()
 	}
 	return nil, false
 }
@@ -15170,10 +15435,18 @@ func (m *IntentPromptVersionMutation) OldField(ctx context.Context, name string)
 	switch name {
 	case intentpromptversion.FieldPromptID:
 		return m.OldPromptID(ctx)
+	case intentpromptversion.FieldPromptKind:
+		return m.OldPromptKind(ctx)
 	case intentpromptversion.FieldName:
 		return m.OldName(ctx)
 	case intentpromptversion.FieldProvider:
 		return m.OldProvider(ctx)
+	case intentpromptversion.FieldBotID:
+		return m.OldBotID(ctx)
+	case intentpromptversion.FieldScopeType:
+		return m.OldScopeType(ctx)
+	case intentpromptversion.FieldScopeID:
+		return m.OldScopeID(ctx)
 	case intentpromptversion.FieldVersion:
 		return m.OldVersion(ctx)
 	case intentpromptversion.FieldStatus:
@@ -15192,6 +15465,8 @@ func (m *IntentPromptVersionMutation) OldField(ctx context.Context, name string)
 		return m.OldCreatedAt(ctx)
 	case intentpromptversion.FieldPublishedAt:
 		return m.OldPublishedAt(ctx)
+	case intentpromptversion.FieldArchivedAt:
+		return m.OldArchivedAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown IntentPromptVersion field %s", name)
 }
@@ -15208,6 +15483,13 @@ func (m *IntentPromptVersionMutation) SetField(name string, value ent.Value) err
 		}
 		m.SetPromptID(v)
 		return nil
+	case intentpromptversion.FieldPromptKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPromptKind(v)
+		return nil
 	case intentpromptversion.FieldName:
 		v, ok := value.(string)
 		if !ok {
@@ -15221,6 +15503,27 @@ func (m *IntentPromptVersionMutation) SetField(name string, value ent.Value) err
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetProvider(v)
+		return nil
+	case intentpromptversion.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case intentpromptversion.FieldScopeType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeType(v)
+		return nil
+	case intentpromptversion.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeID(v)
 		return nil
 	case intentpromptversion.FieldVersion:
 		v, ok := value.(int)
@@ -15285,6 +15588,13 @@ func (m *IntentPromptVersionMutation) SetField(name string, value ent.Value) err
 		}
 		m.SetPublishedAt(v)
 		return nil
+	case intentpromptversion.FieldArchivedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetArchivedAt(v)
+		return nil
 	}
 	return fmt.Errorf("unknown IntentPromptVersion field %s", name)
 }
@@ -15293,6 +15603,12 @@ func (m *IntentPromptVersionMutation) SetField(name string, value ent.Value) err
 // this mutation.
 func (m *IntentPromptVersionMutation) AddedFields() []string {
 	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, intentpromptversion.FieldBotID)
+	}
+	if m.addscope_id != nil {
+		fields = append(fields, intentpromptversion.FieldScopeID)
+	}
 	if m.addversion != nil {
 		fields = append(fields, intentpromptversion.FieldVersion)
 	}
@@ -15304,6 +15620,10 @@ func (m *IntentPromptVersionMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *IntentPromptVersionMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case intentpromptversion.FieldBotID:
+		return m.AddedBotID()
+	case intentpromptversion.FieldScopeID:
+		return m.AddedScopeID()
 	case intentpromptversion.FieldVersion:
 		return m.AddedVersion()
 	}
@@ -15315,6 +15635,20 @@ func (m *IntentPromptVersionMutation) AddedField(name string) (ent.Value, bool) 
 // type.
 func (m *IntentPromptVersionMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case intentpromptversion.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	case intentpromptversion.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddScopeID(v)
+		return nil
 	case intentpromptversion.FieldVersion:
 		v, ok := value.(int)
 		if !ok {
@@ -15333,6 +15667,9 @@ func (m *IntentPromptVersionMutation) ClearedFields() []string {
 	if m.FieldCleared(intentpromptversion.FieldPublishedAt) {
 		fields = append(fields, intentpromptversion.FieldPublishedAt)
 	}
+	if m.FieldCleared(intentpromptversion.FieldArchivedAt) {
+		fields = append(fields, intentpromptversion.FieldArchivedAt)
+	}
 	return fields
 }
 
@@ -15350,6 +15687,9 @@ func (m *IntentPromptVersionMutation) ClearField(name string) error {
 	case intentpromptversion.FieldPublishedAt:
 		m.ClearPublishedAt()
 		return nil
+	case intentpromptversion.FieldArchivedAt:
+		m.ClearArchivedAt()
+		return nil
 	}
 	return fmt.Errorf("unknown IntentPromptVersion nullable field %s", name)
 }
@@ -15361,11 +15701,23 @@ func (m *IntentPromptVersionMutation) ResetField(name string) error {
 	case intentpromptversion.FieldPromptID:
 		m.ResetPromptID()
 		return nil
+	case intentpromptversion.FieldPromptKind:
+		m.ResetPromptKind()
+		return nil
 	case intentpromptversion.FieldName:
 		m.ResetName()
 		return nil
 	case intentpromptversion.FieldProvider:
 		m.ResetProvider()
+		return nil
+	case intentpromptversion.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case intentpromptversion.FieldScopeType:
+		m.ResetScopeType()
+		return nil
+	case intentpromptversion.FieldScopeID:
+		m.ResetScopeID()
 		return nil
 	case intentpromptversion.FieldVersion:
 		m.ResetVersion()
@@ -15393,6 +15745,9 @@ func (m *IntentPromptVersionMutation) ResetField(name string) error {
 		return nil
 	case intentpromptversion.FieldPublishedAt:
 		m.ResetPublishedAt()
+		return nil
+	case intentpromptversion.FieldArchivedAt:
+		m.ResetArchivedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown IntentPromptVersion field %s", name)

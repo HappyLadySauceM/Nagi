@@ -54,15 +54,26 @@ type OpenAIPrompt struct {
 // Prompt 是一次语义调用使用的不可变 Prompt 快照。
 type Prompt struct {
 	ID             string
+	Kind           string
 	Name           string
 	Version        int
 	Provider       string
 	Source         string
 	SourceRef      string
 	Hash           string
+	FinalHash      string
+	RenderedHash   string
 	FallbackReason string
+	BotID          int64
+	ScopeType      string
+	ScopeID        int64
+	TargetType     string
+	TargetID       int64
+	ConversationID string
+	Variables      map[string]string
 	SystemOne      *SystemOnePrompt
 	OpenAI         *OpenAIPrompt
+	Layers         []PromptLayer
 }
 
 // PromptRecord is one persisted prompt version returned by the admin API.
@@ -70,8 +81,12 @@ type Prompt struct {
 type PromptRecord struct {
 	ID          int64
 	PromptID    string
+	Kind        string
 	Name        string
 	Provider    string
+	BotID       int64
+	ScopeType   string
+	ScopeID     int64
 	Version     int
 	Status      string
 	Source      string
@@ -81,6 +96,7 @@ type PromptRecord struct {
 	Content     json.RawMessage
 	CreatedAt   string
 	PublishedAt string
+	ArchivedAt  string
 }
 
 // ValidateSystemOnePrompt rejects prompt content that cannot drive the typed
@@ -108,8 +124,17 @@ func ValidateSystemOnePrompt(p *SystemOnePrompt) error {
 			return errInvalidPrompt("choice criteria required")
 		}
 	}
-	if len(p.Questions) > 16 {
-		return errInvalidPrompt("too many questions")
+	if len(p.Questions) != len(required) {
+		return errInvalidPrompt("exactly five fixed questions required")
+	}
+	categoryKeys := map[string]struct{}{"question": {}, "chat": {}, "command": {}, "closing": {}, "other": {}}
+	if len(p.Questions["intent"].Criteria) != len(categoryKeys) {
+		return errInvalidPrompt("intent criteria keys are fixed")
+	}
+	for key := range categoryKeys {
+		if _, ok := p.Questions["intent"].Criteria[key]; !ok {
+			return errInvalidPrompt("missing intent category " + key)
+		}
 	}
 	return nil
 }
@@ -167,18 +192,55 @@ func BuiltinPrompt(provider string) Prompt {
 // PromptHash returns a stable SHA-256 over the provider-specific content.
 // PromptHash 返回提供方专属内容的稳定 SHA-256。
 func PromptHash(p Prompt) string {
-	raw := map[string]any{"Provider": p.Provider, "SystemOne": p.SystemOne, "OpenAI": p.OpenAI}
+	data, _ := json.Marshal(promptContentMap(p))
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// PromptContentJSON canonicalizes one provider-specific prompt for storage.
+// PromptContentJSON 将提供方专属 Prompt 规范化后用于存储。
+func PromptContentJSON(p Prompt) json.RawMessage {
+	data, _ := json.Marshal(promptContentMap(p))
+	return data
+}
+
+func promptContentMap(p Prompt) map[string]any {
+	raw := map[string]any{"Provider": p.Provider}
+	if p.SystemOne != nil {
+		raw["SystemOne"] = p.SystemOne
+	}
+	if p.OpenAI != nil {
+		raw["OpenAI"] = p.OpenAI
+	}
+	return raw
+}
+
+// PromptFinalHash returns the stable hash of the composed template, editable
+// layer hashes and server constraint version. Runtime variables are excluded.
+// PromptFinalHash 返回合成模板、可编辑层 Hash 与服务端约束版本的稳定 Hash；
+// 运行时变量不参与。
+func PromptFinalHash(p Prompt) string {
+	layers := make([]map[string]any, 0, len(p.Layers))
+	for _, layer := range p.Layers {
+		layers = append(layers, map[string]any{
+			"Layer": layer.Layer, "VersionID": layer.VersionID, "Version": layer.Version,
+			"Source": layer.Source, "Hash": layer.Hash,
+		})
+	}
+	raw := map[string]any{
+		"Layers": layers, "Content": promptContentMap(p),
+		"ServerConstraints": map[string]string{"Version": PromptServerConstraintsVersion, "Text": PromptServerConstraintsText},
+	}
 	data, _ := json.Marshal(raw)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-// PromptContentJSON canonicalizes a system-one prompt for storage.
-// PromptContentJSON 将 SystemOne Prompt 规范化后用于存储。
-func PromptContentJSON(p Prompt) json.RawMessage {
-	raw := map[string]any{"Provider": p.Provider, "SystemOne": p.SystemOne, "OpenAI": p.OpenAI}
-	data, _ := json.Marshal(raw)
-	return data
+// PromptTextHash returns a stable SHA-256 for a fixed server-owned text block.
+// PromptTextHash 返回固定服务端文本块的稳定 SHA-256。
+func PromptTextHash(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
 }
 
 // ParsePromptContent parses stored prompt content into the typed provider shape.

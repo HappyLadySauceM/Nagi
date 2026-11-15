@@ -57,6 +57,9 @@ func BuildRunFromDecision(final domain.FinalDecision, delivery contracts.Deliver
 		Summary:       contracts.RunSummary{Decision: string(final.Decision), ReasonCode: final.ReasonCode, ReasonText: domain.ReasonText(final.ReasonCode)},
 		Delivery:      delivery, Scores: final.Scores, LatencyMS: final.LatencyMS, CreatedAt: time.Now(),
 	}
+	if final.Snapshot != nil {
+		run.Prompt = promptInfoFromDomain(final.Snapshot.Prompt)
+	}
 	for _, step := range final.Steps {
 		run.Nodes = append(run.Nodes, contracts.RunNode{
 			NodeID: step.NodeID, Version: step.NodeVersion, Status: firstStatus(step.Status), Branch: step.Branch, ReasonCode: step.ReasonCode,

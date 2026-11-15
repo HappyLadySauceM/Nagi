@@ -4,6 +4,7 @@ package contracts
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
@@ -126,12 +127,20 @@ type ReplayInfo struct {
 // PromptInfo identifies the immutable prompt version used by one run.
 // PromptInfo 标识一次运行使用的不可变 Prompt 版本。
 type PromptInfo struct {
-	ID        string
-	Name      string
-	Version   int
-	Source    string
-	SourceRef string
-	Hash      string
+	ID             string
+	Kind           string
+	Name           string
+	Version        int
+	Source         string
+	SourceRef      string
+	Hash           string
+	FinalHash      string
+	RenderedHash   string
+	Content        json.RawMessage
+	TargetType     string
+	TargetID       int64
+	ConversationID string
+	Layers         []domain.PromptLayer
 }
 
 // Run is the single run contract shared by decision detail and simulation.

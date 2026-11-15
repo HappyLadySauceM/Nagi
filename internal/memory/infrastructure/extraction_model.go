@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	einoschema "github.com/cloudwego/eino/schema"
 
+	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
@@ -21,12 +22,22 @@ import (
 // ModelExtractor 使用一次 OpenAI 兼容聊天调用实现 Extractor。
 type ModelExtractor struct {
 	resolver models.Resolver
+	prompts  PromptProvider
+}
+
+// PromptProvider resolves the editable memory.extraction prompt for one scope.
+type PromptProvider interface {
+	ResolveFor(ctx context.Context, promptID, kind, provider string, botID int64, targetType string, targetID int64, variables map[string]string) intentdomain.Prompt
 }
 
 // NewModelExtractor builds an extractor around the live model resolver.
 // NewModelExtractor 围绕实时模型解析器构建抽取器。
-func NewModelExtractor(resolver models.Resolver) *ModelExtractor {
-	return &ModelExtractor{resolver: resolver}
+func NewModelExtractor(resolver models.Resolver, prompts ...PromptProvider) *ModelExtractor {
+	e := &ModelExtractor{resolver: resolver}
+	if len(prompts) > 0 {
+		e.prompts = prompts[0]
+	}
+	return e
 }
 
 const extractionSystemPrompt = `你是长期记忆候选抽取器。请只从给定聊天消息中提取值得长期保存的事实或偏好候选。
@@ -125,9 +136,10 @@ func (e *ModelExtractor) Extract(ctx context.Context, request domain.ExtractionR
 	if err != nil {
 		return nil, fmt.Errorf("memory extraction: build model: %w", err)
 	}
+	systemPrompt, userTemplate := e.resolvePrompt(ctx, request)
 	response, err := chatModel.Generate(ctx, []*einoschema.Message{
-		einoschema.SystemMessage(extractionSystemPrompt),
-		einoschema.UserMessage("聊天消息：\n" + string(payload)),
+		einoschema.SystemMessage(systemPrompt),
+		einoschema.UserMessage(strings.ReplaceAll(userTemplate, "{{messages_json}}", string(payload))),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("memory extraction: model call: %w", err)
@@ -136,6 +148,25 @@ func (e *ModelExtractor) Extract(ctx context.Context, request domain.ExtractionR
 		return nil, fmt.Errorf("memory extraction: empty model response")
 	}
 	return parseExtractionCandidates(response.Content)
+}
+
+func (e *ModelExtractor) resolvePrompt(ctx context.Context, request domain.ExtractionRequest) (string, string) {
+	systemPrompt := extractionSystemPrompt
+	userTemplate := "聊天消息：\n{{messages_json}}"
+	if e.prompts == nil {
+		return systemPrompt, userTemplate
+	}
+	prompt := e.prompts.ResolveFor(ctx, intentdomain.PromptIDMemoryExtraction, intentdomain.PromptKindMemoryExtraction, intentdomain.PromptProviderOpenAI, request.Scope.BotID, request.Scope.ScopeType, request.Scope.ScopeID, map[string]string{"bot_name": request.BotName, "scope_type": request.Scope.ScopeType})
+	if prompt.OpenAI == nil {
+		return systemPrompt, userTemplate
+	}
+	if strings.TrimSpace(prompt.OpenAI.SystemPrompt) != "" {
+		systemPrompt = prompt.OpenAI.SystemPrompt
+	}
+	if strings.Contains(prompt.OpenAI.UserTemplate, "{{messages_json}}") {
+		userTemplate = prompt.OpenAI.UserTemplate
+	}
+	return systemPrompt, userTemplate
 }
 
 func parseExtractionCandidates(raw string) ([]domain.ExtractionCandidate, error) {

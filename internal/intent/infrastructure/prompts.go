@@ -36,7 +36,11 @@ func NewPromptsRepo(p *db.Pool) (*PromptsRepo, error) {
 // Active 返回某个逻辑 Prompt 与提供方当前已发布的版本。
 func (r *PromptsRepo) Active(ctx context.Context, promptID, provider string) (domain.PromptRecord, bool, error) {
 	row, err := r.pool.Client.IntentPromptVersion.Query().
-		Where(ipv.PromptID(promptID), ipv.Provider(provider), ipv.Status(domain.PromptStatusPublished)).
+		Where(
+			ipv.PromptID(promptID), ipv.PromptKind(domain.PromptKindIntentParticipation),
+			ipv.Provider(provider), ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
+			ipv.Status(domain.PromptStatusPublished),
+		).
 		Order(ent.Desc(ipv.FieldVersion)).First(ctx)
 	if ent.IsNotFound(err) {
 		return domain.PromptRecord{}, false, nil
@@ -48,7 +52,10 @@ func (r *PromptsRepo) Active(ctx context.Context, promptID, provider string) (do
 }
 
 func (r *PromptsRepo) List(ctx context.Context) ([]domain.PromptRecord, error) {
-	rows, err := r.pool.Client.IntentPromptVersion.Query().Order(ent.Desc(ipv.FieldCreatedAt)).All(ctx)
+	rows, err := r.pool.Client.IntentPromptVersion.Query().Where(
+		ipv.PromptKind(domain.PromptKindIntentParticipation), ipv.BotID(0),
+		ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
+	).Order(ent.Desc(ipv.FieldCreatedAt)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +68,10 @@ func (r *PromptsRepo) List(ctx context.Context) ([]domain.PromptRecord, error) {
 
 func (r *PromptsRepo) Versions(ctx context.Context, promptID string) ([]domain.PromptRecord, error) {
 	rows, err := r.pool.Client.IntentPromptVersion.Query().
-		Where(ipv.PromptID(promptID)).
+		Where(
+			ipv.PromptID(promptID), ipv.PromptKind(domain.PromptKindIntentParticipation),
+			ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
+		).
 		Order(ent.Desc(ipv.FieldVersion)).All(ctx)
 	if err != nil {
 		return nil, err
@@ -94,7 +104,10 @@ func (r *PromptsRepo) CreateDraft(ctx context.Context, promptID, name, provider 
 	defer tx.Rollback()
 	c := tx.Client()
 	var latest int
-	if row, err := c.IntentPromptVersion.Query().Where(ipv.PromptID(promptID)).Order(ent.Desc(ipv.FieldVersion)).First(ctx); err == nil {
+	if row, err := c.IntentPromptVersion.Query().Where(
+		ipv.PromptID(promptID), ipv.PromptKind(domain.PromptKindIntentParticipation),
+		ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
+	).Order(ent.Desc(ipv.FieldVersion)).First(ctx); err == nil {
 		latest = row.Version
 	} else if !ent.IsNotFound(err) {
 		return domain.PromptRecord{}, err
@@ -104,7 +117,8 @@ func (r *PromptsRepo) CreateDraft(ctx context.Context, promptID, name, provider 
 		return domain.PromptRecord{}, err
 	}
 	row, err := c.IntentPromptVersion.Create().
-		SetPromptID(promptID).SetName(name).SetProvider(provider).SetVersion(latest + 1).
+		SetPromptID(promptID).SetPromptKind(domain.PromptKindIntentParticipation).
+		SetName(name).SetProvider(provider).SetBotID(0).SetScopeType(domain.PromptScopeAccount).SetScopeID(0).SetVersion(latest + 1).
 		SetStatus(domain.PromptStatusDraft).SetSource(source).SetSourceRef(sourceRef).
 		SetHash(domain.PromptHash(content)).SetNote(note).SetContent(raw).Save(ctx)
 	if err != nil {
@@ -159,7 +173,7 @@ func (r *PromptsRepo) Publish(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if err := lockPromptTx(ctx, c, initial.PromptID); err != nil {
+	if err := lockPromptLayerTx(ctx, c, initial); err != nil {
 		return err
 	}
 	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).ForUpdate().Only(ctx)
@@ -189,11 +203,22 @@ func (r *PromptsRepo) Rollback(ctx context.Context, promptID string, version int
 	}
 	defer tx.Rollback()
 	c := tx.Client()
-	if err := lockPromptTx(ctx, c, promptID); err != nil {
+	initial, err := c.IntentPromptVersion.Query().
+		Where(
+			ipv.PromptID(promptID), ipv.PromptKind(domain.PromptKindIntentParticipation),
+			ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
+			ipv.Version(version),
+		).Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrPromptNotFound
+	}
+	if err != nil {
 		return err
 	}
-	row, err := c.IntentPromptVersion.Query().
-		Where(ipv.PromptID(promptID), ipv.Version(version)).ForUpdate().Only(ctx)
+	if err := lockPromptLayerTx(ctx, c, initial); err != nil {
+		return err
+	}
+	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(initial.ID)).ForUpdate().Only(ctx)
 	if ent.IsNotFound(err) {
 		return ErrPromptNotFound
 	}
@@ -213,13 +238,18 @@ func lockPromptTx(ctx context.Context, c *ent.Client, promptID string) error {
 
 func publishPromptTx(ctx context.Context, tx *ent.Tx, row *ent.IntentPromptVersion) error {
 	c := tx.Client()
+	now := time.Now()
 	if _, err := c.IntentPromptVersion.Update().
-		Where(ipv.PromptID(row.PromptID), ipv.Provider(row.Provider), ipv.Status(domain.PromptStatusPublished)).
-		SetStatus(domain.PromptStatusArchived).Save(ctx); err != nil {
+		Where(
+			ipv.PromptID(row.PromptID), ipv.PromptKind(row.PromptKind), ipv.Provider(row.Provider),
+			ipv.BotID(row.BotID), ipv.ScopeType(row.ScopeType), ipv.ScopeID(0),
+			ipv.Status(domain.PromptStatusPublished),
+		).
+		SetStatus(domain.PromptStatusArchived).SetArchivedAt(now).Save(ctx); err != nil {
 		return err
 	}
-	now := time.Now()
-	if err := c.IntentPromptVersion.UpdateOneID(row.ID).SetStatus(domain.PromptStatusPublished).SetPublishedAt(now).Exec(ctx); err != nil {
+	if err := c.IntentPromptVersion.UpdateOneID(row.ID).
+		SetStatus(domain.PromptStatusPublished).SetPublishedAt(now).ClearArchivedAt().Exec(ctx); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -227,7 +257,8 @@ func publishPromptTx(ctx context.Context, tx *ent.Tx, row *ent.IntentPromptVersi
 
 func promptRecord(row *ent.IntentPromptVersion) domain.PromptRecord {
 	rec := domain.PromptRecord{
-		ID: row.ID, PromptID: row.PromptID, Name: row.Name, Provider: row.Provider,
+		ID: row.ID, PromptID: row.PromptID, Kind: row.PromptKind, Name: row.Name, Provider: row.Provider,
+		BotID: row.BotID, ScopeType: row.ScopeType, ScopeID: row.ScopeID,
 		Version: row.Version, Status: row.Status, Source: row.Source, SourceRef: row.SourceRef,
 		Hash: row.Hash, Note: row.Note, Content: append(json.RawMessage(nil), []byte(row.Content)...),
 		CreatedAt: row.CreatedAt.Format(time.RFC3339),
@@ -235,11 +266,21 @@ func promptRecord(row *ent.IntentPromptVersion) domain.PromptRecord {
 	if row.PublishedAt != nil {
 		rec.PublishedAt = row.PublishedAt.Format(time.RFC3339)
 	}
+	if row.ArchivedAt != nil {
+		rec.ArchivedAt = row.ArchivedAt.Format(time.RFC3339)
+	}
 	return rec
 }
 
 func promptContentPayload(p domain.Prompt) map[string]any {
-	return map[string]any{"Provider": p.Provider, "SystemOne": p.SystemOne, "OpenAI": p.OpenAI}
+	out := map[string]any{"Provider": p.Provider}
+	if p.SystemOne != nil {
+		out["SystemOne"] = p.SystemOne
+	}
+	if p.OpenAI != nil {
+		out["OpenAI"] = p.OpenAI
+	}
+	return out
 }
 
 func promptContentHash(raw []byte) string {

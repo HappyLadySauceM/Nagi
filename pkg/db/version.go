@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const RequiredVersion int64 = 20261112150134
+const RequiredVersion int64 = 20261115180000
 
 // CheckVersion validates the externally applied schema and SQL-owned metadata without DDL.
 // CheckVersion 校验外部迁移版本与 SQL 管理的元数据表，不执行 DDL。
