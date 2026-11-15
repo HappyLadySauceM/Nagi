@@ -5,6 +5,8 @@ package contracts
 import (
 	"context"
 	"time"
+
+	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 )
 
 // Memory is one approved memory entry handed to another business context.
@@ -32,12 +34,63 @@ type RecallRequest struct {
 	ConversationID string
 	Query          string
 	Limit          int
+	// SpeakerType/SpeakerID identify the current message sender. They are
+	// separate from the subject being asked about and never imply the subject.
+	// SpeakerType/SpeakerID 标识当前消息发送者，与查询主体分离，不能据此推断主体。
+	SpeakerType string
+	SpeakerID   string
+	// SubjectType/SubjectID are the target subject of this recall.
+	// SubjectType/SubjectID 是本次召回的目标主体。
+	SubjectType string
+	SubjectID   string
+	// SubjectSource is the deterministic source that supplied SubjectID.
+	// SubjectSource 是对 SubjectID 的确定性来源。
+	SubjectSource string
+	// SubjectEvidence is a masked source identifier such as mention:1001.
+	// SubjectEvidence 是脱敏来源标识，例如 mention:1001。
+	SubjectEvidence string
+	// SubjectAmbiguous marks an unresolved subject ambiguity.
+	// SubjectAmbiguous 标记主体无法消歧。
+	SubjectAmbiguous bool
 }
 
-// Reader loads approved, unexpired memories visible to one conversation.
-// Reader 读取某会话可见的已批准且未过期记忆。
+// RecallItem is one ranked memory with its audit fields.
+// RecallItem 是一条带排序与命中审计信息的记忆。
+type RecallItem struct {
+	MemoryID        string
+	Content         string
+	Visibility      string
+	SubjectType     string
+	SubjectID       string
+	Source          string
+	SourceMessageID int64
+	SourceSenderID  int64
+	Score           float64
+	HitKeywords     []string
+	SubjectMatch    string
+	SelectionReason string
+	UpdatedAt       time.Time `json:"-"`
+	// Memory carries the original domain row for compatibility views; it is
+	// deliberately excluded from the recall audit JSON.
+	// Memory 保留原始领域行供兼容视图使用，召回审计 JSON 不输出该字段。
+	Memory memorydomain.Memory `json:"-"`
+}
+
+// RecallResult is the bounded result of one recall request.
+// RecallResult 是单次召回请求的有界结果。
+type RecallResult struct {
+	Items     []RecallItem
+	NoKeyword bool
+	Limit     int
+	// Reason distinguishes no_keyword from no_match for diagnostics.
+	// Reason 用于区分 no_keyword 与 no_match，便于调试。
+	Reason string
+}
+
+// Reader loads ranked, approved, unexpired memories visible to one conversation.
+// Reader 读取某会话可见且经过排序的已批准、未过期记忆。
 type Reader interface {
-	Recall(ctx context.Context, req RecallRequest) ([]Memory, error)
+	Recall(ctx context.Context, req RecallRequest) (RecallResult, error)
 }
 
 // DetailRequest asks for one memory that is visible to one conversation.

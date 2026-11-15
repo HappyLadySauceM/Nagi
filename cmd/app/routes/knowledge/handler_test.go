@@ -235,7 +235,7 @@ func TestPreviewRealReadsMemoryWhenAuthorized(t *testing.T) {
 	}
 	handler := NewHandler(&svc.ServiceContext{Memory: memoryService, Scope: scopeService})
 	rec := httptest.NewRecorder()
-	handler.Preview(rec, httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/preview", strings.NewReader(`{"bot_id":7,"preview_mode":"real","target_type":"group","target_id":700,"query":"爱喝"}`)))
+	handler.Preview(rec, httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/preview", strings.NewReader(`{"bot_id":7,"preview_mode":"real","target_type":"group","target_id":700,"query":"美式"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("authorized real preview status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -248,6 +248,15 @@ func TestPreviewRealReadsMemoryWhenAuthorized(t *testing.T) {
 	items, _ := memory["Items"].([]any)
 	if len(items) != 1 || memory["Skipped"] != false {
 		t.Fatalf("memory context = %#v", memory)
+	}
+	item, _ := items[0].(map[string]any)
+	for _, key := range []string{"ID", "Status", "OwnerKey", "UpdatedAt"} {
+		if _, ok := item[key]; !ok {
+			t.Fatalf("preview memory lost %s: %#v", key, item)
+		}
+	}
+	if item["ID"] != "11111111-1111-4111-8111-111111111111" || item["Status"] != "active" || item["OwnerKey"] != "700" {
+		t.Fatalf("preview memory fields = %#v", item)
 	}
 }
 
@@ -439,7 +448,7 @@ func TestPreviewRealValidatesConversationIDWhenHistoryDenied(t *testing.T) {
 	})
 	rec := httptest.NewRecorder()
 	handler.Preview(rec, httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/preview", strings.NewReader(
-		`{"bot_id":7,"preview_mode":"real","target_type":"group","target_id":700,"conversation_id":"conv-target"}`,
+		`{"bot_id":7,"preview_mode":"real","target_type":"group","target_id":700,"conversation_id":"conv-target","query":"长期"}`,
 	)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("matching conversation status = %d body=%s", rec.Code, rec.Body.String())

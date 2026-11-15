@@ -1060,19 +1060,38 @@ func TestSendingGrantStopsAutomaticReply(t *testing.T) {
 // fakeMemoryReader returns canned approved memories and records the request.
 // fakeMemoryReader 返回预置的已批准记忆并记录请求。
 type fakeMemoryReader struct {
-	items []memorycontracts.Memory
-	err   error
-	req   memorycontracts.RecallRequest
-	calls int
+	items  []memorycontracts.Memory
+	result memorycontracts.RecallResult
+	err    error
+	req    memorycontracts.RecallRequest
+	calls  int
 }
 
-func (f *fakeMemoryReader) Recall(_ context.Context, req memorycontracts.RecallRequest) ([]memorycontracts.Memory, error) {
+func (f *fakeMemoryReader) Recall(_ context.Context, req memorycontracts.RecallRequest) (memorycontracts.RecallResult, error) {
 	f.calls++
 	f.req = req
 	if f.err != nil {
-		return nil, f.err
+		return memorycontracts.RecallResult{}, f.err
 	}
-	return f.items, nil
+	if f.result.Items != nil || f.result.NoKeyword || f.result.Reason != "" || f.result.Limit != 0 {
+		return f.result, nil
+	}
+	return memorycontracts.RecallResult{Items: recallItemsFromMemories(f.items), Limit: req.Limit}, nil
+}
+
+// recallItemsFromMemories adapts legacy test fixtures to the recall read model.
+// recallItemsFromMemories 将旧测试夹具转换为召回读模型。
+func recallItemsFromMemories(items []memorycontracts.Memory) []memorycontracts.RecallItem {
+	out := make([]memorycontracts.RecallItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, memorycontracts.RecallItem{
+			MemoryID: item.ID, Content: item.Content, Visibility: item.Visibility,
+			SubjectType: item.SubjectType, SubjectID: item.SubjectID,
+			Source: item.Source, SourceMessageID: item.SourceMessageID,
+			SourceSenderID: item.SourceSenderID, UpdatedAt: item.UpdatedAt,
+		})
+	}
+	return out
 }
 
 // TestReplierInjectsBoundedApprovedMemories verifies approved memory reaches the
@@ -1156,9 +1175,9 @@ func TestReplierMemoryFailureDoesNotBlockChat(t *testing.T) {
 // when a single memory is longer than the whole allowance.
 // TestBoundMemoriesEnforcesRuneBudget 验证单条记忆超过总预算时仍执行总字数限制。
 func TestBoundMemoriesEnforcesRuneBudget(t *testing.T) {
-	items := []memorycontracts.Memory{
-		{ID: "a", Content: strings.Repeat("长", maxMemoryRunes+100)},
-		{ID: "b", Content: "不应进入"},
+	items := []memorycontracts.RecallItem{
+		{MemoryID: "a", Content: strings.Repeat("长", maxMemoryRunes+100)},
+		{MemoryID: "b", Content: "不应进入"},
 	}
 	got := boundMemories(items)
 	if len(got) != 1 {
@@ -1177,8 +1196,8 @@ func TestBoundMemoriesEnforcesRuneBudget(t *testing.T) {
 // TestBoundMemoriesCountsSourceAndLabels 验证来源元数据与渲染标签和正文共用
 // 同一提示预算。
 func TestBoundMemoriesCountsSourceAndLabels(t *testing.T) {
-	items := []memorycontracts.Memory{{
-		ID: "source-heavy", Content: "正文", Visibility: "group",
+	items := []memorycontracts.RecallItem{{
+		MemoryID: "source-heavy", Content: "正文", Visibility: "group",
 		Source: strings.Repeat("来源", 500), SourceMessageID: 42,
 	}}
 	got := boundMemories(items)
@@ -1241,7 +1260,7 @@ func TestReplierRecordsMemoryHitsOnRunSpan(t *testing.T) {
 // long stored source label.
 // TestMemoryHitMetadataBoundsSource 验证审计元数据不会随超长来源标签无界增长。
 func TestMemoryHitMetadataBoundsSource(t *testing.T) {
-	hits := memoryHitMetadata([]memorycontracts.Memory{{ID: "m1", Source: strings.Repeat("来源", 500)}})
+	hits := memoryHitMetadata(recallItemsFromMemories([]memorycontracts.Memory{{ID: "m1", Source: strings.Repeat("来源", 500)}}))
 	if len(hits) != 1 {
 		t.Fatalf("hits = %+v", hits)
 	}
@@ -1379,5 +1398,34 @@ func TestReplierRendersExactMemorySource(t *testing.T) {
 	hit, _ := hits[0].(map[string]any)
 	if hit["source"] != "群文件" || hit["source_message_id"] != float64(42) {
 		t.Fatalf("hit source = %#v", hit)
+	}
+}
+
+// TestReplierRecallRequestSeparatesSpeakerAndMentionSubject verifies that a
+// group mention resolves the queried subject independently from the speaker.
+// TestReplierRecallRequestSeparatesSpeakerAndMentionSubject 验证群聊 @ 会独立
+// 解析查询主体，不把当前发言者当作主体。
+func TestReplierRecallRequestSeparatesSpeakerAndMentionSubject(t *testing.T) {
+	fake := &fakeRuntime{text: "A 喜欢美式。"}
+	memory := &fakeMemoryReader{items: []memorycontracts.Memory{{
+		ID: "m-a", Content: "A 爱喝美式", Visibility: "group",
+		SubjectType: "user", SubjectID: "1001",
+		UpdatedAt: time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC),
+	}}}
+	r := newReplier(t, fake, &fakeSender{}, &fakeRecorder{}, memoryReadGroupPolicy())
+	r.memory = memory
+	task := groupTaskForAgent()
+	task.Message.Text = "A爱喝什么"
+	task.Segments = []obdomain.Segment{obdomain.At(1001), obdomain.Text("A爱喝什么")}
+	if err := r.ExecuteReply(context.Background(), task, nil); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if memory.req.SpeakerType != "user" || memory.req.SpeakerID != "200" ||
+		memory.req.SubjectType != "user" || memory.req.SubjectID != "1001" ||
+		memory.req.SubjectSource != "mention" || memory.req.SubjectEvidence != "mention:1001" {
+		t.Fatalf("recall request = %+v", memory.req)
+	}
+	if system := fake.req.Messages[0].Content; !strings.Contains(system, "主体=user:1001") {
+		t.Fatalf("subject missing from memory prompt: %q", system)
 	}
 }

@@ -189,11 +189,15 @@ func (r *Repo) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]do
 	if keywords := domain.QueryKeywords(in.Query); len(keywords) > 0 {
 		matches := make([]predicate.Memory, 0, len(keywords))
 		for _, keyword := range keywords {
-			matches = append(matches, m.ContentContainsFold(keyword))
+			matches = append(matches, m.ContentContainsFold(keyword.Term))
 		}
 		q.Where(m.Or(matches...))
 	}
-	rows, err := q.Order(ent.Desc(m.FieldConfidence, m.FieldUpdatedAt)).Limit(in.Limit).All(ctx)
+	q = q.Order(ent.Desc(m.FieldConfidence, m.FieldUpdatedAt))
+	if in.Limit > 0 {
+		q = q.Limit(in.Limit)
+	}
+	rows, err := q.All(ctx)
 	return memoryModels(rows), err
 }
 func memoryModel(v *ent.Memory) domain.Memory {

@@ -17,6 +17,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -94,15 +95,35 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// previewMemory preserves the existing knowledge-preview memory shape and
+// appends recall audit fields. The embedded domain row keeps ID/Status/OwnerKey/
+// UpdatedAt available to the current adapter.
+// previewMemory 保持知识预览既有记忆形状，并附加召回审计字段；内嵌领域行
+// 保留 ID/Status/OwnerKey/UpdatedAt 供现有适配器使用。
+type previewMemory struct {
+	memorydomain.Memory
+	Score           float64  `json:"Score,omitempty"`
+	HitKeywords     []string `json:"HitKeywords,omitempty"`
+	SubjectMatch    string   `json:"SubjectMatch,omitempty"`
+	SelectionReason string   `json:"SelectionReason,omitempty"`
+}
+
 // previewRequest is the read-only context preview input.
 // previewRequest 是只读上下文预览请求。
 type previewRequest struct {
-	BotID          int64  `json:"bot_id"`
-	PreviewMode    string `json:"preview_mode"`
-	TargetType     string `json:"target_type"`
-	TargetID       int64  `json:"target_id"`
-	ConversationID string `json:"conversation_id"`
-	Query          string `json:"query"`
+	BotID            int64  `json:"bot_id"`
+	PreviewMode      string `json:"preview_mode"`
+	TargetType       string `json:"target_type"`
+	TargetID         int64  `json:"target_id"`
+	ConversationID   string `json:"conversation_id"`
+	Query            string `json:"query"`
+	SpeakerType      string `json:"speaker_type"`
+	SpeakerID        string `json:"speaker_id"`
+	SubjectType      string `json:"subject_type"`
+	SubjectID        string `json:"subject_id"`
+	SubjectSource    string `json:"subject_source"`
+	SubjectEvidence  string `json:"subject_evidence"`
+	SubjectAmbiguous bool   `json:"subject_ambiguous"`
 }
 
 // Preview returns prompt defaults, effective prompt versions, tool constraints,
@@ -302,14 +323,28 @@ func (h *Handler) realContext(r *http.Request, body previewRequest, botID int64,
 		view["History"] = map[string]any{"Skipped": true, "Reason": conversationSkipReason, "Messages": []map[string]any{}}
 	} else {
 		if policy.AllowMemoryRead && active {
-			items, err := h.svcCtx.Memory.SearchVisible(r.Context(), memorydomain.SearchRequest{
+			result, err := h.svcCtx.Memory.Recall(r.Context(), memorycontracts.RecallRequest{
 				BotID: botID, Kind: targetType, TargetID: targetID, ConversationID: conversationID,
 				Query: body.Query, Limit: 3,
+				SpeakerType: body.SpeakerType, SpeakerID: body.SpeakerID,
+				SubjectType: body.SubjectType, SubjectID: body.SubjectID,
+				SubjectSource: body.SubjectSource, SubjectEvidence: body.SubjectEvidence,
+				SubjectAmbiguous: body.SubjectAmbiguous,
 			})
 			if err != nil {
 				return nil, "", http.StatusInternalServerError, "read memory context failed"
 			}
-			view["Memory"] = map[string]any{"Skipped": false, "Reason": "", "Items": items}
+			items := make([]previewMemory, 0, len(result.Items))
+			for _, item := range result.Items {
+				items = append(items, previewMemory{
+					Memory:          item.Memory,
+					Score:           item.Score,
+					HitKeywords:     item.HitKeywords,
+					SubjectMatch:    item.SubjectMatch,
+					SelectionReason: item.SelectionReason,
+				})
+			}
+			view["Memory"] = map[string]any{"Skipped": false, "Reason": result.Reason, "NoKeyword": result.NoKeyword, "Limit": result.Limit, "Items": items}
 		} else {
 			reason := "memory_not_authorized"
 			if !active {

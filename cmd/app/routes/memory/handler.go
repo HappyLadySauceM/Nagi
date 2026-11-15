@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,9 +15,11 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // middlewareActor reads the authenticated actor for approval records.
@@ -45,6 +48,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/memories", h.Create)
 	mux.HandleFunc("PATCH /api/v1/memories/{id}", h.Patch)
 	mux.HandleFunc("DELETE /api/v1/memories/{id}", h.Delete)
+	mux.HandleFunc("POST /api/v1/memories/recall-preview", h.RecallPreview)
 	mux.HandleFunc("GET /api/v1/memory-extraction/settings", h.GetExtractionSettings)
 	mux.HandleFunc("GET /api/v1/memory-extraction/jobs", h.ListExtractionJobs)
 	mux.HandleFunc("POST /api/v1/memory-extraction/jobs/{id}/retry", h.RetryExtractionJob)
@@ -93,6 +97,156 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	common.WriteSuccess(w, map[string]any{"items": items, "total": total, "page": f.Page, "limit": f.Limit})
+}
+
+// recallPreviewRequest is the read-only recall diagnostic input.
+// recallPreviewRequest 是只读召回诊断输入。
+type recallPreviewRequest struct {
+	BotID            int64  `json:"bot_id"`
+	PreviewMode      string `json:"preview_mode"`
+	Kind             string `json:"kind"`
+	TargetType       string `json:"target_type"`
+	TargetID         int64  `json:"target_id"`
+	ConversationID   string `json:"conversation_id"`
+	Query            string `json:"query"`
+	Limit            int    `json:"limit"`
+	SpeakerType      string `json:"speaker_type"`
+	SpeakerID        string `json:"speaker_id"`
+	SubjectType      string `json:"subject_type"`
+	SubjectID        string `json:"subject_id"`
+	SubjectSource    string `json:"subject_source"`
+	SubjectEvidence  string `json:"subject_evidence"`
+	SubjectAmbiguous bool   `json:"subject_ambiguous"`
+}
+
+// RecallPreview runs the bounded recall ranker without writing memory or
+// sending a message. Example mode uses synthetic records only.
+// RecallPreview 在不写记忆、不发消息的前提下运行有界召回排序；
+// example 模式只使用合成记录。
+func (h *Handler) RecallPreview(w http.ResponseWriter, r *http.Request) {
+	var body recallPreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Kind == "" {
+		body.Kind = body.TargetType
+	}
+	switch body.PreviewMode {
+	case "example", "real":
+	default:
+		common.WriteFailure(w, http.StatusBadRequest, "preview_mode must be example or real")
+		return
+	}
+	if body.PreviewMode == "real" && (body.BotID <= 0 || body.TargetID <= 0 || (body.Kind != "group" && body.Kind != "private")) {
+		common.WriteFailure(w, http.StatusBadRequest, "bot_id, kind and target_id are required")
+		return
+	}
+	if body.PreviewMode == "example" {
+		common.WriteSuccess(w, exampleRecallPreview(body))
+		return
+	}
+	if h.svcCtx.Memory == nil || h.svcCtx.Scope == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "database not configured")
+		return
+	}
+	policy, err := h.svcCtx.Scope.Resolve(r.Context(), body.BotID, scopedomain.ScopeType(body.Kind), body.TargetID)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "resolve scope policy failed")
+		return
+	}
+	active := policy.Enabled && policy.StoreMessages && policy.ReplyMode != scopedomain.ModeObserveOnly
+	if !active || !policy.AllowMemoryRead {
+		reason := "memory_not_authorized"
+		if !active {
+			reason = "scope_disabled"
+		}
+		common.WriteSuccess(w, map[string]any{
+			"Items": []memorycontracts.RecallItem{}, "NoKeyword": false, "Limit": normalizedRecallLimit(body.Limit),
+			"Reason": reason, "Skipped": true,
+		})
+		return
+	}
+	conversationID := strings.TrimSpace(body.ConversationID)
+	if conversationID != "" {
+		if h.svcCtx.Conversation == nil {
+			common.WriteSuccess(w, map[string]any{
+				"Items": []memorycontracts.RecallItem{}, "NoKeyword": false, "Limit": normalizedRecallLimit(body.Limit),
+				"Reason": "conversation_unavailable", "Skipped": true,
+			})
+			return
+		}
+		conversation, found, err := h.svcCtx.Conversation.GetConversation(r.Context(), body.BotID, conversationdomain.Kind(body.Kind), body.TargetID)
+		if err != nil {
+			common.WriteFailure(w, http.StatusInternalServerError, "read conversation failed")
+			return
+		}
+		if !found {
+			common.WriteSuccess(w, map[string]any{
+				"Items": []memorycontracts.RecallItem{}, "NoKeyword": false, "Limit": normalizedRecallLimit(body.Limit),
+				"Reason": "conversation_not_found", "Skipped": true,
+			})
+			return
+		}
+		if conversation.ID != conversationID {
+			common.WriteSuccess(w, map[string]any{
+				"Items": []memorycontracts.RecallItem{}, "NoKeyword": false, "Limit": normalizedRecallLimit(body.Limit),
+				"Reason": "conversation_target_mismatch", "Skipped": true,
+			})
+			return
+		}
+		conversationID = conversation.ID
+	}
+	result, err := h.svcCtx.Memory.Recall(r.Context(), memorycontracts.RecallRequest{
+		BotID: body.BotID, Kind: body.Kind, TargetID: body.TargetID,
+		ConversationID: conversationID, Query: body.Query, Limit: body.Limit,
+		SpeakerType: body.SpeakerType, SpeakerID: body.SpeakerID,
+		SubjectType: body.SubjectType, SubjectID: body.SubjectID,
+		SubjectSource: body.SubjectSource, SubjectEvidence: body.SubjectEvidence,
+		SubjectAmbiguous: body.SubjectAmbiguous,
+	})
+	if err != nil {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid recall request")
+		return
+	}
+	common.WriteSuccess(w, result)
+}
+
+func normalizedRecallLimit(limit int) int {
+	if limit <= 0 {
+		return 3
+	}
+	if limit > 5 {
+		return 5
+	}
+	return limit
+}
+
+func exampleRecallPreview(body recallPreviewRequest) memorycontracts.RecallResult {
+	kind := body.Kind
+	if kind != "group" && kind != "private" {
+		kind = "group"
+	}
+	// Example preview is always synthetic; never borrow a caller target id.
+	// 示例预览始终使用合成目标，绝不借用调用方传入的真实目标 ID。
+	targetID := int64(1000)
+	memories := []memorydomain.Memory{
+		{ID: "example-memory-1", Visibility: memorydomain.VisibilityBotShared, Content: "示例记忆：这位用户喜欢喝美式咖啡。", SubjectType: memorydomain.SubjectUnknown},
+	}
+	hits, noKeyword, reason := memorydomain.RankRecall(memories, memorydomain.RecallQuery{
+		Kind: kind, TargetID: targetID, Query: body.Query,
+		SubjectType: memorydomain.SubjectType(body.SubjectType), SubjectID: body.SubjectID,
+		Limit: normalizedRecallLimit(body.Limit),
+	})
+	result := memorycontracts.RecallResult{Items: make([]memorycontracts.RecallItem, 0, len(hits)), NoKeyword: noKeyword, Reason: reason, Limit: normalizedRecallLimit(body.Limit)}
+	for _, hit := range hits {
+		result.Items = append(result.Items, memorycontracts.RecallItem{
+			MemoryID: hit.Memory.ID, Content: hit.Memory.Content, Visibility: string(hit.Memory.Visibility),
+			SubjectType: string(hit.Memory.SubjectType), SubjectID: hit.Memory.SubjectID,
+			Score: hit.Score, HitKeywords: hit.HitKeywords, SubjectMatch: hit.SubjectMatch, SelectionReason: hit.SelectionReason,
+		})
+	}
+	return result
 }
 
 // Get returns one memory only when it is active and visible to the requested

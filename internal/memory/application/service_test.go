@@ -222,10 +222,10 @@ func TestDeleteMissingReturnsNotFound(t *testing.T) {
 }
 
 // TestRecallMapsVisibleMemories verifies the reply-facing read model keeps the
-// identity and update timestamp needed to trace a hit, and that the requested
-// limit/query reach the repository unchanged.
+// identity and update timestamp needed to trace a hit, and that the query
+// reaches the repository before application-level ranking applies the limit.
 // TestRecallMapsVisibleMemories 验证回复侧读模型保留定位命中所需的标识与更新时间，
-// 且请求的 limit/query 原样传给仓库。
+// 且查询会到达仓库，再由应用层排序施加结果上限。
 func TestRecallMapsVisibleMemories(t *testing.T) {
 	repo := newFakeMemoryRepo()
 	repo.items["m1"] = domain.Memory{
@@ -240,10 +240,10 @@ func TestRecallMapsVisibleMemories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "m1" || got[0].Visibility != string(domain.VisibilityBotShared) || got[0].UpdatedAt.IsZero() {
+	if len(got.Items) != 1 || got.Items[0].MemoryID != "m1" || got.Items[0].Visibility != string(domain.VisibilityBotShared) || got.Items[0].UpdatedAt.IsZero() {
 		t.Fatalf("recall = %+v", got)
 	}
-	if repo.lastSearch.Query != "晚上聊天" || repo.lastSearch.Limit != 2 || repo.lastSearch.ConversationID != "conv-1" {
+	if repo.lastSearch.Query != "晚上聊天" || repo.lastSearch.Limit != 0 || repo.lastSearch.ConversationID != "conv-1" {
 		t.Fatalf("search request = %+v", repo.lastSearch)
 	}
 }
@@ -284,8 +284,8 @@ func TestReviseChangesNextRecall(t *testing.T) {
 	if err := svc.Revise(ctx, id, "新内容", domain.VisibilityGroup, nil); err != nil {
 		t.Fatalf("revise: %v", err)
 	}
-	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Limit: 3})
-	if err != nil || len(got) != 1 || got[0].Content != "新内容" {
+	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Query: "新内容", Limit: 3})
+	if err != nil || len(got.Items) != 1 || got.Items[0].Content != "新内容" {
 		t.Fatalf("recall after revise = %+v err=%v", got, err)
 	}
 }
@@ -308,11 +308,11 @@ func TestPrivateMemoriesStayPerUser(t *testing.T) {
 			t.Fatalf("approve %s: %v", owner, err)
 		}
 	}
-	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "private", TargetID: 200, Limit: 5})
+	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "private", TargetID: 200, Query: "偏好", Limit: 5})
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
-	if len(got) != 1 || got[0].Content != "用户200的偏好" {
+	if len(got.Items) != 1 || got.Items[0].Content != "用户200的偏好" {
 		t.Fatalf("private recall = %+v", got)
 	}
 }
@@ -501,5 +501,83 @@ func TestProposeExtractionUnknownRequiresSource(t *testing.T) {
 	_, _, err := svc.Propose(context.Background(), CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "来源不明的同一句话", SubjectType: domain.SubjectUnknown, Origin: domain.OriginExtraction})
 	if err == nil {
 		t.Fatal("extraction unknown without source provenance was accepted")
+	}
+}
+
+// TestRecallSubjectAwareAudit verifies the reply-facing result keeps the
+// subject and hit audit while ordering the requested subject first.
+// TestRecallSubjectAwareAudit 验证回复侧结果保留主体与命中审计，并把请求主体
+// 的命中排在最前。
+func TestRecallSubjectAwareAudit(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	repo.items["a"] = domain.Memory{
+		ID: "a", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700",
+		Content: "A 爱喝美式", Status: domain.StatusActive, SubjectType: domain.SubjectUser, SubjectID: "1001",
+		UpdatedAt: time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC),
+	}
+	repo.items["b"] = domain.Memory{
+		ID: "b", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700",
+		Content: "B 爱喝拿铁", Status: domain.StatusActive, SubjectType: domain.SubjectUser, SubjectID: "200",
+	}
+	svc, _ := NewService(repo)
+	got, err := svc.Recall(context.Background(), contracts.RecallRequest{
+		BotID: 1, Kind: "group", TargetID: 700, Query: "爱喝",
+		SpeakerType: "user", SpeakerID: "200",
+		SubjectType: "user", SubjectID: "1001", SubjectSource: "mention", SubjectEvidence: "mention:1001",
+	})
+	if err != nil {
+		t.Fatalf("recall: %v", err)
+	}
+	if len(got.Items) != 2 || got.Items[0].MemoryID != "a" || got.Items[0].SubjectType != "user" || got.Items[0].SubjectID != "1001" {
+		t.Fatalf("recall items = %+v", got.Items)
+	}
+	if got.Items[0].SubjectMatch != domain.SubjectMatchExact || got.Items[0].SelectionReason != domain.SelectionReasonSubjectExact || got.Items[0].Score != 3 {
+		t.Fatalf("exact audit = %+v", got.Items[0])
+	}
+	if len(got.Items[0].HitKeywords) != 1 || got.Items[0].HitKeywords[0] != "爱喝" {
+		t.Fatalf("hit keywords = %+v", got.Items[0].HitKeywords)
+	}
+}
+
+// TestRecallNoKeywordSkipsRepository verifies empty/common-only queries never
+// reach the repository, while a valid keyword with no match stays distinguishable.
+// TestRecallNoKeywordSkipsRepository 验证空查询/仅通用词不会到达仓库，
+// 而有效关键词无命中仍可区分。
+func TestRecallNoKeywordSkipsRepository(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	got, err := svc.Recall(context.Background(), contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Query: "hi", Limit: 3})
+	if err != nil || !got.NoKeyword || got.Reason != "no_keyword" || len(got.Items) != 0 {
+		t.Fatalf("greeting-only recall = %+v err=%v", got, err)
+	}
+	if repo.lastSearch.BotID != 0 {
+		t.Fatalf("greeting-only query reached repository: %+v", repo.lastSearch)
+	}
+	got, err = svc.Recall(context.Background(), contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Query: "什么", Limit: 3})
+	if err != nil || !got.NoKeyword || got.Reason != "no_keyword" || len(got.Items) != 0 {
+		t.Fatalf("common-only recall = %+v err=%v", got, err)
+	}
+	got, err = svc.Recall(context.Background(), contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Query: "java", Limit: 3})
+	if err != nil || !got.NoKeyword || got.Reason != "no_match" || len(got.Items) != 0 {
+		t.Fatalf("no-match recall = %+v err=%v", got, err)
+	}
+	if repo.lastSearch.BotID != 1 {
+		t.Fatalf("valid keyword did not reach repository: %+v", repo.lastSearch)
+	}
+}
+
+// TestRecallLimitDefaultsAndCaps verifies the contract's 3-entry default and
+// 5-entry API ceiling even when the query has no recallable keyword.
+// TestRecallLimitDefaultsAndCaps 验证契约规定的默认 3 条与接口上限 5 条，
+// 即使查询没有可召回关键词也保持一致。
+func TestRecallLimitDefaultsAndCaps(t *testing.T) {
+	svc, _ := NewService(newFakeMemoryRepo())
+	got, err := svc.Recall(context.Background(), contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Query: "hi"})
+	if err != nil || got.Limit != 3 {
+		t.Fatalf("default limit = %d err=%v", got.Limit, err)
+	}
+	got, err = svc.Recall(context.Background(), contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, Query: "hi", Limit: 99})
+	if err != nil || got.Limit != 5 {
+		t.Fatalf("capped limit = %d err=%v", got.Limit, err)
 	}
 }
