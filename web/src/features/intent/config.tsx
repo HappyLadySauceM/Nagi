@@ -9,7 +9,6 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { FeedbackState } from '../../components/feedback-state'
 import { useEditGuard } from './edit-guard'
-import { PromptVersionPanel } from './flow/prompt-version-panel'
 
 function IntentConfigForm() {
   const query = useSystemSettings()
@@ -148,10 +147,5 @@ function IntentConfigForm() {
 
 
 export function IntentConfig() {
-  return (
-    <div className="space-y-6">
-      <IntentConfigForm />
-      <PromptVersionPanel />
-    </div>
-  )
+  return <IntentConfigForm />
 }

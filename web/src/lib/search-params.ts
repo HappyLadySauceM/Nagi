@@ -68,12 +68,14 @@ export function parseGroupDetailSearch(input: Record<string, unknown>): GroupDet
 
 const MEMORY_VISIBILITY_VALUES = ['bot_shared', 'group', 'private_user', 'conversation'] as const
 const MEMORY_STATUS_VALUES = ['candidate', 'active', 'superseded', 'deleted'] as const
+const MEMORY_TAB_VALUES = ['entries', 'prompts', 'extraction'] as const
 
 export const memorySearchSchema = z.object({
   ...pageFields,
   status: z.union([z.enum(MEMORY_STATUS_VALUES), z.literal('')]).catch(''),
   visibility: z.union([z.enum(MEMORY_VISIBILITY_VALUES), z.literal('')]).catch(''),
   ownerKey: z.string().trim().max(100).catch(''),
+  tab: z.enum(MEMORY_TAB_VALUES).catch('entries'),
 })
 
 export type MemorySearch = z.infer<typeof memorySearchSchema>
@@ -98,6 +100,7 @@ export const DEFAULT_MEMORY_SEARCH: MemorySearch = {
   status: '',
   visibility: '',
   ownerKey: '',
+  tab: 'entries',
 }
 
 export function parseMemorySearch(input: Record<string, unknown>): MemorySearch {

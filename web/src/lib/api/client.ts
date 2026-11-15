@@ -252,7 +252,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       message: '响应不是预期的 JSON 信封',
     })
   }
-  if (envelope.code !== 200) {
+  // Management APIs normally use code 200; create endpoints return 201 with a
+  // matching envelope code, so accept either shape on a successful response.
+  // 管理 API 通常使用 code 200；创建接口返回 201 且信封 code 同为 201，也应视为成功。
+  const acceptedEnvelope =
+    envelope.code === 200 ||
+    (response.status >= 200 && response.status < 300 && envelope.code === response.status)
+  if (!acceptedEnvelope) {
     throw buildHttpError(envelope.code, path, envelope)
   }
   return envelope.data as T

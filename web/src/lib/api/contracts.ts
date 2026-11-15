@@ -765,3 +765,159 @@ export const RULESET_STATUS_LABELS: Record<Ruleset['status'], string> = {
   published: '已发布',
   archived: '已归档',
 }
+
+export type ManagedPromptKind = 'chat_reply' | 'intent_participation' | 'memory_extraction'
+export type ManagedPromptScope = 'account' | 'group' | 'private'
+export type ManagedPromptProvider = 'openai' | 'jev'
+export type ManagedPromptStatus = 'draft' | 'published' | 'archived'
+export type ManagedPromptSource = 'builtin' | 'local' | 'langfuse'
+
+export interface ManagedPromptQuestion {
+  type: 'noul' | 'choice'
+  instructions: string
+  criteria?: Record<string, string>
+}
+
+/** Provider-specific content of one Prompt version; absent branches are not sent to the server. */
+export interface ManagedPromptContent {
+  provider: ManagedPromptProvider
+  openai?: {
+    systemPrompt?: string
+    userTemplate?: string
+    responseShape?: string
+  }
+  systemOne?: {
+    questions?: Record<string, ManagedPromptQuestion>
+  }
+}
+
+export interface ManagedPromptLayer {
+  botId: number
+  scopeType: ManagedPromptScope
+  scopeId: number
+  activeVersion: number
+  activeVersionId: number
+  activeSource: ManagedPromptSource | ''
+  status: string
+  updatedAt: string
+}
+
+export interface ManagedPromptListItem {
+  promptId: string
+  kind: ManagedPromptKind
+  name: string
+  provider: ManagedPromptProvider
+  builtinVersion: number
+  layers: ManagedPromptLayer[]
+}
+
+export interface ManagedPromptBuiltin {
+  version: number
+  status: 'builtin'
+  source: 'builtin'
+  hash: string
+  content: ManagedPromptContent
+}
+
+export interface ManagedPromptVersion {
+  id: number
+  promptId: string
+  kind: ManagedPromptKind
+  name: string
+  provider: ManagedPromptProvider
+  botId: number
+  scopeType: ManagedPromptScope
+  scopeId: number
+  version: number
+  status: ManagedPromptStatus
+  source: ManagedPromptSource
+  sourceRef: string
+  hash: string
+  note: string
+  content: ManagedPromptContent
+  createdAt: string
+  publishedAt: string | null
+  archivedAt: string | null
+}
+
+export interface ManagedPromptDetail {
+  promptId: string
+  kind: ManagedPromptKind
+  provider: ManagedPromptProvider
+  builtin: ManagedPromptBuiltin
+  active: ManagedPromptVersion | null
+  versions: ManagedPromptVersion[]
+}
+
+export interface ManagedPromptDiffSide {
+  source: string
+  id?: number
+  version: number
+  status: string
+  hash: string
+}
+
+export interface ManagedPromptDiffLine {
+  op: '+' | '-' | ' '
+  text: string
+}
+
+export interface ManagedPromptDiff {
+  promptId: string
+  provider: ManagedPromptProvider
+  from: ManagedPromptDiffSide
+  to: ManagedPromptDiffSide
+  changed: boolean
+  unifiedDiff: string
+  lines: ManagedPromptDiffLine[]
+}
+
+export interface ManagedPromptEffectiveLayer {
+  layer: string
+  versionId?: number
+  version?: number
+  source?: string
+  hash?: string
+  content?: ManagedPromptContent
+  editable?: boolean
+  summary?: string
+}
+
+export interface ManagedPromptPreview {
+  promptId: string
+  kind: ManagedPromptKind
+  provider: ManagedPromptProvider
+  previewMode: 'example' | 'real'
+  versionId: number
+  target?: { type: 'group' | 'private'; id: number; conversationId?: string }
+  layers: ManagedPromptEffectiveLayer[]
+  final: { content: ManagedPromptContent; variables: Record<string, string> }
+  warnings: string[]
+  previewHash: string
+}
+
+export interface ManagedPromptEffective {
+  promptId: string
+  kind: ManagedPromptKind
+  provider: ManagedPromptProvider
+  botId: number
+  target: { type: 'group' | 'private'; id: number; conversationId?: string }
+  layers: ManagedPromptEffectiveLayer[]
+  final: { content: ManagedPromptContent; variables: Record<string, string> }
+  hash: string
+}
+
+export interface ManagedPromptPublishResult {
+  version: ManagedPromptVersion
+  archivedVersionId: number
+}
+
+export interface ManagedPromptRestoreResult {
+  promptId: string
+  scopeType: ManagedPromptScope
+  scopeId: number
+  provider: ManagedPromptProvider
+  active: null
+  resolved: { source: string; version: number; hash: string }
+  archivedVersionId: number
+}
