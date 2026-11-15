@@ -392,10 +392,10 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		},
 		SendingLimits: limits,
 		Prompts:       promptService,
-		BotName:       live.Intent.BotName,
+		BotName:       live.Role.BotName,
 		MaxTokens:     live.AI.MaxOutputTokens,
 		BotNameProvider: func(ctx context.Context) string {
-			return executionSettings(ctx, settings).Intent.BotName
+			return executionSettings(ctx, settings).Role.BotName
 		},
 		MaxTokensProvider: func(ctx context.Context) int {
 			return executionSettings(ctx, settings).AI.MaxOutputTokens
@@ -468,12 +468,12 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			Interjection:      live.Intent.InterjectionThreshold,
 			AddressedOtherMax: live.Intent.AddressedOtherMax,
 		},
-		HistoryLimit: live.Intent.HistoryLimit,
+		HistoryLimit: live.Context.HistoryLimit,
 		Provider:     live.Intent.Provider,
 		Model:        live.Intent.Model,
-		BotName:      live.Intent.BotName,
+		BotName:      live.Role.BotName,
 		BotNameProvider: func() string {
-			return settings.Settings().Intent.BotName
+			return settings.Settings().Role.BotName
 		},
 		// The console changes these without a restart, so the decider reads
 		// them per task instead of freezing the startup values.
@@ -483,7 +483,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			return intentapp.RuntimeConfig{
 				Enabled:      current.Intent.Enabled,
 				AIEnabled:    current.AI.Enabled,
-				HistoryLimit: current.Intent.HistoryLimit,
+				HistoryLimit: current.Context.HistoryLimit,
 				Provider:     current.Intent.Provider,
 				Model:        current.Intent.Model,
 				Thresholds: intentdomain.Thresholds{
@@ -521,7 +521,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			ctx = context.WithValue(ctx, runTimeoutKey{}, time.Duration(current.Agent.MaxRunDurationSeconds)*time.Second)
 			return intentapp.WithRuntimeConfig(ctx, intentapp.RuntimeConfig{
 				Enabled: current.Intent.Enabled, AIEnabled: current.AI.Enabled,
-				HistoryLimit: current.Intent.HistoryLimit, Provider: current.Intent.Provider, Model: current.Intent.Model,
+				HistoryLimit: current.Context.HistoryLimit, Provider: current.Intent.Provider, Model: current.Intent.Model,
 				Thresholds: intentdomain.Thresholds{
 					Continuation:      current.Intent.ContinuationThreshold,
 					Interjection:      current.Intent.InterjectionThreshold,

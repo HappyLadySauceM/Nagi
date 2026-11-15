@@ -17,6 +17,9 @@
     "max-output-tokens": 400,
     "model": ""
   },
+  "context": {
+    "history-limit": 30
+  },
   "database": {
     "dsn": "",
     "max-conns": 10
@@ -26,14 +29,11 @@
     "prefix": "/echo"
   },
   "intent": {
-    "active-window": "3m0s",
     "addressed-other-max": 0.6,
     "api-key": "",
-    "bot-name": "",
     "continuation-threshold": 0.8,
     "enabled": false,
     "endpoint": "https://api.typesafe.ai/v1/systemone",
-    "history-limit": 30,
     "interjection-threshold": 0.95,
     "model": "jev-latest",
     "provider": "jev",
@@ -96,6 +96,9 @@
       "initial": "1s",
       "max": "30s"
     }
+  },
+  "role": {
+    "bot-name": ""
   },
   "server": {
     "admin-token": "",

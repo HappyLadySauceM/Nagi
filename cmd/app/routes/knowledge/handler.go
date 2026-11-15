@@ -479,7 +479,7 @@ func settingsBotName(svcCtx *svc.ServiceContext) string {
 	if svcCtx.SettingsProvider == nil {
 		return "Nagi"
 	}
-	name := svcCtx.SettingsProvider.Settings().Intent.BotName
+	name := svcCtx.SettingsProvider.Settings().Role.BotName
 	if strings.TrimSpace(name) == "" {
 		return "Nagi"
 	}

@@ -15,7 +15,13 @@ import (
 // FromConfig 把文件配置转换为可编辑模型。它同时充当数据库行的初值与
 // 「恢复默认」的基线，两者因此不会彼此漂移。
 func FromConfig(cfg *config.Config) settingsdomain.Settings {
+	historyLimit := cfg.Context.HistoryLimit
+	if historyLimit == 0 {
+		historyLimit = 30
+	}
 	settings := settingsdomain.Settings{
+		Role:    settingsdomain.Role{BotName: cfg.Role.BotName},
+		Context: settingsdomain.Context{HistoryLimit: historyLimit},
 		AI: settingsdomain.AI{
 			Enabled:                  cfg.AI.Enabled,
 			BaseURL:                  cfg.AI.BaseURL,
@@ -28,12 +34,10 @@ func FromConfig(cfg *config.Config) settingsdomain.Settings {
 			Provider:              cfg.Intent.Provider,
 			Endpoint:              cfg.Intent.Endpoint,
 			Model:                 cfg.Intent.Model,
-			BotName:               cfg.Intent.BotName,
 			TimeoutSeconds:        seconds(cfg.Intent.Timeout.D()),
 			ContinuationThreshold: cfg.Intent.ContinuationThreshold,
 			InterjectionThreshold: cfg.Intent.InterjectionThreshold,
 			AddressedOtherMax:     cfg.Intent.AddressedOtherMax,
-			HistoryLimit:          cfg.Intent.HistoryLimit,
 		},
 		Agent: settingsdomain.Agent{
 			MaxSteps:              cfg.Agent.MaxSteps,

@@ -132,6 +132,14 @@ tools:
   # 回给模型的结果字节上限，超出即拒绝
   max-result-bytes: 8192
 
+role:
+  # 机器人昵称，供意图判断与生成共同使用
+  bot-name: ""
+
+context:
+  # 单次运行的会话历史条数上限；按条数读取且受历史授权
+  history-limit: 30
+
 intent:
   # 意图决策（TypeSafe Jev / SystemOne）。密钥直接填写，留空时降级为
   # 仅响应明确 @/引用，绝不自动插话。
@@ -140,15 +148,11 @@ intent:
   endpoint: "https://api.typesafe.ai/v1/systemone"
   api-key: ""
   model: "jev-latest"
-  # 机器人昵称，用于 Jev state
-  bot-name: ""
   timeout: 3s
   # 决策阈值：续聊 >= 0.80 且对他人 < 0.60 才续聊；插话 >= 0.95
   continuation-threshold: 0.80
   interjection-threshold: 0.95
   addressed-other-max: 0.60
-  # 决策上下文读取的历史条数上限
-  history-limit: 30
 
 observability:
   # Langfuse OTLP 追踪导出，地址与项目凭据直接填写。

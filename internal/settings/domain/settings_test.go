@@ -3,12 +3,16 @@
 package domain
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"testing"
 )
 
 func validSettings() Settings {
 	return Settings{
+		Role:    Role{BotName: "Nagi"},
+		Context: Context{HistoryLimit: 30},
 		AI: AI{
 			Enabled: true, BaseURL: "https://llm.example/v1", Model: "test-model",
 			MaxOutputTokens: 400, GenerationTimeoutSeconds: 25,
@@ -17,7 +21,6 @@ func validSettings() Settings {
 			Enabled: true, Provider: "jev", Endpoint: "https://api.typesafe.ai/v1/systemone",
 			Model: "jev-latest", TimeoutSeconds: 3,
 			ContinuationThreshold: 0.8, InterjectionThreshold: 0.95, AddressedOtherMax: 0.6,
-			HistoryLimit: 30,
 		},
 		Agent: Agent{
 			MaxSteps: 6, MaxToolCalls: 5, MaxRunDurationSeconds: 30,
@@ -128,5 +131,56 @@ func TestCloneIsDeep(t *testing.T) {
 	clone.Tools.PermissionDefaults["qq.reply.current"] = false
 	if !settings.Tools.PermissionDefaults["qq.reply.current"] {
 		t.Fatal("clone mutated the source settings")
+	}
+}
+
+func TestNormalizeMigratesLegacyIntentFields(t *testing.T) {
+	// 旧持久化字段在规范化时迁移到 Role/Context，随后从公开模型清空。
+	settings := validSettings()
+	settings.Role = Role{}
+	settings.Context = Context{}
+	settings.Intent.BotName = "LegacyBot"
+	settings.Intent.HistoryLimit = 42
+	settings.Normalize()
+	if settings.Role.BotName != "LegacyBot" || settings.Context.HistoryLimit != 42 {
+		t.Fatalf("migrated = %+v/%+v", settings.Role, settings.Context)
+	}
+	if settings.Intent.BotName != "" || settings.Intent.HistoryLimit != 0 {
+		t.Fatalf("legacy fields must be cleared: %+v", settings.Intent)
+	}
+}
+
+func TestValidateRejectsInvalidContextHistory(t *testing.T) {
+	// Context.HistoryLimit 独立校验，即使意图流水线关闭也必须有效。
+	settings := validSettings()
+	settings.Context.HistoryLimit = 0
+	settings.Intent.Enabled = false
+	settings.AI.Enabled = false
+	fields := fieldsOf(t, settings.Validate(nil))
+	if fields["Context.HistoryLimit"] == "" {
+		t.Fatalf("fields = %+v, want Context.HistoryLimit", fields)
+	}
+}
+
+func TestIntentUnmarshalReadsLegacyFieldsWithoutSerializingThem(t *testing.T) {
+	// 旧数据库 payload 的 Intent.BotName/HistoryLimit 可被读取，但公开 JSON 不再输出。
+	raw := []byte(`{"Intent":{"Enabled":true,"Provider":"jev","Endpoint":"https://api.example/v1/systemone","Model":"jev","TimeoutSeconds":3,"ContinuationThreshold":0.8,"InterjectionThreshold":0.95,"AddressedOtherMax":0.6,"BotName":"LegacyBot","HistoryLimit":42}}`)
+	var settings Settings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if settings.Intent.BotName != "LegacyBot" || settings.Intent.HistoryLimit != 42 {
+		t.Fatalf("legacy fields = %+v", settings.Intent)
+	}
+	settings.Normalize()
+	if settings.Role.BotName != "LegacyBot" || settings.Context.HistoryLimit != 42 {
+		t.Fatalf("migrated = %+v/%+v", settings.Role, settings.Context)
+	}
+	encoded, err := json.Marshal(settings.Intent)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if bytes.Contains(encoded, []byte("BotName")) || bytes.Contains(encoded, []byte("HistoryLimit")) {
+		t.Fatalf("legacy fields leaked: %s", encoded)
 	}
 }

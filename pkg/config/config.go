@@ -178,13 +178,22 @@ type Intent struct {
 	Endpoint              string   `yaml:"endpoint"`
 	APIKey                string   `yaml:"api-key"`
 	Model                 string   `yaml:"model"`
-	BotName               string   `yaml:"bot-name"`
 	Timeout               Duration `yaml:"timeout"`
-	ActiveWindow          Duration `yaml:"active-window"`
 	ContinuationThreshold float64  `yaml:"continuation-threshold"`
 	InterjectionThreshold float64  `yaml:"interjection-threshold"`
 	AddressedOtherMax     float64  `yaml:"addressed-other-max"`
-	HistoryLimit          int      `yaml:"history-limit"`
+}
+
+// Role holds the bot identity shared by intent judgment and reply generation.
+// Role 保存意图判断与回复生成共用的机器人身份。
+type Role struct {
+	BotName string `yaml:"bot-name"`
+}
+
+// Context holds the conversation history budget shared by intent and generation.
+// Context 保存意图判断与生成共用的会话历史预算。
+type Context struct {
+	HistoryLimit int `yaml:"history-limit"`
 }
 
 // Agent 是 Agent 运行时的执行限制。
@@ -309,6 +318,8 @@ type Config struct {
 	Database      Database      `yaml:"database"`
 	Worker        Worker        `yaml:"worker"`
 	AI            AI            `yaml:"ai"`
+	Role          Role          `yaml:"role"`
+	Context       Context       `yaml:"context"`
 	Agent         Agent         `yaml:"agent"`
 	Memory        Memory        `yaml:"memory"`
 	Messages      Messages      `yaml:"messages"`
@@ -383,16 +394,16 @@ func defaults() Config {
 				RetentionDays: 30,
 			},
 		},
+		Role:    Role{},
+		Context: Context{HistoryLimit: 30},
 		Intent: Intent{
 			Provider:              "jev",
 			Endpoint:              "https://api.typesafe.ai/v1/systemone",
 			Model:                 "jev-latest",
 			Timeout:               Duration(3 * time.Second),
-			ActiveWindow:          Duration(180 * time.Second),
 			ContinuationThreshold: 0.80,
 			InterjectionThreshold: 0.95,
 			AddressedOtherMax:     0.60,
-			HistoryLimit:          30,
 		},
 	}
 }
@@ -418,6 +429,7 @@ func Load(opts Options) (*Config, error) {
 		lookup = os.LookupEnv
 	}
 	cfg := defaults()
+	var legacy legacyIntentSettings
 	if opts.File != "" {
 		data, err := os.ReadFile(opts.File)
 		if err != nil {
@@ -426,13 +438,45 @@ func Load(opts Options) (*Config, error) {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("config: 解析配置文件 %s 失败: %w", opts.File, err)
 		}
+		if err := yaml.Unmarshal(data, &legacy); err != nil {
+			return nil, fmt.Errorf("config: 解析旧版配置字段 %s 失败: %w", opts.File, err)
+		}
 	}
+	applyConfigCompatibility(&cfg, legacy)
 	applyEnv(&cfg, lookup)
 	applyOverrides(&cfg, opts.Overrides)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// legacyIntentSettings reads only the removed intent fields from old YAML so
+// existing deployments keep their bot name and history budget after migration.
+// legacyIntentSettings 只读取旧 YAML 中已移除的 intent 字段，使现有部署迁移后
+// 仍保留机器人名称与历史预算。
+type legacyIntentSettings struct {
+	Intent struct {
+		BotName      string `yaml:"bot-name"`
+		HistoryLimit int    `yaml:"history-limit"`
+	} `yaml:"intent"`
+	Context struct {
+		// Pointer distinguishes an absent context section from an explicit 0.
+		// 指针用于区分未配置 context 与显式配置 0。
+		HistoryLimit *int `yaml:"history-limit"`
+	} `yaml:"context"`
+}
+
+// applyConfigCompatibility migrates legacy intent fields and applies the
+// context history default after YAML decoding.
+// applyConfigCompatibility 在 YAML 解码后迁移旧 intent 字段并补齐上下文历史默认值。
+func applyConfigCompatibility(cfg *Config, legacy legacyIntentSettings) {
+	if strings.TrimSpace(cfg.Role.BotName) == "" && strings.TrimSpace(legacy.Intent.BotName) != "" {
+		cfg.Role.BotName = strings.TrimSpace(legacy.Intent.BotName)
+	}
+	if legacy.Context.HistoryLimit == nil && legacy.Intent.HistoryLimit > 0 {
+		cfg.Context.HistoryLimit = legacy.Intent.HistoryLimit
+	}
 }
 
 func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
@@ -616,6 +660,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Tools.Timeout.D() <= 0 || c.Tools.MaxResultBytes <= 0 {
 		return fmt.Errorf("config: tools.timeout 与 tools.max-result-bytes 必须为正数")
+	}
+	if c.Context.HistoryLimit < 1 || c.Context.HistoryLimit > 200 {
+		return fmt.Errorf("config: context.history-limit 必须在 1-200 之间")
 	}
 	if c.Intent.Enabled {
 		if c.Intent.Provider != "jev" && c.Intent.Provider != "openai" {
