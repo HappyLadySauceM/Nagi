@@ -31,6 +31,7 @@ import { useAccountContext } from '../accounts/account-context'
 import { MemoryCreateDialog } from './components/memory-create-dialog'
 import { MemoryEditSheet } from './components/memory-edit-sheet'
 import { MemoryFilters } from './components/memory-filters'
+import { PromptManagementPage } from '../prompts/prompt-management-page'
 import { useApproveMemory, useDeleteMemory, useMemories } from './queries'
 
 const STATUS_VARIANTS: Record<MemoryStatus, 'success' | 'warning' | 'secondary' | 'destructive'> = {
@@ -41,6 +42,14 @@ const STATUS_VARIANTS: Record<MemoryStatus, 'success' | 'warning' | 'secondary' 
 }
 
 export function MemoriesPage() {
+  const search = useSearch({ from: '/memories' })
+  if (search.tab === 'prompts') {
+    return <PromptManagementPage />
+  }
+  return <MemoriesEntriesPage />
+}
+
+function MemoriesEntriesPage() {
   const search = useSearch({ from: '/memories' })
   const navigate = useNavigate({ from: '/memories' })
   const { selectedBotId: botId, selectedAccount } = useAccountContext()
@@ -113,6 +122,13 @@ export function MemoriesPage() {
         description={`候选记忆需要审批后才会被会话读取。当前账号：${selectedAccount?.nickname || botId || '未识别'}；全局共享记忆对所有会话可见，审批前请确认内容适合共享。`}
         actions={
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void navigate({ search: (prev) => ({ ...prev, tab: 'prompts' }), replace: true })}
+            >
+              Prompt 管理
+            </Button>
             <Button variant="outline" size="sm" onClick={() => void memories.refetch()}>
               <RefreshCw
                 className={cn('size-3.5', memories.isFetching && 'animate-spin')}
