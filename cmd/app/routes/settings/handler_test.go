@@ -50,11 +50,13 @@ func (m *memoryRepo) Version(context.Context) (int64, bool, error) {
 
 func defaults() settingsdomain.Settings {
 	return settingsdomain.Settings{
-		AI: settingsdomain.AI{MaxOutputTokens: 400, GenerationTimeoutSeconds: 25},
+		Role:    settingsdomain.Role{BotName: "Nagi"},
+		Context: settingsdomain.Context{HistoryLimit: 30},
+		AI:      settingsdomain.AI{MaxOutputTokens: 400, GenerationTimeoutSeconds: 25},
 		Intent: settingsdomain.Intent{
 			Provider: "jev", Endpoint: "https://api.example/v1/systemone", Model: "jev",
 			TimeoutSeconds: 3, ContinuationThreshold: 0.8, InterjectionThreshold: 0.95,
-			AddressedOtherMax: 0.6, HistoryLimit: 30,
+			AddressedOtherMax: 0.6,
 		},
 		Agent: settingsdomain.Agent{
 			MaxSteps: 6, MaxToolCalls: 5, MaxRunDurationSeconds: 30,
@@ -206,5 +208,59 @@ func TestEndpointsRequireService(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("%s status = %d, want 503", name, rec.Code)
 		}
+	}
+}
+
+func TestGetExposesRoleAndContextWithoutLegacyIntentFields(t *testing.T) {
+	// 新模型必须返回 Role/Context，且 Intent 不再暴露旧 BotName/HistoryLimit。
+	handler, _ := newTestHandler(t)
+	rec := httptest.NewRecorder()
+	handler.Get(rec, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
+	var envelope struct {
+		Data struct {
+			Settings map[string]any
+		}
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	settings := envelope.Data.Settings
+	role, _ := settings["Role"].(map[string]any)
+	contextView, _ := settings["Context"].(map[string]any)
+	intent, _ := settings["Intent"].(map[string]any)
+	if role["BotName"] != "Nagi" || contextView["HistoryLimit"] != float64(30) {
+		t.Fatalf("role/context = %+v/%+v", role, contextView)
+	}
+	if _, exists := intent["BotName"]; exists {
+		t.Fatalf("legacy Intent.BotName leaked: %+v", intent)
+	}
+	if _, exists := intent["HistoryLimit"]; exists {
+		t.Fatalf("legacy Intent.HistoryLimit leaked: %+v", intent)
+	}
+}
+
+func TestPatchSettingsUpdatesRoleAndContext(t *testing.T) {
+	// 部分更新入口必须接受新 Role/Context 分区并持久化。
+	handler, _ := newTestHandler(t)
+	body, _ := json.Marshal(map[string]any{
+		"Version": 1,
+		"Sections": map[string]any{
+			"Role":    map[string]any{"BotName": "新名字"},
+			"Context": map[string]any{"HistoryLimit": 42},
+		},
+	})
+	rec := httptest.NewRecorder()
+	handler.patchSettings(rec, httptest.NewRequest(http.MethodPatch, "/api/v1/settings", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data settingsapp.View
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if envelope.Data.Settings.Role.BotName != "新名字" || envelope.Data.Settings.Context.HistoryLimit != 42 {
+		t.Fatalf("settings = %+v", envelope.Data.Settings)
 	}
 }

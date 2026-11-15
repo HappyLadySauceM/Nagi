@@ -378,3 +378,37 @@ func TestLoadRejectsMediaArchiveWithoutDatabase(t *testing.T) {
 		t.Fatal("expected error when media-archive is enabled without database.dsn")
 	}
 }
+
+func TestLoadMovesLegacyIntentFields(t *testing.T) {
+	// 旧配置的 intent.bot-name / history-limit 必须迁移到新分区，避免升级后静默丢失。
+	file := writeTempConfig(t, "intent:\n  bot-name: LegacyBot\n  history-limit: 42\n")
+	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
+	if err != nil {
+		t.Fatalf("load legacy config: %v", err)
+	}
+	if cfg.Role.BotName != "LegacyBot" || cfg.Context.HistoryLimit != 42 {
+		t.Fatalf("legacy migration = role %q context %d", cfg.Role.BotName, cfg.Context.HistoryLimit)
+	}
+}
+
+func TestLoadNewRoleContextWinsOverLegacy(t *testing.T) {
+	// 新分区显式配置优先于旧 intent 字段。
+	file := writeTempConfig(t, "role:\n  bot-name: NewBot\ncontext:\n  history-limit: 25\nintent:\n  bot-name: LegacyBot\n  history-limit: 42\n")
+	cfg, err := Load(Options{File: file, LookupEnv: noEnv})
+	if err != nil {
+		t.Fatalf("load mixed config: %v", err)
+	}
+	if cfg.Role.BotName != "NewBot" || cfg.Context.HistoryLimit != 25 {
+		t.Fatalf("new config must win: role %q context %d", cfg.Role.BotName, cfg.Context.HistoryLimit)
+	}
+}
+
+func TestLoadRejectsOutOfRangeContextHistory(t *testing.T) {
+	// context.history-limit 范围为 1-200，显式 0 与超上限都必须拒绝。
+	for _, value := range []string{"0", "201"} {
+		file := writeTempConfig(t, "context:\n  history-limit: "+value+"\n")
+		if _, err := Load(Options{File: file, LookupEnv: noEnv}); err == nil {
+			t.Fatalf("history-limit %s must be rejected", value)
+		}
+	}
+}

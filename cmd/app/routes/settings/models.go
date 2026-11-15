@@ -111,6 +111,10 @@ func (h *Handler) patchSettings(w http.ResponseWriter, r *http.Request) {
 		switch section {
 		case "AI":
 			target = &next.AI
+		case "Role":
+			target = &next.Role
+		case "Context":
+			target = &next.Context
 		case "Intent":
 			target = &next.Intent
 		case "Agent":

@@ -215,7 +215,7 @@ func (r *semanticRouter) resolve(ctx context.Context) (intentapp.SemanticDecider
 		return nil, err
 	}
 	p := resolved.Profile
-	botName := executionSettings(ctx, r.settings).Intent.BotName
+	botName := executionSettings(ctx, r.settings).Role.BotName
 	fingerprint := fmt.Sprintf("%s:%d:%s", p.ID, p.Version, botName)
 	r.mu.Lock()
 	defer r.mu.Unlock()

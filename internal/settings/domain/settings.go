@@ -5,6 +5,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"net/url"
@@ -27,11 +28,25 @@ type Revision struct {
 // 公开管理视图在序列化前移除全部密文。
 type Settings struct {
 	Models   models.Catalog `json:"Models"`
+	Role     Role           `json:"Role"`
+	Context  Context        `json:"Context"`
 	AI       AI             `json:"AI"`
 	Intent   Intent         `json:"Intent"`
 	Agent    Agent          `json:"Agent"`
 	Messages Messages       `json:"Messages"`
 	Tools    Tools          `json:"Tools"`
+}
+
+// Role holds the bot identity shared by intent judgment and reply generation.
+// Role 保存意图判断与回复生成共用的机器人身份。
+type Role struct {
+	BotName string `json:"BotName"`
+}
+
+// Context holds the conversation history budget shared by intent and generation.
+// Context 保存意图判断与生成共用的会话历史预算。
+type Context struct {
+	HistoryLimit int `json:"HistoryLimit"`
 }
 
 // AI is the generation model section; api-key is intentionally absent.
@@ -57,14 +72,40 @@ type Intent struct {
 	Provider string `json:"Provider"`
 	Endpoint string `json:"Endpoint"`
 	Model    string `json:"Model"`
-	BotName  string `json:"BotName"`
 	// TimeoutSeconds bounds one semantic decision call.
 	// TimeoutSeconds 限制单次语义判定调用。
 	TimeoutSeconds        int     `json:"TimeoutSeconds"`
 	ContinuationThreshold float64 `json:"ContinuationThreshold"`
 	InterjectionThreshold float64 `json:"InterjectionThreshold"`
 	AddressedOtherMax     float64 `json:"AddressedOtherMax"`
-	HistoryLimit          int     `json:"HistoryLimit"`
+
+	// BotName and HistoryLimit are legacy persisted fields. UnmarshalJSON reads
+	// them for old rows, Normalize migrates them into Role/Context, and the
+	// public model never serializes them.
+	// BotName 与 HistoryLimit 是旧版持久化字段；UnmarshalJSON 读取旧行，
+	// Normalize 将其迁移到 Role/Context，公开模型永不序列化这两个字段。
+	BotName      string `json:"-"`
+	HistoryLimit int    `json:"-"`
+}
+
+// UnmarshalJSON reads old settings payloads that still carry Intent.BotName and
+// Intent.HistoryLimit; all other fields decode normally.
+// UnmarshalJSON 读取仍带 Intent.BotName 与 Intent.HistoryLimit 的旧设置载荷；
+// 其它字段保持不变。
+func (i *Intent) UnmarshalJSON(data []byte) error {
+	type plain Intent
+	var raw struct {
+		plain
+		BotName      string `json:"BotName"`
+		HistoryLimit int    `json:"HistoryLimit"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*i = Intent(raw.plain)
+	i.BotName = raw.BotName
+	i.HistoryLimit = raw.HistoryLimit
+	return nil
 }
 
 // Agent holds the limits of one reply run.
@@ -182,7 +223,15 @@ func (s *Settings) Normalize() {
 	s.Intent.Provider = strings.ToLower(strings.TrimSpace(s.Intent.Provider))
 	s.Intent.Endpoint = strings.TrimSpace(s.Intent.Endpoint)
 	s.Intent.Model = strings.TrimSpace(s.Intent.Model)
-	s.Intent.BotName = strings.TrimSpace(s.Intent.BotName)
+	s.Role.BotName = strings.TrimSpace(s.Role.BotName)
+	if s.Role.BotName == "" {
+		s.Role.BotName = strings.TrimSpace(s.Intent.BotName)
+	}
+	if s.Context.HistoryLimit == 0 && s.Intent.HistoryLimit > 0 {
+		s.Context.HistoryLimit = s.Intent.HistoryLimit
+	}
+	s.Intent.BotName = ""
+	s.Intent.HistoryLimit = 0
 	if s.Tools.PermissionDefaults == nil {
 		s.Tools.PermissionDefaults = map[string]bool{}
 	}
@@ -211,6 +260,7 @@ func (s Settings) Clone() Settings {
 func (s Settings) Validate(knownPermissions map[string]bool) error {
 	problems := &ValidationError{}
 	s.validateAI(problems)
+	s.validateContext(problems)
 	s.validateIntent(problems)
 	s.validateAgent(problems)
 	s.validateMessages(problems)
@@ -269,8 +319,14 @@ func (s Settings) validateIntent(problems *ValidationError) {
 			problems.Add(field, "阈值必须落在 (0,1] 区间")
 		}
 	}
-	if !inRange(s.Intent.HistoryLimit, HistoryLimitMin, HistoryLimitMax) {
-		problems.Add("Intent.HistoryLimit", rangeHint(HistoryLimitMin, HistoryLimitMax))
+}
+
+// validateContext checks the shared conversation history budget even when the
+// intent pipeline is disabled, because generation also reads the same value.
+// validateContext 校验共享会话历史预算；即使意图流水线关闭，生成也读取该值。
+func (s Settings) validateContext(problems *ValidationError) {
+	if !inRange(s.Context.HistoryLimit, HistoryLimitMin, HistoryLimitMax) {
+		problems.Add("Context.HistoryLimit", rangeHint(HistoryLimitMin, HistoryLimitMax))
 	}
 }
 

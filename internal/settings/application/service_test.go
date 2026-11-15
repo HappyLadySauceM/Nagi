@@ -51,6 +51,8 @@ func (f *fakeRepo) Version(context.Context) (int64, bool, error) {
 
 func testSettings() settingsdomain.Settings {
 	return settingsdomain.Settings{
+		Role:    settingsdomain.Role{BotName: "Nagi"},
+		Context: settingsdomain.Context{HistoryLimit: 30},
 		AI: settingsdomain.AI{
 			Enabled: true, BaseURL: "https://llm.example/v1", Model: "m",
 			MaxOutputTokens: 400, GenerationTimeoutSeconds: 25,
@@ -58,7 +60,7 @@ func testSettings() settingsdomain.Settings {
 		Intent: settingsdomain.Intent{
 			Enabled: true, Provider: "jev", Endpoint: "https://api.example/v1/systemone",
 			Model: "jev", TimeoutSeconds: 3, ContinuationThreshold: 0.8,
-			InterjectionThreshold: 0.95, AddressedOtherMax: 0.6, HistoryLimit: 30,
+			InterjectionThreshold: 0.95, AddressedOtherMax: 0.6,
 		},
 		Agent: settingsdomain.Agent{
 			MaxSteps: 6, MaxToolCalls: 5, MaxRunDurationSeconds: 30,
