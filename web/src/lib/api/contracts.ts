@@ -357,6 +357,9 @@ export type MemoryVisibility = 'bot_shared' | 'group' | 'private_user' | 'conver
 
 export type MemoryStatus = 'candidate' | 'active' | 'superseded' | 'deleted'
 
+export type MemorySubjectType = 'user' | 'group' | 'unknown'
+export type MemoryOrigin = 'manual' | 'extraction'
+
 export interface MemoryEntry {
   id: string
   botId: number
@@ -364,7 +367,11 @@ export interface MemoryEntry {
   ownerKey: string
   content: string
   sourceMessageId?: number
+  sourceSenderId?: number
   source?: string
+  origin?: MemoryOrigin
+  subjectType?: MemorySubjectType
+  subjectId?: string
   confidence: number
   status: MemoryStatus
   approvedBy?: string
@@ -376,6 +383,47 @@ export interface MemoryEntry {
 export interface MemoryCreateResult {
   id: string
   duplicate: boolean
+}
+
+export interface MemoryReplacementCounterpart {
+  memoryId: string
+  status: MemoryStatus | ''
+  missing: boolean
+}
+
+/** One immutable replacement relation shown on the management detail. */
+export interface MemoryReplacement {
+  replacementId: string
+  direction: string
+  newMemoryId: string
+  oldMemoryId: string
+  actor: string
+  reason: string
+  newStatus: MemoryStatus | ''
+  oldStatus: MemoryStatus | ''
+  createdAt?: string
+  counterpart: MemoryReplacementCounterpart
+}
+
+export interface MemoryManagementView {
+  memory: MemoryEntry
+  replacements: MemoryReplacement[]
+}
+
+export interface MemorySupersedeResult {
+  newMemoryId: string
+  oldMemoryId: string
+  newStatus: MemoryStatus
+  oldStatus: MemoryStatus
+  replacedAt?: string
+  replacedBy: string
+  idempotent: boolean
+}
+
+export const MEMORY_SUBJECT_LABELS: Record<MemorySubjectType, string> = {
+  user: '用户',
+  group: '群聊',
+  unknown: '未知',
 }
 
 export const MEMORY_VISIBILITY_LABELS: Record<MemoryVisibility, string> = {

@@ -1,13 +1,19 @@
 import type {
   MemoryCreateResult,
   MemoryEntry,
+  MemoryManagementView,
+  MemoryReplacement,
   MemoryStatus,
+  MemorySubjectType,
+  MemorySupersedeResult,
   MemoryVisibility,
   PageResult,
 } from '../contracts'
 import {
+  asArray,
   asRecord,
   contractError,
+  readBoolean,
   readNumber,
   readOptionalNumber,
   readOptionalString,
@@ -25,6 +31,8 @@ const VISIBILITIES: readonly MemoryVisibility[] = [
 ]
 
 const STATUSES: readonly MemoryStatus[] = ['candidate', 'active', 'superseded', 'deleted']
+
+const SUBJECT_TYPES: readonly MemorySubjectType[] = ['user', 'group', 'unknown']
 
 export function isMemoryVisibility(value: unknown): value is MemoryVisibility {
   return typeof value === 'string' && VISIBILITIES.includes(value as MemoryVisibility)
@@ -58,6 +66,28 @@ function toMemory(raw: unknown): MemoryEntry {
   const sourceMessageId = readOptionalNumber(record, 'SourceMessageID', MEMORY_ENDPOINT)
   if (sourceMessageId !== undefined && sourceMessageId > 0) {
     entry.sourceMessageId = sourceMessageId
+  }
+  const sourceSenderId = readOptionalNumber(record, 'SourceSenderID', MEMORY_ENDPOINT)
+  if (sourceSenderId !== undefined && sourceSenderId > 0) {
+    entry.sourceSenderId = sourceSenderId
+  }
+  const subjectType = readOptionalString(record, 'SubjectType', MEMORY_ENDPOINT)
+  if (subjectType !== undefined) {
+    if (!SUBJECT_TYPES.includes(subjectType as MemorySubjectType)) {
+      throw contractError(MEMORY_ENDPOINT, `SubjectType 取值未知：${subjectType}`)
+    }
+    entry.subjectType = subjectType as MemorySubjectType
+  }
+  const subjectId = readOptionalString(record, 'SubjectID', MEMORY_ENDPOINT)
+  if (subjectId !== undefined) {
+    entry.subjectId = subjectId
+  }
+  const origin = readOptionalString(record, 'Origin', MEMORY_ENDPOINT)
+  if (origin !== undefined) {
+    if (origin !== 'manual' && origin !== 'extraction') {
+      throw contractError(MEMORY_ENDPOINT, `Origin 取值未知：${origin}`)
+    }
+    entry.origin = origin
   }
   const source = readOptionalString(record, 'Source', MEMORY_ENDPOINT)
   if (source !== undefined) {
@@ -107,6 +137,70 @@ export function toMemoryPage(
     total,
     page: page !== undefined && page > 0 ? page : request.page,
     limit: limit !== undefined && limit > 0 ? limit : request.limit,
+  }
+}
+
+function readOptionalMemoryStatus(
+  record: Record<string, unknown>,
+  key: string,
+): MemoryStatus | '' {
+  const value = readOptionalString(record, key, MEMORY_ENDPOINT)
+  if (value === undefined) return ''
+  if (!isMemoryStatus(value)) {
+    throw contractError(MEMORY_ENDPOINT, `${key} 取值未知：${value}`)
+  }
+  return value
+}
+
+function toMemoryReplacement(raw: unknown): MemoryReplacement {
+  const record = asRecord(raw, MEMORY_ENDPOINT, 'replacement')
+  const counterpart = asRecord(record.Counterpart, MEMORY_ENDPOINT, 'Counterpart')
+  return {
+    replacementId: readString(record, 'ReplacementID', MEMORY_ENDPOINT),
+    direction: readString(record, 'Direction', MEMORY_ENDPOINT, ''),
+    newMemoryId: readString(record, 'NewMemoryID', MEMORY_ENDPOINT),
+    oldMemoryId: readString(record, 'OldMemoryID', MEMORY_ENDPOINT),
+    actor: readString(record, 'Actor', MEMORY_ENDPOINT, ''),
+    reason: readString(record, 'Reason', MEMORY_ENDPOINT, ''),
+    newStatus: readOptionalMemoryStatus(record, 'NewStatus'),
+    oldStatus: readOptionalMemoryStatus(record, 'OldStatus'),
+    createdAt: readOptionalTime(record, 'CreatedAt', MEMORY_ENDPOINT),
+    counterpart: {
+      memoryId: readString(counterpart, 'MemoryID', MEMORY_ENDPOINT, ''),
+      status: readOptionalMemoryStatus(counterpart, 'Status'),
+      missing: readBoolean(counterpart, 'Missing', MEMORY_ENDPOINT, false),
+    },
+  }
+}
+
+/** `GET /api/v1/memories/{id}/management` → memory plus replacement relations. */
+export function toMemoryManagement(raw: unknown): MemoryManagementView {
+  const record = asRecord(raw, MEMORY_ENDPOINT, 'management')
+  return {
+    memory: toMemory(record.Memory),
+    replacements:
+      record.Replacements == null
+        ? []
+        : asArray(record.Replacements, MEMORY_ENDPOINT, 'Replacements').map(toMemoryReplacement),
+  }
+}
+
+/** `POST /api/v1/memories/{candidate_id}/supersede` result. */
+export function toMemorySupersedeResult(raw: unknown): MemorySupersedeResult {
+  const record = asRecord(raw, MEMORY_ENDPOINT, 'supersede')
+  const newStatus = readString(record, 'NewStatus', MEMORY_ENDPOINT)
+  const oldStatus = readString(record, 'OldStatus', MEMORY_ENDPOINT)
+  if (!isMemoryStatus(newStatus) || !isMemoryStatus(oldStatus)) {
+    throw contractError(MEMORY_ENDPOINT, '替代结果状态未知')
+  }
+  return {
+    newMemoryId: readString(record, 'NewMemoryID', MEMORY_ENDPOINT),
+    oldMemoryId: readString(record, 'OldMemoryID', MEMORY_ENDPOINT),
+    newStatus,
+    oldStatus,
+    replacedAt: readOptionalTime(record, 'ReplacedAt', MEMORY_ENDPOINT),
+    replacedBy: readString(record, 'ReplacedBy', MEMORY_ENDPOINT, ''),
+    idempotent: readBoolean(record, 'Idempotent', MEMORY_ENDPOINT, false),
   }
 }
 

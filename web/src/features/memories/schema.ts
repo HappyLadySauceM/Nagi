@@ -4,6 +4,8 @@ const visibilityField = z.enum(['bot_shared', 'group', 'private_user', 'conversa
 
 const contentField = z.string().trim().min(1, '内容不能为空').max(2_000, '内容不能超过 2000 字')
 const ownerField = z.string().trim().max(100, '归属不能超过 100 字')
+const subjectTypeField = z.enum(['user', 'group', 'unknown'])
+const subjectIdField = z.string().trim().max(100, '主体 ID 不能超过 100 字')
 
 /**
  * `bot_shared` must never carry an owner, every other visibility requires one.
@@ -26,10 +28,45 @@ function checkOwner(values: { visibility: string; ownerKey: string }, ctx: z.Ref
   }
 }
 
+/**
+ * A candidate can only replace a fact when its subject is explicit. The UI
+ * never derives a subject from the owner, source message or similar content.
+ * 只有主体明确时候选才允许替代旧事实；界面不会从归属、来源消息或相似正文推断主体。
+ */
+function checkSubject(
+  values: { visibility: string; subjectType: string; subjectId: string },
+  ctx: z.RefinementCtx,
+) {
+  const subjectId = values.subjectId.trim()
+  if ((values.subjectType === 'user' || values.subjectType === 'group') && subjectId === '') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['subjectId'],
+      message: '用户或群聊主体必须填写稳定 ID',
+    })
+  }
+  if (values.subjectType === 'unknown' && subjectId !== '') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['subjectId'],
+      message: '未知主体不能填写主体 ID',
+    })
+  }
+  if (values.visibility === 'private_user' && values.subjectType === 'group') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['subjectType'],
+      message: '个人记忆不能使用群聊主体',
+    })
+  }
+}
+
 export const memoryCreateSchema = z
   .object({
     visibility: visibilityField,
     ownerKey: ownerField,
+    subjectType: subjectTypeField,
+    subjectId: subjectIdField,
     content: contentField,
     source: z.string().trim().max(100, '来源不能超过 100 字'),
     confidence: z
@@ -40,6 +77,7 @@ export const memoryCreateSchema = z
     approve: z.boolean(),
   })
   .superRefine(checkOwner)
+  .superRefine(checkSubject)
 
 export type MemoryCreateValues = z.infer<typeof memoryCreateSchema>
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { Check, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, Check, History, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -32,6 +32,8 @@ import { useAccountContext } from '../accounts/account-context'
 import { MemoryCreateDialog } from './components/memory-create-dialog'
 import { MemoryEditSheet } from './components/memory-edit-sheet'
 import { MemoryFilters } from './components/memory-filters'
+import { MemoryManagementSheet } from './components/memory-management-sheet'
+import { MemorySupersedeDialog } from './components/memory-supersede-dialog'
 import { KnowledgeSummaryCards } from '../knowledge/components/knowledge-summary'
 import { MemoryTabs } from '../knowledge/components/memory-tabs'
 import { ExtractionPanel } from '../knowledge/components/extraction-panel'
@@ -88,6 +90,8 @@ function MemoriesEntriesPage() {
   const [editing, setEditing] = useState<MemoryEntry | null>(null)
   const [approving, setApproving] = useState<MemoryEntry | null>(null)
   const [deleting, setDeleting] = useState<MemoryEntry | null>(null)
+  const [superseding, setSuperseding] = useState<MemoryEntry | null>(null)
+  const [managing, setManaging] = useState<{ id: string; botId: number } | null>(null)
 
   const rows = memories.data?.items ?? []
   const hasFilters =
@@ -262,16 +266,36 @@ function MemoriesEntriesPage() {
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
                       {memory.status === 'candidate' ? (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="审批并启用"
-                          title="审批并启用"
-                          onClick={() => setApproving(memory)}
-                        >
-                          <Check className="size-3.5" aria-hidden />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="用新事实替代旧事实"
+                            title="用新事实替代旧事实"
+                            onClick={() => setSuperseding(memory)}
+                          >
+                            <ArrowLeftRight className="size-3.5" aria-hidden />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="审批并启用"
+                            title="审批并启用"
+                            onClick={() => setApproving(memory)}
+                          >
+                            <Check className="size-3.5" aria-hidden />
+                          </Button>
+                        </>
                       ) : null}
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="查看替代关系"
+                        title="查看替代关系"
+                        onClick={() => setManaging({ id: memory.id, botId: memory.botId })}
+                      >
+                        <History className="size-3.5" aria-hidden />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -323,6 +347,20 @@ function MemoriesEntriesPage() {
       <MemoryCreateDialog open={createOpen} onOpenChange={setCreateOpen} botId={botId} />
 
       <MemoryEditSheet memory={editing} onOpenChange={(open) => !open && setEditing(null)} />
+
+      <MemorySupersedeDialog
+        candidate={superseding}
+        onOpenChange={(open) => !open && setSuperseding(null)}
+        onSuperseded={(oldMemoryId, oldMemoryBotId) => {
+          setSuperseding(null)
+          setManaging({ id: oldMemoryId, botId: oldMemoryBotId })
+        }}
+      />
+      <MemoryManagementSheet
+        memoryId={managing?.id ?? null}
+        botId={managing?.botId}
+        onOpenChange={(open) => !open && setManaging(null)}
+      />
 
       <ConfirmDialog
         open={approving !== null}
