@@ -15,22 +15,8 @@ import (
 // addressing gates.
 // EvaluateRules 按否决顺序应用硬规则：策略、频率限制，然后是指向性闸门。
 func EvaluateRules(in domain.Input) domain.RuleResult {
-	if !in.Policy.Enabled {
-		return blocked("policy_disabled")
-	}
-	if in.Policy.ReplyMode == scopedomain.ModeObserveOnly {
-		return blocked("observe_only")
-	}
-	// Rate limits have the final veto, even for explicit mentions.
-	// 频率限制拥有最终否决权，对明确 @ 也不例外。
-	if in.Policy.MinReplyIntervalMS > 0 {
-		if since := in.BotLastSpoke(); since >= 0 &&
-			since*1000 < int64(in.Policy.MinReplyIntervalMS) {
-			return blocked("cooldown")
-		}
-	}
-	if in.Policy.MaxRepliesPerHour > 0 && in.BotRepliesLastHour() >= in.Policy.MaxRepliesPerHour {
-		return blocked("rate_limited")
+	if reason, matched := domain.EvaluateFixedConstraints(in); matched {
+		return blocked(reason)
 	}
 
 	explicit := in.MentionsBot() || in.RepliesToBot()
@@ -118,9 +104,9 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 		"addressed_to_other":   semantic.AddressedToOther,
 		"appropriate_to_join":  semantic.AppropriateToJoin,
 	}
-	enabled := func(key string) bool { value, exists := rule.BuiltinRules[key]; return !exists || value }
-	if enabled("closing") && semantic.IntentCategory == "closing" {
-		return withScores(domain.DecisionSilent, "closing", scores)
+	if decision, matched := domain.EvaluateBuiltinRules(in, rule, semantic, th); matched {
+		decision.Scores = scores
+		return decision
 	}
 	// A one-to-one conversation is addressed to the bot by construction. Treat
 	// normal private messages as expected replies instead of applying group
@@ -129,25 +115,6 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 	// 告别仍保留明确沉默信号。
 	if in.Task.Kind == "private" {
 		return withScores(domain.DecisionReply, "private_normal", scores)
-	}
-	// Being addressed to another person is the strongest group suppression
-	// signal, so it must run before active-thread continuation, interjection and
-	// directed-to-bot checks. Otherwise a high interjection score can override
-	// an explicit "you two keep talking" message.
-	// 对另一位真人说话是群聊最强的抑制信号，必须先于续聊、插话和指向机器人判断；
-	// 否则高插话分可能覆盖明确的“你们聊”信号。
-	if enabled("addressed_to_other") && semantic.AddressedToOther >= th.AddressedOtherMax {
-		return withScores(domain.DecisionSilent, "addressed_to_other", scores)
-	}
-	if enabled("continuation") && semantic.ContinuesBotThread >= th.Continuation {
-		return withScores(domain.DecisionReply, "active_thread_continuation", scores)
-	}
-	if enabled("interjection") && in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
-		semantic.AppropriateToJoin >= th.Interjection {
-		return withScores(domain.DecisionReply, "interjection", scores)
-	}
-	if enabled("directed_to_bot") && semantic.DirectedToBot >= th.Continuation {
-		return withScores(domain.DecisionReply, "directed_to_bot", scores)
 	}
 	return withScores(domain.DecisionSilent, "ambiguous", scores)
 }
