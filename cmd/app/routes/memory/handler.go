@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -44,6 +45,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/memories", h.Create)
 	mux.HandleFunc("PATCH /api/v1/memories/{id}", h.Patch)
 	mux.HandleFunc("DELETE /api/v1/memories/{id}", h.Delete)
+	mux.HandleFunc("GET /api/v1/memory-extraction/settings", h.GetExtractionSettings)
 	mux.HandleFunc("GET /api/v1/memory-extraction/jobs", h.ListExtractionJobs)
 	mux.HandleFunc("POST /api/v1/memory-extraction/jobs/{id}/retry", h.RetryExtractionJob)
 }
@@ -281,6 +283,37 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	case statusNone:
 	}
 	common.WriteSuccess(w, map[string]any{"id": id})
+}
+
+// GetExtractionSettings returns the process-wide extraction configuration.
+// It is read-only: the M2 contract does not allow online edits or per-bot
+// parameter overrides, so bot_id is not part of this endpoint.
+// GetExtractionSettings 返回进程级抽取配置；M2 契约不允许在线编辑或按 bot 覆盖参数，
+// 因此该接口不接收 bot_id。
+func (h *Handler) GetExtractionSettings(w http.ResponseWriter, r *http.Request) {
+	if h.svcCtx.Config == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "config unavailable")
+		return
+	}
+	cfg := h.svcCtx.Config.Memory.Extraction
+	retryDelays := make([]int64, 0, len(cfg.RetryDelays))
+	for _, delay := range cfg.RetryDelays {
+		retryDelays = append(retryDelays, int64(delay.D()/time.Millisecond))
+	}
+	common.WriteSuccess(w, map[string]any{
+		"Scope":            "global",
+		"Enabled":          cfg.Enabled,
+		"Concurrency":      cfg.Concurrency,
+		"BatchMaxMessages": cfg.BatchMaxMessages,
+		"BatchMaxRunes":    cfg.BatchMaxRunes,
+		"MaxWaitMS":        int64(cfg.MaxWait.D() / time.Millisecond),
+		"PollIntervalMS":   int64(cfg.PollInterval.D() / time.Millisecond),
+		"LeaseDurationMS":  int64(cfg.LeaseDuration.D() / time.Millisecond),
+		"MaxAttempts":      cfg.MaxAttempts,
+		"RetryDelaysMS":    retryDelays,
+		"Source":           "config",
+		"Editable":         false,
+	})
 }
 
 // ListExtractionJobs returns a management page of memory extraction jobs.

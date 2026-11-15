@@ -14,6 +14,7 @@ import (
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
+	conversationapp "github.com/HappyLadySauceM/Nagi/internal/conversation/application"
 	directoryapp "github.com/HappyLadySauceM/Nagi/internal/directory/application"
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
@@ -55,12 +56,14 @@ type ServiceContext struct {
 	// Dispatchers 为每条连接持有一个事件循环。
 	Dispatchers []*botapp.Dispatcher
 
-	// Directory, Scope, Memory and Audit are nil when the database is not configured.
-	// 未配置数据库时 Directory、Scope、Memory 与 Audit 为 nil。
-	Directory *directoryapp.Service
-	Scope     *scopeapp.Service
-	Memory    *memoryapp.Service
-	Audit     auditcontracts.Recorder
+	// Directory, Scope, Memory, Conversation and Audit are nil when the database
+	// is not configured.
+	// 未配置数据库时 Directory、Scope、Memory、Conversation 与 Audit 为 nil。
+	Directory    *directoryapp.Service
+	Scope        *scopeapp.Service
+	Memory       *memoryapp.Service
+	Conversation *conversationapp.Service
+	Audit        auditcontracts.Recorder
 	// AIAudit exposes durable worker-run facts to the administrator-only API.
 	// AIAudit 向仅管理员 API 暴露可持久复核的 worker 运行事实。
 	AIAudit auditcontracts.AIReader

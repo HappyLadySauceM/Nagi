@@ -13,6 +13,7 @@ import (
 	agentroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/agent"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/directory"
 	intentroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/intent"
+	knowledgeroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/knowledge"
 	memoryroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/memory"
 	metricsroutes "github.com/HappyLadySauceM/Nagi/cmd/app/routes/metrics"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/routes/scope"
@@ -34,9 +35,13 @@ func New(svcCtx *svc.ServiceContext, logger *slog.Logger) http.Handler {
 	if svcCtx.Scope != nil {
 		scope.NewHandler(svcCtx).Register(mux)
 	}
-	if svcCtx.Memory != nil {
-		memoryroutes.NewHandler(svcCtx).Register(mux)
-	}
+	// Memory routes are always registered: the settings endpoint is a pure
+	// config read, and database-backed memory endpoints return 503 when the
+	// database is absent instead of appearing as an unregistered 404.
+	// 记忆路由始终注册：设置接口只读配置，数据库缺失时依赖数据库的接口返回
+	// 503，而不是表现为未注册的 404。
+	memoryroutes.NewHandler(svcCtx).Register(mux)
+	knowledgeroutes.NewHandler(svcCtx).Register(mux)
 	if svcCtx.Stats != nil {
 		metricsroutes.NewHandler(svcCtx).Register(mux)
 	}
