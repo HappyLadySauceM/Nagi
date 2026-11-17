@@ -621,6 +621,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "published_at", Type: field.TypeTime, Nullable: true},
 		{Name: "builtin_rules", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
+		{Name: "questions", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
 		{Name: "targets", Type: field.TypeJSON, Default: schema.Expr("'[]'::jsonb")},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true},
 	}

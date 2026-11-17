@@ -251,7 +251,7 @@ func ValidatePromptSupplementWithVariables(kind, provider string, p *Prompt, ext
 // promptVariableAllowSet returns the fixed base variables plus extra names.
 // promptVariableAllowSet 返回固定基础变量加上额外变量名。
 func promptVariableAllowSet(extra []string) map[string]struct{} {
-	allowed := map[string]struct{}{"bot_name": {}, "scope_type": {}}
+	allowed := map[string]struct{}{"bot_name": {}, "scope_type": {}, "target_id": {}, "sender_id": {}, "bot_id": {}}
 	for _, name := range extra {
 		if name != "" {
 			allowed[name] = struct{}{}

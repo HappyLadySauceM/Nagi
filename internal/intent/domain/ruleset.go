@@ -68,6 +68,10 @@ type Ruleset struct {
 	Note         string
 	Entries      []RuleEntry
 	BuiltinRules map[string]bool
+	// Questions overrides the SystemOne question set for this version. Empty
+	// means the built-in prompt questions are used.
+	// Questions 覆盖本版本使用的 SystemOne 问题集；为空表示沿用内置 Prompt 问题。
+	Questions map[string]PromptQuestion
 }
 
 // Validate rejects malformed entries before they reach storage or evaluation.
@@ -116,6 +120,11 @@ func (r Ruleset) Validate() error {
 		case "closing", "continuation", "directed_to_bot", "addressed_to_other", "interjection":
 		default:
 			return fmt.Errorf("%w: unknown builtin rule %q", ErrInvalidRule, key)
+		}
+	}
+	if len(r.Questions) > 0 {
+		if err := ValidateSystemOnePrompt(&SystemOnePrompt{Questions: r.Questions}); err != nil {
+			return err
 		}
 	}
 	seen := make(map[int]bool, len(r.Entries))

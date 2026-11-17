@@ -25,6 +25,8 @@ import {
 import {
   RULESET_STATUS_LABELS,
   RULE_ACTION_LABELS,
+  type ManagedPromptContent,
+  type ManagedPromptQuestion,
   type RuleEntry,
   type Ruleset,
   type ScopeType,
@@ -35,6 +37,8 @@ import { useContacts, useGroups } from '../directory/queries'
 import { useAccountContext } from '../accounts/account-context'
 import { FlowRunView } from './flow/flow-run-view'
 import { BuiltinRulesPanel } from './components/builtin-rules-panel'
+import { PromptContentView, PromptEditor } from '../prompts/prompt-content-editor'
+import { normaliseContentForScope, validatePromptContent } from '../prompts/prompt-content'
 import {
   useBuiltinRuleCatalog,
   useCreateDraft,
@@ -83,6 +87,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   const [entries, setEntries] = useState<RuleEntry[]>([])
   const [dirty, setDirty] = useState(false)
   const [builtinRules, setBuiltinRules] = useState<Record<string, boolean>>({})
+  const [questions, setQuestions] = useState<Record<string, ManagedPromptQuestion>>({})
   const [targetText, setTargetText] = useState('')
   const [allTargets, setAllTargets] = useState(true)
   const [targetSearch,setTargetSearch]=useState('')
@@ -92,6 +97,18 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
     if (detail.data && !dirty) {
       setEntries(detail.data.entries)
       setBuiltinRules(detail.data.builtinRules ?? {})
+      // An empty question set means "use the built-in questions": keep it empty
+      // instead of injecting blanks, so rule-only edits stay savable.
+      // 空问题集表示「沿用内置问题」：保持为空，不注入空白模板，规则编辑仍可保存。
+      const storedQuestions = detail.data.questions ?? {}
+      setQuestions(
+        Object.keys(storedQuestions).length > 0
+          ? normaliseContentForScope('intent_participation', 'jev', 'account', {
+              provider: 'jev',
+              systemOne: { questions: storedQuestions },
+            }).systemOne?.questions ?? {}
+          : {},
+      )
       setAllTargets(!detail.data.targets?.length)
       setTargetText((detail.data.targets ?? []).map(target => `${target.kind}:${target.id}`).join(', '))
     }
@@ -112,6 +129,25 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
 
   const globalBuiltinRules = versions.data?.find(set => set.status === 'published' && !set.targets?.length)?.builtinRules ?? {}
   const isDraft = current?.status === 'draft'
+  const hasQuestions = Object.keys(questions).length > 0
+  const storedHasQuestions = Object.keys(current?.questions ?? {}).length > 0
+  const questionContent = useMemo<ManagedPromptContent>(
+    () => ({ provider: 'jev', systemOne: { questions } }),
+    [questions],
+  )
+  const storedQuestionContent = useMemo<ManagedPromptContent>(
+    () => ({ provider: 'jev', systemOne: { questions: current?.questions ?? {} } }),
+    [current?.questions],
+  )
+  // An empty set is valid ("inherit built-in"); only a configured set is validated.
+  // 空问题集合法（沿用内置），仅对已配置的问题集执行校验。
+  const questionErrors = useMemo(
+    () =>
+      Object.keys(questions).length > 0
+        ? validatePromptContent('intent_participation', 'jev', 'account', questionContent)
+        : [],
+    [questions, questionContent],
+  )
   const matchingFriends=useContacts(selectedBotId,{search:targetSearch,page:1,limit:20},!allTargets && isDraft && targetKind==='private')
   const matchingGroups=useGroups(selectedBotId,{search:targetSearch,page:1,limit:20},!allTargets && isDraft && targetKind==='group')
   const targetQuery=targetKind==='private'?matchingFriends:matchingGroups
@@ -136,8 +172,8 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   return (
     <div className="space-y-5">
       {!embedded ? <PageHeader
-        title="规则管理"
-        description="指定适用会话并维护版本化规则：内置规则目录始终可见，草稿可编辑，发布后不可改，可回滚历史版本；规则预览只做求值，不调用模型、不发送。"
+        title="参与判断"
+        description="在同一处维护版本化的参与策略：语义问题、适用会话、内置判断与自定义规则。草稿可编辑，发布后只读，可回滚历史版本；规则预览只做求值，不调用模型、不发送。"
         className="xl:col-span-2"
       /> : null}
 
@@ -280,6 +316,52 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
             </div>:null}
             <p className="text-xs text-muted-foreground">指定会话规则优先；未命中再执行全局规则。发布时检查目标冲突。</p>
           </div>
+          <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+            <div className="text-sm font-medium">语义问题</div>
+            <p className="text-xs text-muted-foreground">参与判断使用的 Jev 问题集：可增删题目、调整 Role、Weight 与分类；为空时沿用内置问题。</p>
+            {isDraft ? (
+              hasQuestions ? (
+                <PromptEditor
+                  kind="intent_participation"
+                  provider="jev"
+                  scope="account"
+                  content={questionContent}
+                  onChange={(content) => {
+                    setQuestions(content.systemOne?.questions ?? {})
+                    setDirty(true)
+                  }}
+                />
+              ) : (
+                <div className="space-y-2 rounded-md border border-dashed border-border p-3">
+                  <p className="text-sm text-muted-foreground">未设置，沿用内置问题。</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      setQuestions(
+                        normaliseContentForScope('intent_participation', 'jev', 'account', undefined)
+                          .systemOne?.questions ?? {},
+                      )
+                      setDirty(true)
+                    }}
+                  >
+                    从内置五问开始
+                  </Button>
+                </div>
+              )
+            ) : storedHasQuestions ? (
+              <PromptContentView kind="intent_participation" provider="jev" content={storedQuestionContent} />
+            ) : (
+              <p className="text-sm text-muted-foreground">沿用内置问题（未覆盖）</p>
+            )}
+            {isDraft && questionErrors.length > 0 ? (
+              <ul role="alert" className="space-y-1 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {questionErrors.map((message) => <li key={message}>{message}</li>)}
+              </ul>
+            ) : null}
+          </div>
           {builtinCatalog.isLoading ? (
             <Skeleton className="h-20 w-full" />
           ) : builtinCatalog.isError ? (
@@ -377,7 +459,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
       ) : null}
           </div>
           <aside className={`min-h-0 overflow-y-auto p-5 lg:border-l lg:border-border ${editorView === 'test' ? '' : 'hidden lg:block'}`}>
-          {current ? <SimulateCard layout="stacked" key={current.id} scope={{ botId: current.botId, scopeType: current.targets?.[0]?.kind ?? current.scopeType, scopeId: current.targets?.[0]?.id ?? 0 }} entries={entries} builtinRules={builtinRules} previewGlobal={allTargets} previewTargetsText={targetText} /> : null}
+          {current ? <SimulateCard layout="stacked" key={current.id} scope={{ botId: current.botId, scopeType: current.targets?.[0]?.kind ?? current.scopeType, scopeId: current.targets?.[0]?.id ?? 0 }} entries={entries} builtinRules={builtinRules} previewGlobal={allTargets} previewTargetsText={targetText} questions={questions} /> : null}
           </aside></div>
           <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-4">
             {current ? <Button variant="ghost" className="text-destructive" disabled={busy} onClick={() => setDeleting(current)}><Trash2 />删除版本</Button> : null}
@@ -389,9 +471,9 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
               </Button>
               <Button
                 size="sm"
-                disabled={!isDraft || !dirty || busy || (!allTargets && (!targetText.trim() || targetText.split(/[,，\s]+/).filter(Boolean).some(value => !/^(private|group):[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value.split(':')[1]))))) || entries.some(entry => !Number.isSafeInteger(entry.priority) || entry.priority < 0 || !entry.action.reasonCode.trim()) || new Set(entries.map(entry => entry.priority)).size !== entries.length}
+                disabled={!isDraft || !dirty || busy || questionErrors.length > 0 || (!allTargets && (!targetText.trim() || targetText.split(/[,，\s]+/).filter(Boolean).some(value => !/^(private|group):[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value.split(':')[1]))))) || entries.some(entry => !Number.isSafeInteger(entry.priority) || entry.priority < 0 || !entry.action.reasonCode.trim()) || new Set(entries.map(entry => entry.priority)).size !== entries.length}
                 onClick={() =>
-                  save.mutate({ id: current.id, entries, builtinRules, targets: allTargets ? [] : targetText.split(/[,，\s]+/).filter(Boolean).map(value => { const [kind,id] = value.split(':'); return {kind: kind as ScopeType, id:Number(id)} }) }, {
+                  save.mutate({ id: current.id, entries, builtinRules, questions, targets: allTargets ? [] : targetText.split(/[,，\s]+/).filter(Boolean).map(value => { const [kind,id] = value.split(':'); return {kind: kind as ScopeType, id:Number(id)} }) }, {
                     onSuccess: () => { setDirty(false); toast.success('草稿已保存') },
                     onError: (error) => toast.error(describeError(error).title),
                   })
@@ -456,7 +538,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   }
 }
 
-export function SimulateCard({ scope, entries, builtinRules, previewGlobal, previewTargetsText, layout = 'columns' }: { previewTargetsText?: string; layout?: 'stacked' | 'columns'; scope: { botId: number; scopeType: ScopeType; scopeId: number }; entries?: RuleEntry[]; builtinRules?: Record<string, boolean>; previewGlobal?: boolean }) {
+export function SimulateCard({ scope, entries, builtinRules, previewGlobal, previewTargetsText, questions, layout = 'columns' }: { previewTargetsText?: string; layout?: 'stacked' | 'columns'; scope: { botId: number; scopeType: ScopeType; scopeId: number }; entries?: RuleEntry[]; builtinRules?: Record<string, boolean>; previewGlobal?: boolean; questions?: Record<string, ManagedPromptQuestion> }) {
   const [simulationKind,setSimulationKind]=useState<ScopeType>(scope.scopeType)
   const [simulationTarget,setSimulationTarget]=useState(scope.scopeId>0?String(scope.scopeId):'')
   const actualScope={botId:scope.botId,scopeType:simulationKind,scopeId:Number(simulationTarget)}
@@ -468,7 +550,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
   const [seconds, setSeconds] = useState('60')
   const targets = (previewTargetsText ?? '').split(/[,，\s]+/).filter(Boolean)
   const targetAllowed = entries === undefined || previewGlobal || (targets.length > 0 && targets.every(value => /^(private|group):[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value.split(':')[1]))) && targets.includes(`${simulationKind}:${simulationTarget}`))
-  const snapshot = JSON.stringify({ actualScope, entries, builtinRules, previewGlobal, previewTargetsText, mode, text, explicit, replyMode, seconds })
+  const snapshot = JSON.stringify({ actualScope, entries, builtinRules, previewGlobal, previewTargetsText, questions, mode, text, explicit, replyMode, seconds })
   const [submitted, setSubmitted] = useState('')
 
   return (
@@ -493,7 +575,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
           onClick={() => {
             setSubmitted(snapshot)
             simulate.mutate(
-              { mode, builtinRules, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, entries, secondsSinceReply: Number(seconds) },
+              { mode, builtinRules, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, entries, secondsSinceReply: Number(seconds), questions: mode === 'semantic' ? questions : undefined },
               { onError: (error) => toast.error(describeError(error).title) },
             )
           }}

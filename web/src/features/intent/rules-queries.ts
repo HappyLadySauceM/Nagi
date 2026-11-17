@@ -7,9 +7,11 @@ import {
   toRulesetList,
   toRuleSimulation,
   toRuleEntriesRequest,
+  toQuestionsRequest,
 } from '../../lib/api/adapters/rules'
 import type {
   BuiltinRuleCatalog,
+  ManagedPromptQuestion,
   RuleEntry,
   RuleTarget,
   RulesEffectiveView,
@@ -91,10 +93,15 @@ export function useSaveEntries() {
   const queryClient = useQueryClient()
   const invalidate = useInvalidateRules()
   return useMutation({
-    mutationFn: (variables: { id: number; entries: RuleEntry[]; builtinRules?: Record<string, boolean>; targets?: RuleTarget[] }) =>
+    mutationFn: (variables: { id: number; entries: RuleEntry[]; builtinRules?: Record<string, boolean>; targets?: RuleTarget[]; questions: Record<string, ManagedPromptQuestion> }) =>
       apiRequest(`/api/v1/intent/rulesets/${variables.id}`, {
         method: 'PATCH',
-        body: { entries: toRuleEntriesRequest(variables.entries), builtin_rules: variables.builtinRules ?? {}, targets: variables.targets },
+        body: {
+          entries: toRuleEntriesRequest(variables.entries),
+          builtin_rules: variables.builtinRules ?? {},
+          targets: variables.targets,
+          questions: toQuestionsRequest(variables.questions),
+        },
       }).then(toRuleset),
     onSuccess: (data) => { queryClient.setQueryData(queryKeys.ruleset(data.id), data); return invalidate() },
   })
@@ -128,7 +135,7 @@ export function useRollbackRuleset() {
 
 export function useSimulate(scope: ScopeRef) {
   return useMutation({
-    mutationFn: (variables: { mode?: 'rules' | 'semantic'; builtinRules?: Record<string, boolean>; previewGlobal?: boolean; kind: 'group' | 'private'; replyMode: string; explicit: boolean; text: string; entries?: RuleEntry[]; rulesetId?: number; secondsSinceReply?: number }) =>
+    mutationFn: (variables: { mode?: 'rules' | 'semantic'; builtinRules?: Record<string, boolean>; previewGlobal?: boolean; kind: 'group' | 'private'; replyMode: string; explicit: boolean; text: string; entries?: RuleEntry[]; rulesetId?: number; secondsSinceReply?: number; questions?: Record<string, ManagedPromptQuestion> }) =>
       apiRequest('/api/v1/intent/simulate', {
         method: 'POST',
         body: {
@@ -145,6 +152,7 @@ export function useSimulate(scope: ScopeRef) {
           entries: variables.entries ? toRuleEntriesRequest(variables.entries) : undefined,
           ruleset_id: variables.rulesetId,
           seconds_since_reply: variables.secondsSinceReply,
+          questions: variables.questions ? toQuestionsRequest(variables.questions) : undefined,
         },
       }).then(toRuleSimulation),
   })

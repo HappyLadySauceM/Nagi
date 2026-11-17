@@ -183,6 +183,18 @@ func (_u *IntentRulesetUpdate) AppendBuiltinRules(v jsontext.Value) *IntentRules
 	return _u
 }
 
+// SetQuestions sets the "questions" field.
+func (_u *IntentRulesetUpdate) SetQuestions(v jsontext.Value) *IntentRulesetUpdate {
+	_u.mutation.SetQuestions(v)
+	return _u
+}
+
+// AppendQuestions appends value to the "questions" field.
+func (_u *IntentRulesetUpdate) AppendQuestions(v jsontext.Value) *IntentRulesetUpdate {
+	_u.mutation.AppendQuestions(v)
+	return _u
+}
+
 // SetTargets sets the "targets" field.
 func (_u *IntentRulesetUpdate) SetTargets(v jsontext.Value) *IntentRulesetUpdate {
 	_u.mutation.SetTargets(v)
@@ -370,6 +382,14 @@ func (_u *IntentRulesetUpdate) sqlSave(ctx context.Context) (_node int, err erro
 	if value, ok := _u.mutation.AppendedBuiltinRules(); ok {
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, intentruleset.FieldBuiltinRules, value)
+		})
+	}
+	if value, ok := _u.mutation.Questions(); ok {
+		_spec.SetField(intentruleset.FieldQuestions, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedQuestions(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, intentruleset.FieldQuestions, value)
 		})
 	}
 	if value, ok := _u.mutation.Targets(); ok {
@@ -647,6 +667,18 @@ func (_u *IntentRulesetUpdateOne) AppendBuiltinRules(v jsontext.Value) *IntentRu
 	return _u
 }
 
+// SetQuestions sets the "questions" field.
+func (_u *IntentRulesetUpdateOne) SetQuestions(v jsontext.Value) *IntentRulesetUpdateOne {
+	_u.mutation.SetQuestions(v)
+	return _u
+}
+
+// AppendQuestions appends value to the "questions" field.
+func (_u *IntentRulesetUpdateOne) AppendQuestions(v jsontext.Value) *IntentRulesetUpdateOne {
+	_u.mutation.AppendQuestions(v)
+	return _u
+}
+
 // SetTargets sets the "targets" field.
 func (_u *IntentRulesetUpdateOne) SetTargets(v jsontext.Value) *IntentRulesetUpdateOne {
 	_u.mutation.SetTargets(v)
@@ -864,6 +896,14 @@ func (_u *IntentRulesetUpdateOne) sqlSave(ctx context.Context) (_node *IntentRul
 	if value, ok := _u.mutation.AppendedBuiltinRules(); ok {
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, intentruleset.FieldBuiltinRules, value)
+		})
+	}
+	if value, ok := _u.mutation.Questions(); ok {
+		_spec.SetField(intentruleset.FieldQuestions, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedQuestions(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, intentruleset.FieldQuestions, value)
 		})
 	}
 	if value, ok := _u.mutation.Targets(); ok {

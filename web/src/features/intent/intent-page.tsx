@@ -1,7 +1,6 @@
 import { useModels, modelReady } from '../settings/models'
 import { allowWorkspaceChange } from './edit-guard'
 import { IntentConfig } from './config'
-import { PromptManagementPage } from '../prompts/prompt-management-page'
 import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -9,7 +8,7 @@ import { ArrowRight, RefreshCw } from 'lucide-react'
 import { apiRequest } from '../../lib/api/client'
 import { asRecord, readNumber } from '../../lib/api/adapters/guard'
 import { Select } from '../../components/ui/select'
-import { RulesPage, SimulationPanel } from './rules-page'
+import { RulesPage } from './rules-page'
 import { FlowWorkbench } from './flow/flow-workbench'
 import { DecisionDetailSheet } from './flow/decision-detail-sheet'
 import { Input } from '../../components/ui/input'
@@ -32,8 +31,7 @@ const KIND_VARIANTS: Record<DecisionEntry['decision'], 'success' | 'secondary' |
   reply: 'success', silent: 'secondary', defer: 'warning',
 }
 const TABS = [
-  ['overview', '运行概览'], ['rules', '规则管理'],
-  ['simulate', '模拟验证'], ['prompts', '意图提示词'], ['config','识别配置'],
+  ['overview', '运行概览'], ['rules', '参与判断'], ['config', '识别配置'],
 ] as const
 type IntentTab = typeof TABS[number][0]
 
@@ -72,8 +70,6 @@ function IntentWorkspace() {
       <div role="tabpanel" id={`intent-panel-${tab}`} aria-labelledby={`intent-tab-${tab}`}>
         {tab === 'overview' ? <IntentOverview onViewAll={() => { void navigate({ to: '/decisions/history' }) }} /> : null}
         {tab === 'rules' ? <RulesPage embedded /> : null}
-        {tab === 'simulate' ? <SimulationPanel /> : null}
-        {tab === 'prompts' ? <PromptManagementPage kinds={['intent_participation']} initialKind="intent_participation" /> : null}
  {tab === 'config' ? <IntentConfig/> : null}
       </div>
     </div>

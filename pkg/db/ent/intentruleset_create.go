@@ -103,6 +103,12 @@ func (_c *IntentRulesetCreate) SetBuiltinRules(v jsontext.Value) *IntentRulesetC
 	return _c
 }
 
+// SetQuestions sets the "questions" field.
+func (_c *IntentRulesetCreate) SetQuestions(v jsontext.Value) *IntentRulesetCreate {
+	_c.mutation.SetQuestions(v)
+	return _c
+}
+
 // SetTargets sets the "targets" field.
 func (_c *IntentRulesetCreate) SetTargets(v jsontext.Value) *IntentRulesetCreate {
 	_c.mutation.SetTargets(v)
@@ -206,6 +212,10 @@ func (_c *IntentRulesetCreate) defaults() {
 		v := intentruleset.DefaultBuiltinRules
 		_c.mutation.SetBuiltinRules(v)
 	}
+	if _, ok := _c.mutation.Questions(); !ok {
+		v := intentruleset.DefaultQuestions
+		_c.mutation.SetQuestions(v)
+	}
 	if _, ok := _c.mutation.Targets(); !ok {
 		v := intentruleset.DefaultTargets
 		_c.mutation.SetTargets(v)
@@ -297,6 +307,10 @@ func (_c *IntentRulesetCreate) createSpec() (*IntentRuleset, *sqlgraph.CreateSpe
 	if value, ok := _c.mutation.BuiltinRules(); ok {
 		_spec.SetField(intentruleset.FieldBuiltinRules, field.TypeJSON, value)
 		_node.BuiltinRules = value
+	}
+	if value, ok := _c.mutation.Questions(); ok {
+		_spec.SetField(intentruleset.FieldQuestions, field.TypeJSON, value)
+		_node.Questions = value
 	}
 	if value, ok := _c.mutation.Targets(); ok {
 		_spec.SetField(intentruleset.FieldTargets, field.TypeJSON, value)
@@ -519,6 +533,18 @@ func (u *IntentRulesetUpsert) SetBuiltinRules(v jsontext.Value) *IntentRulesetUp
 // UpdateBuiltinRules sets the "builtin_rules" field to the value that was provided on create.
 func (u *IntentRulesetUpsert) UpdateBuiltinRules() *IntentRulesetUpsert {
 	u.SetExcluded(intentruleset.FieldBuiltinRules)
+	return u
+}
+
+// SetQuestions sets the "questions" field.
+func (u *IntentRulesetUpsert) SetQuestions(v jsontext.Value) *IntentRulesetUpsert {
+	u.Set(intentruleset.FieldQuestions, v)
+	return u
+}
+
+// UpdateQuestions sets the "questions" field to the value that was provided on create.
+func (u *IntentRulesetUpsert) UpdateQuestions() *IntentRulesetUpsert {
+	u.SetExcluded(intentruleset.FieldQuestions)
 	return u
 }
 
@@ -751,6 +777,20 @@ func (u *IntentRulesetUpsertOne) SetBuiltinRules(v jsontext.Value) *IntentRulese
 func (u *IntentRulesetUpsertOne) UpdateBuiltinRules() *IntentRulesetUpsertOne {
 	return u.Update(func(s *IntentRulesetUpsert) {
 		s.UpdateBuiltinRules()
+	})
+}
+
+// SetQuestions sets the "questions" field.
+func (u *IntentRulesetUpsertOne) SetQuestions(v jsontext.Value) *IntentRulesetUpsertOne {
+	return u.Update(func(s *IntentRulesetUpsert) {
+		s.SetQuestions(v)
+	})
+}
+
+// UpdateQuestions sets the "questions" field to the value that was provided on create.
+func (u *IntentRulesetUpsertOne) UpdateQuestions() *IntentRulesetUpsertOne {
+	return u.Update(func(s *IntentRulesetUpsert) {
+		s.UpdateQuestions()
 	})
 }
 
@@ -1154,6 +1194,20 @@ func (u *IntentRulesetUpsertBulk) SetBuiltinRules(v jsontext.Value) *IntentRules
 func (u *IntentRulesetUpsertBulk) UpdateBuiltinRules() *IntentRulesetUpsertBulk {
 	return u.Update(func(s *IntentRulesetUpsert) {
 		s.UpdateBuiltinRules()
+	})
+}
+
+// SetQuestions sets the "questions" field.
+func (u *IntentRulesetUpsertBulk) SetQuestions(v jsontext.Value) *IntentRulesetUpsertBulk {
+	return u.Update(func(s *IntentRulesetUpsert) {
+		s.SetQuestions(v)
+	})
+}
+
+// UpdateQuestions sets the "questions" field to the value that was provided on create.
+func (u *IntentRulesetUpsertBulk) UpdateQuestions() *IntentRulesetUpsertBulk {
+	return u.Update(func(s *IntentRulesetUpsert) {
+		s.UpdateQuestions()
 	})
 }
 

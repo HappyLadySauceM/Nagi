@@ -32,6 +32,7 @@ type rulesetInfo struct {
 	Entries      []entryInfo
 	BuiltinRules map[string]bool
 	Targets      []intentdomain.RuleTarget
+	Questions    map[string]intentdomain.PromptQuestion
 }
 
 // entryInfo is one rule entry.
@@ -171,23 +172,37 @@ func (h *Handler) UpdateRuleset(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var body struct {
-		Entries      []intentdomain.RuleEntry   `json:"entries"`
-		BuiltinRules map[string]bool            `json:"builtin_rules"`
-		Targets      *[]intentdomain.RuleTarget `json:"targets"`
+		Entries      *[]intentdomain.RuleEntry               `json:"entries"`
+		BuiltinRules *map[string]bool                        `json:"builtin_rules"`
+		Targets      *[]intentdomain.RuleTarget              `json:"targets"`
+		Questions    *map[string]intentdomain.PromptQuestion `json:"questions"`
 	}
 	if err := decoder.Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "请求体不合法或包含未知字段")
 		return
 	}
-	targets := []intentdomain.RuleTarget{}
+	// Only validate fields the request actually provided; omitted fields stay
+	// untouched. Empty arrays and empty maps are explicit clears.
+	// 只校验请求实际提供的字段，未提供的保持原样；空数组与空 map 视为显式清除。
+	validate := intentdomain.Ruleset{}
 	if body.Targets != nil {
-		targets = *body.Targets
+		validate.Targets = *body.Targets
 	}
-	if err := (intentdomain.Ruleset{Targets: targets, Entries: body.Entries, BuiltinRules: body.BuiltinRules}).Validate(); err != nil {
+	if body.Entries != nil {
+		validate.Entries = *body.Entries
+	}
+	if body.BuiltinRules != nil {
+		validate.BuiltinRules = *body.BuiltinRules
+	}
+	if body.Questions != nil {
+		validate.Questions = *body.Questions
+	}
+	if err := validate.Validate(); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	switch err := h.svcCtx.Rulesets.ReplaceEntries(r.Context(), id, body.Entries, intentinfra.RuleOptions{BuiltinRules: body.BuiltinRules, Targets: body.Targets}); {
+	options := intentinfra.RuleOptions{BuiltinRules: body.BuiltinRules, Targets: body.Targets, Questions: body.Questions}
+	switch err := h.svcCtx.Rulesets.ReplaceEntries(r.Context(), id, body.Entries, options); {
 	case errors.Is(err, intentinfra.ErrTargetConflict):
 		common.WriteFailure(w, http.StatusConflict, "target already has another active ruleset")
 		return
@@ -264,19 +279,20 @@ func (h *Handler) RollbackRuleset(w http.ResponseWriter, r *http.Request) {
 // Simulate 用当前生效规则对一个合成消息求值，不写库、不调用 Jev。
 func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Mode              string                    `json:"mode"`
-		PreviewGlobal     bool                      `json:"preview_global"`
-		BotID             int64                     `json:"bot_id"`
-		ScopeType         string                    `json:"scope_type"`
-		ScopeID           int64                     `json:"scope_id"`
-		Kind              string                    `json:"kind"`
-		ReplyMode         string                    `json:"reply_mode"`
-		Explicit          bool                      `json:"explicit"`
-		Text              string                    `json:"text"`
-		SecondsSinceReply int64                     `json:"seconds_since_reply"`
-		Entries           *[]intentdomain.RuleEntry `json:"entries"`
-		BuiltinRules      map[string]bool           `json:"builtin_rules"`
-		RulesetID         int64                     `json:"ruleset_id"`
+		Mode              string                                 `json:"mode"`
+		PreviewGlobal     bool                                   `json:"preview_global"`
+		BotID             int64                                  `json:"bot_id"`
+		ScopeType         string                                 `json:"scope_type"`
+		ScopeID           int64                                  `json:"scope_id"`
+		Kind              string                                 `json:"kind"`
+		ReplyMode         string                                 `json:"reply_mode"`
+		Explicit          bool                                   `json:"explicit"`
+		Text              string                                 `json:"text"`
+		SecondsSinceReply int64                                  `json:"seconds_since_reply"`
+		Entries           *[]intentdomain.RuleEntry              `json:"entries"`
+		BuiltinRules      map[string]bool                        `json:"builtin_rules"`
+		Questions         map[string]intentdomain.PromptQuestion `json:"questions"`
+		RulesetID         int64                                  `json:"ruleset_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "请求体不是合法 JSON")
@@ -313,6 +329,13 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		set.BuiltinRules = body.BuiltinRules
 		set.Version = 0
 		ok = true
+	}
+	// Only semantic simulation previews an edited question set; rules-only
+	// previews ignore request questions so a half-edited set cannot fail them.
+	// 仅语义模拟预览编辑中的问题集；仅规则预览忽略请求 questions，
+	// 避免编辑到一半的问题集让规则预览失败。
+	if body.Mode == "semantic" && body.Questions != nil {
+		set.Questions = body.Questions
 	}
 	if err := set.Validate(); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid rule entries")
@@ -375,6 +398,18 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 			specificSet = &set
 		}
 	}
+	// Semantic simulation evaluates with the effective question set so previews
+	// match the live participation policy; rules-only mode keeps the default.
+	// 语义模拟使用有效问题集求值，使预览与线上参与策略一致；仅规则模式保持默认。
+	if body.Mode == "semantic" {
+		botName := ""
+		if h.svcCtx.SettingsProvider != nil {
+			botName = h.svcCtx.SettingsProvider.Settings().Role.BotName
+		}
+		if prompt, hasPrompt := simulationPrompt(specificSet, globalSet, body.BotID, body.Kind, body.ScopeID, botName); hasPrompt {
+			in.Prompt = prompt
+		}
+	}
 	rule, version := intentapp.EvaluateRuleChain(in, specificSet, globalSet)
 	var final *intentdomain.FinalDecision
 	var steps []intentdomain.Step
@@ -422,10 +457,55 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// simulationPrompt builds the semantic prompt from the effective question set,
+// preferring the specific set over the global one. It returns false when
+// neither set carries questions, leaving the caller's default prompt untouched.
+// simulationPrompt 按有效问题集构建语义 Prompt，优先具体集、其次全局集；
+// 两者都没有问题时返回 false，保持调用方的默认 Prompt 不变。
+func simulationPrompt(specificSet, globalSet *intentdomain.Ruleset, botID int64, kind string, scopeID int64, botName string) (intentdomain.Prompt, bool) {
+	var questions map[string]intentdomain.PromptQuestion
+	var version int
+	switch {
+	case specificSet != nil && len(specificSet.Questions) > 0:
+		questions, version = specificSet.Questions, specificSet.Version
+	case globalSet != nil && len(globalSet.Questions) > 0:
+		questions, version = globalSet.Questions, globalSet.Version
+	default:
+		return intentdomain.Prompt{}, false
+	}
+	base := intentdomain.BuiltinPromptFor(intentdomain.PromptKindIntentParticipation, intentdomain.PromptProviderJev)
+	base.SystemOne = &intentdomain.SystemOnePrompt{Questions: questions}
+	base.ID = intentdomain.PromptIDIntentParticipation
+	base.Kind = intentdomain.PromptKindIntentParticipation
+	base.Provider = intentdomain.PromptProviderJev
+	base.Version = version
+	base.Source = intentdomain.PromptSourceLocal
+	base.BotID = botID
+	base.TargetType = kind
+	base.TargetID = scopeID
+	base.Hash = intentdomain.PromptHash(base)
+
+	variables := map[string]string{"scope_type": kind}
+	if botID > 0 {
+		variables["bot_id"] = strconv.FormatInt(botID, 10)
+	}
+	if scopeID > 0 {
+		variables["target_id"] = strconv.FormatInt(scopeID, 10)
+	}
+	if botName != "" {
+		variables["bot_name"] = botName
+	}
+	base.Variables = variables
+	base.FinalHash = intentdomain.PromptFinalHash(base)
+	base = intentdomain.RenderPromptVariables(base, variables)
+	base.RenderedHash = intentdomain.PromptHash(base)
+	return base, true
+}
+
 func toRulesetInfo(set intentdomain.Ruleset) rulesetInfo {
 	info := rulesetInfo{
 		ID: set.ID, BotID: set.BotID, ScopeType: set.ScopeType, ScopeID: set.ScopeID,
-		Version: set.Version, Status: set.Status, Note: set.Note, BuiltinRules: set.BuiltinRules, Targets: set.Targets,
+		Version: set.Version, Status: set.Status, Note: set.Note, BuiltinRules: set.BuiltinRules, Targets: set.Targets, Questions: set.Questions,
 	}
 	for _, entry := range set.Entries {
 		info.Entries = append(info.Entries, entryInfo{Enabled: entry.Enabled, Priority: entry.Priority, Match: entry.Match, Action: entry.Action})

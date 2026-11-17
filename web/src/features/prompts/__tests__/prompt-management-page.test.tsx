@@ -35,6 +35,45 @@ vi.mock('../../settings/queries', () => ({
 
 const mockedRequest = vi.mocked(apiRequest)
 
+function settingsView(role: { BotName: string; Variables: { Name: string; Value: string }[] } = {
+  BotName: 'Nagi',
+  Variables: [{ Name: 'user_name', Value: '小明' }],
+}) {
+  const settings = {
+    Role: role,
+    Context: { HistoryLimit: 30 },
+    AI: { Enabled: true, BaseURL: '', Model: '', MaxOutputTokens: 1024, GenerationTimeoutSeconds: 30 },
+    Intent: {
+      Enabled: true,
+      Provider: 'jev',
+      Endpoint: '',
+      Model: '',
+      TimeoutSeconds: 3,
+      ContinuationThreshold: 0.8,
+      InterjectionThreshold: 0.95,
+      AddressedOtherMax: 0.6,
+    },
+    Agent: {
+      MaxSteps: 6,
+      MaxToolCalls: 5,
+      MaxRunDurationSeconds: 30,
+      Sending: { MaxMessagesPerRun: 0, MaxCharsPerMessage: 4500, MaxTotalCharsPerRun: 0 },
+    },
+    Messages: { RetentionDays: 30 },
+    Tools: { TimeoutSeconds: 5, MaxResultBytes: 8192, PermissionDefaults: {} },
+  }
+  return {
+    Settings: settings,
+    Defaults: settings,
+    Version: 1,
+    UpdatedAt: '2026-11-16T00:00:00Z',
+    UpdatedBy: 'admin',
+    Persisted: true,
+    Credentials: { AI: true, Intent: true },
+    Providers: [],
+  }
+}
+
 const catalog = {
   Items: [
     {
@@ -160,6 +199,7 @@ function renderPage() {
 beforeEach(() => {
   mockedRequest.mockReset()
   mockedRequest.mockImplementation((path: string, options?: { method?: string }) => {
+    if (path === '/api/v1/settings' && options?.method === 'PATCH') return Promise.resolve(settingsView())
     if (path.startsWith('/api/v1/prompts?')) return Promise.resolve(catalog)
     if (path.endsWith('/versions') && options?.method === 'POST') {
       return Promise.resolve(version({ ID: 14, Version: 4, Status: 'draft', PublishedAt: null }))
@@ -324,5 +364,57 @@ describe('PromptManagementPage', () => {
     expect(screen.queryByRole('button', { name: /记忆抽取/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /知识上下文预览/ })).toBeNull()
     expect(screen.queryByText(/Provider/)).toBeNull()
+  })
+
+  it('renders runtime variable chips and drops the legacy bot-name input', async () => {
+    renderPage()
+    expect(await screen.findByText('{{bot_name}}')).toBeVisible()
+    for (const token of ['{{scope_type}}', '{{target_id}}', '{{sender_id}}', '{{bot_id}}']) {
+      expect(screen.getByText(token)).toBeVisible()
+    }
+    expect(screen.queryByLabelText('机器人名称')).toBeNull()
+    expect(screen.queryByText(/由运行时决定，只读/)).toBeNull()
+  })
+
+  it('opens a runtime chip to insert its token without allowing value edits', async () => {
+    renderPage()
+    const textarea = (await screen.findByLabelText('System Prompt')) as HTMLTextAreaElement
+    fireEvent.click(await screen.findByRole('button', { name: '变量 {{target_id}}' }))
+    expect(await screen.findByText('运行时：会话号（群号 / QQ）')).toBeVisible()
+    expect(screen.queryByLabelText(/的值$/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '插入 {{target_id}}' }))
+    await waitFor(() => expect(textarea.value).toContain('{{target_id}}'))
+  })
+
+  it('edits the built-in bot_name chip and persists it through the settings PATCH', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '变量 {{bot_name}}' }))
+    const input = await screen.findByLabelText('{{bot_name}} 的值')
+    fireEvent.change(input, { target: { value: '新名字' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存变量' }))
+    await waitFor(() =>
+      expect(mockedRequest).toHaveBeenCalledWith(
+        '/api/v1/settings',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: expect.objectContaining({
+            Version: 1,
+            Sections: expect.objectContaining({
+              Role: expect.objectContaining({ BotName: '新名字' }),
+            }),
+          }),
+        }),
+      ),
+    )
+  })
+
+  it('edits and deletes a custom variable through its chip', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '变量 {{user_name}}' }))
+    const nameInput = await screen.findByLabelText('变量名称 1')
+    fireEvent.change(nameInput, { target: { value: 'nickname' } })
+    expect(screen.getByText('{{nickname}}')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '删除变量 nickname' }))
+    await waitFor(() => expect(screen.queryByText('{{nickname}}')).toBeNull())
   })
 })

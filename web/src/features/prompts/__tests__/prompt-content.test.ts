@@ -46,7 +46,7 @@ describe('prompt content helpers', () => {
     expect(systemOne.Questions.intent.Type).toBeUndefined()
   })
 
-  it('fills the fixed five Jev questions when an empty account draft is opened', () => {
+  it('seeds the default five Jev questions when an empty account draft is opened', () => {
     const normalised = normaliseContentForScope('intent_participation', 'jev', 'account', {
       provider: 'jev',
       systemOne: { questions: {} },
@@ -64,10 +64,10 @@ describe('prompt content helpers', () => {
     expect(systemOne.Questions.intent.Criteria).toEqual(JEV_QUESTIONS[4].criteria)
   })
 
-  it('rejects a missing fixed Jev question and forbidden supplement variables', () => {
+  it('rejects an empty Jev account question set and forbidden supplement variables', () => {
     const missing = { ...jevContent, systemOne: { questions: {} } }
     expect(validatePromptContent('intent_participation', 'jev', 'account', missing)).toEqual(
-      expect.arrayContaining(['缺少固定题目 指向机器人']),
+      expect.arrayContaining(['至少需要 1 个问题']),
     )
     const supplement: ManagedPromptContent = {
       provider: 'jev',
@@ -79,6 +79,90 @@ describe('prompt content helpers', () => {
     }
     expect(validatePromptContent('intent_participation', 'jev', 'group', supplement)).toEqual(
       expect.arrayContaining(['补充层不能使用 {{state}}']),
+    )
+  })
+
+  it('keeps stored questions and infers missing Role and Weight', () => {
+    const stored: ManagedPromptContent = {
+      provider: 'jev',
+      systemOne: {
+        questions: {
+          directed_to_bot: { type: 'noul', instructions: '是否对机器人说' },
+          addressed_to_other: { type: 'noul', instructions: '是否在和别人说' },
+          my_topic: { type: 'noul', instructions: '自定义主题' },
+          intent: { type: 'choice', instructions: '聊天功能', criteria: { closing: '告别' } },
+        },
+      },
+    }
+    const normalised = normaliseContentForScope('intent_participation', 'jev', 'account', stored)
+    const questions = normalised.systemOne?.questions ?? {}
+    expect(Object.keys(questions)).toEqual(['directed_to_bot', 'addressed_to_other', 'my_topic', 'intent'])
+    expect(questions.directed_to_bot.role).toBe('directed_to_bot')
+    expect(questions.directed_to_bot.weight).toBe(1)
+    expect(questions.addressed_to_other.weight).toBe(-1)
+    expect(questions.my_topic.role).toBe('custom')
+    expect(questions.my_topic.weight).toBe(1)
+    expect(questions.intent.role).toBe('intent')
+    expect(questions.intent.weight).toBeUndefined()
+    expect(questions.intent.criteria).toEqual({ closing: '告别', question: '求助或提问', chat: '普通闲聊', command: '要求执行动作', other: '其它' })
+  })
+
+  it('serialises Role and Weight for account questions', () => {
+    const wire = promptContentToWire(
+      normaliseContentForScope('intent_participation', 'jev', 'account', {
+        provider: 'jev',
+        systemOne: { questions: { directed_to_bot: { type: 'noul', instructions: 'x' } } },
+      }),
+      'account',
+    )
+    const systemOne = wire.SystemOne as { Questions: Record<string, Record<string, unknown>> }
+    expect(systemOne.Questions.directed_to_bot).toMatchObject({ Role: 'directed_to_bot', Weight: 1, Type: 'noul' })
+    expect(systemOne.Questions.directed_to_bot).not.toHaveProperty('Criteria')
+  })
+
+  it('validates question count, unique roles, weight range and intent criteria', () => {
+    const baseQuestion = { type: 'noul' as const, instructions: 'x', role: 'directed_to_bot' as const, weight: 1 }
+    const duplicate: ManagedPromptContent = {
+      provider: 'jev',
+      systemOne: {
+        questions: {
+          directed_to_bot: baseQuestion,
+          directed_again: { ...baseQuestion, role: 'directed_to_bot' },
+        },
+      },
+    }
+    expect(validatePromptContent('intent_participation', 'jev', 'account', duplicate)).toEqual(
+      expect.arrayContaining(['Role 指向机器人 最多只能有一个问题']),
+    )
+
+    const badWeight: ManagedPromptContent = {
+      provider: 'jev',
+      systemOne: { questions: { directed_to_bot: { ...baseQuestion, weight: 11 } } },
+    }
+    expect(validatePromptContent('intent_participation', 'jev', 'account', badWeight)).toEqual(
+      expect.arrayContaining(['题目 指向机器人 的 Weight 必须在 -10 到 10 之间']),
+    )
+
+    const intentWithoutClosing: ManagedPromptContent = {
+      provider: 'jev',
+      systemOne: {
+        questions: { intent: { type: 'choice', instructions: '功能', role: 'intent', criteria: { chat: '闲聊' } } },
+      },
+    }
+    expect(validatePromptContent('intent_participation', 'jev', 'account', intentWithoutClosing)).toEqual(
+      expect.arrayContaining(['intent 问题必须包含 closing 分类']),
+    )
+
+    const tooMany: ManagedPromptContent = {
+      provider: 'jev',
+      systemOne: {
+        questions: Object.fromEntries(
+          Array.from({ length: 21 }, (_, index) => [`q_${index}`, { type: 'noul' as const, instructions: 'x', role: 'custom' as const }]),
+        ),
+      },
+    }
+    expect(validatePromptContent('intent_participation', 'jev', 'account', tooMany)).toEqual(
+      expect.arrayContaining(['问题数量不能超过 20 个']),
     )
   })
 
@@ -104,6 +188,21 @@ describe('prompt content helpers', () => {
       openai: { systemPrompt: '抽取', userTemplate: '消息：{{messages_json}}' },
     }
     expect(validatePromptContent('memory_extraction', 'openai', 'account', extraction)).toEqual([])
+  })
+
+  it('allows the runtime variables target_id, sender_id and bot_id in System Prompt', () => {
+    const content: ManagedPromptContent = {
+      provider: 'openai',
+      openai: { systemPrompt: '{{bot_name}} {{scope_type}} {{target_id}} {{sender_id}} {{bot_id}}' },
+    }
+    expect(validatePromptContent('chat_reply', 'openai', 'account', content)).toEqual([])
+    const unknown = {
+      ...content,
+      openai: { systemPrompt: '{{bot_name}} {{chat_id}}' },
+    }
+    expect(validatePromptContent('chat_reply', 'openai', 'account', unknown)).toEqual([
+      'System Prompt 包含未识别变量 {{chat_id}}',
+    ])
   })
 
   it('allows custom variables in System Prompt only when passed as extraVariables', () => {
