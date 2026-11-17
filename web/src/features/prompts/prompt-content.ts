@@ -142,19 +142,23 @@ function checkAllowedVariables(text: string, allowed: string[], label: string): 
 }
 
 /** Validates editable content before submit; the server remains the final authority.
+ * `extraVariables` are user-defined names allowed in System Prompt text.
  * 提交前校验可编辑内容；最终仍以服务端校验为准。
+ * `extraVariables` 为 System Prompt 文本中允许的自定义变量名。
  */
 export function validatePromptContent(
   kind: ManagedPromptKind,
   provider: ManagedPromptProvider,
   scope: ManagedPromptScope,
   content: ManagedPromptContent,
+  extraVariables: string[] = [],
 ): string[] {
   const errors: string[] = []
   const account = scope === 'account'
+  const systemPromptAllowed = ['bot_name', 'scope_type', ...extraVariables]
   if (kind === 'chat_reply' || (kind === 'intent_participation' && provider === 'openai') || kind === 'memory_extraction') {
     const systemPrompt = content.openai?.systemPrompt ?? ''
-    errors.push(...checkAllowedVariables(systemPrompt, ['bot_name', 'scope_type'], 'System Prompt '))
+    errors.push(...checkAllowedVariables(systemPrompt, systemPromptAllowed, 'System Prompt '))
     if (kind === 'intent_participation' && provider === 'openai' && account) {
       const template = content.openai?.userTemplate ?? ''
       if (occurrences(template, 'state') !== 1) errors.push('UserTemplate 必须且只能包含一次 {{state}}')
@@ -181,7 +185,7 @@ export function validatePromptContent(
       if (item.type !== question.type) {
         errors.push(`${question.label} 的 Type 由服务端固定，不能修改`)
       }
-      errors.push(...checkAllowedVariables(item.instructions, ['bot_name', 'scope_type'], `${question.label} Instructions `))
+      errors.push(...checkAllowedVariables(item.instructions, systemPromptAllowed, `${question.label} Instructions `))
     }
   }
   if (!account) {

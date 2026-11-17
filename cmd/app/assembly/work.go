@@ -397,7 +397,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		})
 		rt.Settings = settingsService
 		rt.SettingsProvider = settingsProvider
-		promptService, promptErr := buildPromptService(cfg, logger, pool)
+		promptService, promptErr := buildPromptService(cfg, logger, pool, settingsProvider)
 		if promptErr != nil {
 			return nil, promptErr
 		}

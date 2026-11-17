@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -182,5 +184,98 @@ func TestIntentUnmarshalReadsLegacyFieldsWithoutSerializingThem(t *testing.T) {
 	}
 	if bytes.Contains(encoded, []byte("BotName")) || bytes.Contains(encoded, []byte("HistoryLimit")) {
 		t.Fatalf("legacy fields leaked: %s", encoded)
+	}
+}
+
+func TestValidateAcceptsCustomPromptVariables(t *testing.T) {
+	// 合法自定义变量通过校验，并且顺序保持不变。
+	settings := validSettings()
+	settings.Role.Variables = []PromptVariable{
+		{Name: "user_name", Value: "小明"},
+		{Name: "topic", Value: "天气"},
+	}
+	if err := settings.Validate(nil); err != nil {
+		t.Fatalf("valid variables rejected: %v", err)
+	}
+	if settings.Role.Variables[0].Name != "user_name" || settings.Role.Variables[1].Name != "topic" {
+		t.Fatalf("order changed: %+v", settings.Role.Variables)
+	}
+}
+
+func TestValidateRejectsInvalidCustomPromptVariables(t *testing.T) {
+	// 非法名称、重复、保留名、超长取值与超量条目都必须被拒绝。
+	cases := map[string][]PromptVariable{
+		"leading digit": {{Name: "1bad", Value: "x"}},
+		"empty name":    {{Name: "  ", Value: "x"}},
+		"too long name": {{Name: strings.Repeat("a", maxPromptVariableNameLen+1), Value: "x"}},
+		"reserved name": {{Name: "bot_name", Value: "x"}},
+		"duplicate":     {{Name: "user_name", Value: "a"}, {Name: "user_name", Value: "b"}},
+		"long value":    {{Name: "user_name", Value: strings.Repeat("v", maxPromptVariableValueLen+1)}},
+		"too many":      manyPromptVariables(maxPromptVariables + 1),
+	}
+	for name, variables := range cases {
+		t.Run(name, func(t *testing.T) {
+			settings := validSettings()
+			settings.Role.Variables = variables
+			fields := fieldsOf(t, settings.Validate(nil))
+			if fields["Role.Variables"] == "" {
+				t.Fatalf("fields = %+v", fields)
+			}
+		})
+	}
+}
+
+func manyPromptVariables(count int) []PromptVariable {
+	out := make([]PromptVariable, 0, count)
+	for i := 0; i < count; i++ {
+		out = append(out, PromptVariable{Name: fmt.Sprintf("var_%d", i), Value: "v"})
+	}
+	return out
+}
+
+func TestNormalizeTrimsPromptVariables(t *testing.T) {
+	// 规范化去除变量名与值的首尾空格，同时保持顺序。
+	settings := validSettings()
+	settings.Role.Variables = []PromptVariable{{Name: "  user_name ", Value: "  小明  "}}
+	settings.Normalize()
+	got := settings.Role.Variables[0]
+	if got.Name != "user_name" || got.Value != "小明" {
+		t.Fatalf("normalized = %+v", got)
+	}
+}
+
+func TestCloneDeepCopiesPromptVariables(t *testing.T) {
+	// 深拷贝后修改副本变量不得影响原值。
+	settings := validSettings()
+	settings.Role.Variables = []PromptVariable{{Name: "user_name", Value: "小明"}}
+	clone := settings.Clone()
+	clone.Role.Variables[0].Value = "changed"
+	if settings.Role.Variables[0].Value != "小明" {
+		t.Fatal("clone mutated source prompt variables")
+	}
+}
+
+func TestPromptVariableMapTrimsAndSkipsEmpty(t *testing.T) {
+	// 映射按去空格后的名称构建，跳过空名称，取值同样去空格。
+	role := Role{BotName: "Nagi", Variables: []PromptVariable{
+		{Name: " user_name ", Value: " 小明 "},
+		{Name: "  ", Value: "skip"},
+	}}
+	got := role.PromptVariableMap()
+	if got["user_name"] != "小明" {
+		t.Fatalf("map = %+v", got)
+	}
+	if _, ok := got[""]; ok {
+		t.Fatalf("empty name leaked: %+v", got)
+	}
+	if len(got) != 1 {
+		t.Fatalf("map size = %d, want 1", len(got))
+	}
+}
+
+func TestPromptVariableMapReturnsNilForNoVariables(t *testing.T) {
+	// 没有自定义变量时返回 nil，运行时可将 nil 视为空集。
+	if got := (Role{BotName: "Nagi"}).PromptVariableMap(); got != nil {
+		t.Fatalf("map = %+v, want nil", got)
 	}
 }

@@ -9,8 +9,10 @@ import (
 	"fmt"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Revision is one stored revision of the settings row.
@@ -37,10 +39,20 @@ type Settings struct {
 	Tools    Tools          `json:"Tools"`
 }
 
+// PromptVariable is one user-defined prompt variable substituted at runtime.
+// PromptVariable 是一条运行时替换的用户自定义 Prompt 变量。
+type PromptVariable struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
 // Role holds the bot identity shared by intent judgment and reply generation.
 // Role 保存意图判断与回复生成共用的机器人身份。
 type Role struct {
 	BotName string `json:"BotName"`
+	// Variables are ordered custom prompt variables; names are unique.
+	// Variables 是有序的自定义 Prompt 变量，名称唯一。
+	Variables []PromptVariable `json:"Variables,omitempty"`
 }
 
 // Context holds the conversation history budget shared by intent and generation.
@@ -186,7 +198,22 @@ const (
 	HistoryLimitMax        = 200
 	MaxOutputTokensMin     = 1
 	MaxOutputTokensMax     = 32000
+	// Custom prompt variable limits keep the runtime substitution bounded.
+	// 自定义 Prompt 变量上限让运行时替换保持有界。
+	maxPromptVariables        = 50
+	maxPromptVariableNameLen  = 32
+	maxPromptVariableValueLen = 500
 )
+
+// promptVariableNamePattern matches a legal custom prompt variable identifier.
+// promptVariableNamePattern 匹配合法的自定义 Prompt 变量标识符。
+var promptVariableNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// reservedPromptVariables cannot be redefined as custom variables; the runtime
+// provides them. reservedPromptVariables 不可作为自定义变量，由运行时提供。
+var reservedPromptVariables = map[string]struct{}{
+	"bot_name": {}, "scope_type": {}, "messages_json": {}, "state": {}, "question": {},
+}
 
 // ValidationError carries one message per invalid field so the console can
 // point at the exact input instead of showing a single opaque failure.
@@ -227,6 +254,10 @@ func (s *Settings) Normalize() {
 	if s.Role.BotName == "" {
 		s.Role.BotName = strings.TrimSpace(s.Intent.BotName)
 	}
+	for i := range s.Role.Variables {
+		s.Role.Variables[i].Name = strings.TrimSpace(s.Role.Variables[i].Name)
+		s.Role.Variables[i].Value = strings.TrimSpace(s.Role.Variables[i].Value)
+	}
 	if s.Context.HistoryLimit == 0 && s.Intent.HistoryLimit > 0 {
 		s.Context.HistoryLimit = s.Intent.HistoryLimit
 	}
@@ -243,6 +274,10 @@ func (s *Settings) Normalize() {
 func (s Settings) Clone() Settings {
 	clone := s
 	clone.Models = s.Models.Clone()
+	if s.Role.Variables != nil {
+		clone.Role.Variables = make([]PromptVariable, len(s.Role.Variables))
+		copy(clone.Role.Variables, s.Role.Variables)
+	}
 	if s.Tools.PermissionDefaults != nil {
 		clone.Tools.PermissionDefaults = make(map[string]bool, len(s.Tools.PermissionDefaults))
 		for key, value := range s.Tools.PermissionDefaults {
@@ -250,6 +285,25 @@ func (s Settings) Clone() Settings {
 		}
 	}
 	return clone
+}
+
+// PromptVariableMap returns the custom prompt variables by trimmed name.
+// Empty names are skipped; values are trimmed to match Normalize.
+// PromptVariableMap 按去除空格的名称返回自定义 Prompt 变量；
+// 空名称跳过，取值同样去空格以与 Normalize 一致。
+func (r Role) PromptVariableMap() map[string]string {
+	if len(r.Variables) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(r.Variables))
+	for _, variable := range r.Variables {
+		name := strings.TrimSpace(variable.Name)
+		if name == "" {
+			continue
+		}
+		out[name] = strings.TrimSpace(variable.Value)
+	}
+	return out
 }
 
 // Validate checks every range, URL and cross-field rule. knownPermissions is
@@ -262,6 +316,7 @@ func (s Settings) Validate(knownPermissions map[string]bool) error {
 	s.validateAI(problems)
 	s.validateContext(problems)
 	s.validateIntent(problems)
+	s.validateRole(problems)
 	s.validateAgent(problems)
 	s.validateMessages(problems)
 	s.validateTools(problems, knownPermissions)
@@ -269,6 +324,36 @@ func (s Settings) Validate(knownPermissions map[string]bool) error {
 		return problems
 	}
 	return nil
+}
+
+// validateRole checks the ordered custom prompt variables: legal unique names,
+// bounded values, no reserved names and a bounded count.
+// validateRole 校验有序的自定义 Prompt 变量：名称合法且唯一、取值有界、
+// 不含保留名，且数量有界。
+func (s Settings) validateRole(problems *ValidationError) {
+	if len(s.Role.Variables) > maxPromptVariables {
+		problems.Add("Role.Variables", fmt.Sprintf("自定义变量最多 %d 条", maxPromptVariables))
+	}
+	seen := make(map[string]struct{}, len(s.Role.Variables))
+	for _, variable := range s.Role.Variables {
+		name := strings.TrimSpace(variable.Name)
+		value := strings.TrimSpace(variable.Value)
+		if len(name) == 0 || len(name) > maxPromptVariableNameLen || !promptVariableNamePattern.MatchString(name) {
+			problems.Add("Role.Variables", "变量名需匹配 ^[A-Za-z_][A-Za-z0-9_]*$ 且不超过 32 字符")
+			continue
+		}
+		if _, reserved := reservedPromptVariables[name]; reserved {
+			problems.Add("Role.Variables", "变量名为内置保留名："+name)
+			continue
+		}
+		if utf8.RuneCountInString(value) > maxPromptVariableValueLen {
+			problems.Add("Role.Variables", "变量值不能超过 500 字符")
+		}
+		if _, duplicated := seen[name]; duplicated {
+			problems.Add("Role.Variables", "变量名重复："+name)
+		}
+		seen[name] = struct{}{}
+	}
 }
 
 func (s Settings) validateAI(problems *ValidationError) {
