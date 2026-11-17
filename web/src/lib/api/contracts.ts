@@ -1039,10 +1039,20 @@ export type ManagedPromptProvider = 'openai' | 'jev'
 export type ManagedPromptStatus = 'draft' | 'published' | 'archived'
 export type ManagedPromptSource = 'builtin' | 'local' | 'langfuse'
 
+export type ManagedPromptRole =
+  | 'directed_to_bot'
+  | 'continues_bot_thread'
+  | 'addressed_to_other'
+  | 'appropriate_to_join'
+  | 'intent'
+  | 'custom'
+
 export interface ManagedPromptQuestion {
   type: 'noul' | 'choice'
   instructions: string
   criteria?: Record<string, string>
+  role?: ManagedPromptRole
+  weight?: number
 }
 
 /** Provider-specific content of one Prompt version; absent branches are not sent to the server. */

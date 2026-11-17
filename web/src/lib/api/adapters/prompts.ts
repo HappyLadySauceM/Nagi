@@ -13,6 +13,7 @@ import type {
   ManagedPromptProvider,
   ManagedPromptPublishResult,
   ManagedPromptQuestion,
+  ManagedPromptRole,
   ManagedPromptRestoreResult,
   ManagedPromptScope,
   ManagedPromptSource,
@@ -42,6 +43,14 @@ const PROMPT_PROVIDERS: ManagedPromptProvider[] = ['openai', 'jev']
 const PROMPT_STATUSES: ManagedPromptStatus[] = ['draft', 'published', 'archived']
 const PROMPT_SOURCES: ManagedPromptSource[] = ['builtin', 'local', 'langfuse']
 const QUESTION_TYPES: ManagedPromptQuestion['type'][] = ['noul', 'choice']
+const PROMPT_ROLES: ManagedPromptRole[] = [
+  'directed_to_bot',
+  'continues_bot_thread',
+  'addressed_to_other',
+  'appropriate_to_join',
+  'intent',
+  'custom',
+]
 
 function readEnum<T extends string>(
   record: Record<string, unknown>,
@@ -84,6 +93,17 @@ function toPromptQuestion(raw: unknown): ManagedPromptQuestion {
         return [key, value]
       }),
     )
+  }
+  const role = readOptionalString(record, 'Role', PROMPTS_ENDPOINT)
+  if (role !== undefined) {
+    if (!PROMPT_ROLES.includes(role as ManagedPromptRole)) {
+      throw contractError(PROMPTS_ENDPOINT, `Role 取值未知：${role}`)
+    }
+    question.role = role as ManagedPromptRole
+  }
+  const weight = readOptionalNumber(record, 'Weight', PROMPTS_ENDPOINT)
+  if (weight !== undefined) {
+    question.weight = weight
   }
   return question
 }
