@@ -722,6 +722,9 @@ export interface Ruleset {
   status: 'draft' | 'published' | 'archived'
   note: string
   entries: RuleEntry[]
+  /** Per-version SystemOne question set; empty means the built-in questions apply.
+   * 本版本覆盖的 SystemOne 问题集；为空表示沿用内置问题。 */
+  questions?: Record<string, ManagedPromptQuestion>
 }
 
 export interface RuleSimulation {

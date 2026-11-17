@@ -4,6 +4,8 @@ import type {
   BuiltinRuleState,
   FixedConstraintDefinition,
   FixedConstraintState,
+  ManagedPromptQuestion,
+  ManagedPromptRole,
   RuleActionType,
   RuleEntry,
   RuleSimulation,
@@ -46,7 +48,53 @@ export function toRuleset(raw: unknown): Ruleset {
     builtinRules: record.BuiltinRules == null ? {} : Object.fromEntries(Object.entries(asRecord(record.BuiltinRules, RULES_ENDPOINT, 'BuiltinRules')).map(([key,value]) => { if (typeof value !== 'boolean') throw new Error('Invalid builtin rule'); return [key,value] })),
     targets: record.Targets == null ? [] : asArray(record.Targets, RULES_ENDPOINT, 'Targets').map(raw => { const target = asRecord(raw, RULES_ENDPOINT, 'Target'); const kind = readString(target, 'kind', RULES_ENDPOINT); if (kind !== 'private' && kind !== 'group') throw new Error('Invalid target kind'); return {kind, id: readNumber(target, 'id', RULES_ENDPOINT)} }),
     entries: record.Entries == null ? [] : asArray(record.Entries, RULES_ENDPOINT, 'Entries').map(toEntry),
+    questions: toQuestions(record.Questions),
   }
+}
+
+/**
+ * Parses the per-version SystemOne question set. The backend serialises
+ * `PromptQuestion` without JSON tags, so every field is PascalCase and the
+ * zero values (`Role:""`, `Weight:0`) mean "unset". A missing set becomes `{}`.
+ * 解析本版本的 SystemOne 问题集。后端序列化 `PromptQuestion` 时不带 JSON tag，
+ * 字段均为 PascalCase，零值（`Role:""`、`Weight:0`）表示未设置；缺失时为 `{}`。
+ */
+function toQuestions(raw: unknown): Record<string, ManagedPromptQuestion> {
+  if (raw == null) return {}
+  const record = asRecord(raw, RULES_ENDPOINT, 'Questions')
+  const questions: Record<string, ManagedPromptQuestion> = {}
+  for (const [key, value] of Object.entries(record)) {
+    const question = asRecord(value, RULES_ENDPOINT, 'Question')
+    const type = readString(question, 'Type', RULES_ENDPOINT)
+    if (type !== 'noul' && type !== 'choice') {
+      throw new Error(`问题类型未知：${type}`)
+    }
+    const role = readOptionalString(question, 'Role', RULES_ENDPOINT) as ManagedPromptRole | undefined
+    const criteria =
+      question.Criteria == null
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(asRecord(question.Criteria, RULES_ENDPOINT, 'Criteria')).map(([name, text]) => {
+              if (typeof text !== 'string') throw new Error('Invalid question criterion')
+              return [name, text]
+            }),
+          )
+    // A zero Weight only carries meaning for noul questions with a Role;
+    // otherwise the legacy default for the role applies downstream.
+    // 仅当问题为 noul 且 Role 存在时零 Weight 才有意义，否则下游沿用该 Role 的旧版默认权重。
+    const weight =
+      type === 'noul' && role !== undefined && typeof question.Weight === 'number'
+        ? question.Weight
+        : undefined
+    questions[key] = {
+      type: type as ManagedPromptQuestion['type'],
+      instructions: readString(question, 'Instructions', RULES_ENDPOINT, ''),
+      ...(criteria ? { criteria } : {}),
+      ...(role ? { role } : {}),
+      ...(weight !== undefined ? { weight } : {}),
+    }
+  }
+  return questions
 }
 
 function toBuiltinRuleDefinition(value: unknown, endpoint: string): BuiltinRuleDefinition {
@@ -208,4 +256,35 @@ export function toRuleEntriesRequest(entries: RuleEntry[]) {
     },
     action: { type: entry.action.type, reason_code: entry.action.reasonCode },
   }))
+}
+
+/**
+ * Serialises the question set to the PascalCase shape accepted by the PATCH
+ * handler. Criteria, Role and Weight are omitted when unset; a zero Weight is
+ * kept only for noul questions because it explicitly excludes them from scoring.
+ * 把问题集序列化为 PATCH 接口接受的 PascalCase 结构。Criteria、Role、Weight
+ * 未设置时省略；noul 问题显式保留 0 权重，表示该题不计入综合分。
+ */
+export function toQuestionsRequest(questions: Record<string, ManagedPromptQuestion>) {
+  const request: Record<
+    string,
+    { Type: string; Instructions: string; Criteria?: Record<string, string>; Role?: string; Weight?: number }
+  > = {}
+  for (const [key, question] of Object.entries(questions)) {
+    const item: { Type: string; Instructions: string; Criteria?: Record<string, string>; Role?: string; Weight?: number } = {
+      Type: question.type,
+      Instructions: question.instructions,
+    }
+    if (question.criteria && Object.keys(question.criteria).length > 0) {
+      item.Criteria = question.criteria
+    }
+    if (question.role) {
+      item.Role = question.role
+    }
+    if (question.type === 'noul' && question.weight !== undefined) {
+      item.Weight = question.weight
+    }
+    request[key] = item
+  }
+  return request
 }

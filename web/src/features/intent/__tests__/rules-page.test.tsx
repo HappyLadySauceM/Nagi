@@ -30,6 +30,10 @@ const effectiveRules = {
   BuiltinRulesVersion: 'builtin-v1',
   Source: 'builtin',
 }
+const draftQuestions = {
+  directed_to_bot: { Type: 'noul', Instructions: '是否在跟我说话', Role: 'directed_to_bot', Weight: 1 },
+  intent: { Type: 'choice', Instructions: '判断聊天意图', Role: 'intent', Criteria: { question: '提问', chat: '闲聊', command: '命令', closing: '告别', other: '其它' } },
+}
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); window.history.replaceState({}, '', '/') })
 
 it('keeps the selected rule family fixed while its cloned draft is being created', async () => {
@@ -191,5 +195,119 @@ it('serializes unsaved rules and invalidates an old response when scope changes'
   expect(await screen.findByText('内容已变化，请重新测试')).toBeVisible()
   expect(screen.queryByText('原因码：preview_reason')).toBeNull()
   expect(screen.getByRole('button', { name: '运行规则预览' })).toBeDisabled()
+  client.clear()
+})
+
+it('allows rule-only saves with an empty question set and sends an empty questions map', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn() })
+  const draft = { ...version(1, '空问题草稿', 123), Status: 'draft', Targets: [], Questions: {} }
+  const writes: Record<string, unknown>[] = []
+  vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
+    const path = new URL(String(input), 'http://localhost').pathname
+    if (init?.method === 'PATCH') {
+      writes.push(JSON.parse(String(init.body)))
+      return Promise.resolve(response(draft))
+    }
+    if (path.endsWith('/rulesets')) return Promise.resolve(response({ Items: [draft] }))
+    if (path.endsWith('/rulesets/1')) return Promise.resolve(response(draft))
+    if (path === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (path === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
+    throw new Error('Unexpected request ' + path)
+  }))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  render(<QueryClientProvider client={client}><RulesPage /></QueryClientProvider>)
+  fireEvent.click(await screen.findByText(/空问题草稿/))
+  // An empty set is a valid "inherit built-in" state, not a blank five-question template.
+  expect(await screen.findByText('未设置，沿用内置问题。')).toBeVisible()
+  expect(screen.queryByLabelText('指向机器人 Instructions')).toBeNull()
+  expect(screen.queryByRole('alert')).toBeNull()
+  fireEvent.click(screen.getByRole('switch', { name: '告别结束' }))
+  const save = screen.getByRole('button', { name: '保存' })
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.click(save)
+  await waitFor(() => expect(writes).toHaveLength(1))
+  expect((writes[0] as { questions: unknown }).questions).toEqual({})
+  client.clear()
+})
+
+it('blocks saving when a configured question set is invalid', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn() })
+  const draft = {
+    ...version(1, '非法问题草稿', 123),
+    Status: 'draft',
+    Targets: [],
+    Questions: { directed_to_bot: { Type: 'noul', Instructions: '', Role: 'directed_to_bot', Weight: 1 } },
+  }
+  vi.stubGlobal('fetch', vi.fn((input: string) => {
+    const path = new URL(String(input), 'http://localhost').pathname
+    if (path.endsWith('/rulesets')) return Promise.resolve(response({ Items: [draft] }))
+    if (path.endsWith('/rulesets/1')) return Promise.resolve(response(draft))
+    if (path === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (path === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
+    throw new Error('Unexpected request ' + path)
+  }))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  render(<QueryClientProvider client={client}><RulesPage /></QueryClientProvider>)
+  fireEvent.click(await screen.findByText(/非法问题草稿/))
+  expect(await screen.findByLabelText('指向机器人 Instructions')).toBeVisible()
+  expect(screen.getByRole('alert')).toHaveTextContent('Instructions 不能为空')
+  fireEvent.click(screen.getByRole('switch', { name: '告别结束' }))
+  expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+  client.clear()
+})
+
+it('loads the default five questions only after clicking 从内置五问开始', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn() })
+  const draft = { ...version(1, '内置五问草稿', 123), Status: 'draft', Targets: [], Questions: {} }
+  vi.stubGlobal('fetch', vi.fn((input: string) => {
+    const path = new URL(String(input), 'http://localhost').pathname
+    if (path.endsWith('/rulesets')) return Promise.resolve(response({ Items: [draft] }))
+    if (path.endsWith('/rulesets/1')) return Promise.resolve(response(draft))
+    if (path === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (path === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
+    throw new Error('Unexpected request ' + path)
+  }))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  render(<QueryClientProvider client={client}><RulesPage /></QueryClientProvider>)
+  fireEvent.click(await screen.findByText(/内置五问草稿/))
+  fireEvent.click(await screen.findByRole('button', { name: '从内置五问开始' }))
+  expect(await screen.findByLabelText('指向机器人 Instructions')).toBeVisible()
+  expect(screen.getByLabelText('聊天功能 Instructions')).toBeVisible()
+  // Seeded defaults start with empty instructions, so saving stays blocked until filled.
+  expect(screen.getByRole('alert')).toHaveTextContent('Instructions 不能为空')
+  client.clear()
+})
+
+it('saves edited semantic questions in the PATCH body together with entries, builtin switches and targets', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe = vi.fn(); unobserve = vi.fn(); disconnect = vi.fn() })
+  const draft = { ...version(1, '语义保存草稿', 123), Status: 'draft', Targets: [], Questions: draftQuestions }
+  const writes: Record<string, unknown>[] = []
+  vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
+    const path = new URL(String(input), 'http://localhost').pathname
+    if (init?.method === 'PATCH') {
+      writes.push(JSON.parse(String(init.body)))
+      return Promise.resolve(response(draft))
+    }
+    if (path.endsWith('/rulesets')) return Promise.resolve(response({ Items: [draft] }))
+    if (path.endsWith('/rulesets/1')) return Promise.resolve(response(draft))
+    if (path === '/api/v1/intent/builtin-rules') return Promise.resolve(response(builtinCatalog))
+    if (path === '/api/v1/intent/rules/effective') return Promise.resolve(response(effectiveRules))
+    throw new Error('Unexpected request ' + path)
+  }))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  render(<QueryClientProvider client={client}><RulesPage /></QueryClientProvider>)
+  fireEvent.click(await screen.findByText(/语义保存草稿/))
+  const instructions = await screen.findByLabelText('指向机器人 Instructions')
+  fireEvent.change(instructions, { target: { value: '更新后的指向描述' } })
+  const save = screen.getByRole('button', { name: '保存' })
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.click(save)
+  await waitFor(() => expect(writes).toHaveLength(1))
+  const body = writes[0] as { entries: unknown; builtin_rules: unknown; targets: unknown; questions: Record<string, unknown> }
+  expect(body).toHaveProperty('entries')
+  expect(body).toHaveProperty('builtin_rules')
+  expect(body).toHaveProperty('targets')
+  expect(body.questions.directed_to_bot).toMatchObject({ Type: 'noul', Instructions: '更新后的指向描述', Role: 'directed_to_bot', Weight: 1 })
+  expect(body.questions.intent).toMatchObject({ Type: 'choice', Role: 'intent', Criteria: { closing: '告别' } })
   client.clear()
 })

@@ -7,9 +7,11 @@ import {
   toRulesetList,
   toRuleSimulation,
   toRuleEntriesRequest,
+  toQuestionsRequest,
 } from '../../lib/api/adapters/rules'
 import type {
   BuiltinRuleCatalog,
+  ManagedPromptQuestion,
   RuleEntry,
   RuleTarget,
   RulesEffectiveView,
@@ -91,10 +93,15 @@ export function useSaveEntries() {
   const queryClient = useQueryClient()
   const invalidate = useInvalidateRules()
   return useMutation({
-    mutationFn: (variables: { id: number; entries: RuleEntry[]; builtinRules?: Record<string, boolean>; targets?: RuleTarget[] }) =>
+    mutationFn: (variables: { id: number; entries: RuleEntry[]; builtinRules?: Record<string, boolean>; targets?: RuleTarget[]; questions: Record<string, ManagedPromptQuestion> }) =>
       apiRequest(`/api/v1/intent/rulesets/${variables.id}`, {
         method: 'PATCH',
-        body: { entries: toRuleEntriesRequest(variables.entries), builtin_rules: variables.builtinRules ?? {}, targets: variables.targets },
+        body: {
+          entries: toRuleEntriesRequest(variables.entries),
+          builtin_rules: variables.builtinRules ?? {},
+          targets: variables.targets,
+          questions: toQuestionsRequest(variables.questions),
+        },
       }).then(toRuleset),
     onSuccess: (data) => { queryClient.setQueryData(queryKeys.ruleset(data.id), data); return invalidate() },
   })
