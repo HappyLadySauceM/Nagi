@@ -1,9 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, FileDiff, Pencil, Plus, RefreshCw, RotateCcw, Send, ShieldCheck, Trash2, Undo2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  BookOpen,
+  History,
+  Layers,
+  Pencil,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Send,
+  Trash2,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { FeedbackState } from '../../components/feedback-state'
-import { PageHeader } from '../../components/page-header'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
@@ -11,8 +20,8 @@ import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../components/ui/sheet'
 import { Skeleton } from '../../components/ui/skeleton'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import type {
+  ManagedPromptContent,
   ManagedPromptKind,
   ManagedPromptProvider,
   ManagedPromptScope,
@@ -23,24 +32,22 @@ import { formatDateTime } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useAccountContext } from '../accounts/account-context'
 import { KnowledgePreviewCard } from '../knowledge/components/context-preview'
+import { useSystemSettings } from '../settings/queries'
 import {
   PROMPT_KIND_IDS,
   PROMPT_KIND_LABELS,
-  PROMPT_PROVIDER_LABELS,
-  PROMPT_SCOPE_HINTS,
   PROMPT_SCOPE_LABELS,
   PROMPT_SOURCE_LABELS,
-  PROMPT_STATUS_LABELS,
+  normaliseContentForScope,
+  promptContentToWire,
+  validatePromptContent,
 } from './prompt-content'
-import { PromptContentView } from './prompt-content-editor'
-import { RoleSettingsCard } from './role-settings-card'
+import { PromptContentView, PromptEditor, type InsertToken } from './prompt-content-editor'
+import { PromptHistorySheet } from './prompt-history-sheet'
+import { PromptVariablesPanel } from './prompt-variables-panel'
+import { CreateDraftDialog, PromptPreviewDialog } from './prompt-dialogs'
 import {
-  CreateDraftDialog,
-  PromptDiffSheet,
-  PromptEditorSheet,
-  PromptPreviewDialog,
-} from './prompt-dialogs'
-import {
+  useCreatePromptDraft,
   useDeletePromptVersion,
   usePromptCatalog,
   usePromptDetail,
@@ -48,19 +55,11 @@ import {
   usePublishPromptDraft,
   useRestorePromptBuiltin,
   useRollbackPromptVersion,
-  type PromptDiffParams,
+  useUpdatePromptDraft,
 } from './prompt-queries'
 
 const KINDS: ManagedPromptKind[] = ['chat_reply', 'memory_extraction']
 const SCOPES: ManagedPromptScope[] = ['account', 'group', 'private']
-
-const STATUS_VARIANTS: Record<ManagedPromptVersion['status'], 'success' | 'warning' | 'secondary'> = {
-  published: 'success',
-  draft: 'warning',
-  archived: 'secondary',
-}
-
-type Selection = { kind: 'builtin' } | { kind: 'empty' } | { kind: 'version'; id: number }
 
 function scopeSummary(
   scope: ManagedPromptScope,
@@ -72,8 +71,12 @@ function scopeSummary(
   return scope === 'account' ? '使用内置默认' : '无补充'
 }
 
-/** Three-layer Prompt management: builtin, active and editable drafts per account/scope/provider.
- * 三层 Prompt 管理：按账号/层级/provider 展示内置、实际生效与可编辑草稿。
+/**
+ * Prompt management: left column picks the account/group/private layer, the
+ * right column edits that layer's draft directly and opens history/effective/
+ * knowledge preview in drawers.
+ * Prompt 管理：左栏选择账号/群聊/私聊层，右栏直接编辑该层草稿，并以抽屉展示历史、
+ * 分层结果与知识上下文预览。
  */
 export function PromptManagementPage({
   kinds = KINDS,
@@ -82,32 +85,43 @@ export function PromptManagementPage({
   kinds?: ManagedPromptKind[]
   initialKind?: ManagedPromptKind
 } = {}) {
-  const { selectedBotId, selectedAccount } = useAccountContext()
+  const { selectedBotId } = useAccountContext()
   const [kind, setKind] = useState<ManagedPromptKind>(initialKind)
   const [scope, setScope] = useState<ManagedPromptScope>('account')
-  const [intentProvider, setIntentProvider] = useState<ManagedPromptProvider>('jev')
-  const provider: ManagedPromptProvider = kind === 'intent_participation' ? intentProvider : 'openai'
+  const provider: ManagedPromptProvider = kind === 'intent_participation' ? 'jev' : 'openai'
 
   const catalog = usePromptCatalog(selectedBotId)
   const item = catalog.data?.find((entry) => entry.kind === kind && entry.provider === provider)
   const promptId = item?.promptId ?? PROMPT_KIND_IDS[kind]
   const detail = usePromptDetail({ botId: selectedBotId, promptId, scope, provider })
+  const settingsQuery = useSystemSettings()
+  const extraVariables = settingsQuery.data?.settings.role.variables.map((variable) => variable.name) ?? []
 
-  const [selection, setSelection] = useState<Selection | null>(null)
+  const activeVersion = detail.data?.active ?? null
+  const draft = useMemo(() => {
+    const versions = (detail.data?.versions ?? []).filter((version) => version.status === 'draft')
+    return versions.sort((left, right) => right.version - left.version)[0] ?? null
+  }, [detail.data?.versions])
+
+  const [draftContent, setDraftContent] = useState<ManagedPromptContent | null>(null)
+  const [errors, setErrors] = useState<string[]>([])
+  const insertRef = useRef<InsertToken | null>(null)
+
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
-  const [editing, setEditing] = useState<ManagedPromptVersion | null>(null)
-  const [diffParams, setDiffParams] = useState<PromptDiffParams | null>(null)
   const [preview, setPreview] = useState<{ versionId: number; label: string } | null>(null)
+  const [effectiveOpen, setEffectiveOpen] = useState(false)
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false)
   const [effectiveTargetType, setEffectiveTargetType] = useState<'group' | 'private'>('group')
   const [effectiveTargetId, setEffectiveTargetId] = useState('')
   const [effectiveConversationId, setEffectiveConversationId] = useState('')
   const [effectiveRequested, setEffectiveRequested] = useState(false)
-  const [effectiveOpen, setEffectiveOpen] = useState(false)
-  const [knowledgeOpen, setKnowledgeOpen] = useState(false)
   const [confirm, setConfirm] = useState<
     { action: 'publish' | 'rollback' | 'restore' | 'delete'; version?: ManagedPromptVersion } | null
   >(null)
 
+  const create = useCreatePromptDraft()
+  const update = useUpdatePromptDraft()
   const publish = usePublishPromptDraft()
   const rollback = useRollbackPromptVersion()
   const restore = useRestorePromptBuiltin()
@@ -127,38 +141,26 @@ export function PromptManagementPage({
   }, [promptId, provider, scope])
 
   useEffect(() => {
-    if (!detail.data) {
-      setSelection(null)
+    if (!draft) {
+      setDraftContent(null)
+      setErrors([])
       return
     }
-    setSelection(
-      detail.data.active
-        ? { kind: 'version', id: detail.data.active.id }
-        : scope === 'account'
-          ? { kind: 'builtin' }
-          : { kind: 'empty' },
-    )
-  }, [detail.data, scope])
+    setDraftContent(normaliseContentForScope(kind, provider, scope, draft.content))
+    setErrors([])
+    // Load a fresh draft only when its id, layer or kind changes.
+    // 仅在草稿 id、作用域或 kind 变化时重新载入。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.id, scope, kind])
 
   const layers = useMemo(() => {
     const map = new Map(item?.layers.map((layer) => [layer.scopeType, layer]) ?? [])
     return SCOPES.map((value) => ({ scope: value, layer: map.get(value) }))
   }, [item])
 
-  const activeVersion = detail.data?.active ?? null
-  const selectedVersion =
-    selection?.kind === 'version'
-      ? (detail.data?.versions.find((version) => version.id === selection.id) ??
-        (activeVersion?.id === selection.id ? activeVersion : undefined))
-      : undefined
-  const displayedVersions = useMemo(() => {
-    const versions = detail.data?.versions ?? []
-    if (activeVersion && !versions.some((version) => version.id === activeVersion.id)) {
-      return [activeVersion, ...versions]
-    }
-    return versions
-  }, [detail.data?.versions, activeVersion])
-  const pending = publish.isPending || rollback.isPending || restore.isPending || remove.isPending
+  const pending =
+    create.isPending || update.isPending || publish.isPending || rollback.isPending || restore.isPending || remove.isPending
+  const intentOnly = kinds.length > 0 && kinds.every((value) => value === 'intent_participation')
 
   if (selectedBotId === undefined) {
     return (
@@ -178,6 +180,43 @@ export function PromptManagementPage({
         error={catalog.error}
         onRetry={() => void catalog.refetch()}
       />
+    )
+  }
+
+  const startEdit = () => {
+    const base = activeVersion ? 'active' : scope === 'account' ? 'builtin' : 'empty'
+    create.mutate(
+      {
+        botId: selectedBotId,
+        promptId,
+        scope,
+        provider,
+        name: `${PROMPT_KIND_LABELS[kind]} · ${PROMPT_SCOPE_LABELS[scope]}`,
+        base,
+        note: '',
+      },
+      {
+        onSuccess: () => toast.success('已创建 Prompt 草稿'),
+        onError: (error) => toast.error('创建草稿失败', { description: describeError(error).description }),
+      },
+    )
+  }
+
+  const saveDraft = () => {
+    if (!draft || !draftContent) {
+      return
+    }
+    const clientErrors = validatePromptContent(kind, provider, scope, draftContent, extraVariables)
+    setErrors(clientErrors)
+    if (clientErrors.length > 0) {
+      return
+    }
+    update.mutate(
+      { versionId: draft.id, content: promptContentToWire(draftContent, scope), note: draft.note },
+      {
+        onSuccess: () => toast.success('Prompt 草稿已保存'),
+        onError: (error) => toast.error('保存失败', { description: describeError(error).description }),
+      },
     )
   }
 
@@ -217,6 +256,7 @@ export function PromptManagementPage({
           onError: (error) => toast.error('恢复内置失败', { description: describeError(error).description }),
         },
       )
+      return
     }
     if (confirm.action === 'delete' && confirm.version) {
       remove.mutate(
@@ -232,103 +272,34 @@ export function PromptManagementPage({
     }
   }
 
-  const openDiff = (version: ManagedPromptVersion) => {
-    setDiffParams({
-      botId: selectedBotId,
-      promptId,
-      scope,
-      provider,
-      from: activeVersion ? 'active' : scope === 'account' ? 'builtin' : 'empty',
-      to: 'version',
-      toVersionId: version.id,
-    })
-  }
-
-  const intentOnly = kinds.length > 0 && kinds.every((value) => value === 'intent_participation')
-
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title={intentOnly ? '意图提示词' : '角色与提示词'}
-        description={
-          intentOnly
-            ? `管理意图判断 Prompt 的版本、草稿、发布与回滚；机器人自称统一在「知识与记忆」维护。当前账号：${selectedAccount?.nickname || selectedBotId}。`
-            : `默认聊天 System 与默认抽取 System 可编辑，走 Prompt 版本管理；最终 Prompt 按层展示账号默认、群聊/私聊补充与服务端约束。当前账号：${selectedAccount?.nickname || selectedBotId}。不依赖 Langfuse；Langfuse 仅作为可选来源标签。`
-        }
-        actions={
-          <Button variant="outline" size="sm" onClick={() => void catalog.refetch()}>
-            <RefreshCw className={cn('size-3.5', catalog.isFetching && 'animate-spin')} aria-hidden />
-            刷新
-          </Button>
-        }
-      />
-
-      {intentOnly ? null : <RoleSettingsCard />}
-
-      <Card className="flex flex-row flex-wrap items-center gap-2 p-2">
-        {kinds.map((value) => (
-          <Button
-            key={value}
-            type="button"
-            size="sm"
-            variant={kind === value ? 'secondary' : 'ghost'}
-            onClick={() => {
-              setKind(value)
-              setScope('account')
-              setEffectiveRequested(false)
-            }}
-          >
-            <BookOpen className="size-3.5" aria-hidden />
-            {PROMPT_KIND_LABELS[value]}
-            <code className="ml-1 text-xs text-muted-foreground">{PROMPT_KIND_IDS[value]}</code>
-          </Button>
-        ))}
-        {kind === 'intent_participation' ? (
-          <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-            Provider
-            <select
-              aria-label="意图 Prompt Provider"
-              className="h-8 rounded-md border border-border bg-surface px-2 text-xs"
-              value={intentProvider}
-              onChange={(event) => {
-                setIntentProvider(event.target.value as ManagedPromptProvider)
-                setEffectiveRequested(false)
-              }}
-            >
-              <option value="jev">jev</option>
-              <option value="openai">openai</option>
-            </select>
-          </label>
-        ) : (
-          <Badge variant="outline" className="ml-auto">{PROMPT_PROVIDER_LABELS.openai}</Badge>
-        )}
-      </Card>
-
-      <div className="grid gap-2 sm:grid-cols-3">
-        {layers.map(({ scope: layerScope, layer }) => (
-          <button
-            key={layerScope}
-            type="button"
-            onClick={() => {
-              setScope(layerScope)
-              setEffectiveRequested(false)
-            }}
-            className={cn(
-              'rounded-lg border p-3 text-left transition-colors',
-              scope === layerScope ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-secondary/40',
-            )}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium">{PROMPT_SCOPE_LABELS[layerScope]}</span>
-              {layer?.activeVersion ? <Badge variant="success">已发布</Badge> : <Badge variant="outline">{layerScope === 'account' ? '内置' : '空层'}</Badge>}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {scopeSummary(layerScope, layer?.activeVersion ? { version: layer.activeVersion, source: layer.activeSource } : null)}
-            </p>
-          </button>
-        ))}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1">
+          {kinds.length > 1
+            ? kinds.map((value) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={kind === value ? 'secondary' : 'ghost'}
+                  onClick={() => {
+                    setKind(value)
+                    setScope('account')
+                    setEffectiveRequested(false)
+                  }}
+                >
+                  <BookOpen className="size-3.5" aria-hidden />
+                  {PROMPT_KIND_LABELS[value]}
+                </Button>
+              ))
+            : null}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void catalog.refetch()}>
+          <RefreshCw className={cn('size-3.5', catalog.isFetching && 'animate-spin')} aria-hidden />
+          刷新
+        </Button>
       </div>
-      <p className="text-xs text-muted-foreground">{PROMPT_SCOPE_HINTS[scope]} scope_id 固定为 0，不提供单群/单私聊独立 Prompt。</p>
 
       {detail.isLoading ? <Skeleton className="h-64 w-full" /> : null}
       {detail.isError ? (
@@ -341,270 +312,247 @@ export function PromptManagementPage({
       ) : null}
 
       {detail.data ? (
-        <>
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-            <Card className="min-w-0 space-y-3 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold">版本</h2>
-                <Button size="sm" onClick={() => setCreateOpen(true)}>
-                  <Plus className="size-3.5" aria-hidden />
-                  新建草稿
-                </Button>
-              </div>
-              <div className="overflow-hidden rounded-lg border border-border">
-                <Table label="Prompt 版本列表">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>版本</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>来源</TableHead>
-                      <TableHead>归档时间</TableHead>
-                      <TableHead className="text-right">操作</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {scope === 'account' ? (
-                      <TableRow
-                        className={cn('cursor-pointer', selection?.kind === 'builtin' && 'bg-secondary/60')}
-                        onClick={() => setSelection({ kind: 'builtin' })}
-                      >
-                        <TableCell className="font-mono">v{detail.data.builtin.version}</TableCell>
-                        <TableCell><Badge variant="secondary">内置</Badge></TableCell>
-                        <TableCell className="text-meta text-muted-foreground">内置</TableCell>
-                        <TableCell className="text-meta text-muted-foreground">—</TableCell>
-                        <TableCell />
-                      </TableRow>
-                    ) : null}
-                    {displayedVersions.map((version) => (
-                      <TableRow
-                        key={version.id}
-                        className={cn('cursor-pointer', selection?.kind === 'version' && selection.id === version.id && 'bg-secondary/60')}
-                        onClick={() => setSelection({ kind: 'version', id: version.id })}
-                      >
-                        <TableCell className="font-mono">
-                          v{version.version}
-                          {version.status === 'draft' ? <span className="ml-1 text-xs text-warning">草稿</span> : null}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={STATUS_VARIANTS[version.status]}>{PROMPT_STATUS_LABELS[version.status]}</Badge>
-                        </TableCell>
-                        <TableCell className="text-meta text-muted-foreground">{PROMPT_SOURCE_LABELS[version.source]}</TableCell>
-                        <TableCell className="text-meta text-muted-foreground">
-                          {version.status === 'archived'
-                            ? version.archivedAt
-                              ? formatDateTime(version.archivedAt)
-                              : '未记录'
-                            : '—'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {version.status === 'draft' || version.status === 'archived' ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`删除 Prompt v${version.version}`}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setConfirm({ action: 'delete', version })
-                              }}
-                            >
-                              <Trash2 className="size-3.5" aria-hidden />
-                              删除
-                            </Button>
-                          ) : null}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              {displayedVersions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">暂无本地版本，当前使用内置默认或空补充。可新建草稿后编辑。</p>
-              ) : null}
-            </Card>
-
-            <Card className="min-w-0 space-y-4 p-4">
-              {selection?.kind === 'builtin' ? (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-sm font-semibold">内置默认 v{detail.data.builtin.version}</h2>
-                    <Badge variant="secondary">只读</Badge>
-                    <code className="max-w-full break-all text-xs text-muted-foreground">{detail.data.builtin.hash}</code>
-                  </div>
-                  <PromptContentView kind={detail.data.kind} provider={detail.data.provider} content={detail.data.builtin.content} />
-                </>
-              ) : selection?.kind === 'empty' ? (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-sm font-semibold">空补充</h2>
-                    <Badge variant="outline">无本地版本</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    该层暂无本地发布版本；运行时视为空补充，不向账号默认内容追加任何文本。可点击“新建草稿”创建空补充或指定版本。
-                  </p>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-2">
+            {layers.map(({ scope: layerScope, layer }) => (
+              <button
+                key={layerScope}
+                type="button"
+                onClick={() => {
+                  setScope(layerScope)
+                  setEffectiveRequested(false)
+                }}
+                className={cn(
+                  'rounded-lg border p-3 text-left transition-colors',
+                  scope === layerScope ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-secondary/40',
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{PROMPT_SCOPE_LABELS[layerScope]}</span>
+                  {layer?.activeVersion ? (
+                    <Badge variant="success">已发布</Badge>
+                  ) : (
+                    <Badge variant="outline">{layerScope === 'account' ? '内置' : '空层'}</Badge>
+                  )}
                 </div>
-              ) : selectedVersion ? (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-sm font-semibold">{selectedVersion.name || promptId} · v{selectedVersion.version}</h2>
-                    <Badge variant={STATUS_VARIANTS[selectedVersion.status]}>{PROMPT_STATUS_LABELS[selectedVersion.status]}</Badge>
-                    <Badge variant="outline">{PROMPT_SOURCE_LABELS[selectedVersion.source]}</Badge>
-                    <code className="max-w-full break-all text-xs text-muted-foreground">{selectedVersion.hash}</code>
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>创建：{formatDateTime(selectedVersion.createdAt)}</span>
-                    <span>发布：{selectedVersion.publishedAt ? formatDateTime(selectedVersion.publishedAt) : '—'}</span>
-                    <span>
-                      归档：
-                      {selectedVersion.status === 'archived'
-                        ? selectedVersion.archivedAt
-                          ? formatDateTime(selectedVersion.archivedAt)
-                          : '未记录'
-                        : '—'}
-                    </span>
-                  </div>
-                  {selectedVersion.note ? <p className="text-xs text-muted-foreground">备注：{selectedVersion.note}</p> : null}
-                  <div className="flex flex-wrap gap-2 border-b border-border pb-3">
-                    {selectedVersion.status === 'draft' ? (
-                      <>
-                        <Button size="sm" variant="outline" onClick={() => setEditing(selectedVersion)}>
-                          <Pencil className="size-3.5" aria-hidden />
-                          编辑
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => openDiff(selectedVersion)}>
-                          <FileDiff className="size-3.5" aria-hidden />
-                          对比
-                        </Button>
-                        <Button size="sm" onClick={() => setConfirm({ action: 'publish', version: selectedVersion })}>
-                          <Send className="size-3.5" aria-hidden />
-                          发布
-                        </Button>
-                      </>
-                    ) : null}
-                    {selectedVersion.status === 'archived' && selectedVersion.publishedAt ? (
-                      <Button size="sm" variant="outline" onClick={() => setConfirm({ action: 'rollback', version: selectedVersion })}>
-                        <Undo2 className="size-3.5" aria-hidden />
-                        回滚到此版本
-                      </Button>
-                    ) : null}
-                    <Button size="sm" variant="ghost" onClick={() => setPreview({ versionId: selectedVersion.id, label: `v${selectedVersion.version}` })}>
-                      预览
-                    </Button>
-                  </div>
-                  <PromptContentView
-                    kind={detail.data.kind}
-                    provider={detail.data.provider}
-                    content={selectedVersion.content}
-                    scope={selectedVersion.scopeType}
-                  />
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">选择一个版本查看内容。</p>
-              )}
-              {activeVersion ? (
-                <div className="border-t border-border pt-3">
-                  <Button size="sm" variant="ghost" onClick={() => setConfirm({ action: 'restore' })}>
-                    <RotateCcw className="size-3.5" aria-hidden />
-                    恢复内置默认
-                  </Button>
-                  <p className="mt-1 text-xs text-muted-foreground">归档当前本地发布版本，之后解析到内置版本；历史版本保留，不删除。</p>
-                </div>
-              ) : null}
-            </Card>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {scopeSummary(layerScope, layer?.activeVersion ? { version: layer.activeVersion, source: layer.activeSource } : null)}
+                </p>
+              </button>
+            ))}
           </div>
 
-          <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div>
-              <h2 className="text-sm font-semibold">运行预览</h2>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                运行目标分层结果与知识上下文预览改为右侧抽屉展示，内容与校验逻辑保持原样。
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+                <History className="size-3.5" aria-hidden />
+                历史版本
+              </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => setEffectiveOpen(true)}>
-                打开分层结果
+                <Layers className="size-3.5" aria-hidden />
+                分层结果
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setKnowledgeOpen(true)}>
-                打开知识上下文预览
+              {intentOnly ? null : (
+                <Button type="button" variant="outline" size="sm" onClick={() => setKnowledgeOpen(true)}>
+                  知识上下文预览
+                </Button>
+              )}
+            </div>
+
+            <PromptVariablesPanel
+              kind={kind}
+              scope={scope}
+              onInsertToken={(token) => insertRef.current?.(token) ?? false}
+            />
+
+            <Card className="min-w-0 space-y-3 p-4">
+              {draft && draftContent ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold">
+                      {PROMPT_SCOPE_LABELS[scope]} · 草稿 v{draft.version}
+                    </h2>
+                    <Badge variant="warning">草稿</Badge>
+                    <code className="max-w-full break-all text-xs text-muted-foreground">{draft.hash}</code>
+                  </div>
+                  <PromptEditor
+                    kind={kind}
+                    provider={provider}
+                    scope={scope}
+                    content={draftContent}
+                    onChange={setDraftContent}
+                    insertRef={insertRef}
+                  />
+                  {errors.length > 0 ? (
+                    <ul role="alert" className="space-y-1 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      {errors.map((error) => (
+                        <li key={error}>{error}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                    <Button size="sm" onClick={saveDraft} disabled={update.isPending}>
+                      <Save className="size-3.5" aria-hidden />
+                      保存草稿
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirm({ action: 'publish', version: draft })}>
+                      <Send className="size-3.5" aria-hidden />
+                      发布
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirm({ action: 'delete', version: draft })}
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                      删除草稿
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold">{PROMPT_SCOPE_LABELS[scope]}</h2>
+                    {activeVersion ? (
+                      <>
+                        <Badge variant="success">已发布</Badge>
+                        <Badge variant="outline">{PROMPT_SOURCE_LABELS[activeVersion.source]}</Badge>
+                        <span className="text-xs text-muted-foreground">v{activeVersion.version}</span>
+                      </>
+                    ) : scope === 'account' ? (
+                      <Badge variant="secondary">内置默认 v{detail.data.builtin.version}</Badge>
+                    ) : (
+                      <Badge variant="outline">空补充</Badge>
+                    )}
+                  </div>
+
+                  {activeVersion ? (
+                    <PromptContentView kind={kind} provider={provider} content={activeVersion.content} scope={activeVersion.scopeType} />
+                  ) : scope === 'account' ? (
+                    <PromptContentView kind={kind} provider={provider} content={detail.data.builtin.content} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      该层暂无本地发布版本；运行时视为空补充，不向账号默认内容追加任何文本。可点击“编辑”创建空补充草稿。
+                    </p>
+                  )}
+
+                  {activeVersion ? (
+                    <p className="text-xs text-muted-foreground">
+                      创建：{formatDateTime(activeVersion.createdAt)} · 发布：
+                      {activeVersion.publishedAt ? formatDateTime(activeVersion.publishedAt) : '—'}
+                    </p>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                    <Button size="sm" variant="outline" onClick={startEdit} disabled={create.isPending}>
+                      <Pencil className="size-3.5" aria-hidden />
+                      {activeVersion ? '编辑' : '新建草稿'}
+                    </Button>
+                    {activeVersion ? (
+                      <Button size="sm" variant="ghost" onClick={() => setConfirm({ action: 'restore' })}>
+                        <RotateCcw className="size-3.5" aria-hidden />
+                        恢复内置默认
+                      </Button>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </Card>
+          </div>
+        </div>
+      ) : null}
+
+      {detail.data ? (
+        <PromptHistorySheet
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          detail={detail.data}
+          scope={scope}
+          onDelete={(version) => setConfirm({ action: 'delete', version })}
+          onRollback={(version) => setConfirm({ action: 'rollback', version })}
+          onPreview={(version) => setPreview({ versionId: version.id, label: `v${version.version}` })}
+          onCreateDraft={() => {
+            setHistoryOpen(false)
+            setCreateOpen(true)
+          }}
+        />
+      ) : null}
+
+      <Sheet open={effectiveOpen} onOpenChange={setEffectiveOpen}>
+        <SheetContent side="right" className="w-full space-y-4 overflow-y-auto bg-background p-6 sm:max-w-3xl">
+          <div className="border-b border-border pb-4 pr-8">
+            <SheetTitle className="text-lg font-semibold">运行目标分层结果</SheetTitle>
+            <SheetDescription className="mt-2 leading-relaxed">
+              选择真实群聊或私聊目标，查看账号默认、类型补充与服务端约束的最终 Prompt；不写入 Prompt 版本键，也不形成单会话覆盖。
+            </SheetDescription>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">目标类型</span>
+              <Select value={effectiveTargetType} onChange={(event) => setEffectiveTargetType(event.target.value as 'group' | 'private')} aria-label="生效目标类型">
+                <option value="group">群聊</option>
+                <option value="private">私聊</option>
+              </Select>
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">目标 ID（群号/QQ）</span>
+              <Input value={effectiveTargetId} onChange={(event) => setEffectiveTargetId(event.target.value)} inputMode="numeric" aria-label="生效目标 ID" />
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">会话 ID（可选）</span>
+              <Input value={effectiveConversationId} onChange={(event) => setEffectiveConversationId(event.target.value)} aria-label="生效会话 ID" />
+            </label>
+            <div className="flex items-end">
+              <Button size="sm" onClick={() => setEffectiveRequested(true)} disabled={!Number.isInteger(Number(effectiveTargetId)) || Number(effectiveTargetId) <= 0}>
+                查看分层结果
               </Button>
             </div>
-          </Card>
-          <Sheet open={effectiveOpen} onOpenChange={setEffectiveOpen}>
-            <SheetContent side="right" className="w-full space-y-4 overflow-y-auto bg-background p-6 sm:max-w-3xl">
-              <div className="border-b border-border pb-4 pr-8">
-                <SheetTitle className="text-lg font-semibold">运行目标分层结果</SheetTitle>
-                <SheetDescription className="mt-2 leading-relaxed">
-                  选择真实群聊或私聊目标，查看账号默认、类型补充与服务端约束的最终 Prompt；不写入 Prompt 版本键，也不形成单会话覆盖。
-                </SheetDescription>
+          </div>
+          {effective.isLoading ? <Skeleton className="h-24 w-full" /> : null}
+          {effective.isError ? (
+            <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {describeError(effective.error).description}
+            </p>
+          ) : null}
+          {effective.data ? (
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <Badge variant="secondary">{effective.data.target.type === 'group' ? '群聊' : '私聊'} {effective.data.target.id}</Badge>
+                <span className="font-mono">Hash {effective.data.hash || '—'}</span>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="space-y-1 text-xs">
-                  <span className="text-muted-foreground">目标类型</span>
-                  <Select value={effectiveTargetType} onChange={(event) => setEffectiveTargetType(event.target.value as 'group' | 'private')} aria-label="生效目标类型">
-                    <option value="group">群聊</option>
-                    <option value="private">私聊</option>
-                  </Select>
-                </label>
-                <label className="space-y-1 text-xs">
-                  <span className="text-muted-foreground">目标 ID（群号/QQ）</span>
-                  <Input value={effectiveTargetId} onChange={(event) => setEffectiveTargetId(event.target.value)} inputMode="numeric" aria-label="生效目标 ID" />
-                </label>
-                <label className="space-y-1 text-xs">
-                  <span className="text-muted-foreground">会话 ID（可选）</span>
-                  <Input value={effectiveConversationId} onChange={(event) => setEffectiveConversationId(event.target.value)} aria-label="生效会话 ID" />
-                </label>
-                <div className="flex items-end">
-                  <Button size="sm" onClick={() => setEffectiveRequested(true)} disabled={!Number.isInteger(Number(effectiveTargetId)) || Number(effectiveTargetId) <= 0}>
-                    查看分层结果
-                  </Button>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {effective.data.layers.map((layer) => (
+                  <li key={`${layer.layer}-${layer.versionId ?? 0}`}>
+                    {layer.layer}
+                    {layer.version !== undefined ? ` · v${layer.version}` : ''}
+                    {layer.source ? ` · ${layer.source}` : ''}
+                    {layer.editable === false ? ' · 服务端固定' : ''}
+                    {layer.summary ? ` · ${layer.summary}` : ''}
+                  </li>
+                ))}
+              </ul>
+              <div>
+                <div className="text-xs text-muted-foreground">最终内容</div>
+                <div className="mt-2">
+                  <PromptContentView kind={effective.data.kind} provider={effective.data.provider} content={effective.data.final.content} />
                 </div>
               </div>
-              {effective.isLoading ? <Skeleton className="h-24 w-full" /> : null}
-              {effective.isError ? (
-                <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {describeError(effective.error).description}
-                </p>
-              ) : null}
-              {effective.data ? (
-                <div className="space-y-3 rounded-lg border border-border p-3">
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <Badge variant="secondary">{effective.data.target.type === 'group' ? '群聊' : '私聊'} {effective.data.target.id}</Badge>
-                    <span className="font-mono">Hash {effective.data.hash || '—'}</span>
-                  </div>
-                  <ul className="space-y-1 text-xs text-muted-foreground">
-                    {effective.data.layers.map((layer) => (
-                      <li key={`${layer.layer}-${layer.versionId ?? 0}`}>
-                        {layer.layer}
-                        {layer.version !== undefined ? ` · v${layer.version}` : ''}
-                        {layer.source ? ` · ${layer.source}` : ''}
-                        {layer.editable === false ? ' · 服务端固定' : ''}
-                        {layer.summary ? ` · ${layer.summary}` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                  <div>
-                    <div className="text-xs text-muted-foreground">最终内容</div>
-                    <div className="mt-2">
-                      <PromptContentView kind={effective.data.kind} provider={effective.data.provider} content={effective.data.final.content} />
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </SheetContent>
-          </Sheet>
-          <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
-            <SheetContent side="right" className="w-full space-y-4 overflow-y-auto bg-background p-6 sm:max-w-3xl">
-              <div className="border-b border-border pb-4 pr-8">
-                <SheetTitle className="text-lg font-semibold">知识上下文预览</SheetTitle>
-                <SheetDescription className="mt-2 leading-relaxed">
-                  示例预览使用合成数据；真实上下文预览按当前账号、目标作用域与授权读取，并明确展示被跳过的层。
-                </SheetDescription>
-              </div>
-              <KnowledgePreviewCard botId={selectedBotId} />
-            </SheetContent>
-          </Sheet>
-        </>
-      ) : null}
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
+        <SheetContent side="right" className="w-full space-y-4 overflow-y-auto bg-background p-6 sm:max-w-3xl">
+          <div className="border-b border-border pb-4 pr-8">
+            <SheetTitle className="text-lg font-semibold">知识上下文预览</SheetTitle>
+            <SheetDescription className="mt-2 leading-relaxed">
+              示例预览使用合成数据；真实上下文预览按当前账号、目标作用域与授权读取，并明确展示被跳过的层。
+            </SheetDescription>
+          </div>
+          <KnowledgePreviewCard botId={selectedBotId} />
+        </SheetContent>
+      </Sheet>
 
       <CreateDraftDialog
         open={createOpen}
@@ -616,22 +564,9 @@ export function PromptManagementPage({
         name={`${PROMPT_KIND_LABELS[kind]} · ${PROMPT_SCOPE_LABELS[scope]}`}
         hasActive={!!activeVersion}
         versions={detail.data?.versions ?? []}
-        onCreated={(version) => {
-          setSelection({ kind: 'version', id: version.id })
-          setEditing(version)
-        }}
+        onCreated={() => setCreateOpen(false)}
       />
-      <PromptEditorSheet
-        open={editing !== null}
-        onOpenChange={(open) => { if (!open) setEditing(null) }}
-        version={editing}
-        scope={scope}
-      />
-      <PromptDiffSheet
-        open={diffParams !== null}
-        onOpenChange={(open) => { if (!open) setDiffParams(null) }}
-        params={diffParams}
-      />
+
       <PromptPreviewDialog
         open={preview !== null}
         onOpenChange={(open) => { if (!open) setPreview(null) }}
@@ -641,6 +576,7 @@ export function PromptManagementPage({
         versionId={preview?.versionId ?? 0}
         versionLabel={preview?.label ?? ''}
       />
+
       <ConfirmDialog
         open={confirm !== null}
         onOpenChange={(open) => { if (!open) setConfirm(null) }}
@@ -666,10 +602,6 @@ export function PromptManagementPage({
         pending={pending}
         onConfirm={runConfirm}
       />
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <ShieldCheck className="size-3.5" aria-hidden />
-        Prompt 只影响实际使用方会消费的字段；工具权限、发送权限与 JSON 输出结构由服务端固定，不能由页面或 Prompt 覆盖。
-      </p>
     </div>
   )
 }

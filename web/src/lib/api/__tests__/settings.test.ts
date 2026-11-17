@@ -3,7 +3,7 @@ import { ApiError } from '../client'
 import { toSettings, toSettingsPutBody } from '../adapters/settings'
 
 const SETTINGS = {
-  Role: { BotName: 'Nagi' },
+  Role: { BotName: 'Nagi', Variables: [{ Name: 'user_name', Value: '小明' }] },
   Context: { HistoryLimit: 30 },
   AI: {
     Enabled: true,
@@ -41,10 +41,15 @@ const SETTINGS = {
 describe('settings adapter', () => {
   it('reads Role and Context and ignores legacy Intent fields', () => {
     const settings = toSettings(SETTINGS)
-    expect(settings.role).toEqual({ botName: 'Nagi' })
+    expect(settings.role).toEqual({ botName: 'Nagi', variables: [{ name: 'user_name', value: '小明' }] })
     expect(settings.context).toEqual({ historyLimit: 30 })
     expect(settings.intent).not.toHaveProperty('botName')
     expect(settings.intent).not.toHaveProperty('historyLimit')
+  })
+
+  it('defaults Variables to an empty list when the section omits them', () => {
+    const settings = toSettings({ ...SETTINGS, Role: { BotName: 'Nagi' } })
+    expect(settings.role.variables).toEqual([])
   })
 
   it('sends Role and Context without legacy Intent fields', () => {
@@ -53,10 +58,21 @@ describe('settings adapter', () => {
       Settings: Record<string, Record<string, unknown>>
     }
     expect(body.Version).toBe(7)
-    expect(body.Settings.Role).toEqual({ BotName: 'Nagi' })
+    expect(body.Settings.Role).toEqual({
+      BotName: 'Nagi',
+      Variables: [{ Name: 'user_name', Value: '小明' }],
+    })
     expect(body.Settings.Context).toEqual({ HistoryLimit: 30 })
     expect(body.Settings.Intent).not.toHaveProperty('BotName')
     expect(body.Settings.Intent).not.toHaveProperty('HistoryLimit')
+  })
+
+  it('rejects a variable whose name or value is not a string', () => {
+    const broken = {
+      ...SETTINGS,
+      Role: { BotName: 'Nagi', Variables: [{ Name: 'user_name', Value: 42 }] },
+    }
+    expect(() => toSettings(broken)).toThrowError(ApiError)
   })
 
   it('rejects a payload without the Role section', () => {

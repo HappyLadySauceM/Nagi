@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiRequest } from '../../../lib/api/client'
 import { PromptManagementPage } from '../prompt-management-page'
@@ -16,9 +16,24 @@ vi.mock('../../accounts/account-context', () => ({
   }),
 }))
 
-const mockedRequest = vi.mocked(apiRequest)
+vi.mock('../../settings/queries', () => ({
+  useSystemSettings: () => ({
+    data: {
+      settings: {
+        role: {
+          botName: 'Nagi',
+          variables: [{ name: 'user_name', value: '小明' }],
+        },
+      },
+      version: 1,
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+}))
 
-vi.mock('../role-settings-card', () => ({ RoleSettingsCard: () => <div data-testid="role-settings-card" /> }))
+const mockedRequest = vi.mocked(apiRequest)
 
 const catalog = {
   Items: [
@@ -46,25 +61,6 @@ const catalog = {
       Kind: 'intent_participation',
       Name: '意图判断',
       Provider: 'jev',
-      BuiltinVersion: 1,
-      Layers: [
-        {
-          BotID: 998001,
-          ScopeType: 'account',
-          ScopeID: 0,
-          ActiveVersion: 3,
-          ActiveVersionID: 20,
-          ActiveSource: 'local',
-          Status: 'published',
-          UpdatedAt: '2026-11-15T08:02:00Z',
-        },
-      ],
-    },
-    {
-      PromptID: 'intent.participation',
-      Kind: 'intent_participation',
-      Name: '意图判断',
-      Provider: 'openai',
       BuiltinVersion: 1,
       Layers: [],
     },
@@ -116,9 +112,24 @@ const detail = {
       Status: 'archived',
       Hash: 'sha256:archived',
       PublishedAt: '2026-11-01T08:00:00Z',
-      ArchivedAt: null,
+      ArchivedAt: '2026-11-02T08:00:00Z',
     }),
   ],
+}
+
+const intentDetail = {
+  PromptID: 'intent.participation',
+  Kind: 'intent_participation',
+  Provider: 'jev',
+  Builtin: {
+    Version: 1,
+    Status: 'builtin',
+    Source: 'builtin',
+    Hash: 'sha256:intent',
+    Content: { Provider: 'jev', SystemOne: { Questions: {} } },
+  },
+  Active: null,
+  Versions: [],
 }
 
 const effective = {
@@ -128,7 +139,7 @@ const effective = {
   BotID: 998001,
   Target: { Type: 'group', ID: 700 },
   Layers: [
-    { Layer: 'account_default', VersionID: 12, Version: 2, Source: 'local', Hash: 'sha256:a', Content: { Provider: 'openai', OpenAI: { SystemPrompt: '账号默认' } } },
+    { Layer: 'account_default', VersionID: 12, Version: 2, Source: 'local', Hash: 'sha256:a' },
     { Layer: 'server_constraints', Editable: false, Hash: 'sha256:server', Summary: '工具权限、发送权限、JSON 结构由服务端固定' },
   ],
   Final: { Content: { Provider: 'openai', OpenAI: { SystemPrompt: '最终 System' } }, Variables: { bot_name: 'Nagi', scope_type: 'group' } },
@@ -148,8 +159,14 @@ function renderPage() {
 
 beforeEach(() => {
   mockedRequest.mockReset()
-  mockedRequest.mockImplementation((path: string) => {
+  mockedRequest.mockImplementation((path: string, options?: { method?: string }) => {
     if (path.startsWith('/api/v1/prompts?')) return Promise.resolve(catalog)
+    if (path.endsWith('/versions') && options?.method === 'POST') {
+      return Promise.resolve(version({ ID: 14, Version: 4, Status: 'draft', PublishedAt: null }))
+    }
+    if (/\/versions\/\d+$/.test(path) && options?.method === 'PATCH') {
+      return Promise.resolve(version({ ID: 13, Version: 3, Status: 'draft' }))
+    }
     if (path.includes('/versions/13/publish')) {
       return Promise.resolve({ Version: version({ Status: 'published' }), ArchivedVersionID: 12 })
     }
@@ -170,20 +187,12 @@ beforeEach(() => {
         ArchivedVersionID: 12,
       })
     }
-    if (path.includes('/diff')) {
-      return Promise.resolve({
-        PromptID: 'chat.reply',
-        Provider: 'openai',
-        From: { Source: 'active', ID: 12, Version: 2, Status: 'published', Hash: 'a' },
-        To: { ID: 13, Version: 3, Status: 'draft', Hash: 'b' },
-        Changed: true,
-        UnifiedDiff: '',
-        Lines: [{ Op: '+', Text: '新内容' }],
-      })
-    }
     if (path.includes('/effective')) return Promise.resolve(effective)
     if (path.match(/\/api\/v1\/prompts\/chat\.reply\?/)) {
       return Promise.resolve(path.includes('scope_type=group') ? { ...detail, Active: null, Versions: [] } : detail)
+    }
+    if (path.match(/\/api\/v1\/prompts\/intent\.participation\?/)) {
+      return Promise.resolve(intentDetail)
     }
     throw new Error(`unexpected request: ${path}`)
   })
@@ -204,27 +213,48 @@ afterEach(() => {
 })
 
 describe('PromptManagementPage', () => {
-  it('shows only chat reply and memory extraction prompts without the old status cards', async () => {
+  it('shows the three scopes, kind segments and variable chips without role settings or a Provider row', async () => {
     renderPage()
-    expect(await screen.findByText('账号默认')).toBeVisible()
-    expect(screen.getByRole('heading', { name: '角色与提示词' })).toBeVisible()
-    expect(screen.getByTestId('role-settings-card')).toBeVisible()
+    expect(await screen.findByRole('button', { name: /账号默认/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /群聊类型补充/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /私聊类型补充/ })).toBeVisible()
     expect(screen.getByRole('button', { name: /聊天回复/ })).toBeVisible()
     expect(screen.getByRole('button', { name: /记忆抽取/ })).toBeVisible()
-    expect(screen.queryByRole('button', { name: /意图判断/ })).toBeNull()
-    expect(screen.queryByText('实际生效')).toBeNull()
-    expect(screen.queryByText('编辑草稿')).toBeNull()
-    expect(screen.getByText('账号默认')).toBeVisible()
-    expect(screen.getByText('群聊类型补充')).toBeVisible()
-    expect(screen.getByText('私聊类型补充')).toBeVisible()
+    expect(screen.queryByText('角色设置')).toBeNull()
+    expect(screen.queryByText(/Provider/)).toBeNull()
+    expect(screen.queryByText(/三层 Prompt/)).toBeNull()
+    expect(await screen.findByText('{{bot_name}}')).toBeVisible()
+    expect(screen.getByText('{{scope_type}}')).toBeVisible()
   })
 
-  it('publishes only a draft and never offers rollback on drafts', async () => {
+  it('edits an existing draft inline and saves it through the update endpoint', async () => {
     renderPage()
-    fireEvent.click(await screen.findByText('v3'))
-    expect(await screen.findByRole('button', { name: '发布' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: /回滚到此版本/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '发布' }))
+    expect(await screen.findByRole('button', { name: '保存草稿' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '发布' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '删除草稿' })).toBeVisible()
+
+    const textarea = screen.getByLabelText('System Prompt')
+    fireEvent.change(textarea, { target: { value: '新内容 {{bot_name}}' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    await waitFor(() =>
+      expect(mockedRequest).toHaveBeenCalledWith(
+        '/api/v1/prompts/versions/13',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: expect.objectContaining({
+            content: expect.objectContaining({
+              OpenAI: expect.objectContaining({ SystemPrompt: '新内容 {{bot_name}}' }),
+            }),
+          }),
+        }),
+      ),
+    )
+  })
+
+  it('publishes the inline draft after confirmation', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '发布' }))
     fireEvent.click(await screen.findByRole('button', { name: '确认发布' }))
     await waitFor(() =>
       expect(mockedRequest).toHaveBeenCalledWith(
@@ -234,69 +264,13 @@ describe('PromptManagementPage', () => {
     )
   })
 
-  it('rolls back only an archived version that was published before', async () => {
+  it('opens the version history drawer and deletes a draft from it', async () => {
     renderPage()
-    const archivedRow = (await screen.findByText('已归档')).closest('tr')
-    expect(archivedRow).not.toBeNull()
-    fireEvent.click(archivedRow!)
-    fireEvent.click(await screen.findByRole('button', { name: /回滚到此版本/ }))
-    fireEvent.click(await screen.findByRole('button', { name: '确认回滚' }))
-    await waitFor(() =>
-      expect(mockedRequest).toHaveBeenCalledWith(
-        '/api/v1/prompts/chat.reply/rollback',
-        expect.objectContaining({
-          method: 'POST',
-          body: expect.objectContaining({ version_id: 10, scope_id: 0, scope_type: 'account' }),
-        }),
-      ),
-    )
-  })
-
-  it('restores builtin and keeps the archived history', async () => {
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /恢复内置默认/ }))
-    fireEvent.click(await screen.findByRole('button', { name: '确认恢复' }))
-    await waitFor(() =>
-      expect(mockedRequest).toHaveBeenCalledWith(
-        '/api/v1/prompts/chat.reply/restore-builtin',
-        expect.objectContaining({
-          method: 'POST',
-          body: expect.objectContaining({ bot_id: 998001, scope_type: 'account' }),
-        }),
-      ),
-    )
-  })
-
-  it('shows an empty supplement instead of the account builtin for a supplement layer', async () => {
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /群聊类型补充/ }))
-    expect(await screen.findByText('空补充')).toBeVisible()
-    expect(screen.getByText(/该层暂无本地发布版本/)).toBeVisible()
-    expect(screen.queryByText(/内置默认 v1/)).toBeNull()
-  })
-
-  it('opens the layered result and knowledge preview in right-side drawers', async () => {
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: '打开分层结果' }))
-    expect(await screen.findByRole('dialog')).toBeVisible()
-    fireEvent.change(screen.getByLabelText('生效目标 ID'), { target: { value: '700' } })
-    fireEvent.click(screen.getByRole('button', { name: '查看分层结果' }))
-    expect(await screen.findByText('最终内容')).toBeVisible()
-    expect(screen.getByText(/server_constraints/)).toBeVisible()
-    expect(mockedRequest.mock.calls.some(([path]) => String(path).includes('/effective') && String(path).includes('target_id=700'))).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
-
-    fireEvent.click(screen.getByRole('button', { name: '打开知识上下文预览' }))
-    expect(await screen.findByRole('button', { name: '示例预览' })).toBeVisible()
-    expect(screen.getByText('真实上下文预览')).toBeVisible()
-  })
-
-  it('deletes draft or archived versions only after confirmation', async () => {
-    renderPage()
-    expect(screen.queryByRole('button', { name: '删除 Prompt v2' })).toBeNull()
-    fireEvent.click(await screen.findByRole('button', { name: '删除 Prompt v3' }))
-    expect(await screen.findByText('删除 Prompt 版本？')).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    fireEvent.click(await screen.findByRole('button', { name: /历史版本/ }))
+    const drawer = await screen.findByRole('dialog')
+    expect(within(drawer).getByText('历史版本')).toBeVisible()
+    fireEvent.click(within(drawer).getByRole('button', { name: '删除 Prompt v3' }))
+    fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
     await waitFor(() =>
       expect(mockedRequest).toHaveBeenCalledWith(
         '/api/v1/prompts/versions/13?bot_id=998001',
@@ -305,7 +279,38 @@ describe('PromptManagementPage', () => {
     )
   })
 
-  it('can render only the intent prompt group for the intent module', async () => {
+  it('opens the layered result drawer and queries the effective prompt', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /分层结果/ }))
+    expect(await screen.findByRole('dialog')).toBeVisible()
+    fireEvent.change(screen.getByLabelText('生效目标 ID'), { target: { value: '700' } })
+    fireEvent.click(screen.getByRole('button', { name: '查看分层结果' }))
+    expect(await screen.findByText('最终内容')).toBeVisible()
+    expect(screen.getByText(/server_constraints/)).toBeVisible()
+    expect(
+      mockedRequest.mock.calls.some(
+        ([path]) => String(path).includes('/effective') && String(path).includes('target_id=700'),
+      ),
+    ).toBe(true)
+  })
+
+  it('creates an empty supplement draft from a supplement layer', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /群聊类型补充/ }))
+    expect(await screen.findByText('空补充')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '新建草稿' }))
+    await waitFor(() =>
+      expect(mockedRequest).toHaveBeenCalledWith(
+        '/api/v1/prompts/chat.reply/versions',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.objectContaining({ base: 'empty', scope_type: 'group' }),
+        }),
+      ),
+    )
+  })
+
+  it('renders the intent group without a kind switch or knowledge preview', async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     })
@@ -314,10 +319,10 @@ describe('PromptManagementPage', () => {
         <PromptManagementPage kinds={['intent_participation']} initialKind="intent_participation" />
       </QueryClientProvider>,
     )
-    expect(await screen.findByRole('button', { name: /意图判断/ })).toBeVisible()
-    expect(screen.getByRole('heading', { name: '意图提示词' })).toBeVisible()
-    expect(screen.queryByTestId('role-settings-card')).toBeNull()
+    expect(await screen.findByRole('button', { name: /历史版本/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /聊天回复/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /记忆抽取/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /知识上下文预览/ })).toBeNull()
+    expect(screen.queryByText(/Provider/)).toBeNull()
   })
 })

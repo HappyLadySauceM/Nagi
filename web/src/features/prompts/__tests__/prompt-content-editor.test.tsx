@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import type { MutableRefObject } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { PromptEditor, PromptContentView } from '../prompt-content-editor'
+import { PromptEditor, PromptContentView, type InsertToken } from '../prompt-content-editor'
 import { JEV_QUESTIONS } from '../prompt-content'
 import type { ManagedPromptContent } from '../../../lib/api/contracts'
 
@@ -51,6 +52,47 @@ describe('PromptEditor', () => {
     expect(screen.getByText('System Prompt 补充文本')).toBeVisible()
     expect(screen.queryByLabelText('UserTemplate')).toBeNull()
     expect(screen.getByText(/不覆盖账号默认内容/)).toBeVisible()
+  })
+
+  it('inserts a token into the focused textarea through insertRef', () => {
+    const insertRef: MutableRefObject<InsertToken | null> = { current: null }
+    const onChange = vi.fn()
+    render(
+      <PromptEditor
+        kind="chat_reply"
+        provider="openai"
+        scope="account"
+        content={{ provider: 'openai', openai: { systemPrompt: '你好 ' } }}
+        onChange={onChange}
+        insertRef={insertRef}
+      />,
+    )
+    fireEvent.focus(screen.getByLabelText('System Prompt'))
+    expect(insertRef.current).not.toBeNull()
+    expect(insertRef.current!('{{user_name}}')).toBe(true)
+    expect(onChange).toHaveBeenCalled()
+    const next = onChange.mock.calls[0][0] as ManagedPromptContent
+    expect(next.openai?.systemPrompt).toContain('{{user_name}}')
+  })
+
+  it('routes messages_json into UserTemplate even when System Prompt is focused', () => {
+    const insertRef: MutableRefObject<InsertToken | null> = { current: null }
+    const onChange = vi.fn()
+    render(
+      <PromptEditor
+        kind="memory_extraction"
+        provider="openai"
+        scope="account"
+        content={{ provider: 'openai', openai: { systemPrompt: '抽取 {{bot_name}}', userTemplate: '' } }}
+        onChange={onChange}
+        insertRef={insertRef}
+      />,
+    )
+    fireEvent.focus(screen.getByLabelText('System Prompt'))
+    expect(insertRef.current!('{{messages_json}}')).toBe(true)
+    const next = onChange.mock.calls[0][0] as ManagedPromptContent
+    expect(next.openai?.userTemplate).toContain('{{messages_json}}')
+    expect(next.openai?.systemPrompt).toBe('抽取 {{bot_name}}')
   })
 })
 

@@ -4,6 +4,7 @@ import type {
   SettingsContext,
   SettingsIntent,
   SettingsMessages,
+  SettingsPromptVariable,
   SettingsRole,
   SettingsTools,
   SystemSettings,
@@ -64,10 +65,24 @@ export function toSettings(raw: unknown): SystemSettings {
   }
 }
 
+function toPromptVariables(raw: unknown): SettingsPromptVariable[] {
+  if (raw === undefined || raw === null) {
+    return []
+  }
+  return asArray(raw, SETTINGS_ENDPOINT, 'Role.Variables').map((entry) => {
+    const record = asRecord(entry, SETTINGS_ENDPOINT, 'Role.Variables item')
+    return {
+      name: readString(record, 'Name', SETTINGS_ENDPOINT),
+      value: readString(record, 'Value', SETTINGS_ENDPOINT),
+    }
+  })
+}
+
 function toRole(raw: unknown): SettingsRole {
   const record = asRecord(raw, SETTINGS_ENDPOINT, 'Role')
   return {
     botName: readString(record, 'BotName', SETTINGS_ENDPOINT, ''),
+    variables: toPromptVariables(record.Variables),
   }
 }
 
@@ -155,6 +170,10 @@ export function toSettingsPutBody(settings: SystemSettings, version: number): un
     Settings: {
       Role: {
         BotName: settings.role.botName,
+        Variables: settings.role.variables.map((variable) => ({
+          Name: variable.name,
+          Value: variable.value,
+        })),
       },
       Context: {
         HistoryLimit: settings.context.historyLimit,

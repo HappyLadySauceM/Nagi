@@ -105,4 +105,15 @@ describe('prompt content helpers', () => {
     }
     expect(validatePromptContent('memory_extraction', 'openai', 'account', extraction)).toEqual([])
   })
+
+  it('allows custom variables in System Prompt only when passed as extraVariables', () => {
+    const content: ManagedPromptContent = {
+      provider: 'openai',
+      openai: { systemPrompt: '你好 {{bot_name}}，用户 {{user_name}}' },
+    }
+    expect(validatePromptContent('chat_reply', 'openai', 'account', content)).toEqual([
+      'System Prompt 包含未识别变量 {{user_name}}',
+    ])
+    expect(validatePromptContent('chat_reply', 'openai', 'account', content, ['user_name'])).toEqual([])
+  })
 })

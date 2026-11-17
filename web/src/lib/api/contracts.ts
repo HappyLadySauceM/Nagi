@@ -218,9 +218,17 @@ export interface SettingsAI {
   generationTimeoutSeconds: number
 }
 
+/** One user-defined prompt variable rendered as {{name}} at runtime. */
+export interface SettingsPromptVariable {
+  name: string
+  value: string
+}
+
 /** Bot identity shared by intent judgment and reply generation. */
 export interface SettingsRole {
   botName: string
+  /** Custom prompt variables, ordered; names are unique identifiers. */
+  variables: SettingsPromptVariable[]
 }
 
 /** Conversation history budget shared by intent and generation. */

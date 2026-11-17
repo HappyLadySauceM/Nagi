@@ -1,3 +1,4 @@
+import { useEffect, useRef, type MutableRefObject } from 'react'
 import { Badge } from '../../components/ui/badge'
 import { Input } from '../../components/ui/input'
 import { Textarea } from '../../components/ui/textarea'
@@ -82,12 +83,21 @@ export function PromptContentView({
   )
 }
 
+/** Callback that inserts a token into whichever Prompt textarea last held focus.
+ * 把 token 插入到最后聚焦的 Prompt 文本域的回调。
+ */
+export type InsertToken = (token: string) => boolean
+
 interface PromptEditorProps {
   kind: ManagedPromptKind
   provider: ManagedPromptProvider
   scope: ManagedPromptScope
   content: ManagedPromptContent
   onChange: (content: ManagedPromptContent) => void
+  /** Optional: receives an insert callback so a variables panel can inject {{name}}.
+   * 可选：接收插入回调，供变量面板注入 {{name}}。
+   */
+  insertRef?: MutableRefObject<InsertToken | null>
 }
 
 function updateOpenAI(
@@ -122,9 +132,70 @@ function updateCriterion(
 /** Editable Prompt content. Supplement layers only expose append-only fields.
  * 可编辑的 Prompt 内容；补充层只暴露追加字段。
  */
-export function PromptEditor({ kind, provider, scope, content, onChange }: PromptEditorProps) {
+export function PromptEditor({ kind, provider, scope, content, onChange, insertRef }: PromptEditorProps) {
   const account = scope === 'account'
-  if (kind === 'intent_participation' && provider === 'jev') {
+  const isJev = kind === 'intent_participation' && provider === 'jev'
+  const defaultField = isJev ? `q:${JEV_QUESTIONS[0].key}` : 'systemPrompt'
+
+  // Keep the latest props reachable from the stable insert callback.
+  // 让稳定的插入回调始终能读到最新的 props。
+  const latest = useRef({ content, onChange, defaultField })
+  latest.current = { content, onChange, defaultField }
+  const focusedField = useRef<string | null>(null)
+  const elements = useRef(new Map<string, HTMLInputElement | HTMLTextAreaElement>())
+
+  useEffect(() => {
+    if (!insertRef) {
+      return
+    }
+    const insert: InsertToken = (token) => {
+      // Template-only variables belong to UserTemplate even when System Prompt held focus.
+      // 模板专用变量必须写入 UserTemplate，即使当前聚焦的是 System Prompt。
+      const templateOnly = ['{{messages_json}}', '{{state}}', '{{question}}']
+      let field = focusedField.current ?? latest.current.defaultField
+      if (templateOnly.includes(token) && elements.current.has('userTemplate')) {
+        field = 'userTemplate'
+      }
+      const element = elements.current.get(field)
+      const current = latest.current.content
+      const value = element?.value ?? ''
+      const start = element?.selectionStart ?? value.length
+      const end = element?.selectionEnd ?? start
+      const nextValue = value.slice(0, start) + token + value.slice(end)
+      const nextContent = field.startsWith('q:')
+        ? updateQuestion(current, field.slice(2), { instructions: nextValue })
+        : updateOpenAI(current, { [field]: nextValue })
+      latest.current.onChange(nextContent)
+      if (element) {
+        element.focus()
+        const caret = start + token.length
+        window.setTimeout(() => {
+          element.selectionStart = caret
+          element.selectionEnd = caret
+        }, 0)
+      }
+      return true
+    }
+    insertRef.current = insert
+    return () => {
+      insertRef.current = null
+    }
+  }, [insertRef])
+
+  const fieldProps = (field: string) => ({
+    ref: (element: HTMLInputElement | HTMLTextAreaElement | null) => {
+      if (element) {
+        elements.current.set(field, element)
+      } else {
+        elements.current.delete(field)
+      }
+    },
+    onFocus: () => {
+      focusedField.current = field
+    },
+  })
+
+  if (isJev) {
     return (
       <div className="space-y-4">
         <p className="text-xs text-muted-foreground">
@@ -142,6 +213,7 @@ export function PromptEditor({ kind, provider, scope, content, onChange }: Promp
               <Textarea
                 aria-label={`${question.label} Instructions`}
                 value={item?.instructions ?? ''}
+                {...fieldProps(`q:${question.key}`)}
                 onChange={(event) =>
                   onChange(updateQuestion(content, question.key, { instructions: event.target.value }))
                 }
@@ -180,6 +252,7 @@ export function PromptEditor({ kind, provider, scope, content, onChange }: Promp
         <Textarea
           aria-label="System Prompt"
           value={openai.systemPrompt ?? ''}
+          {...fieldProps('systemPrompt')}
           onChange={(event) => onChange(updateOpenAI(content, { systemPrompt: event.target.value }))}
           rows={8}
         />
@@ -193,6 +266,7 @@ export function PromptEditor({ kind, provider, scope, content, onChange }: Promp
           <Input
             aria-label="UserTemplate"
             value={openai.userTemplate ?? ''}
+            {...fieldProps('userTemplate')}
             onChange={(event) => onChange(updateOpenAI(content, { userTemplate: event.target.value }))}
           />
           <span className="block text-xs text-muted-foreground">
@@ -211,6 +285,7 @@ export function PromptEditor({ kind, provider, scope, content, onChange }: Promp
           <Input
             aria-label="UserTemplate"
             value={openai.userTemplate ?? ''}
+            {...fieldProps('userTemplate')}
             onChange={(event) => onChange(updateOpenAI(content, { userTemplate: event.target.value }))}
           />
           <span className="block text-xs text-muted-foreground">
