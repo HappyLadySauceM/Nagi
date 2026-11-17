@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, FileDiff, Pencil, Plus, RefreshCw, RotateCcw, Send, ShieldCheck, Undo2 } from 'lucide-react'
+import { BookOpen, FileDiff, Pencil, Plus, RefreshCw, RotateCcw, Send, ShieldCheck, Trash2, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { FeedbackState } from '../../components/feedback-state'
@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../components/ui/sheet'
 import { Skeleton } from '../../components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import type {
@@ -32,6 +33,7 @@ import {
   PROMPT_STATUS_LABELS,
 } from './prompt-content'
 import { PromptContentView } from './prompt-content-editor'
+import { RoleSettingsCard } from './role-settings-card'
 import {
   CreateDraftDialog,
   PromptDiffSheet,
@@ -39,6 +41,7 @@ import {
   PromptPreviewDialog,
 } from './prompt-dialogs'
 import {
+  useDeletePromptVersion,
   usePromptCatalog,
   usePromptDetail,
   usePromptEffective,
@@ -48,7 +51,7 @@ import {
   type PromptDiffParams,
 } from './prompt-queries'
 
-const KINDS: ManagedPromptKind[] = ['chat_reply', 'intent_participation', 'memory_extraction']
+const KINDS: ManagedPromptKind[] = ['chat_reply', 'memory_extraction']
 const SCOPES: ManagedPromptScope[] = ['account', 'group', 'private']
 
 const STATUS_VARIANTS: Record<ManagedPromptVersion['status'], 'success' | 'warning' | 'secondary'> = {
@@ -72,9 +75,15 @@ function scopeSummary(
 /** Three-layer Prompt management: builtin, active and editable drafts per account/scope/provider.
  * 三层 Prompt 管理：按账号/层级/provider 展示内置、实际生效与可编辑草稿。
  */
-export function PromptManagementPage() {
+export function PromptManagementPage({
+  kinds = KINDS,
+  initialKind = kinds[0],
+}: {
+  kinds?: ManagedPromptKind[]
+  initialKind?: ManagedPromptKind
+} = {}) {
   const { selectedBotId, selectedAccount } = useAccountContext()
-  const [kind, setKind] = useState<ManagedPromptKind>('chat_reply')
+  const [kind, setKind] = useState<ManagedPromptKind>(initialKind)
   const [scope, setScope] = useState<ManagedPromptScope>('account')
   const [intentProvider, setIntentProvider] = useState<ManagedPromptProvider>('jev')
   const provider: ManagedPromptProvider = kind === 'intent_participation' ? intentProvider : 'openai'
@@ -93,13 +102,16 @@ export function PromptManagementPage() {
   const [effectiveTargetId, setEffectiveTargetId] = useState('')
   const [effectiveConversationId, setEffectiveConversationId] = useState('')
   const [effectiveRequested, setEffectiveRequested] = useState(false)
+  const [effectiveOpen, setEffectiveOpen] = useState(false)
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false)
   const [confirm, setConfirm] = useState<
-    { action: 'publish' | 'rollback' | 'restore'; version?: ManagedPromptVersion } | null
+    { action: 'publish' | 'rollback' | 'restore' | 'delete'; version?: ManagedPromptVersion } | null
   >(null)
 
   const publish = usePublishPromptDraft()
   const rollback = useRollbackPromptVersion()
   const restore = useRestorePromptBuiltin()
+  const remove = useDeletePromptVersion()
   const effective = usePromptEffective({
     botId: selectedBotId,
     promptId,
@@ -134,7 +146,6 @@ export function PromptManagementPage() {
   }, [item])
 
   const activeVersion = detail.data?.active ?? null
-  const drafts = detail.data?.versions.filter((version) => version.status === 'draft') ?? []
   const selectedVersion =
     selection?.kind === 'version'
       ? (detail.data?.versions.find((version) => version.id === selection.id) ??
@@ -147,7 +158,7 @@ export function PromptManagementPage() {
     }
     return versions
   }, [detail.data?.versions, activeVersion])
-  const pending = publish.isPending || rollback.isPending || restore.isPending
+  const pending = publish.isPending || rollback.isPending || restore.isPending || remove.isPending
 
   if (selectedBotId === undefined) {
     return (
@@ -207,6 +218,18 @@ export function PromptManagementPage() {
         },
       )
     }
+    if (confirm.action === 'delete' && confirm.version) {
+      remove.mutate(
+        { botId: selectedBotId, versionId: confirm.version.id },
+        {
+          onSuccess: () => {
+            toast.success(`已删除 Prompt v${confirm.version?.version}`)
+            setConfirm(null)
+          },
+          onError: (error) => toast.error('删除失败', { description: describeError(error).description }),
+        },
+      )
+    }
   }
 
   const openDiff = (version: ManagedPromptVersion) => {
@@ -234,8 +257,10 @@ export function PromptManagementPage() {
         }
       />
 
+      <RoleSettingsCard />
+
       <Card className="flex flex-row flex-wrap items-center gap-2 p-2">
-        {KINDS.map((value) => (
+        {kinds.map((value) => (
           <Button
             key={value}
             type="button"
@@ -311,46 +336,6 @@ export function PromptManagementPage() {
 
       {detail.data ? (
         <>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Card className="p-3">
-              <div className="text-xs text-muted-foreground">{scope === 'account' ? '内置默认' : '补充版本'}</div>
-              <div className="mt-1 flex items-center gap-2 text-sm font-medium">
-                {scope === 'account' ? (
-                  <>
-                    v{detail.data.builtin.version}
-                    <Badge variant="secondary">内置</Badge>
-                  </>
-                ) : activeVersion ? (
-                  <>
-                    v{activeVersion.version}
-                    <Badge variant="success">{PROMPT_SOURCE_LABELS[activeVersion.source]}</Badge>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">无本地版本</span>
-                )}
-              </div>
-            </Card>
-            <Card className="p-3">
-              <div className="text-xs text-muted-foreground">实际生效</div>
-              <div className="mt-1 flex items-center gap-2 text-sm font-medium">
-                {activeVersion ? (
-                  <>
-                    v{activeVersion.version}
-                    <Badge variant="success">{PROMPT_SOURCE_LABELS[activeVersion.source]}</Badge>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">{scope === 'account' ? '内置默认' : '无补充'}</span>
-                )}
-              </div>
-            </Card>
-            <Card className="p-3">
-              <div className="text-xs text-muted-foreground">编辑草稿</div>
-              <div className="mt-1 text-sm font-medium">
-                {drafts.length > 0 ? `${drafts.length} 个草稿` : '暂无草稿'}
-              </div>
-            </Card>
-          </div>
-
           <div className="grid gap-4 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
             <Card className="min-w-0 space-y-3 p-4">
               <div className="flex items-center justify-between gap-2">
@@ -368,6 +353,7 @@ export function PromptManagementPage() {
                       <TableHead>状态</TableHead>
                       <TableHead>来源</TableHead>
                       <TableHead>归档时间</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -380,6 +366,7 @@ export function PromptManagementPage() {
                         <TableCell><Badge variant="secondary">内置</Badge></TableCell>
                         <TableCell className="text-meta text-muted-foreground">内置</TableCell>
                         <TableCell className="text-meta text-muted-foreground">—</TableCell>
+                        <TableCell />
                       </TableRow>
                     ) : null}
                     {displayedVersions.map((version) => (
@@ -402,6 +389,23 @@ export function PromptManagementPage() {
                               ? formatDateTime(version.archivedAt)
                               : '未记录'
                             : '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {version.status === 'draft' || version.status === 'archived' ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`删除 Prompt v${version.version}`}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setConfirm({ action: 'delete', version })
+                              }}
+                            >
+                              <Trash2 className="size-3.5" aria-hidden />
+                              删除
+                            </Button>
+                          ) : null}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -503,72 +507,98 @@ export function PromptManagementPage() {
             </Card>
           </div>
 
-          <Card className="space-y-3 p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold">运行目标分层结果</h2>
-              <Badge variant="outline">只读 · 不调用模型 · 不发送</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              选择真实群聊或私聊目标，查看账号默认、类型补充与服务端约束的最终 Prompt；不写入 Prompt 版本键，也不形成单会话覆盖。
-            </p>
-            <div className="grid gap-2 sm:grid-cols-4">
-              <label className="space-y-1 text-xs">
-                <span className="text-muted-foreground">目标类型</span>
-                <Select value={effectiveTargetType} onChange={(event) => setEffectiveTargetType(event.target.value as 'group' | 'private')} aria-label="生效目标类型">
-                  <option value="group">群聊</option>
-                  <option value="private">私聊</option>
-                </Select>
-              </label>
-              <label className="space-y-1 text-xs">
-                <span className="text-muted-foreground">目标 ID（群号/QQ）</span>
-                <Input value={effectiveTargetId} onChange={(event) => setEffectiveTargetId(event.target.value)} inputMode="numeric" aria-label="生效目标 ID" />
-              </label>
-              <label className="space-y-1 text-xs">
-                <span className="text-muted-foreground">会话 ID（可选）</span>
-                <Input value={effectiveConversationId} onChange={(event) => setEffectiveConversationId(event.target.value)} aria-label="生效会话 ID" />
-              </label>
-              <div className="flex items-end">
-                <Button size="sm" onClick={() => setEffectiveRequested(true)} disabled={!Number.isInteger(Number(effectiveTargetId)) || Number(effectiveTargetId) <= 0}>
-                  查看分层结果
-                </Button>
-              </div>
-            </div>
-            {effective.isLoading ? <Skeleton className="h-24 w-full" /> : null}
-            {effective.isError ? (
-              <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {describeError(effective.error).description}
+          <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <h2 className="text-sm font-semibold">运行预览</h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                运行目标分层结果与知识上下文预览改为右侧抽屉展示，内容与校验逻辑保持原样。
               </p>
-            ) : null}
-            {effective.data ? (
-              <div className="space-y-3 rounded-lg border border-border p-3">
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <Badge variant="secondary">{effective.data.target.type === 'group' ? '群聊' : '私聊'} {effective.data.target.id}</Badge>
-                  <span className="font-mono">Hash {effective.data.hash || '—'}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setEffectiveOpen(true)}>
+                打开分层结果
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setKnowledgeOpen(true)}>
+                打开知识上下文预览
+              </Button>
+            </div>
+          </Card>
+          <Sheet open={effectiveOpen} onOpenChange={setEffectiveOpen}>
+            <SheetContent side="right" className="w-full space-y-4 overflow-y-auto bg-background p-6 sm:max-w-3xl">
+              <div className="border-b border-border pb-4 pr-8">
+                <SheetTitle className="text-lg font-semibold">运行目标分层结果</SheetTitle>
+                <SheetDescription className="mt-2 leading-relaxed">
+                  选择真实群聊或私聊目标，查看账号默认、类型补充与服务端约束的最终 Prompt；不写入 Prompt 版本键，也不形成单会话覆盖。
+                </SheetDescription>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="space-y-1 text-xs">
+                  <span className="text-muted-foreground">目标类型</span>
+                  <Select value={effectiveTargetType} onChange={(event) => setEffectiveTargetType(event.target.value as 'group' | 'private')} aria-label="生效目标类型">
+                    <option value="group">群聊</option>
+                    <option value="private">私聊</option>
+                  </Select>
+                </label>
+                <label className="space-y-1 text-xs">
+                  <span className="text-muted-foreground">目标 ID（群号/QQ）</span>
+                  <Input value={effectiveTargetId} onChange={(event) => setEffectiveTargetId(event.target.value)} inputMode="numeric" aria-label="生效目标 ID" />
+                </label>
+                <label className="space-y-1 text-xs">
+                  <span className="text-muted-foreground">会话 ID（可选）</span>
+                  <Input value={effectiveConversationId} onChange={(event) => setEffectiveConversationId(event.target.value)} aria-label="生效会话 ID" />
+                </label>
+                <div className="flex items-end">
+                  <Button size="sm" onClick={() => setEffectiveRequested(true)} disabled={!Number.isInteger(Number(effectiveTargetId)) || Number(effectiveTargetId) <= 0}>
+                    查看分层结果
+                  </Button>
                 </div>
-                <ul className="space-y-1 text-xs text-muted-foreground">
-                  {effective.data.layers.map((layer) => (
-                    <li key={`${layer.layer}-${layer.versionId ?? 0}`}>
-                      {layer.layer}
-                      {layer.version !== undefined ? ` · v${layer.version}` : ''}
-                      {layer.source ? ` · ${layer.source}` : ''}
-                      {layer.editable === false ? ' · 服务端固定' : ''}
-                      {layer.summary ? ` · ${layer.summary}` : ''}
-                    </li>
-                  ))}
-                </ul>
-                <div>
-                  <div className="text-xs text-muted-foreground">最终内容</div>
-                  <div className="mt-2">
-                    <PromptContentView kind={effective.data.kind} provider={effective.data.provider} content={effective.data.final.content} />
+              </div>
+              {effective.isLoading ? <Skeleton className="h-24 w-full" /> : null}
+              {effective.isError ? (
+                <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {describeError(effective.error).description}
+                </p>
+              ) : null}
+              {effective.data ? (
+                <div className="space-y-3 rounded-lg border border-border p-3">
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <Badge variant="secondary">{effective.data.target.type === 'group' ? '群聊' : '私聊'} {effective.data.target.id}</Badge>
+                    <span className="font-mono">Hash {effective.data.hash || '—'}</span>
+                  </div>
+                  <ul className="space-y-1 text-xs text-muted-foreground">
+                    {effective.data.layers.map((layer) => (
+                      <li key={`${layer.layer}-${layer.versionId ?? 0}`}>
+                        {layer.layer}
+                        {layer.version !== undefined ? ` · v${layer.version}` : ''}
+                        {layer.source ? ` · ${layer.source}` : ''}
+                        {layer.editable === false ? ' · 服务端固定' : ''}
+                        {layer.summary ? ` · ${layer.summary}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  <div>
+                    <div className="text-xs text-muted-foreground">最终内容</div>
+                    <div className="mt-2">
+                      <PromptContentView kind={effective.data.kind} provider={effective.data.provider} content={effective.data.final.content} />
+                    </div>
                   </div>
                 </div>
+              ) : null}
+            </SheetContent>
+          </Sheet>
+          <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
+            <SheetContent side="right" className="w-full space-y-4 overflow-y-auto bg-background p-6 sm:max-w-3xl">
+              <div className="border-b border-border pb-4 pr-8">
+                <SheetTitle className="text-lg font-semibold">知识上下文预览</SheetTitle>
+                <SheetDescription className="mt-2 leading-relaxed">
+                  示例预览使用合成数据；真实上下文预览按当前账号、目标作用域与授权读取，并明确展示被跳过的层。
+                </SheetDescription>
               </div>
-            ) : null}
-          </Card>
+              <KnowledgePreviewCard botId={selectedBotId} />
+            </SheetContent>
+          </Sheet>
         </>
       ) : null}
-
-      <KnowledgePreviewCard botId={selectedBotId} />
 
       <CreateDraftDialog
         open={createOpen}
@@ -613,16 +643,20 @@ export function PromptManagementPage() {
             ? '发布 Prompt 版本？'
             : confirm?.action === 'rollback'
               ? '回滚 Prompt 版本？'
-              : '恢复内置 Prompt？'
+              : confirm?.action === 'delete'
+                ? '删除 Prompt 版本？'
+                : '恢复内置 Prompt？'
         }
         description={
           confirm?.action === 'publish'
             ? '发布后该版本在对应层生效，只影响之后的 Run；历史决策保留原 Prompt 快照。'
             : confirm?.action === 'rollback'
               ? '仅已归档且曾发布过的版本可回滚；当前发布版本会转为已归档。'
-              : '将归档当前本地发布版本并恢复内置默认；历史版本保留，不删除。'
+              : confirm?.action === 'delete'
+                ? '仅草稿或已归档版本可删除；删除后版本不再出现在管理列表，历史快照仍可按版本 ID 重建。'
+                : '将归档当前本地发布版本并恢复内置默认；历史版本保留，不删除。'
         }
-        confirmLabel={confirm?.action === 'publish' ? '确认发布' : confirm?.action === 'rollback' ? '确认回滚' : '确认恢复'}
+        confirmLabel={confirm?.action === 'publish' ? '确认发布' : confirm?.action === 'rollback' ? '确认回滚' : confirm?.action === 'delete' ? '确认删除' : '确认恢复'}
         pending={pending}
         onConfirm={runConfirm}
       />
