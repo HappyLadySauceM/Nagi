@@ -97,6 +97,15 @@ func TestPromptVariableValidation(t *testing.T) {
 	}
 }
 
+func TestPromptVariableAllowSetAcceptsRuntimeVariables(t *testing.T) {
+	// 基础允许集应接受运行时提供的 bot_id/target_id/sender_id，与 bot_name、scope_type 同级。
+	p := BuiltinPromptFor(PromptKindChatReply, PromptProviderOpenAI)
+	p.OpenAI.SystemPrompt = "{{bot_name}} {{scope_type}} {{bot_id}} {{target_id}} {{sender_id}}"
+	if err := ValidatePromptForKind(PromptKindChatReply, PromptProviderOpenAI, &p); err != nil {
+		t.Fatalf("runtime variables rejected: %v", err)
+	}
+}
+
 func TestPromptFinalHashIncludesLayers(t *testing.T) {
 	p := BuiltinPromptFor(PromptKindChatReply, PromptProviderOpenAI)
 	p.Layers = []PromptLayer{{Layer: PromptLayerAccountDefault, VersionID: 1, Version: 1, Source: PromptSourceLocal, Hash: "a"}}

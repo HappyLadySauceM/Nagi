@@ -260,7 +260,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	prompt := domain.BuiltinPrompt(runtime.Provider)
 	if d.prompts != nil {
 		if layered, ok := d.prompts.(LayeredPromptProvider); ok {
-			variables := map[string]string{"scope_type": task.Kind}
+			variables := map[string]string{"scope_type": task.Kind, "sender_id": strconv.FormatInt(task.Message.SenderID, 10)}
 			if name := d.currentBotName(); name != "" {
 				variables["bot_name"] = name
 			}

@@ -205,13 +205,16 @@ func TestValidateAcceptsCustomPromptVariables(t *testing.T) {
 func TestValidateRejectsInvalidCustomPromptVariables(t *testing.T) {
 	// 非法名称、重复、保留名、超长取值与超量条目都必须被拒绝。
 	cases := map[string][]PromptVariable{
-		"leading digit": {{Name: "1bad", Value: "x"}},
-		"empty name":    {{Name: "  ", Value: "x"}},
-		"too long name": {{Name: strings.Repeat("a", maxPromptVariableNameLen+1), Value: "x"}},
-		"reserved name": {{Name: "bot_name", Value: "x"}},
-		"duplicate":     {{Name: "user_name", Value: "a"}, {Name: "user_name", Value: "b"}},
-		"long value":    {{Name: "user_name", Value: strings.Repeat("v", maxPromptVariableValueLen+1)}},
-		"too many":      manyPromptVariables(maxPromptVariables + 1),
+		"leading digit":      {{Name: "1bad", Value: "x"}},
+		"empty name":         {{Name: "  ", Value: "x"}},
+		"too long name":      {{Name: strings.Repeat("a", maxPromptVariableNameLen+1), Value: "x"}},
+		"reserved name":      {{Name: "bot_name", Value: "x"}},
+		"reserved bot id":    {{Name: "bot_id", Value: "x"}},
+		"reserved target id": {{Name: "target_id", Value: "x"}},
+		"reserved sender id": {{Name: "sender_id", Value: "x"}},
+		"duplicate":          {{Name: "user_name", Value: "a"}, {Name: "user_name", Value: "b"}},
+		"long value":         {{Name: "user_name", Value: strings.Repeat("v", maxPromptVariableValueLen+1)}},
+		"too many":           manyPromptVariables(maxPromptVariables + 1),
 	}
 	for name, variables := range cases {
 		t.Run(name, func(t *testing.T) {
