@@ -466,8 +466,12 @@ func init() {
 	intentrulesetDescBuiltinRules := intentrulesetFields[9].Descriptor()
 	// intentruleset.DefaultBuiltinRules holds the default value on creation for the builtin_rules field.
 	intentruleset.DefaultBuiltinRules = intentrulesetDescBuiltinRules.Default.(jsontext.Value)
+	// intentrulesetDescQuestions is the schema descriptor for questions field.
+	intentrulesetDescQuestions := intentrulesetFields[10].Descriptor()
+	// intentruleset.DefaultQuestions holds the default value on creation for the questions field.
+	intentruleset.DefaultQuestions = intentrulesetDescQuestions.Default.(jsontext.Value)
 	// intentrulesetDescTargets is the schema descriptor for targets field.
-	intentrulesetDescTargets := intentrulesetFields[10].Descriptor()
+	intentrulesetDescTargets := intentrulesetFields[11].Descriptor()
 	// intentruleset.DefaultTargets holds the default value on creation for the targets field.
 	intentruleset.DefaultTargets = intentrulesetDescTargets.Default.(jsontext.Value)
 	memoryFields := nagi.Memory{}.Fields()

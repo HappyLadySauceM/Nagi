@@ -25,6 +25,7 @@ func (IntentRuleset) Fields() []ent.Field {
 		field.Time("created_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 		field.Time("published_at").Optional().Nillable(),
 		field.JSON("builtin_rules", json.RawMessage{}).Annotations(entsql.DefaultExpr("'{}'::jsonb")).Default(json.RawMessage("{}")),
+		field.JSON("questions", json.RawMessage{}).Annotations(entsql.DefaultExpr("'{}'::jsonb")).Default(json.RawMessage("{}")),
 		field.JSON("targets", json.RawMessage{}).Annotations(entsql.DefaultExpr("'[]'::jsonb")).Default(json.RawMessage("[]")),
 		field.Time("deleted_at").Optional().Nillable(),
 	}
