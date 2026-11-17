@@ -119,7 +119,7 @@ func (r *RulesetsRepo) CreateDraft(ctx context.Context, bot int64, kind string, 
 			return domain.Ruleset{}, ErrRulesetNotFound
 		}
 		if source != nil {
-			b.SetTargets(source.Targets).SetBuiltinRules(source.BuiltinRules)
+			b.SetTargets(source.Targets).SetBuiltinRules(source.BuiltinRules).SetQuestions(source.Questions)
 		}
 	}
 	v, err := b.Save(ctx)
@@ -144,11 +144,26 @@ func (r *RulesetsRepo) CreateDraft(ctx context.Context, bot int64, kind string, 
 }
 
 type RuleOptions struct {
-	BuiltinRules map[string]bool
+	// BuiltinRules is nil when the caller did not provide the switches; a
+	// non-nil pointer replaces them, and a pointer to an empty map clears them.
+	// BuiltinRules 为 nil 表示未提供内置开关；非 nil 指针替换，指向空 map 时清空。
+	BuiltinRules *map[string]bool
 	Targets      *[]domain.RuleTarget
+	// Questions is nil when the caller did not provide a question set; a
+	// non-nil pointer replaces the stored set, and a pointer to an empty map
+	// clears it.
+	// Questions 为 nil 表示未提供问题集；非 nil 指针替换已存问题集，
+	// 指向空 map 时清空。
+	Questions *map[string]domain.PromptQuestion
 }
 
-func (r *RulesetsRepo) ReplaceEntries(ctx context.Context, id int64, entries []domain.RuleEntry, options ...RuleOptions) error {
+// ReplaceEntries replaces the stored entries and any explicitly provided
+// fields of one draft. A nil entries pointer leaves the entries untouched; a
+// non-nil pointer (including an empty slice) replaces them. Nil option pointers
+// likewise leave the corresponding fields untouched.
+// ReplaceEntries 重写一个草稿的条目及显式提供的字段。entries 为 nil 时不动条目；
+// 非 nil（含空切片）时全量替换。选项中的 nil 指针同样表示不改动对应字段。
+func (r *RulesetsRepo) ReplaceEntries(ctx context.Context, id int64, entries *[]domain.RuleEntry, options ...RuleOptions) error {
 	tx, err := r.pool.Client.Tx(ctx)
 	if err != nil {
 		return err
@@ -166,36 +181,54 @@ func (r *RulesetsRepo) ReplaceEntries(ctx context.Context, id int64, entries []d
 		return ErrRulesetImmutable
 	}
 	if len(options) > 0 {
-		data, err := json.Marshal(options[0].BuiltinRules)
-		if err != nil {
-			return err
+		b := c.IntentRuleset.UpdateOneID(id)
+		changed := false
+		if options[0].BuiltinRules != nil {
+			data, err := json.Marshal(*options[0].BuiltinRules)
+			if err != nil {
+				return err
+			}
+			b.SetBuiltinRules(data)
+			changed = true
 		}
-		b := c.IntentRuleset.UpdateOneID(id).SetBuiltinRules(data)
 		if options[0].Targets != nil {
-			data, err = json.Marshal(*options[0].Targets)
+			data, err := json.Marshal(*options[0].Targets)
 			if err != nil {
 				return err
 			}
 			b.SetTargets(data)
+			changed = true
 		}
-		if err := b.Exec(ctx); err != nil {
-			return err
+		if options[0].Questions != nil {
+			data, err := json.Marshal(*options[0].Questions)
+			if err != nil {
+				return err
+			}
+			b.SetQuestions(data)
+			changed = true
+		}
+		if changed {
+			if err := b.Exec(ctx); err != nil {
+				return err
+			}
 		}
 	}
-	if _, err := c.IntentRuleEntry.Delete().Where(re.RulesetID(id)).Exec(ctx); err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		match, err := json.Marshal(entry.Match)
-		if err != nil {
+	if entries != nil {
+		if _, err := c.IntentRuleEntry.Delete().Where(re.RulesetID(id)).Exec(ctx); err != nil {
 			return err
 		}
-		action, err := json.Marshal(entry.Action)
-		if err != nil {
-			return err
-		}
-		if err := c.IntentRuleEntry.Create().SetRulesetID(id).SetPriority(entry.Priority).SetMatch(match).SetAction(action).SetEnabled(entry.Enabled == nil || *entry.Enabled).Exec(ctx); err != nil {
-			return err
+		for _, entry := range *entries {
+			match, err := json.Marshal(entry.Match)
+			if err != nil {
+				return err
+			}
+			action, err := json.Marshal(entry.Action)
+			if err != nil {
+				return err
+			}
+			if err := c.IntentRuleEntry.Create().SetRulesetID(id).SetPriority(entry.Priority).SetMatch(match).SetAction(action).SetEnabled(entry.Enabled == nil || *entry.Enabled).Exec(ctx); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
@@ -321,6 +354,14 @@ func rulesetModel(v *ent.IntentRuleset) (domain.Ruleset, error) {
 	if len(v.Targets) > 0 {
 		if err := json.Unmarshal(v.Targets, &out.Targets); err != nil {
 			return out, err
+		}
+	}
+	if len(v.Questions) > 0 {
+		if err := json.Unmarshal(v.Questions, &out.Questions); err != nil {
+			return out, err
+		}
+		if len(out.Questions) == 0 {
+			out.Questions = nil
 		}
 	}
 	return out, nil

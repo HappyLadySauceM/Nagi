@@ -32,6 +32,7 @@ type rulesetInfo struct {
 	Entries      []entryInfo
 	BuiltinRules map[string]bool
 	Targets      []intentdomain.RuleTarget
+	Questions    map[string]intentdomain.PromptQuestion
 }
 
 // entryInfo is one rule entry.
@@ -171,23 +172,37 @@ func (h *Handler) UpdateRuleset(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var body struct {
-		Entries      []intentdomain.RuleEntry   `json:"entries"`
-		BuiltinRules map[string]bool            `json:"builtin_rules"`
-		Targets      *[]intentdomain.RuleTarget `json:"targets"`
+		Entries      *[]intentdomain.RuleEntry               `json:"entries"`
+		BuiltinRules *map[string]bool                        `json:"builtin_rules"`
+		Targets      *[]intentdomain.RuleTarget              `json:"targets"`
+		Questions    *map[string]intentdomain.PromptQuestion `json:"questions"`
 	}
 	if err := decoder.Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "请求体不合法或包含未知字段")
 		return
 	}
-	targets := []intentdomain.RuleTarget{}
+	// Only validate fields the request actually provided; omitted fields stay
+	// untouched. Empty arrays and empty maps are explicit clears.
+	// 只校验请求实际提供的字段，未提供的保持原样；空数组与空 map 视为显式清除。
+	validate := intentdomain.Ruleset{}
 	if body.Targets != nil {
-		targets = *body.Targets
+		validate.Targets = *body.Targets
 	}
-	if err := (intentdomain.Ruleset{Targets: targets, Entries: body.Entries, BuiltinRules: body.BuiltinRules}).Validate(); err != nil {
+	if body.Entries != nil {
+		validate.Entries = *body.Entries
+	}
+	if body.BuiltinRules != nil {
+		validate.BuiltinRules = *body.BuiltinRules
+	}
+	if body.Questions != nil {
+		validate.Questions = *body.Questions
+	}
+	if err := validate.Validate(); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	switch err := h.svcCtx.Rulesets.ReplaceEntries(r.Context(), id, body.Entries, intentinfra.RuleOptions{BuiltinRules: body.BuiltinRules, Targets: body.Targets}); {
+	options := intentinfra.RuleOptions{BuiltinRules: body.BuiltinRules, Targets: body.Targets, Questions: body.Questions}
+	switch err := h.svcCtx.Rulesets.ReplaceEntries(r.Context(), id, body.Entries, options); {
 	case errors.Is(err, intentinfra.ErrTargetConflict):
 		common.WriteFailure(w, http.StatusConflict, "target already has another active ruleset")
 		return
@@ -425,7 +440,7 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 func toRulesetInfo(set intentdomain.Ruleset) rulesetInfo {
 	info := rulesetInfo{
 		ID: set.ID, BotID: set.BotID, ScopeType: set.ScopeType, ScopeID: set.ScopeID,
-		Version: set.Version, Status: set.Status, Note: set.Note, BuiltinRules: set.BuiltinRules, Targets: set.Targets,
+		Version: set.Version, Status: set.Status, Note: set.Note, BuiltinRules: set.BuiltinRules, Targets: set.Targets, Questions: set.Questions,
 	}
 	for _, entry := range set.Entries {
 		info.Entries = append(info.Entries, entryInfo{Enabled: entry.Enabled, Priority: entry.Priority, Match: entry.Match, Action: entry.Action})
