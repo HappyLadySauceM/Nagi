@@ -18,7 +18,7 @@ vi.mock('../../accounts/account-context', () => ({
 
 const mockedRequest = vi.mocked(apiRequest)
 
-vi.mock('../role-settings-card', () => ({ RoleSettingsCard: () => null }))
+vi.mock('../role-settings-card', () => ({ RoleSettingsCard: () => <div data-testid="role-settings-card" /> }))
 
 const catalog = {
   Items: [
@@ -207,6 +207,8 @@ describe('PromptManagementPage', () => {
   it('shows only chat reply and memory extraction prompts without the old status cards', async () => {
     renderPage()
     expect(await screen.findByText('账号默认')).toBeVisible()
+    expect(screen.getByRole('heading', { name: '角色与提示词' })).toBeVisible()
+    expect(screen.getByTestId('role-settings-card')).toBeVisible()
     expect(screen.getByRole('button', { name: /聊天回复/ })).toBeVisible()
     expect(screen.getByRole('button', { name: /记忆抽取/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /意图判断/ })).toBeNull()
@@ -313,6 +315,8 @@ describe('PromptManagementPage', () => {
       </QueryClientProvider>,
     )
     expect(await screen.findByRole('button', { name: /意图判断/ })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '意图提示词' })).toBeVisible()
+    expect(screen.queryByTestId('role-settings-card')).toBeNull()
     expect(screen.queryByRole('button', { name: /聊天回复/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /记忆抽取/ })).toBeNull()
   })

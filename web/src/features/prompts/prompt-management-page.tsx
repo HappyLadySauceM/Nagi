@@ -244,11 +244,17 @@ export function PromptManagementPage({
     })
   }
 
+  const intentOnly = kinds.length > 0 && kinds.every((value) => value === 'intent_participation')
+
   return (
     <div className="space-y-4">
       <PageHeader
-        title="角色与提示词"
-        description={`默认聊天 System 与默认抽取 System 可编辑，走 Prompt 版本管理；最终 Prompt 按层展示账号默认、群聊/私聊补充与服务端约束。当前账号：${selectedAccount?.nickname || selectedBotId}。不依赖 Langfuse；Langfuse 仅作为可选来源标签。`}
+        title={intentOnly ? '意图提示词' : '角色与提示词'}
+        description={
+          intentOnly
+            ? `管理意图判断 Prompt 的版本、草稿、发布与回滚；机器人自称统一在「知识与记忆」维护。当前账号：${selectedAccount?.nickname || selectedBotId}。`
+            : `默认聊天 System 与默认抽取 System 可编辑，走 Prompt 版本管理；最终 Prompt 按层展示账号默认、群聊/私聊补充与服务端约束。当前账号：${selectedAccount?.nickname || selectedBotId}。不依赖 Langfuse；Langfuse 仅作为可选来源标签。`
+        }
         actions={
           <Button variant="outline" size="sm" onClick={() => void catalog.refetch()}>
             <RefreshCw className={cn('size-3.5', catalog.isFetching && 'animate-spin')} aria-hidden />
@@ -257,7 +263,7 @@ export function PromptManagementPage({
         }
       />
 
-      <RoleSettingsCard />
+      {intentOnly ? null : <RoleSettingsCard />}
 
       <Card className="flex flex-row flex-wrap items-center gap-2 p-2">
         {kinds.map((value) => (
