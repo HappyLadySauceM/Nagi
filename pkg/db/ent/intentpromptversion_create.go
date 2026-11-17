@@ -213,6 +213,20 @@ func (_c *IntentPromptVersionCreate) SetNillableArchivedAt(v *time.Time) *Intent
 	return _c
 }
 
+// SetDeletedAt sets the "deleted_at" field.
+func (_c *IntentPromptVersionCreate) SetDeletedAt(v time.Time) *IntentPromptVersionCreate {
+	_c.mutation.SetDeletedAt(v)
+	return _c
+}
+
+// SetNillableDeletedAt sets the "deleted_at" field if the given value is not nil.
+func (_c *IntentPromptVersionCreate) SetNillableDeletedAt(v *time.Time) *IntentPromptVersionCreate {
+	if v != nil {
+		_c.SetDeletedAt(*v)
+	}
+	return _c
+}
+
 // SetID sets the "id" field.
 func (_c *IntentPromptVersionCreate) SetID(v int64) *IntentPromptVersionCreate {
 	_c.mutation.SetID(v)
@@ -413,6 +427,10 @@ func (_c *IntentPromptVersionCreate) createSpec() (*IntentPromptVersion, *sqlgra
 	if value, ok := _c.mutation.ArchivedAt(); ok {
 		_spec.SetField(intentpromptversion.FieldArchivedAt, field.TypeTime, value)
 		_node.ArchivedAt = &value
+	}
+	if value, ok := _c.mutation.DeletedAt(); ok {
+		_spec.SetField(intentpromptversion.FieldDeletedAt, field.TypeTime, value)
+		_node.DeletedAt = &value
 	}
 	return _node, _spec
 }
@@ -697,6 +715,24 @@ func (u *IntentPromptVersionUpsert) UpdateArchivedAt() *IntentPromptVersionUpser
 // ClearArchivedAt clears the value of the "archived_at" field.
 func (u *IntentPromptVersionUpsert) ClearArchivedAt() *IntentPromptVersionUpsert {
 	u.SetNull(intentpromptversion.FieldArchivedAt)
+	return u
+}
+
+// SetDeletedAt sets the "deleted_at" field.
+func (u *IntentPromptVersionUpsert) SetDeletedAt(v time.Time) *IntentPromptVersionUpsert {
+	u.Set(intentpromptversion.FieldDeletedAt, v)
+	return u
+}
+
+// UpdateDeletedAt sets the "deleted_at" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsert) UpdateDeletedAt() *IntentPromptVersionUpsert {
+	u.SetExcluded(intentpromptversion.FieldDeletedAt)
+	return u
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (u *IntentPromptVersionUpsert) ClearDeletedAt() *IntentPromptVersionUpsert {
+	u.SetNull(intentpromptversion.FieldDeletedAt)
 	return u
 }
 
@@ -1018,6 +1054,27 @@ func (u *IntentPromptVersionUpsertOne) UpdateArchivedAt() *IntentPromptVersionUp
 func (u *IntentPromptVersionUpsertOne) ClearArchivedAt() *IntentPromptVersionUpsertOne {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
 		s.ClearArchivedAt()
+	})
+}
+
+// SetDeletedAt sets the "deleted_at" field.
+func (u *IntentPromptVersionUpsertOne) SetDeletedAt(v time.Time) *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetDeletedAt(v)
+	})
+}
+
+// UpdateDeletedAt sets the "deleted_at" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertOne) UpdateDeletedAt() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateDeletedAt()
+	})
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (u *IntentPromptVersionUpsertOne) ClearDeletedAt() *IntentPromptVersionUpsertOne {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.ClearDeletedAt()
 	})
 }
 
@@ -1505,6 +1562,27 @@ func (u *IntentPromptVersionUpsertBulk) UpdateArchivedAt() *IntentPromptVersionU
 func (u *IntentPromptVersionUpsertBulk) ClearArchivedAt() *IntentPromptVersionUpsertBulk {
 	return u.Update(func(s *IntentPromptVersionUpsert) {
 		s.ClearArchivedAt()
+	})
+}
+
+// SetDeletedAt sets the "deleted_at" field.
+func (u *IntentPromptVersionUpsertBulk) SetDeletedAt(v time.Time) *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.SetDeletedAt(v)
+	})
+}
+
+// UpdateDeletedAt sets the "deleted_at" field to the value that was provided on create.
+func (u *IntentPromptVersionUpsertBulk) UpdateDeletedAt() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.UpdateDeletedAt()
+	})
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (u *IntentPromptVersionUpsertBulk) ClearDeletedAt() *IntentPromptVersionUpsertBulk {
+	return u.Update(func(s *IntentPromptVersionUpsert) {
+		s.ClearDeletedAt()
 	})
 }
 

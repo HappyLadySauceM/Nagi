@@ -487,6 +487,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "published_at", Type: field.TypeTime, Nullable: true},
 		{Name: "archived_at", Type: field.TypeTime, Nullable: true},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true},
 	}
 	// IntentPromptVersionsTable holds the schema information for the "intent_prompt_versions" table.
 	IntentPromptVersionsTable = &schema.Table{

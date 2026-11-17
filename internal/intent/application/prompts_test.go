@@ -60,6 +60,14 @@ func (f *promptSyncRepo) Get(_ context.Context, id int64) (domain.PromptRecord, 
 	return domain.PromptRecord{}, errors.New("not found")
 }
 
+func (f *promptSyncRepo) GetIncludingDeleted(ctx context.Context, id int64) (domain.PromptRecord, error) {
+	return f.Get(ctx, id)
+}
+
+func (f *promptSyncRepo) DeleteVersion(context.Context, int64, int64) error {
+	return nil
+}
+
 func (f *promptSyncRepo) CreateDraft(_ context.Context, promptID, name, provider string, content domain.Prompt, note, source, sourceRef string) (domain.PromptRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

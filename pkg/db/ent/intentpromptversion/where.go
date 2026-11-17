@@ -134,6 +134,11 @@ func ArchivedAt(v time.Time) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldEQ(FieldArchivedAt, v))
 }
 
+// DeletedAt applies equality check predicate on the "deleted_at" field. It's identical to DeletedAtEQ.
+func DeletedAt(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldDeletedAt, v))
+}
+
 // PromptIDEQ applies the EQ predicate on the "prompt_id" field.
 func PromptIDEQ(v string) predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldEQ(FieldPromptID, v))
@@ -1042,6 +1047,56 @@ func ArchivedAtIsNil() predicate.IntentPromptVersion {
 // ArchivedAtNotNil applies the NotNil predicate on the "archived_at" field.
 func ArchivedAtNotNil() predicate.IntentPromptVersion {
 	return predicate.IntentPromptVersion(sql.FieldNotNull(FieldArchivedAt))
+}
+
+// DeletedAtEQ applies the EQ predicate on the "deleted_at" field.
+func DeletedAtEQ(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldEQ(FieldDeletedAt, v))
+}
+
+// DeletedAtNEQ applies the NEQ predicate on the "deleted_at" field.
+func DeletedAtNEQ(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNEQ(FieldDeletedAt, v))
+}
+
+// DeletedAtIn applies the In predicate on the "deleted_at" field.
+func DeletedAtIn(vs ...time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIn(FieldDeletedAt, vs...))
+}
+
+// DeletedAtNotIn applies the NotIn predicate on the "deleted_at" field.
+func DeletedAtNotIn(vs ...time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotIn(FieldDeletedAt, vs...))
+}
+
+// DeletedAtGT applies the GT predicate on the "deleted_at" field.
+func DeletedAtGT(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGT(FieldDeletedAt, v))
+}
+
+// DeletedAtGTE applies the GTE predicate on the "deleted_at" field.
+func DeletedAtGTE(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldGTE(FieldDeletedAt, v))
+}
+
+// DeletedAtLT applies the LT predicate on the "deleted_at" field.
+func DeletedAtLT(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLT(FieldDeletedAt, v))
+}
+
+// DeletedAtLTE applies the LTE predicate on the "deleted_at" field.
+func DeletedAtLTE(v time.Time) predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldLTE(FieldDeletedAt, v))
+}
+
+// DeletedAtIsNil applies the IsNil predicate on the "deleted_at" field.
+func DeletedAtIsNil() predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldIsNull(FieldDeletedAt))
+}
+
+// DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
+func DeletedAtNotNil() predicate.IntentPromptVersion {
+	return predicate.IntentPromptVersion(sql.FieldNotNull(FieldDeletedAt))
 }
 
 // And groups predicates with the AND operator between them.

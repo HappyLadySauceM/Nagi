@@ -48,6 +48,8 @@ const (
 	FieldPublishedAt = "published_at"
 	// FieldArchivedAt holds the string denoting the archived_at field in the database.
 	FieldArchivedAt = "archived_at"
+	// FieldDeletedAt holds the string denoting the deleted_at field in the database.
+	FieldDeletedAt = "deleted_at"
 	// Table holds the table name of the intentpromptversion in the database.
 	Table = "intent_prompt_versions"
 )
@@ -72,6 +74,7 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldPublishedAt,
 	FieldArchivedAt,
+	FieldDeletedAt,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -193,4 +196,9 @@ func ByPublishedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByArchivedAt orders the results by the archived_at field.
 func ByArchivedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldArchivedAt, opts...).ToFunc()
+}
+
+// ByDeletedAt orders the results by the deleted_at field.
+func ByDeletedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDeletedAt, opts...).ToFunc()
 }

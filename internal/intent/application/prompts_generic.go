@@ -426,9 +426,15 @@ func (s *PromptService) Effective(ctx context.Context, promptID, kind, provider 
 }
 
 // VersionPrompt returns parsed content for one version, preserving the exact
-// stored template used by a run.
+// stored template used by a run. Soft-deleted versions remain readable so
+// historical runs can rebuild their prompt snapshot by version ID.
+// VersionPrompt 返回一个版本解析后的内容，保留运行使用的原始模板；
+// 软删除版本仍可读取，以支持历史运行按版本 ID 重建 Prompt 快照。
 func (s *PromptService) VersionPrompt(ctx context.Context, id int64, kind, provider string) (domain.Prompt, error) {
-	rec, err := s.Get(ctx, id)
+	if s == nil || s.repo == nil {
+		return domain.Prompt{}, ErrPromptStoreUnavailable
+	}
+	rec, err := s.repo.GetIncludingDeleted(ctx, id)
 	if err != nil {
 		return domain.Prompt{}, err
 	}

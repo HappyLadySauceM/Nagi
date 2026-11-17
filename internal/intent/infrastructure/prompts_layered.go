@@ -17,7 +17,7 @@ func (r *PromptsRepo) ActiveLayer(ctx context.Context, key domain.PromptKey) (do
 		Where(
 			ipv.PromptID(key.PromptID), ipv.PromptKind(key.Kind), ipv.Provider(key.Provider),
 			ipv.BotID(key.BotID), ipv.ScopeType(key.ScopeType), ipv.ScopeID(0),
-			ipv.Status(domain.PromptStatusPublished),
+			ipv.Status(domain.PromptStatusPublished), ipv.DeletedAtIsNil(),
 		).
 		Order(ent.Desc(ipv.FieldVersion)).First(ctx)
 	if ent.IsNotFound(err) {
@@ -34,13 +34,13 @@ func (r *PromptsRepo) ActiveLayer(ctx context.Context, key domain.PromptKey) (do
 func (r *PromptsRepo) HasLayer(ctx context.Context, key domain.PromptKey) (bool, error) {
 	return r.pool.Client.IntentPromptVersion.Query().Where(
 		ipv.PromptID(key.PromptID), ipv.PromptKind(key.Kind), ipv.Provider(key.Provider),
-		ipv.BotID(key.BotID), ipv.ScopeType(key.ScopeType), ipv.ScopeID(0),
+		ipv.BotID(key.BotID), ipv.ScopeType(key.ScopeType), ipv.ScopeID(0), ipv.DeletedAtIsNil(),
 	).Exist(ctx)
 }
 
 // ListAll returns all stored versions for the unified admin view.
 func (r *PromptsRepo) ListAll(ctx context.Context) ([]domain.PromptRecord, error) {
-	rows, err := r.pool.Client.IntentPromptVersion.Query().Order(ent.Desc(ipv.FieldCreatedAt)).All(ctx)
+	rows, err := r.pool.Client.IntentPromptVersion.Query().Where(ipv.DeletedAtIsNil()).Order(ent.Desc(ipv.FieldCreatedAt)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (r *PromptsRepo) VersionsLayer(ctx context.Context, key domain.PromptKey) (
 	rows, err := r.pool.Client.IntentPromptVersion.Query().
 		Where(
 			ipv.PromptID(key.PromptID), ipv.PromptKind(key.Kind), ipv.Provider(key.Provider),
-			ipv.BotID(key.BotID), ipv.ScopeType(key.ScopeType), ipv.ScopeID(0),
+			ipv.BotID(key.BotID), ipv.ScopeType(key.ScopeType), ipv.ScopeID(0), ipv.DeletedAtIsNil(),
 		).
 		Order(ent.Desc(ipv.FieldVersion)).All(ctx)
 	if err != nil {
@@ -123,7 +123,7 @@ func (r *PromptsRepo) PublishVersion(ctx context.Context, id int64) (domain.Prom
 	}
 	defer tx.Rollback()
 	c := tx.Client()
-	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).Only(ctx)
+	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(id), ipv.DeletedAtIsNil()).Only(ctx)
 	if ent.IsNotFound(err) {
 		return domain.PromptRecord{}, 0, ErrPromptNotFound
 	}
@@ -133,7 +133,7 @@ func (r *PromptsRepo) PublishVersion(ctx context.Context, id int64) (domain.Prom
 	if err := lockPromptLayerTx(ctx, c, initial); err != nil {
 		return domain.PromptRecord{}, 0, err
 	}
-	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).ForUpdate().Only(ctx)
+	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(id), ipv.DeletedAtIsNil()).ForUpdate().Only(ctx)
 	if ent.IsNotFound(err) {
 		return domain.PromptRecord{}, 0, ErrPromptNotFound
 	}
@@ -163,7 +163,7 @@ func (r *PromptsRepo) RollbackVersion(ctx context.Context, key domain.PromptKey,
 	}
 	defer tx.Rollback()
 	c := tx.Client()
-	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(versionID)).Only(ctx)
+	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(versionID), ipv.DeletedAtIsNil()).Only(ctx)
 	if ent.IsNotFound(err) {
 		return domain.PromptRecord{}, 0, ErrPromptNotFound
 	}
@@ -176,7 +176,7 @@ func (r *PromptsRepo) RollbackVersion(ctx context.Context, key domain.PromptKey,
 	if err := lockPromptLayerTx(ctx, c, initial); err != nil {
 		return domain.PromptRecord{}, 0, err
 	}
-	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(versionID)).ForUpdate().Only(ctx)
+	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(versionID), ipv.DeletedAtIsNil()).ForUpdate().Only(ctx)
 	if ent.IsNotFound(err) {
 		return domain.PromptRecord{}, 0, ErrPromptNotFound
 	}
@@ -212,7 +212,7 @@ func (r *PromptsRepo) RestoreBuiltin(ctx context.Context, key domain.PromptKey) 
 	row, err := c.IntentPromptVersion.Query().Where(
 		ipv.PromptID(key.PromptID), ipv.PromptKind(key.Kind), ipv.Provider(key.Provider),
 		ipv.BotID(key.BotID), ipv.ScopeType(key.ScopeType), ipv.ScopeID(0),
-		ipv.Status(domain.PromptStatusPublished),
+		ipv.Status(domain.PromptStatusPublished), ipv.DeletedAtIsNil(),
 	).ForUpdate().First(ctx)
 	if ent.IsNotFound(err) {
 		// If a legacy bot_id=0 prompt exists, record an archived builtin marker for
@@ -221,7 +221,7 @@ func (r *PromptsRepo) RestoreBuiltin(ctx context.Context, key domain.PromptKey) 
 		legacy, legacyErr := c.IntentPromptVersion.Query().Where(
 			ipv.PromptID(key.PromptID), ipv.PromptKind(key.Kind), ipv.Provider(key.Provider),
 			ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
-			ipv.Status(domain.PromptStatusPublished),
+			ipv.Status(domain.PromptStatusPublished), ipv.DeletedAtIsNil(),
 		).Exist(ctx)
 		if legacyErr != nil {
 			return 0, legacyErr
@@ -262,6 +262,56 @@ func (r *PromptsRepo) RestoreBuiltin(ctx context.Context, key domain.PromptKey) 
 		return 0, err
 	}
 	return row.ID, nil
+}
+
+// DeleteVersion soft-deletes one draft or archived local version. Published and
+// builtin versions are protected, and deleted rows remain available through
+// GetIncludingDeleted for historical snapshots.
+// DeleteVersion 软删除一个草稿或归档的本地版本；已发布与内置版本受保护，
+// 已删除行仍可通过 GetIncludingDeleted 读取以支持历史快照。
+func (r *PromptsRepo) DeleteVersion(ctx context.Context, id, botID int64) error {
+	tx, err := r.pool.Client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	c := tx.Client()
+	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrPromptNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if initial.BotID != botID || initial.DeletedAt != nil {
+		return ErrPromptNotFound
+	}
+	if err := lockPromptLayerTx(ctx, c, initial); err != nil {
+		return err
+	}
+	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).ForUpdate().Only(ctx)
+	if ent.IsNotFound(err) {
+		return ErrPromptNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if row.BotID != botID || row.DeletedAt != nil {
+		return ErrPromptNotFound
+	}
+	if row.Source == domain.PromptSourceBuiltin {
+		return ErrPromptBuiltin
+	}
+	if row.Status == domain.PromptStatusPublished {
+		return ErrPromptPublished
+	}
+	if row.Status != domain.PromptStatusDraft && row.Status != domain.PromptStatusArchived {
+		return ErrPromptImmutable
+	}
+	if err := c.IntentPromptVersion.UpdateOneID(id).SetDeletedAt(time.Now()).Exec(ctx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func isRestoreBuiltinMarker(row *ent.IntentPromptVersion) bool {

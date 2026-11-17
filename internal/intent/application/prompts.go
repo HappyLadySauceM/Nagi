@@ -25,6 +25,8 @@ type PromptRepository interface {
 	List(ctx context.Context) ([]domain.PromptRecord, error)
 	Versions(ctx context.Context, promptID string) ([]domain.PromptRecord, error)
 	Get(ctx context.Context, id int64) (domain.PromptRecord, error)
+	GetIncludingDeleted(ctx context.Context, id int64) (domain.PromptRecord, error)
+	DeleteVersion(ctx context.Context, id, botID int64) error
 	CreateDraft(ctx context.Context, promptID, name, provider string, content domain.Prompt, note, source, sourceRef string) (domain.PromptRecord, error)
 	UpdateDraft(ctx context.Context, id int64, note string, content domain.Prompt) (domain.PromptRecord, error)
 	Publish(ctx context.Context, id int64) error
@@ -130,6 +132,21 @@ func (s *PromptService) Get(ctx context.Context, id int64) (domain.PromptRecord,
 		return domain.PromptRecord{}, fmt.Errorf("intent: prompt store unavailable")
 	}
 	return s.repo.Get(ctx, id)
+}
+
+// DeleteVersion soft-deletes one draft or archived local version. The row is
+// kept for historical prompt snapshots; published and builtin versions are
+// rejected by the repository.
+// DeleteVersion 软删除一个草稿或归档的本地版本；版本行保留用于历史 Prompt 快照，
+// 已发布与内置版本由仓储拒绝。
+func (s *PromptService) DeleteVersion(ctx context.Context, id, botID int64) error {
+	if s == nil || s.repo == nil {
+		return ErrPromptStoreUnavailable
+	}
+	if id <= 0 || botID <= 0 {
+		return ErrPromptNotFound
+	}
+	return s.repo.DeleteVersion(ctx, id, botID)
 }
 
 // CreateDraft validates provider-specific content before storage.

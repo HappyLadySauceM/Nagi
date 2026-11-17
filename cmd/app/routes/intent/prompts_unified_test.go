@@ -27,6 +27,7 @@ func TestUnifiedPromptRoutesAreRegistered(t *testing.T) {
 		{http.MethodPost, "/api/v1/prompts/chat.reply/restore-builtin"},
 		{http.MethodPost, "/api/v1/prompts/versions/12/publish"},
 		{http.MethodPatch, "/api/v1/prompts/versions/12"},
+		{http.MethodDelete, "/api/v1/prompts/versions/12"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
