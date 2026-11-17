@@ -184,12 +184,15 @@ it('serializes unsaved rules and invalidates an old response when scope changes'
     return new Promise<Response>(resolve => { finish = resolve })
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const props = { scope: { botId: 1, scopeType: 'private' as const, scopeId: 123 }, entries: [{ priority: 0, match: {}, action: { type: 'reply' as const, reasonCode: 'preview_reason' } }], previewGlobal: false }
+  const props = { scope: { botId: 1, scopeType: 'private' as const, scopeId: 123 }, entries: [{ priority: 0, match: {}, action: { type: 'reply' as const, reasonCode: 'preview_reason' } }], previewGlobal: false, questions: { directed_to_bot: { type: 'noul' as const, instructions: '是否在跟我说话', role: 'directed_to_bot' as const, weight: 1 } } }
   const { rerender } = render(<QueryClientProvider client={client}><SimulateCard {...props} previewTargetsText="private:123" /></QueryClientProvider>)
   fireEvent.change(screen.getByPlaceholderText('输入一条消息'), { target: { value: 'hello' } })
   fireEvent.click(screen.getByRole('button', { name: '运行规则预览' }))
   await waitFor(() => expect(body).toBeDefined())
   expect(body).toMatchObject({ entries: [{ action: { type: 'reply', reason_code: 'preview_reason' } }] })
+  // Rule preview must not send the question set; only semantic mode may include it.
+  // 规则预览不得发送问题集，仅语义模式可以携带。
+  expect(body).not.toHaveProperty('questions')
   rerender(<QueryClientProvider client={client}><SimulateCard {...props} previewTargetsText="private:456" /></QueryClientProvider>)
   finish?.(response({ Blocked: false, Explicit: false, NeedSemantic: false, AlwaysReply: false, ForceReply: true, ReasonCode: 'preview_reason', RulesetVersion: 'draft' }))
   expect(await screen.findByText('内容已变化，请重新测试')).toBeVisible()
@@ -309,5 +312,41 @@ it('saves edited semantic questions in the PATCH body together with entries, bui
   expect(body).toHaveProperty('targets')
   expect(body.questions.directed_to_bot).toMatchObject({ Type: 'noul', Instructions: '更新后的指向描述', Role: 'directed_to_bot', Weight: 1 })
   expect(body.questions.intent).toMatchObject({ Type: 'choice', Role: 'intent', Criteria: { closing: '告别' } })
+  client.clear()
+})
+
+it('sends the current question set in the semantic simulate request body', async () => {
+  let body: Record<string, unknown> | undefined
+  vi.stubGlobal('fetch', vi.fn((_input: string, init?: RequestInit) => {
+    if (init?.method === 'POST') {
+      body = JSON.parse(String(init.body))
+      return Promise.resolve(response({ Blocked: false, Explicit: false, NeedSemantic: false, AlwaysReply: false, ForceReply: true, ReasonCode: 'semantic', RulesetVersion: 'draft' }))
+    }
+    throw new Error('Unexpected request')
+  }))
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const questions = {
+    directed_to_bot: { type: 'noul' as const, instructions: '是否在跟我说话', role: 'directed_to_bot' as const, weight: 1 },
+    intent: { type: 'choice' as const, instructions: '判断聊天意图', role: 'intent' as const, criteria: { question: '提问', chat: '闲聊' } },
+  }
+  render(
+    <QueryClientProvider client={client}>
+      <SimulateCard
+        scope={{ botId: 1, scopeType: 'private', scopeId: 123 }}
+        entries={[{ priority: 0, match: {}, action: { type: 'reply' as const, reasonCode: 'preview_reason' } }]}
+        previewGlobal={false}
+        previewTargetsText="private:123"
+        questions={questions}
+      />
+    </QueryClientProvider>,
+  )
+  fireEvent.change(screen.getByLabelText('验证方式'), { target: { value: 'semantic' } })
+  fireEvent.change(screen.getByPlaceholderText('输入一条消息'), { target: { value: 'hello' } })
+  fireEvent.click(screen.getByRole('button', { name: '调用模型重放' }))
+  await waitFor(() => expect(body).toBeDefined())
+  expect((body as { questions: unknown }).questions).toEqual({
+    directed_to_bot: { Type: 'noul', Instructions: '是否在跟我说话', Role: 'directed_to_bot', Weight: 1 },
+    intent: { Type: 'choice', Instructions: '判断聊天意图', Role: 'intent', Criteria: { question: '提问', chat: '闲聊' } },
+  })
   client.clear()
 })

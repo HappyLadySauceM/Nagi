@@ -459,7 +459,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
       ) : null}
           </div>
           <aside className={`min-h-0 overflow-y-auto p-5 lg:border-l lg:border-border ${editorView === 'test' ? '' : 'hidden lg:block'}`}>
-          {current ? <SimulateCard layout="stacked" key={current.id} scope={{ botId: current.botId, scopeType: current.targets?.[0]?.kind ?? current.scopeType, scopeId: current.targets?.[0]?.id ?? 0 }} entries={entries} builtinRules={builtinRules} previewGlobal={allTargets} previewTargetsText={targetText} /> : null}
+          {current ? <SimulateCard layout="stacked" key={current.id} scope={{ botId: current.botId, scopeType: current.targets?.[0]?.kind ?? current.scopeType, scopeId: current.targets?.[0]?.id ?? 0 }} entries={entries} builtinRules={builtinRules} previewGlobal={allTargets} previewTargetsText={targetText} questions={questions} /> : null}
           </aside></div>
           <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-4">
             {current ? <Button variant="ghost" className="text-destructive" disabled={busy} onClick={() => setDeleting(current)}><Trash2 />删除版本</Button> : null}
@@ -538,7 +538,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   }
 }
 
-export function SimulateCard({ scope, entries, builtinRules, previewGlobal, previewTargetsText, layout = 'columns' }: { previewTargetsText?: string; layout?: 'stacked' | 'columns'; scope: { botId: number; scopeType: ScopeType; scopeId: number }; entries?: RuleEntry[]; builtinRules?: Record<string, boolean>; previewGlobal?: boolean }) {
+export function SimulateCard({ scope, entries, builtinRules, previewGlobal, previewTargetsText, questions, layout = 'columns' }: { previewTargetsText?: string; layout?: 'stacked' | 'columns'; scope: { botId: number; scopeType: ScopeType; scopeId: number }; entries?: RuleEntry[]; builtinRules?: Record<string, boolean>; previewGlobal?: boolean; questions?: Record<string, ManagedPromptQuestion> }) {
   const [simulationKind,setSimulationKind]=useState<ScopeType>(scope.scopeType)
   const [simulationTarget,setSimulationTarget]=useState(scope.scopeId>0?String(scope.scopeId):'')
   const actualScope={botId:scope.botId,scopeType:simulationKind,scopeId:Number(simulationTarget)}
@@ -550,7 +550,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
   const [seconds, setSeconds] = useState('60')
   const targets = (previewTargetsText ?? '').split(/[,，\s]+/).filter(Boolean)
   const targetAllowed = entries === undefined || previewGlobal || (targets.length > 0 && targets.every(value => /^(private|group):[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value.split(':')[1]))) && targets.includes(`${simulationKind}:${simulationTarget}`))
-  const snapshot = JSON.stringify({ actualScope, entries, builtinRules, previewGlobal, previewTargetsText, mode, text, explicit, replyMode, seconds })
+  const snapshot = JSON.stringify({ actualScope, entries, builtinRules, previewGlobal, previewTargetsText, questions, mode, text, explicit, replyMode, seconds })
   const [submitted, setSubmitted] = useState('')
 
   return (
@@ -575,7 +575,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
           onClick={() => {
             setSubmitted(snapshot)
             simulate.mutate(
-              { mode, builtinRules, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, entries, secondsSinceReply: Number(seconds) },
+              { mode, builtinRules, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, entries, secondsSinceReply: Number(seconds), questions: mode === 'semantic' ? questions : undefined },
               { onError: (error) => toast.error(describeError(error).title) },
             )
           }}
