@@ -52,7 +52,9 @@ type IntentPromptVersion struct {
 	// PublishedAt holds the value of the "published_at" field.
 	PublishedAt *time.Time `json:"published_at,omitempty"`
 	// ArchivedAt holds the value of the "archived_at" field.
-	ArchivedAt   *time.Time `json:"archived_at,omitempty"`
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	// DeletedAt holds the value of the "deleted_at" field.
+	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 	selectValues sql.SelectValues
 }
 
@@ -67,7 +69,7 @@ func (*IntentPromptVersion) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullInt64)
 		case intentpromptversion.FieldPromptID, intentpromptversion.FieldPromptKind, intentpromptversion.FieldName, intentpromptversion.FieldProvider, intentpromptversion.FieldScopeType, intentpromptversion.FieldStatus, intentpromptversion.FieldSource, intentpromptversion.FieldSourceRef, intentpromptversion.FieldHash, intentpromptversion.FieldNote:
 			values[i] = new(sql.NullString)
-		case intentpromptversion.FieldCreatedAt, intentpromptversion.FieldPublishedAt, intentpromptversion.FieldArchivedAt:
+		case intentpromptversion.FieldCreatedAt, intentpromptversion.FieldPublishedAt, intentpromptversion.FieldArchivedAt, intentpromptversion.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -196,6 +198,13 @@ func (_m *IntentPromptVersion) assignValues(columns []string, values []any) erro
 				_m.ArchivedAt = new(time.Time)
 				*_m.ArchivedAt = value.Time
 			}
+		case intentpromptversion.FieldDeletedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field deleted_at", values[i])
+			} else if value.Valid {
+				_m.DeletedAt = new(time.Time)
+				*_m.DeletedAt = value.Time
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -284,6 +293,11 @@ func (_m *IntentPromptVersion) String() string {
 	builder.WriteString(", ")
 	if v := _m.ArchivedAt; v != nil {
 		builder.WriteString("archived_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.DeletedAt; v != nil {
+		builder.WriteString("deleted_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
 	builder.WriteByte(')')

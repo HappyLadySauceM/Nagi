@@ -35,6 +35,7 @@ func (IntentPromptVersion) Fields() []ent.Field {
 		field.Time("created_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 		field.Time("published_at").Optional().Nillable(),
 		field.Time("archived_at").Optional().Nillable(),
+		field.Time("deleted_at").Optional().Nillable(),
 	}
 }
 

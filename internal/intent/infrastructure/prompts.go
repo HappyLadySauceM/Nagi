@@ -21,6 +21,8 @@ var (
 	ErrPromptNotFound    = errors.New("intent: prompt not found")
 	ErrPromptImmutable   = errors.New("intent: prompt version is not a draft")
 	ErrPromptNotArchived = errors.New("intent: prompt version is not an archived published version")
+	ErrPromptPublished   = errors.New("intent: published prompt version cannot be deleted")
+	ErrPromptBuiltin     = errors.New("intent: builtin prompt version cannot be deleted")
 )
 
 type PromptsRepo struct{ pool *db.Pool }
@@ -39,7 +41,7 @@ func (r *PromptsRepo) Active(ctx context.Context, promptID, provider string) (do
 		Where(
 			ipv.PromptID(promptID), ipv.PromptKind(domain.PromptKindIntentParticipation),
 			ipv.Provider(provider), ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
-			ipv.Status(domain.PromptStatusPublished),
+			ipv.Status(domain.PromptStatusPublished), ipv.DeletedAtIsNil(),
 		).
 		Order(ent.Desc(ipv.FieldVersion)).First(ctx)
 	if ent.IsNotFound(err) {
@@ -54,7 +56,7 @@ func (r *PromptsRepo) Active(ctx context.Context, promptID, provider string) (do
 func (r *PromptsRepo) List(ctx context.Context) ([]domain.PromptRecord, error) {
 	rows, err := r.pool.Client.IntentPromptVersion.Query().Where(
 		ipv.PromptKind(domain.PromptKindIntentParticipation), ipv.BotID(0),
-		ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
+		ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0), ipv.DeletedAtIsNil(),
 	).Order(ent.Desc(ipv.FieldCreatedAt)).All(ctx)
 	if err != nil {
 		return nil, err
@@ -70,7 +72,7 @@ func (r *PromptsRepo) Versions(ctx context.Context, promptID string) ([]domain.P
 	rows, err := r.pool.Client.IntentPromptVersion.Query().
 		Where(
 			ipv.PromptID(promptID), ipv.PromptKind(domain.PromptKindIntentParticipation),
-			ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
+			ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0), ipv.DeletedAtIsNil(),
 		).
 		Order(ent.Desc(ipv.FieldVersion)).All(ctx)
 	if err != nil {
@@ -84,6 +86,20 @@ func (r *PromptsRepo) Versions(ctx context.Context, promptID string) ([]domain.P
 }
 
 func (r *PromptsRepo) Get(ctx context.Context, id int64) (domain.PromptRecord, error) {
+	row, err := r.pool.Client.IntentPromptVersion.Query().Where(ipv.ID(id), ipv.DeletedAtIsNil()).Only(ctx)
+	if ent.IsNotFound(err) {
+		return domain.PromptRecord{}, ErrPromptNotFound
+	}
+	if err != nil {
+		return domain.PromptRecord{}, err
+	}
+	return promptRecord(row), nil
+}
+
+// GetIncludingDeleted returns a prompt version even after soft deletion. It is
+// used only to rebuild historical prompt snapshots referenced by version ID.
+// GetIncludingDeleted 返回包含已软删除的 Prompt 版本；仅用于按版本 ID 重建历史 Prompt 快照。
+func (r *PromptsRepo) GetIncludingDeleted(ctx context.Context, id int64) (domain.PromptRecord, error) {
 	row, err := r.pool.Client.IntentPromptVersion.Query().Where(ipv.ID(id)).Only(ctx)
 	if ent.IsNotFound(err) {
 		return domain.PromptRecord{}, ErrPromptNotFound
@@ -133,7 +149,7 @@ func (r *PromptsRepo) CreateDraft(ctx context.Context, promptID, name, provider 
 // UpdateDraft replaces content on an editable draft only.
 // UpdateDraft 只替换可编辑草稿的内容。
 func (r *PromptsRepo) UpdateDraft(ctx context.Context, id int64, note string, content domain.Prompt) (domain.PromptRecord, error) {
-	row, err := r.pool.Client.IntentPromptVersion.Query().Where(ipv.ID(id)).Only(ctx)
+	row, err := r.pool.Client.IntentPromptVersion.Query().Where(ipv.ID(id), ipv.DeletedAtIsNil()).Only(ctx)
 	if ent.IsNotFound(err) {
 		return domain.PromptRecord{}, ErrPromptNotFound
 	}
@@ -166,7 +182,7 @@ func (r *PromptsRepo) Publish(ctx context.Context, id int64) error {
 	c := tx.Client()
 	// Read the target without a row lock first so Publish and Rollback always
 	// acquire the per-prompt transaction lock in the same order.
-	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).Only(ctx)
+	initial, err := c.IntentPromptVersion.Query().Where(ipv.ID(id), ipv.DeletedAtIsNil()).Only(ctx)
 	if ent.IsNotFound(err) {
 		return ErrPromptNotFound
 	}
@@ -176,7 +192,7 @@ func (r *PromptsRepo) Publish(ctx context.Context, id int64) error {
 	if err := lockPromptLayerTx(ctx, c, initial); err != nil {
 		return err
 	}
-	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(id)).ForUpdate().Only(ctx)
+	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(id), ipv.DeletedAtIsNil()).ForUpdate().Only(ctx)
 	if ent.IsNotFound(err) {
 		return ErrPromptNotFound
 	}
@@ -207,7 +223,7 @@ func (r *PromptsRepo) Rollback(ctx context.Context, promptID string, version int
 		Where(
 			ipv.PromptID(promptID), ipv.PromptKind(domain.PromptKindIntentParticipation),
 			ipv.BotID(0), ipv.ScopeType(domain.PromptScopeAccount), ipv.ScopeID(0),
-			ipv.Version(version),
+			ipv.Version(version), ipv.DeletedAtIsNil(),
 		).Only(ctx)
 	if ent.IsNotFound(err) {
 		return ErrPromptNotFound
@@ -218,7 +234,7 @@ func (r *PromptsRepo) Rollback(ctx context.Context, promptID string, version int
 	if err := lockPromptLayerTx(ctx, c, initial); err != nil {
 		return err
 	}
-	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(initial.ID)).ForUpdate().Only(ctx)
+	row, err := c.IntentPromptVersion.Query().Where(ipv.ID(initial.ID), ipv.DeletedAtIsNil()).ForUpdate().Only(ctx)
 	if ent.IsNotFound(err) {
 		return ErrPromptNotFound
 	}

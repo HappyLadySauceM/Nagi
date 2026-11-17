@@ -28,6 +28,10 @@ func (*fakePromptRepo) Versions(context.Context, string) ([]domain.PromptRecord,
 func (*fakePromptRepo) Get(context.Context, int64) (domain.PromptRecord, error) {
 	return domain.PromptRecord{}, nil
 }
+func (*fakePromptRepo) GetIncludingDeleted(context.Context, int64) (domain.PromptRecord, error) {
+	return domain.PromptRecord{}, nil
+}
+func (*fakePromptRepo) DeleteVersion(context.Context, int64, int64) error { return nil }
 func (*fakePromptRepo) CreateDraft(context.Context, string, string, string, domain.Prompt, string, string, string) (domain.PromptRecord, error) {
 	return domain.PromptRecord{}, nil
 }

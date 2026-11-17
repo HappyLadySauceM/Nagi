@@ -21,7 +21,7 @@ func unifiedPromptFixture(t *testing.T) *http.ServeMux {
 	t.Helper()
 	pool := dbtest.Open(t)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM intent_prompt_versions WHERE bot_id IN (990101,990102,990103,990104)`)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM intent_prompt_versions WHERE bot_id IN (990101,990102,990103,990104,990105,990106)`)
 	})
 	repo, err := intentinfra.NewPromptsRepo(pool)
 	if err != nil {
@@ -89,6 +89,54 @@ func TestUnifiedPromptHTTPCreatePublishEffectiveRestore(t *testing.T) {
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("restore status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUnifiedPromptDeleteHTTPContract(t *testing.T) {
+	mux := unifiedPromptFixture(t)
+	create := func() int64 {
+		rec := unifiedRequest(t, mux, http.MethodPost, "/api/v1/prompts/chat.reply/versions", map[string]any{
+			"bot_id": 990105, "scope_type": "account", "scope_id": 0, "provider": "openai",
+			"name": "delete fixture", "base": "builtin",
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create = %d body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Data struct{ ID int64 }
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Data.ID == 0 {
+			t.Fatalf("create response = %s err=%v", rec.Body.String(), err)
+		}
+		return body.Data.ID
+	}
+
+	draftID := create()
+	path := "/api/v1/prompts/versions/" + strconv.FormatInt(draftID, 10) + "?bot_id=990105"
+	if rec := unifiedRequest(t, mux, http.MethodDelete, path, nil); rec.Code != http.StatusOK {
+		t.Fatalf("delete draft = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := unifiedRequest(t, mux, http.MethodGet, "/api/v1/prompts/versions/"+strconv.FormatInt(draftID, 10), nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("get deleted draft = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := unifiedRequest(t, mux, http.MethodDelete, path, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("repeat delete = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	wrongBotID := create()
+	if rec := unifiedRequest(t, mux, http.MethodDelete, "/api/v1/prompts/versions/"+strconv.FormatInt(wrongBotID, 10)+"?bot_id=990106", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("wrong bot delete = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := unifiedRequest(t, mux, http.MethodGet, "/api/v1/prompts/versions/"+strconv.FormatInt(wrongBotID, 10), nil); rec.Code != http.StatusOK {
+		t.Fatalf("wrong bot delete removed version = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	publishedID := create()
+	if rec := unifiedRequest(t, mux, http.MethodPost, "/api/v1/prompts/versions/"+strconv.FormatInt(publishedID, 10)+"/publish", nil); rec.Code != http.StatusOK {
+		t.Fatalf("publish = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := unifiedRequest(t, mux, http.MethodDelete, "/api/v1/prompts/versions/"+strconv.FormatInt(publishedID, 10)+"?bot_id=990105", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("delete published = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

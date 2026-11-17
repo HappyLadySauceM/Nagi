@@ -14475,6 +14475,7 @@ type IntentPromptVersionMutation struct {
 	created_at    *time.Time
 	published_at  *time.Time
 	archived_at   *time.Time
+	deleted_at    *time.Time
 	clearedFields map[string]struct{}
 	done          bool
 	oldValue      func(context.Context) (*IntentPromptVersion, error)
@@ -15298,6 +15299,55 @@ func (m *IntentPromptVersionMutation) ResetArchivedAt() {
 	delete(m.clearedFields, intentpromptversion.FieldArchivedAt)
 }
 
+// SetDeletedAt sets the "deleted_at" field.
+func (m *IntentPromptVersionMutation) SetDeletedAt(t time.Time) {
+	m.deleted_at = &t
+}
+
+// DeletedAt returns the value of the "deleted_at" field in the mutation.
+func (m *IntentPromptVersionMutation) DeletedAt() (r time.Time, exists bool) {
+	v := m.deleted_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeletedAt returns the old "deleted_at" field's value of the IntentPromptVersion entity.
+// If the IntentPromptVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentPromptVersionMutation) OldDeletedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeletedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeletedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeletedAt: %w", err)
+	}
+	return oldValue.DeletedAt, nil
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (m *IntentPromptVersionMutation) ClearDeletedAt() {
+	m.deleted_at = nil
+	m.clearedFields[intentpromptversion.FieldDeletedAt] = struct{}{}
+}
+
+// DeletedAtCleared returns if the "deleted_at" field was cleared in this mutation.
+func (m *IntentPromptVersionMutation) DeletedAtCleared() bool {
+	_, ok := m.clearedFields[intentpromptversion.FieldDeletedAt]
+	return ok
+}
+
+// ResetDeletedAt resets all changes to the "deleted_at" field.
+func (m *IntentPromptVersionMutation) ResetDeletedAt() {
+	m.deleted_at = nil
+	delete(m.clearedFields, intentpromptversion.FieldDeletedAt)
+}
+
 // Where appends a list predicates to the IntentPromptVersionMutation builder.
 func (m *IntentPromptVersionMutation) Where(ps ...predicate.IntentPromptVersion) {
 	m.predicates = append(m.predicates, ps...)
@@ -15332,7 +15382,7 @@ func (m *IntentPromptVersionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *IntentPromptVersionMutation) Fields() []string {
-	fields := make([]string, 0, 17)
+	fields := make([]string, 0, 18)
 	if m.prompt_id != nil {
 		fields = append(fields, intentpromptversion.FieldPromptID)
 	}
@@ -15384,6 +15434,9 @@ func (m *IntentPromptVersionMutation) Fields() []string {
 	if m.archived_at != nil {
 		fields = append(fields, intentpromptversion.FieldArchivedAt)
 	}
+	if m.deleted_at != nil {
+		fields = append(fields, intentpromptversion.FieldDeletedAt)
+	}
 	return fields
 }
 
@@ -15426,6 +15479,8 @@ func (m *IntentPromptVersionMutation) Field(name string) (ent.Value, bool) {
 		return m.PublishedAt()
 	case intentpromptversion.FieldArchivedAt:
 		return m.ArchivedAt()
+	case intentpromptversion.FieldDeletedAt:
+		return m.DeletedAt()
 	}
 	return nil, false
 }
@@ -15469,6 +15524,8 @@ func (m *IntentPromptVersionMutation) OldField(ctx context.Context, name string)
 		return m.OldPublishedAt(ctx)
 	case intentpromptversion.FieldArchivedAt:
 		return m.OldArchivedAt(ctx)
+	case intentpromptversion.FieldDeletedAt:
+		return m.OldDeletedAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown IntentPromptVersion field %s", name)
 }
@@ -15597,6 +15654,13 @@ func (m *IntentPromptVersionMutation) SetField(name string, value ent.Value) err
 		}
 		m.SetArchivedAt(v)
 		return nil
+	case intentpromptversion.FieldDeletedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeletedAt(v)
+		return nil
 	}
 	return fmt.Errorf("unknown IntentPromptVersion field %s", name)
 }
@@ -15672,6 +15736,9 @@ func (m *IntentPromptVersionMutation) ClearedFields() []string {
 	if m.FieldCleared(intentpromptversion.FieldArchivedAt) {
 		fields = append(fields, intentpromptversion.FieldArchivedAt)
 	}
+	if m.FieldCleared(intentpromptversion.FieldDeletedAt) {
+		fields = append(fields, intentpromptversion.FieldDeletedAt)
+	}
 	return fields
 }
 
@@ -15691,6 +15758,9 @@ func (m *IntentPromptVersionMutation) ClearField(name string) error {
 		return nil
 	case intentpromptversion.FieldArchivedAt:
 		m.ClearArchivedAt()
+		return nil
+	case intentpromptversion.FieldDeletedAt:
+		m.ClearDeletedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown IntentPromptVersion nullable field %s", name)
@@ -15750,6 +15820,9 @@ func (m *IntentPromptVersionMutation) ResetField(name string) error {
 		return nil
 	case intentpromptversion.FieldArchivedAt:
 		m.ResetArchivedAt()
+		return nil
+	case intentpromptversion.FieldDeletedAt:
+		m.ResetDeletedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown IntentPromptVersion field %s", name)

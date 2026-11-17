@@ -71,6 +71,7 @@ func (h *Handler) RegisterUnifiedPrompts(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/prompts/{path...}", h.DispatchUnifiedGet)
 	mux.HandleFunc("POST /api/v1/prompts/{path...}", h.DispatchUnifiedPost)
 	mux.HandleFunc("PATCH /api/v1/prompts/{path...}", h.DispatchUnifiedPatch)
+	mux.HandleFunc("DELETE /api/v1/prompts/{path...}", h.DispatchUnifiedDelete)
 }
 
 func (h *Handler) DispatchUnifiedGet(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +112,15 @@ func (h *Handler) DispatchUnifiedPatch(w http.ResponseWriter, r *http.Request) {
 	parts := splitPromptPath(r.PathValue("path"))
 	if len(parts) == 2 && parts[0] == "versions" {
 		h.UpdateUnifiedPromptDraft(w, r)
+		return
+	}
+	common.WriteFailure(w, http.StatusNotFound, "Prompt 路由不存在")
+}
+
+func (h *Handler) DispatchUnifiedDelete(w http.ResponseWriter, r *http.Request) {
+	parts := splitPromptPath(r.PathValue("path"))
+	if len(parts) == 2 && parts[0] == "versions" {
+		h.DeleteUnifiedPromptVersion(w, r)
 		return
 	}
 	common.WriteFailure(w, http.StatusNotFound, "Prompt 路由不存在")
@@ -291,6 +301,44 @@ func (h *Handler) GetUnifiedPromptVersion(w http.ResponseWriter, r *http.Request
 		return
 	}
 	common.WriteSuccess(w, toUnifiedPromptVersion(rec))
+}
+
+// DeleteUnifiedPromptVersion soft-deletes one draft or archived local version.
+// Published and builtin versions are rejected; deleted versions disappear from
+// admin list and detail queries while remaining readable for historical snapshots.
+// DeleteUnifiedPromptVersion 软删除一个草稿或归档的本地版本；已发布与内置版本拒绝删除，
+// 已删除版本从管理列表与详情中消失，但仍可按版本 ID 读取以支持历史快照。
+func (h *Handler) DeleteUnifiedPromptVersion(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(pathVersionID(r), 10, 64)
+	if err != nil || id <= 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "Prompt 版本 id 无效")
+		return
+	}
+	if h.svcCtx.Prompts == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "Prompt 存储不可用")
+		return
+	}
+	botID, err := requiredBotID(r)
+	if err != nil {
+		common.WriteFailure(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.svcCtx.Prompts.DeleteVersion(r.Context(), id, botID); err != nil {
+		switch {
+		case errors.Is(err, intentinfra.ErrPromptNotFound):
+			common.WriteFailure(w, http.StatusNotFound, "Prompt 版本不存在")
+		case errors.Is(err, intentinfra.ErrPromptPublished):
+			common.WriteFailure(w, http.StatusConflict, "已发布版本不可删除，请先恢复内置或发布其他版本")
+		case errors.Is(err, intentinfra.ErrPromptBuiltin):
+			common.WriteFailure(w, http.StatusConflict, "内置版本不可删除")
+		case errors.Is(err, intentinfra.ErrPromptImmutable):
+			common.WriteFailure(w, http.StatusConflict, "只有草稿或归档版本可以删除")
+		default:
+			common.WriteFailure(w, http.StatusInternalServerError, "删除 Prompt 版本失败")
+		}
+		return
+	}
+	common.WriteSuccess(w, map[string]any{"ID": id})
 }
 
 func (h *Handler) CreateUnifiedPromptDraft(w http.ResponseWriter, r *http.Request) {

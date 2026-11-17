@@ -299,6 +299,26 @@ func (_u *IntentPromptVersionUpdate) ClearArchivedAt() *IntentPromptVersionUpdat
 	return _u
 }
 
+// SetDeletedAt sets the "deleted_at" field.
+func (_u *IntentPromptVersionUpdate) SetDeletedAt(v time.Time) *IntentPromptVersionUpdate {
+	_u.mutation.SetDeletedAt(v)
+	return _u
+}
+
+// SetNillableDeletedAt sets the "deleted_at" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdate) SetNillableDeletedAt(v *time.Time) *IntentPromptVersionUpdate {
+	if v != nil {
+		_u.SetDeletedAt(*v)
+	}
+	return _u
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (_u *IntentPromptVersionUpdate) ClearDeletedAt() *IntentPromptVersionUpdate {
+	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
 // Mutation returns the IntentPromptVersionMutation object of the builder.
 func (_u *IntentPromptVersionUpdate) Mutation() *IntentPromptVersionMutation {
 	return _u.mutation
@@ -410,6 +430,12 @@ func (_u *IntentPromptVersionUpdate) sqlSave(ctx context.Context) (_node int, er
 	}
 	if _u.mutation.ArchivedAtCleared() {
 		_spec.ClearField(intentpromptversion.FieldArchivedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.DeletedAt(); ok {
+		_spec.SetField(intentpromptversion.FieldDeletedAt, field.TypeTime, value)
+	}
+	if _u.mutation.DeletedAtCleared() {
+		_spec.ClearField(intentpromptversion.FieldDeletedAt, field.TypeTime)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
@@ -700,6 +726,26 @@ func (_u *IntentPromptVersionUpdateOne) ClearArchivedAt() *IntentPromptVersionUp
 	return _u
 }
 
+// SetDeletedAt sets the "deleted_at" field.
+func (_u *IntentPromptVersionUpdateOne) SetDeletedAt(v time.Time) *IntentPromptVersionUpdateOne {
+	_u.mutation.SetDeletedAt(v)
+	return _u
+}
+
+// SetNillableDeletedAt sets the "deleted_at" field if the given value is not nil.
+func (_u *IntentPromptVersionUpdateOne) SetNillableDeletedAt(v *time.Time) *IntentPromptVersionUpdateOne {
+	if v != nil {
+		_u.SetDeletedAt(*v)
+	}
+	return _u
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (_u *IntentPromptVersionUpdateOne) ClearDeletedAt() *IntentPromptVersionUpdateOne {
+	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
 // Mutation returns the IntentPromptVersionMutation object of the builder.
 func (_u *IntentPromptVersionUpdateOne) Mutation() *IntentPromptVersionMutation {
 	return _u.mutation
@@ -841,6 +887,12 @@ func (_u *IntentPromptVersionUpdateOne) sqlSave(ctx context.Context) (_node *Int
 	}
 	if _u.mutation.ArchivedAtCleared() {
 		_spec.ClearField(intentpromptversion.FieldArchivedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.DeletedAt(); ok {
+		_spec.SetField(intentpromptversion.FieldDeletedAt, field.TypeTime, value)
+	}
+	if _u.mutation.DeletedAtCleared() {
+		_spec.ClearField(intentpromptversion.FieldDeletedAt, field.TypeTime)
 	}
 	_node = &IntentPromptVersion{config: _u.config}
 	_spec.Assign = _node.assignValues
