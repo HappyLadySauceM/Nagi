@@ -106,6 +106,21 @@ describe('prompt content helpers', () => {
     expect(validatePromptContent('memory_extraction', 'openai', 'account', extraction)).toEqual([])
   })
 
+  it('allows the runtime variables target_id, sender_id and bot_id in System Prompt', () => {
+    const content: ManagedPromptContent = {
+      provider: 'openai',
+      openai: { systemPrompt: '{{bot_name}} {{scope_type}} {{target_id}} {{sender_id}} {{bot_id}}' },
+    }
+    expect(validatePromptContent('chat_reply', 'openai', 'account', content)).toEqual([])
+    const unknown = {
+      ...content,
+      openai: { systemPrompt: '{{bot_name}} {{chat_id}}' },
+    }
+    expect(validatePromptContent('chat_reply', 'openai', 'account', unknown)).toEqual([
+      'System Prompt 包含未识别变量 {{chat_id}}',
+    ])
+  })
+
   it('allows custom variables in System Prompt only when passed as extraVariables', () => {
     const content: ManagedPromptContent = {
       provider: 'openai',

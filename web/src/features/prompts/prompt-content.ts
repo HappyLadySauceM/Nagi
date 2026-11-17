@@ -155,7 +155,7 @@ export function validatePromptContent(
 ): string[] {
   const errors: string[] = []
   const account = scope === 'account'
-  const systemPromptAllowed = ['bot_name', 'scope_type', ...extraVariables]
+  const systemPromptAllowed = ['bot_name', 'scope_type', 'target_id', 'sender_id', 'bot_id', ...extraVariables]
   if (kind === 'chat_reply' || (kind === 'intent_participation' && provider === 'openai') || kind === 'memory_extraction') {
     const systemPrompt = content.openai?.systemPrompt ?? ''
     errors.push(...checkAllowedVariables(systemPrompt, systemPromptAllowed, 'System Prompt '))
