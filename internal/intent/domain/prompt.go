@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -29,11 +30,93 @@ const (
 )
 
 // PromptQuestion is one SystemOne typed question.
+// Role ties a score to a named built-in rule; Weight scales the aggregate
+// participation score and is only meaningful for noul questions.
 // PromptQuestion 是一个 SystemOne 类型化问题。
+// Role 将分数绑定到某个具名内置规则；Weight 缩放综合参与分，仅对 noul 问题有意义。
 type PromptQuestion struct {
 	Type         string
 	Instructions string
 	Criteria     map[string]string
+	Role         string
+	Weight       float64
+}
+
+// Prompt question role values. A named role maps a question onto the score used
+// by one built-in rule; custom questions only contribute to the aggregate score.
+// Prompt 问题角色取值。具名角色把问题映射到某条内置规则使用的分数；
+// custom 问题只参与综合分。
+const (
+	QuestionRoleDirectedToBot      = "directed_to_bot"
+	QuestionRoleContinuesBotThread = "continues_bot_thread"
+	QuestionRoleAddressedToOther   = "addressed_to_other"
+	QuestionRoleAppropriateToJoin  = "appropriate_to_join"
+	QuestionRoleIntent             = "intent"
+	QuestionRoleCustom             = "custom"
+)
+
+var knownQuestionRoles = map[string]struct{}{
+	QuestionRoleDirectedToBot:      {},
+	QuestionRoleContinuesBotThread: {},
+	QuestionRoleAddressedToOther:   {},
+	QuestionRoleAppropriateToJoin:  {},
+	QuestionRoleIntent:             {},
+	QuestionRoleCustom:             {},
+}
+
+// promptQuestionKeyPattern constrains question keys to stable identifiers.
+// promptQuestionKeyPattern 限定问题 key 为稳定标识符。
+var promptQuestionKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// IsKnownQuestionRole reports whether role is one of the supported values.
+// IsKnownQuestionRole 报告 role 是否为受支持的取值。
+func IsKnownQuestionRole(role string) bool {
+	_, ok := knownQuestionRoles[role]
+	return ok
+}
+
+// InferQuestionRole maps a stored question key to its role for prompts written
+// before the Role field existed. Non-standard keys are custom questions.
+// InferQuestionRole 为 Role 字段出现前写入的 Prompt 按 key 推断角色；
+// 非标准 key 视为 custom 问题。
+func InferQuestionRole(key string) string {
+	if IsKnownQuestionRole(key) && key != QuestionRoleCustom {
+		return key
+	}
+	return QuestionRoleCustom
+}
+
+// EffectiveQuestionRole returns the explicit role or the legacy inferred one.
+// EffectiveQuestionRole 返回显式角色，缺省时按 key 推断。
+func EffectiveQuestionRole(key string, q PromptQuestion) string {
+	if q.Role != "" {
+		return q.Role
+	}
+	return InferQuestionRole(key)
+}
+
+// DefaultQuestionWeight is the legacy default weight for one role. Addressed
+// questions are negative so they suppress the aggregate score.
+// DefaultQuestionWeight 是一个角色的旧版默认权重；对他人说话为负值，用于抑制综合分。
+func DefaultQuestionWeight(role string) float64 {
+	switch role {
+	case QuestionRoleAddressedToOther:
+		return -1
+	case QuestionRoleIntent:
+		return 0
+	default:
+		return 1
+	}
+}
+
+// EffectiveQuestionWeight returns the explicit weight or the legacy default. An
+// explicit zero excludes the question from the aggregate score.
+// EffectiveQuestionWeight 返回显式权重或旧版默认值；显式 0 表示该问题不计入综合分。
+func EffectiveQuestionWeight(key string, q PromptQuestion) float64 {
+	if q.Role == "" {
+		return DefaultQuestionWeight(InferQuestionRole(key))
+	}
+	return q.Weight
 }
 
 // SystemOnePrompt is the provider-specific SystemOne question set.
@@ -100,40 +183,62 @@ type PromptRecord struct {
 }
 
 // ValidateSystemOnePrompt rejects prompt content that cannot drive the typed
-// SystemOne contract. Prompt content is data: it cannot change permissions,
-// schema or the number of score dimensions.
+// SystemOne contract. Prompt content is data: it cannot change permissions or
+// the output schema. Questions may be added or removed, but keys, roles, types,
+// criteria and weights must stay within the documented rules; legacy content
+// without Role/Weight is accepted through key-based inference.
 // ValidateSystemOnePrompt 拒绝无法驱动类型化 SystemOne 契约的 Prompt 内容。
-// Prompt 是数据：它不能改变权限、schema 或评分维度数量。
+// Prompt 是数据：它不能改变权限或输出结构。问题可增删，但 key、角色、类型、
+// 条件与权重必须符合文档规则；没有 Role/Weight 的旧内容按 key 推断后接受。
 func ValidateSystemOnePrompt(p *SystemOnePrompt) error {
 	if p == nil || len(p.Questions) == 0 {
 		return errInvalidPrompt("systemone questions required")
 	}
-	required := map[string]string{
-		"directed_to_bot":      "noul",
-		"continues_bot_thread": "noul",
-		"addressed_to_other":   "noul",
-		"appropriate_to_join":  "noul",
-		"intent":               "choice",
+	if len(p.Questions) > 20 {
+		return errInvalidPrompt("at most 20 questions allowed")
 	}
-	for name, typ := range required {
-		q, ok := p.Questions[name]
-		if !ok || q.Type != typ || strings.TrimSpace(q.Instructions) == "" {
+	usedRoles := make(map[string]struct{}, len(p.Questions))
+	for _, name := range SortedQuestions(p.Questions) {
+		q := p.Questions[name]
+		if !promptQuestionKeyPattern.MatchString(name) {
+			return errInvalidPrompt("invalid question key " + name)
+		}
+		if strings.TrimSpace(q.Instructions) == "" {
 			return errInvalidPrompt("invalid question " + name)
 		}
-		if typ == "choice" && len(q.Criteria) == 0 {
+		if q.Type != "noul" && q.Type != "choice" {
+			return errInvalidPrompt("invalid question type " + name)
+		}
+		if q.Weight < -10 || q.Weight > 10 {
+			return errInvalidPrompt("question weight out of range " + name)
+		}
+		role := q.Role
+		if role == "" {
+			role = InferQuestionRole(name)
+		}
+		if !IsKnownQuestionRole(role) {
+			return errInvalidPrompt("unknown question role " + role)
+		}
+		if role == QuestionRoleIntent {
+			if q.Type != "choice" {
+				return errInvalidPrompt("intent question must be choice")
+			}
+			if _, ok := q.Criteria["closing"]; !ok {
+				return errInvalidPrompt("intent criteria must contain closing")
+			}
+		} else if q.Type != "noul" {
+			// Every non-intent role, including custom, is a noul score.
+			// 除 intent 外的角色（含 custom）都必须是 noul 分数。
+			return errInvalidPrompt("question " + name + " must be noul")
+		}
+		if q.Type == "choice" && len(q.Criteria) == 0 {
 			return errInvalidPrompt("choice criteria required")
 		}
-	}
-	if len(p.Questions) != len(required) {
-		return errInvalidPrompt("exactly five fixed questions required")
-	}
-	categoryKeys := map[string]struct{}{"question": {}, "chat": {}, "command": {}, "closing": {}, "other": {}}
-	if len(p.Questions["intent"].Criteria) != len(categoryKeys) {
-		return errInvalidPrompt("intent criteria keys are fixed")
-	}
-	for key := range categoryKeys {
-		if _, ok := p.Questions["intent"].Criteria[key]; !ok {
-			return errInvalidPrompt("missing intent category " + key)
+		if role != QuestionRoleCustom {
+			if _, duplicate := usedRoles[role]; duplicate {
+				return errInvalidPrompt("duplicate question role " + role)
+			}
+			usedRoles[role] = struct{}{}
 		}
 	}
 	return nil
@@ -168,12 +273,24 @@ func BuiltinPrompt(provider string) Prompt {
 		}
 	default:
 		p.SystemOne = &SystemOnePrompt{Questions: map[string]PromptQuestion{
-			"directed_to_bot":      {Type: "noul", Instructions: "当前发言是否明确是在向机器人说话？"},
-			"continues_bot_thread": {Type: "noul", Instructions: "这是否是对机器人最近发言的自然追问？"},
-			"addressed_to_other":   {Type: "noul", Instructions: "这是否主要是和另一位真人群友说话？"},
-			"appropriate_to_join":  {Type: "noul", Instructions: "在没有被点名的情况下，机器人此时插话是否自然且有帮助？"},
+			"directed_to_bot": {
+				Type: "noul", Role: QuestionRoleDirectedToBot, Weight: 1,
+				Instructions: "当前发言是否明确是在向机器人说话？",
+			},
+			"continues_bot_thread": {
+				Type: "noul", Role: QuestionRoleContinuesBotThread, Weight: 1,
+				Instructions: "这是否是对机器人最近发言的自然追问？",
+			},
+			"addressed_to_other": {
+				Type: "noul", Role: QuestionRoleAddressedToOther, Weight: -1,
+				Instructions: "这是否主要是和另一位真人群友说话？",
+			},
+			"appropriate_to_join": {
+				Type: "noul", Role: QuestionRoleAppropriateToJoin, Weight: 1,
+				Instructions: "在没有被点名的情况下，机器人此时插话是否自然且有帮助？",
+			},
 			"intent": {
-				Type:         "choice",
+				Type: "choice", Role: QuestionRoleIntent, Weight: 0,
 				Instructions: "当前消息的主要聊天功能是什么？",
 				Criteria: map[string]string{
 					"question": "求助或提问",

@@ -119,6 +119,64 @@ func (d *Decider) currentBotName() string {
 	return d.botName
 }
 
+// policyPrompt builds the intent prompt from the question set of the effective
+// participation policy version. It returns false so callers fall back to the
+// standard prompt path when no versioned question set exists.
+// policyPrompt 用生效参与策略版本的问题集构建意图 Prompt；
+// 没有版本化问题集时返回 false，由调用方回退到标准 Prompt 路径。
+func (d *Decider) policyPrompt(ctx context.Context, task domain.Task, runtime RuntimeConfig) (domain.Prompt, bool) {
+	// Only the Jev provider consumes the SystemOne question set; OpenAI keeps the
+	// original PromptService path.
+	// 仅 Jev 提供方使用 SystemOne 问题集；OpenAI 仍走原 PromptService 路径。
+	if d.rules == nil || runtime.Provider != domain.PromptProviderJev {
+		return domain.Prompt{}, false
+	}
+	set, hasSet, err := d.rules.Active(ctx, task.BotID, task.Kind, task.TargetID)
+	if err != nil {
+		// A read failure must not block the decision; fall back to the standard prompt.
+		// 读取失败不得阻塞决策；回退到标准 Prompt。
+		d.logger.Warn("load participation policy failed; using standard prompt", "error", err, "job_id", task.JobID)
+		return domain.Prompt{}, false
+	}
+	if !hasSet || len(set.Questions) == 0 {
+		set, hasSet, err = d.rules.Active(ctx, task.BotID, "group", 0)
+		if err != nil {
+			d.logger.Warn("load group participation policy failed; using standard prompt", "error", err, "job_id", task.JobID)
+			return domain.Prompt{}, false
+		}
+	}
+	if !hasSet || len(set.Questions) == 0 {
+		return domain.Prompt{}, false
+	}
+
+	base := domain.BuiltinPromptFor(domain.PromptKindIntentParticipation, domain.PromptProviderJev)
+	base.SystemOne = &domain.SystemOnePrompt{Questions: set.Questions}
+	base.ID = domain.PromptIDIntentParticipation
+	base.Kind = domain.PromptKindIntentParticipation
+	base.Provider = domain.PromptProviderJev
+	base.Version = set.Version
+	// Source marks a policy-version question set rather than an editor draft.
+	// Source 标明来源是策略版本问题集，而非编辑器草稿。
+	base.Source = domain.PromptSourceLocal
+	base.BotID = task.BotID
+	base.TargetType = task.Kind
+	base.TargetID = task.TargetID
+	base.Hash = domain.PromptHash(base)
+
+	variables := map[string]string{"scope_type": task.Kind, "sender_id": strconv.FormatInt(task.Message.SenderID, 10)}
+	if name := d.currentBotName(); name != "" {
+		variables["bot_name"] = name
+	}
+	// bot_id/target_id are available for question text and never override existing keys.
+	// bot_id/target_id 可供问题文本引用，且不覆盖已有键。
+	variables = fillRuntimePromptVariables(variables, task.BotID, task.Kind, task.TargetID)
+	base.Variables = variables
+	base.FinalHash = domain.PromptFinalHash(base)
+	base = domain.RenderPromptVariables(base, variables)
+	base.RenderedHash = domain.PromptHash(base)
+	return base, true
+}
+
 type TranscriptRecorder interface {
 	SaveTranscript(context.Context, int64, string, string) error
 }
@@ -258,9 +316,11 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		return err
 	}
 	prompt := domain.BuiltinPrompt(runtime.Provider)
-	if d.prompts != nil {
+	if p, ok := d.policyPrompt(ctx, task, runtime); ok {
+		prompt = p
+	} else if d.prompts != nil {
 		if layered, ok := d.prompts.(LayeredPromptProvider); ok {
-			variables := map[string]string{"scope_type": task.Kind}
+			variables := map[string]string{"scope_type": task.Kind, "sender_id": strconv.FormatInt(task.Message.SenderID, 10)}
 			if name := d.currentBotName(); name != "" {
 				variables["bot_name"] = name
 			}
@@ -757,6 +817,25 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 	return answer, latency
 }
 
+// promptHasCustomNoul reports whether the effective question set adds a custom
+// noul question with a non-zero weight. The aggregate participation fallback is
+// only meaningful in that case; the default five standard questions never count.
+// promptHasCustomNoul 报告生效问题集中是否存在自定义 noul 问题（有效权重≠0）。
+// 仅此情况下综合分兜底才有意义；默认五问都是标准角色，绝不计入。
+func promptHasCustomNoul(in domain.Input) bool {
+	if in.Prompt.SystemOne == nil {
+		return false
+	}
+	for key, q := range in.Prompt.SystemOne.Questions {
+		if q.Type == "noul" &&
+			domain.EffectiveQuestionRole(key, q) == domain.QuestionRoleCustom &&
+			domain.EffectiveQuestionWeight(key, q) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // applyPolicy computes the final decision inside its own span.
 // applyPolicy 在独立 span 内计算最终决策。
 func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.RuleResult,
@@ -765,6 +844,20 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
 	decision := EvaluateReplyPolicy(in, rule, semantic, runtime.Thresholds)
+	// The aggregate participation fallback is only meaningful when the effective
+	// question set adds a custom noul question. The default five standard
+	// questions never enable it, so lowering the interjection threshold cannot
+	// turn their ambiguous result into a reply: default behavior stays unchanged.
+	// 综合参与分兜底仅在生效问题集加入自定义 noul 问题时有意义。默认五问都是标准
+	// 角色，绝不启用该兜底，因此调低插话阈值也不会把默认场景的 ambiguous 改判为回复，
+	// 默认行为保持不变。
+	if decision.Decision == domain.DecisionSilent && decision.ReasonCode == "ambiguous" &&
+		in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
+		semantic.HasParticipation && semantic.ParticipationScore >= runtime.Thresholds.Interjection &&
+		promptHasCustomNoul(in) {
+		decision.Decision = domain.DecisionReply
+		decision.ReasonCode = "participation_score"
+	}
 	decision.Provider = runtime.Provider
 	decision.Model = runtime.Model
 	decision.LatencyMS = latency

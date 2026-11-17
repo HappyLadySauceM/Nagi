@@ -18371,6 +18371,8 @@ type IntentRulesetMutation struct {
 	published_at                              *time.Time
 	builtin_rules                             *jsontext.Value
 	appendbuiltin_rules                       jsontext.Value
+	questions                                 *jsontext.Value
+	appendquestions                           jsontext.Value
 	targets                                   *jsontext.Value
 	appendtargets                             jsontext.Value
 	deleted_at                                *time.Time
@@ -18902,6 +18904,57 @@ func (m *IntentRulesetMutation) ResetBuiltinRules() {
 	m.appendbuiltin_rules = nil
 }
 
+// SetQuestions sets the "questions" field.
+func (m *IntentRulesetMutation) SetQuestions(j jsontext.Value) {
+	m.questions = &j
+	m.appendquestions = nil
+}
+
+// Questions returns the value of the "questions" field in the mutation.
+func (m *IntentRulesetMutation) Questions() (r jsontext.Value, exists bool) {
+	v := m.questions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQuestions returns the old "questions" field's value of the IntentRuleset entity.
+// If the IntentRuleset object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRulesetMutation) OldQuestions(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQuestions is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQuestions requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQuestions: %w", err)
+	}
+	return oldValue.Questions, nil
+}
+
+// AppendQuestions adds j to the "questions" field.
+func (m *IntentRulesetMutation) AppendQuestions(j jsontext.Value) {
+	m.appendquestions = append(m.appendquestions, j...)
+}
+
+// AppendedQuestions returns the list of values that were appended to the "questions" field in this mutation.
+func (m *IntentRulesetMutation) AppendedQuestions() (jsontext.Value, bool) {
+	if len(m.appendquestions) == 0 {
+		return nil, false
+	}
+	return m.appendquestions, true
+}
+
+// ResetQuestions resets all changes to the "questions" field.
+func (m *IntentRulesetMutation) ResetQuestions() {
+	m.questions = nil
+	m.appendquestions = nil
+}
+
 // SetTargets sets the "targets" field.
 func (m *IntentRulesetMutation) SetTargets(j jsontext.Value) {
 	m.targets = &j
@@ -19144,7 +19197,7 @@ func (m *IntentRulesetMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *IntentRulesetMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 12)
 	if m.bot_id != nil {
 		fields = append(fields, intentruleset.FieldBotID)
 	}
@@ -19171,6 +19224,9 @@ func (m *IntentRulesetMutation) Fields() []string {
 	}
 	if m.builtin_rules != nil {
 		fields = append(fields, intentruleset.FieldBuiltinRules)
+	}
+	if m.questions != nil {
+		fields = append(fields, intentruleset.FieldQuestions)
 	}
 	if m.targets != nil {
 		fields = append(fields, intentruleset.FieldTargets)
@@ -19204,6 +19260,8 @@ func (m *IntentRulesetMutation) Field(name string) (ent.Value, bool) {
 		return m.PublishedAt()
 	case intentruleset.FieldBuiltinRules:
 		return m.BuiltinRules()
+	case intentruleset.FieldQuestions:
+		return m.Questions()
 	case intentruleset.FieldTargets:
 		return m.Targets()
 	case intentruleset.FieldDeletedAt:
@@ -19235,6 +19293,8 @@ func (m *IntentRulesetMutation) OldField(ctx context.Context, name string) (ent.
 		return m.OldPublishedAt(ctx)
 	case intentruleset.FieldBuiltinRules:
 		return m.OldBuiltinRules(ctx)
+	case intentruleset.FieldQuestions:
+		return m.OldQuestions(ctx)
 	case intentruleset.FieldTargets:
 		return m.OldTargets(ctx)
 	case intentruleset.FieldDeletedAt:
@@ -19310,6 +19370,13 @@ func (m *IntentRulesetMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetBuiltinRules(v)
+		return nil
+	case intentruleset.FieldQuestions:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQuestions(v)
 		return nil
 	case intentruleset.FieldTargets:
 		v, ok := value.(jsontext.Value)
@@ -19454,6 +19521,9 @@ func (m *IntentRulesetMutation) ResetField(name string) error {
 		return nil
 	case intentruleset.FieldBuiltinRules:
 		m.ResetBuiltinRules()
+		return nil
+	case intentruleset.FieldQuestions:
+		m.ResetQuestions()
 		return nil
 	case intentruleset.FieldTargets:
 		m.ResetTargets()

@@ -359,6 +359,34 @@ func TestResolveForKeepsStoredPromptAfterCustomVariableRetired(t *testing.T) {
 	}
 }
 
+func TestResolveForFillsRuntimeBotAndTargetIDs(t *testing.T) {
+	// ResolveFor 应从参数补齐 bot_id/target_id（并补 scope_type）后渲染，
+	// 使预览和运行路径都不再残留这些占位符。
+	published := domain.BuiltinPromptFor(domain.PromptKindChatReply, domain.PromptProviderOpenAI)
+	published.OpenAI.SystemPrompt = "bot={{bot_id}} target={{target_id}} scope={{scope_type}}"
+	repo := &layeredPromptRepo{accounts: []domain.PromptRecord{{
+		PromptID: domain.PromptIDChatReply, Kind: domain.PromptKindChatReply, Provider: domain.PromptProviderOpenAI,
+		BotID: 7, ScopeType: domain.PromptScopeAccount, Version: 2, Status: domain.PromptStatusPublished,
+		Source: domain.PromptSourceLocal, Hash: published.Hash, Content: domain.PromptContentJSON(published),
+	}}}
+	service := NewPromptService(repo, testLogger())
+	service.SetCustomVariables(func() map[string]string { return nil })
+
+	got := service.ResolveFor(context.Background(), domain.PromptIDChatReply, domain.PromptKindChatReply,
+		domain.PromptProviderOpenAI, 7, domain.PromptScopeGroup, 42, nil)
+	if got.FallbackReason != "" {
+		t.Fatalf("unexpected fallback: %q", got.FallbackReason)
+	}
+	if got.OpenAI == nil || strings.Contains(got.OpenAI.SystemPrompt, "{{") {
+		t.Fatalf("runtime variables not rendered: %+v", got.OpenAI)
+	}
+	for _, want := range []string{"bot=7", "target=42", "scope=group"} {
+		if !strings.Contains(got.OpenAI.SystemPrompt, want) {
+			t.Fatalf("missing %q in %q", want, got.OpenAI.SystemPrompt)
+		}
+	}
+}
+
 func TestResolveForStillRejectsUnknownVariableOnSave(t *testing.T) {
 	// 保存路径（CreateDraftFor）仍严格：未配置的变量必须被拒。
 	repo := &layeredPromptRepo{}

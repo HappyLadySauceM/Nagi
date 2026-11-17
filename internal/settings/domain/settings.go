@@ -212,7 +212,8 @@ var promptVariableNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // reservedPromptVariables cannot be redefined as custom variables; the runtime
 // provides them. reservedPromptVariables 不可作为自定义变量，由运行时提供。
 var reservedPromptVariables = map[string]struct{}{
-	"bot_name": {}, "scope_type": {}, "messages_json": {}, "state": {}, "question": {},
+	"bot_name": {}, "scope_type": {}, "target_id": {}, "sender_id": {}, "bot_id": {},
+	"messages_json": {}, "state": {}, "question": {},
 }
 
 // ValidationError carries one message per invalid field so the console can

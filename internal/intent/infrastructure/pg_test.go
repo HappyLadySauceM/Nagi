@@ -180,7 +180,7 @@ func TestRulesetMultiTargetPublishConflictAndRollback(t *testing.T) {
 	targets := []domain.RuleTarget{{Kind: "group", ID: 901}, {Kind: "private", ID: 902}}
 	off := false
 	entries := []domain.RuleEntry{{Priority: 0, Enabled: &off, Action: domain.RuleAction{Type: domain.ActionSilent, ReasonCode: "disabled"}}}
-	if err := repo.ReplaceEntries(ctx, first.ID, entries, RuleOptions{BuiltinRules: map[string]bool{"closing": false}, Targets: &targets}); err != nil {
+	if err := repo.ReplaceEntries(ctx, first.ID, &entries, RuleOptions{BuiltinRules: &map[string]bool{"closing": false}, Targets: &targets}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Publish(ctx, first.ID); err != nil {

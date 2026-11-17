@@ -37,6 +37,8 @@ type IntentRuleset struct {
 	PublishedAt *time.Time `json:"published_at,omitempty"`
 	// BuiltinRules holds the value of the "builtin_rules" field.
 	BuiltinRules jsontext.Value `json:"builtin_rules,omitempty"`
+	// Questions holds the value of the "questions" field.
+	Questions jsontext.Value `json:"questions,omitempty"`
 	// Targets holds the value of the "targets" field.
 	Targets jsontext.Value `json:"targets,omitempty"`
 	// DeletedAt holds the value of the "deleted_at" field.
@@ -81,7 +83,7 @@ func (*IntentRuleset) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case intentruleset.FieldBuiltinRules, intentruleset.FieldTargets:
+		case intentruleset.FieldBuiltinRules, intentruleset.FieldQuestions, intentruleset.FieldTargets:
 			values[i] = new([]byte)
 		case intentruleset.FieldID, intentruleset.FieldBotID, intentruleset.FieldScopeID, intentruleset.FieldVersion:
 			values[i] = new(sql.NullInt64)
@@ -165,6 +167,14 @@ func (_m *IntentRuleset) assignValues(columns []string, values []any) error {
 			} else if value != nil && len(*value) > 0 {
 				if err := json.Unmarshal(*value, &_m.BuiltinRules); err != nil {
 					return fmt.Errorf("unmarshal field builtin_rules: %w", err)
+				}
+			}
+		case intentruleset.FieldQuestions:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field questions", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Questions); err != nil {
+					return fmt.Errorf("unmarshal field questions: %w", err)
 				}
 			}
 		case intentruleset.FieldTargets:
@@ -256,6 +266,9 @@ func (_m *IntentRuleset) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("builtin_rules=")
 	builder.WriteString(fmt.Sprintf("%v", _m.BuiltinRules))
+	builder.WriteString(", ")
+	builder.WriteString("questions=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Questions))
 	builder.WriteString(", ")
 	builder.WriteString("targets=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Targets))

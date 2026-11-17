@@ -209,7 +209,7 @@ func TestEffectiveRulesDraftAndPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.ReplaceEntries(ctx, draft.ID, nil, intentinfra.RuleOptions{BuiltinRules: map[string]bool{"closing": false}}); err != nil {
+	if err := repo.ReplaceEntries(ctx, draft.ID, nil, intentinfra.RuleOptions{BuiltinRules: &map[string]bool{"closing": false}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -243,7 +243,7 @@ func TestEffectiveRulesDraftAndPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.ReplaceEntries(ctx, global.ID, nil, intentinfra.RuleOptions{BuiltinRules: map[string]bool{"continuation": false}}); err != nil {
+	if err := repo.ReplaceEntries(ctx, global.ID, nil, intentinfra.RuleOptions{BuiltinRules: &map[string]bool{"continuation": false}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Publish(ctx, global.ID); err != nil {

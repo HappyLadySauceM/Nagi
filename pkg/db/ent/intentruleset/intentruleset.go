@@ -33,6 +33,8 @@ const (
 	FieldPublishedAt = "published_at"
 	// FieldBuiltinRules holds the string denoting the builtin_rules field in the database.
 	FieldBuiltinRules = "builtin_rules"
+	// FieldQuestions holds the string denoting the questions field in the database.
+	FieldQuestions = "questions"
 	// FieldTargets holds the string denoting the targets field in the database.
 	FieldTargets = "targets"
 	// FieldDeletedAt holds the string denoting the deleted_at field in the database.
@@ -71,6 +73,7 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldPublishedAt,
 	FieldBuiltinRules,
+	FieldQuestions,
 	FieldTargets,
 	FieldDeletedAt,
 }
@@ -92,6 +95,8 @@ var (
 	DefaultCreatedAt func() time.Time
 	// DefaultBuiltinRules holds the default value on creation for the "builtin_rules" field.
 	DefaultBuiltinRules jsontext.Value
+	// DefaultQuestions holds the default value on creation for the "questions" field.
+	DefaultQuestions jsontext.Value
 	// DefaultTargets holds the default value on creation for the "targets" field.
 	DefaultTargets jsontext.Value
 )

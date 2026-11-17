@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   toBuiltinRuleCatalog,
+  toQuestionsRequest,
   toRuleEntriesRequest,
   toRulesEffective,
   toRuleset,
@@ -59,5 +60,22 @@ describe('rule wire boundary',()=>{
  })
  it('rejects invalid action values instead of showing an empty editor',()=>{
   expect(()=>toRuleset({...raw,Entries:[{...raw.Entries[0],Action:{type:'invalid'}}]})).toThrow()
+ })
+ it('parses the per-version question set and serialises PascalCase PATCH fields',()=>{
+  const set=toRuleset({...raw,Questions:{
+   directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1,Criteria:null},
+   intent:{Type:'choice',Instructions:'判断意图分类',Role:'intent',Criteria:{closing:'告别'}},
+  }})
+  expect(set.questions).toEqual({
+   directed_to_bot:{type:'noul',instructions:'是否指向机器人',role:'directed_to_bot',weight:1},
+   intent:{type:'choice',instructions:'判断意图分类',role:'intent',criteria:{closing:'告别'}},
+  })
+  expect(toQuestionsRequest(set.questions!)).toEqual({
+   directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1},
+   intent:{Type:'choice',Instructions:'判断意图分类',Criteria:{closing:'告别'},Role:'intent'},
+  })
+ })
+ it('defaults a missing question set to an empty map',()=>{
+  expect(toRuleset(raw).questions).toEqual({})
  })
 })

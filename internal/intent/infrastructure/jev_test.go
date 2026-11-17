@@ -160,3 +160,72 @@ func TestJevClientUsesPromptSnapshot(t *testing.T) {
 		t.Fatalf("questions did not use prompt snapshot: %q", gotInstruction)
 	}
 }
+
+// TestJevClientParsesCustomQuestionSet verifies parsing follows the configured
+// questions: custom noul questions land in Scores and drive the aggregate
+// participation score, and Role/Weight are not sent to the model.
+// TestJevClientParsesCustomQuestionSet 验证解析跟随配置的问题：custom noul 问题写入
+// Scores 并驱动综合分，且 Role/Weight 不会发送给模型。
+func TestJevClientParsesCustomQuestionSet(t *testing.T) {
+	var sentKeys map[string]map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Questions map[string]map[string]any `json:"questions"`
+		}
+		_ = readJSON(r, &body)
+		sentKeys = body.Questions
+		w.Write([]byte(`{"answers":{"intent":{"choice":"closing"},"urgency":{"noul":0.8}}}`))
+	}))
+	defer srv.Close()
+
+	in := testInput()
+	in.Prompt = domain.Prompt{SystemOne: &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{
+		"intent":  {Type: "choice", Role: domain.QuestionRoleIntent, Criteria: map[string]string{"closing": "告别"}},
+		"urgency": {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 10, Instructions: "是否紧急？"},
+	}}}
+	answer, err := testClient(t, srv.URL).Decide(context.Background(), in)
+	if err != nil {
+		t.Fatalf("decide: %v", err)
+	}
+	if !answer.Available || answer.IntentCategory != "closing" || answer.Scores["urgency"] != 0.8 {
+		t.Fatalf("answer = %+v", answer)
+	}
+	if !answer.RolePresent["intent"] {
+		t.Fatalf("intent role not present: %+v", answer.RolePresent)
+	}
+	if !answer.HasParticipation || answer.ParticipationScore < 0.8-1e-9 || answer.ParticipationScore > 0.8+1e-9 {
+		t.Fatalf("participation = %v/%v, want 0.8", answer.ParticipationScore, answer.HasParticipation)
+	}
+	for key, fields := range sentKeys {
+		if _, ok := fields["role"]; ok {
+			t.Fatalf("question %q leaked role to model: %+v", key, fields)
+		}
+		if _, ok := fields["weight"]; ok {
+			t.Fatalf("question %q leaked weight to model: %+v", key, fields)
+		}
+	}
+}
+
+// TestJevClientComputesParticipationFromDefaultQuestions verifies the built-in
+// five questions still populate named roles and a default-weighted aggregate.
+// TestJevClientComputesParticipationFromDefaultQuestions 验证内置五问仍填充具名角色，
+// 并按默认权重计算综合分。
+func TestJevClientComputesParticipationFromDefaultQuestions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(validAnswers))
+	}))
+	defer srv.Close()
+
+	answer, err := testClient(t, srv.URL).Decide(context.Background(), testInput())
+	if err != nil {
+		t.Fatalf("decide: %v", err)
+	}
+	if answer.Roles["addressed_to_other"] != 0.10 || !answer.RolePresent["directed_to_bot"] {
+		t.Fatalf("roles = %+v present=%+v", answer.Roles, answer.RolePresent)
+	}
+	// (0.42 + 0.88 - 0.10 + 0.30) / 4
+	want := (0.42 + 0.88 - 0.10 + 0.30) / 4
+	if !answer.HasParticipation || answer.ParticipationScore < want-1e-9 || answer.ParticipationScore > want+1e-9 {
+		t.Fatalf("participation = %v, want %v", answer.ParticipationScore, want)
+	}
+}

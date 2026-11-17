@@ -226,7 +226,7 @@ func TestGlobalPreviewPreservesActiveSpecificRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.ReplaceEntries(ctx, specific.ID, []intentdomain.RuleEntry{{Priority: 0, Action: intentdomain.RuleAction{Type: intentdomain.ActionSilent, ReasonCode: "specific_stop"}}}); err != nil {
+	if err := repo.ReplaceEntries(ctx, specific.ID, &[]intentdomain.RuleEntry{{Priority: 0, Action: intentdomain.RuleAction{Type: intentdomain.ActionSilent, ReasonCode: "specific_stop"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Publish(ctx, specific.ID); err != nil {
@@ -237,7 +237,7 @@ func TestGlobalPreviewPreservesActiveSpecificRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := []intentdomain.RuleEntry{{Priority: 0, Action: intentdomain.RuleAction{Type: intentdomain.ActionReply, ReasonCode: "global_reply"}}}
-	if err := repo.ReplaceEntries(ctx, global.ID, entries); err != nil {
+	if err := repo.ReplaceEntries(ctx, global.ID, &entries); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()

@@ -1,18 +1,61 @@
-import { useEffect, useRef, type MutableRefObject } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { Trash2 } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
+import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Select } from '../../components/ui/select'
 import { Textarea } from '../../components/ui/textarea'
 import type {
   ManagedPromptContent,
   ManagedPromptKind,
   ManagedPromptProvider,
   ManagedPromptQuestion,
+  ManagedPromptRole,
   ManagedPromptScope,
 } from '../../lib/api/contracts'
-import { JEV_QUESTIONS } from './prompt-content'
+import {
+  JEV_QUESTIONS,
+  PROMPT_ROLE_LABELS,
+  QUESTION_KEY_PATTERN,
+  STANDARD_PROMPT_ROLES,
+  inferRoleForKey,
+} from './prompt-content'
 
-/** Read-only render of one Prompt content, grouped by the fixed server schema.
- * 只读展示一份 Prompt 内容，按服务端固定 schema 分组。
+/** Card title for one question; custom questions include their editable key.
+ * 单个问题卡片的标题；自定义问题带上可编辑的 key。
+ */
+function questionTitle(key: string, question: ManagedPromptQuestion): string {
+  const role = question.role ?? inferRoleForKey(key)
+  return role === 'custom' ? `自定义问题（${key}）` : PROMPT_ROLE_LABELS[role]
+}
+
+/** Next unused custom key, e.g. custom_1, custom_2.
+ * 下一个未使用的自定义 key，例如 custom_1、custom_2。
+ */
+function nextCustomKey(questions: Record<string, ManagedPromptQuestion>): string {
+  let index = 1
+  while (`custom_${index}` in questions) {
+    index += 1
+  }
+  return `custom_${index}`
+}
+
+/** Builds a new question from the default template for a standard role.
+ * 依据默认模板为标准 Role 构造新问题。
+ */
+function addedQuestion(role: ManagedPromptRole): ManagedPromptQuestion {
+  const template = JEV_QUESTIONS.find((item) => item.role === role)
+  return {
+    type: template?.type ?? (role === 'intent' ? 'choice' : 'noul'),
+    instructions: '',
+    ...(template?.criteria ? { criteria: { ...template.criteria } } : {}),
+    role,
+    ...(template?.weight !== undefined ? { weight: template.weight } : {}),
+  }
+}
+
+/** Read-only render of one Prompt content, grouped by each stored question's role.
+ * 只读展示一份 Prompt 内容，按存储中每个问题的 Role 分组。
  */
 export function PromptContentView({
   kind,
@@ -27,26 +70,33 @@ export function PromptContentView({
 }) {
   if (kind === 'intent_participation' && provider === 'jev') {
     const questions = content.systemOne?.questions ?? {}
+    const entries = Object.entries(questions)
+    if (entries.length === 0) {
+      return <p className="text-sm text-muted-foreground">未记录</p>
+    }
     return (
       <div className="space-y-3">
-        {JEV_QUESTIONS.map((question) => {
-          const item = questions[question.key]
+        {entries.map(([key, item]) => {
+          const role = item.role ?? inferRoleForKey(key)
+          const title = questionTitle(key, item)
           return (
-            <div key={question.key} className="rounded-md border border-border p-3">
+            <div key={key} className="rounded-md border border-border p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">{question.label}</span>
-                <code className="text-xs text-muted-foreground">{question.key}</code>
-                <Badge variant="outline">{question.type === 'choice' ? 'choice' : 'noul'}</Badge>
+                <span className="text-sm font-medium">{title}</span>
+                {role === 'custom' ? null : (
+                  <code className="text-xs text-muted-foreground">{key}</code>
+                )}
+                <Badge variant="outline">{item.type}</Badge>
               </div>
               <p className="mt-2 whitespace-pre-wrap break-words text-sm">
-                {item?.instructions || '未记录'}
+                {item.instructions || '未记录'}
               </p>
-              {question.criteria && scope === 'account' ? (
+              {item.criteria && scope === 'account' ? (
                 <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                  {Object.entries(question.criteria).map(([key, label]) => (
-                    <div key={key} className="flex gap-2">
-                      <dt className="font-mono text-foreground/80">{key}</dt>
-                      <dd>{item?.criteria?.[key] || label}</dd>
+                  {Object.entries(item.criteria).map(([criterion, label]) => (
+                    <div key={criterion} className="flex gap-2">
+                      <dt className="font-mono text-foreground/80">{criterion}</dt>
+                      <dd>{label}</dd>
                     </div>
                   ))}
                 </dl>
@@ -135,7 +185,11 @@ function updateCriterion(
 export function PromptEditor({ kind, provider, scope, content, onChange, insertRef }: PromptEditorProps) {
   const account = scope === 'account'
   const isJev = kind === 'intent_participation' && provider === 'jev'
-  const defaultField = isJev ? `q:${JEV_QUESTIONS[0].key}` : 'systemPrompt'
+  const jevQuestions = content.systemOne?.questions ?? {}
+  const firstJevKey = Object.keys(jevQuestions)[0] ?? JEV_QUESTIONS[0].key
+  const defaultField = isJev ? `q:${firstJevKey}` : 'systemPrompt'
+  const [addRole, setAddRole] = useState<ManagedPromptRole | ''>('')
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
 
   // Keep the latest props reachable from the stable insert callback.
   // 让稳定的插入回调始终能读到最新的 props。
@@ -195,51 +249,177 @@ export function PromptEditor({ kind, provider, scope, content, onChange, insertR
     },
   })
 
+  const addQuestion = () => {
+    if (!addRole) {
+      return
+    }
+    const questions = { ...(content.systemOne?.questions ?? {}) }
+    const key = addRole === 'custom' ? nextCustomKey(questions) : addRole
+    if (key in questions) {
+      return
+    }
+    questions[key] =
+      addRole === 'custom'
+        ? { type: 'noul', instructions: '', role: 'custom', weight: 1 }
+        : addedQuestion(addRole)
+    onChange({ ...content, systemOne: { ...(content.systemOne ?? {}), questions } })
+    setAddRole('')
+  }
+
+  const renameQuestion = (oldKey: string, rawKey: string) => {
+    const nextKey = rawKey.replace(/[^A-Za-z0-9_]/g, '')
+    if (nextKey === '' || nextKey === oldKey || !QUESTION_KEY_PATTERN.test(nextKey)) {
+      return
+    }
+    const questions = { ...(content.systemOne?.questions ?? {}) }
+    if (nextKey in questions) {
+      return
+    }
+    const entries = Object.entries(questions).map(
+      ([key, item]) => [key === oldKey ? nextKey : key, item] as const,
+    )
+    onChange({ ...content, systemOne: { ...(content.systemOne ?? {}), questions: Object.fromEntries(entries) } })
+  }
+
+  const removeQuestion = (key: string) => {
+    const questions = { ...(content.systemOne?.questions ?? {}) }
+    delete questions[key]
+    onChange({ ...content, systemOne: { ...(content.systemOne ?? {}), questions } })
+    setPendingDelete(null)
+  }
+
   if (isJev) {
+    const entries = Object.entries(jevQuestions)
+    const usedRoles = new Set(entries.map(([key, item]) => item.role ?? inferRoleForKey(key)))
+    const availableStandardRoles = STANDARD_PROMPT_ROLES.filter((role) => !usedRoles.has(role))
     return (
       <div className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          题目 key、Type 与 Criteria 的输出 key 由服务端固定；页面只编辑 Instructions 与描述。补充层只能追加说明，不能新增题目或修改 Type/Criteria。
+          {account
+            ? '问题可增删；Role 决定对应的内置规则，删除标准 Role 后对应内置规则不再生效。'
+            : '补充层只能追加说明，不能新增题目或修改 Role/Type/Criteria。'}
         </p>
-        {JEV_QUESTIONS.map((question) => {
-          const item = content.systemOne?.questions?.[question.key]
+        {account ? (
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-xs text-muted-foreground">
+              <span>添加问题</span>
+              <Select
+                aria-label="添加问题类型"
+                value={addRole}
+                onChange={(event) => setAddRole(event.target.value as ManagedPromptRole | '')}
+                containerClassName="w-44"
+              >
+                <option value="">选择…</option>
+                {availableStandardRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {PROMPT_ROLE_LABELS[role]}
+                  </option>
+                ))}
+                <option value="custom">自定义问题</option>
+              </Select>
+            </label>
+            <Button type="button" size="sm" variant="outline" onClick={addQuestion} disabled={!addRole}>
+              添加
+            </Button>
+          </div>
+        ) : null}
+        {entries.map(([key, item]) => {
+          const role = item.role ?? inferRoleForKey(key)
+          const title = questionTitle(key, item)
           return (
-            <div key={question.key} className="space-y-2 rounded-md border border-border p-3">
+            <div key={key} className="space-y-2 rounded-md border border-border p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">{question.label}</span>
-                <code className="text-xs text-muted-foreground">{question.key}</code>
-                <Badge variant="outline">{question.type}</Badge>
+                <Badge variant="outline">{PROMPT_ROLE_LABELS[role]}</Badge>
+                {role === 'custom' && account ? (
+                  <Input
+                    aria-label="自定义问题 key"
+                    value={key}
+                    className="w-36"
+                    onChange={(event) => renameQuestion(key, event.target.value)}
+                  />
+                ) : (
+                  <code className="text-xs text-muted-foreground">{key}</code>
+                )}
+                <Badge variant="secondary">{item.type}</Badge>
+                {account ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto"
+                    aria-label={`删除 ${title}`}
+                    onClick={() => (role === 'custom' ? removeQuestion(key) : setPendingDelete(key))}
+                  >
+                    <Trash2 aria-hidden />
+                    删除
+                  </Button>
+                ) : null}
               </div>
               <Textarea
-                aria-label={`${question.label} Instructions`}
-                value={item?.instructions ?? ''}
-                {...fieldProps(`q:${question.key}`)}
+                aria-label={`${title} Instructions`}
+                value={item.instructions ?? ''}
+                {...fieldProps(`q:${key}`)}
                 onChange={(event) =>
-                  onChange(updateQuestion(content, question.key, { instructions: event.target.value }))
+                  onChange(updateQuestion(content, key, { instructions: event.target.value }))
                 }
                 placeholder={account ? '编辑题目描述' : '补充说明（追加到基础描述后）'}
               />
-              {account && question.criteria ? (
+              {account && item.type === 'noul' ? (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>Weight（-10 ~ 10）</span>
+                  <Input
+                    type="number"
+                    min={-10}
+                    max={10}
+                    step={1}
+                    aria-label={`${title} Weight`}
+                    className="w-24"
+                    value={item.weight ?? ''}
+                    onChange={(event) =>
+                      onChange(
+                        updateQuestion(content, key, {
+                          weight: event.target.value === '' ? undefined : Number(event.target.value),
+                        }),
+                      )
+                    }
+                  />
+                </label>
+              ) : null}
+              {account && item.type === 'choice' && item.criteria ? (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {Object.entries(question.criteria).map(([key, label]) => (
-                    <label key={key} className="space-y-1 text-xs text-muted-foreground">
+                  {Object.entries(item.criteria).map(([criterion, text]) => (
+                    <label key={criterion} className="space-y-1 text-xs text-muted-foreground">
                       <span>
-                        <code className="font-mono text-foreground/80">{key}</code> 描述
+                        <code className="font-mono text-foreground/80">{criterion}</code> 描述
                       </span>
                       <Input
-                        aria-label={`${question.label} ${key} 描述`}
-                        value={item?.criteria?.[key] ?? label}
+                        aria-label={`${title} ${criterion} 描述`}
+                        value={text}
                         onChange={(event) =>
-                          onChange(updateCriterion(content, question.key, key, event.target.value))
+                          onChange(updateCriterion(content, key, criterion, event.target.value))
                         }
                       />
                     </label>
                   ))}
                 </div>
               ) : null}
+              {account && pendingDelete === key ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <p>删除「{title}」后对应内置规则不再生效。</p>
+                  <div className="mt-2 flex gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => setPendingDelete(null)}>
+                      取消
+                    </Button>
+                    <Button type="button" size="sm" variant="destructive" onClick={() => removeQuestion(key)}>
+                      确认删除
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )
         })}
+        {entries.length === 0 ? <p className="text-sm text-muted-foreground">至少需要 1 个问题。</p> : null}
       </div>
     )
   }

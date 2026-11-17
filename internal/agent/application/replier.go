@@ -661,7 +661,7 @@ func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, his
 	}
 	basePrompt := fmt.Sprintf("你是 QQ %s中的智能助手「%s」。", chatChannel(task.Kind), name)
 	if r.prompts != nil {
-		prompt := r.prompts.ResolveFor(ctx, intentdomain.PromptIDChatReply, intentdomain.PromptKindChatReply, intentdomain.PromptProviderOpenAI, task.BotID, task.Kind, task.TargetID, map[string]string{"bot_name": name, "scope_type": task.Kind})
+		prompt := r.prompts.ResolveFor(ctx, intentdomain.PromptIDChatReply, intentdomain.PromptKindChatReply, intentdomain.PromptProviderOpenAI, task.BotID, task.Kind, task.TargetID, map[string]string{"bot_name": name, "scope_type": task.Kind, "sender_id": strconv.FormatInt(task.Message.SenderID, 10)})
 		if prompt.OpenAI != nil && strings.TrimSpace(prompt.OpenAI.SystemPrompt) != "" {
 			basePrompt = prompt.OpenAI.SystemPrompt
 		}

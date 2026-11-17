@@ -104,6 +104,33 @@ func TestBuiltinRuleCatalogPrivateApplicability(t *testing.T) {
 	}
 }
 
+// TestBuiltinRulesSkipWhenRoleAbsent verifies a rule whose named role was not
+// asked (RolePresent false) is skipped, so removing a question disables the
+// corresponding built-in rule instead of matching a zero-valued placeholder.
+// TestBuiltinRulesSkipWhenRoleAbsent 验证具名角色未被提问（RolePresent=false）时跳过该规则；
+// 删除问题即关闭对应内置规则，而不是匹配零值占位。
+func TestBuiltinRulesSkipWhenRoleAbsent(t *testing.T) {
+	in := baseInput(scopedomain.ModeIntentBased)
+	rule := EvaluateRules(in)
+	if !rule.NeedSemantic {
+		t.Fatalf("rules = %+v, want semantic path", rule)
+	}
+	absent := domain.SemanticAnswer{
+		Available: true, DirectedToBot: 0.99,
+		RolePresent: map[string]bool{"directed_to_bot": false},
+	}
+	if got := EvaluateReplyPolicy(in, rule, absent, thresholds); got.Decision != domain.DecisionSilent || got.ReasonCode != "ambiguous" {
+		t.Fatalf("absent role decision = %+v, want silent/ambiguous", got)
+	}
+	present := domain.SemanticAnswer{
+		Available: true, DirectedToBot: 0.99,
+		RolePresent: map[string]bool{"directed_to_bot": true},
+	}
+	if got := EvaluateReplyPolicy(in, rule, present, thresholds); got.ReasonCode != "directed_to_bot" {
+		t.Fatalf("present role decision = %+v, want directed_to_bot", got)
+	}
+}
+
 // TestFixedConstraintCatalogMatchesEvaluation verifies the displayed hard
 // constraints use the same order and reason codes as the live gate.
 // TestFixedConstraintCatalogMatchesEvaluation 验证展示的服务端硬约束与在线闸门使用相同顺序和原因码。

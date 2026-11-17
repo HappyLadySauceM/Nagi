@@ -97,6 +97,15 @@ func TestPromptVariableValidation(t *testing.T) {
 	}
 }
 
+func TestPromptVariableAllowSetAcceptsRuntimeVariables(t *testing.T) {
+	// 基础允许集应接受运行时提供的 bot_id/target_id/sender_id，与 bot_name、scope_type 同级。
+	p := BuiltinPromptFor(PromptKindChatReply, PromptProviderOpenAI)
+	p.OpenAI.SystemPrompt = "{{bot_name}} {{scope_type}} {{bot_id}} {{target_id}} {{sender_id}}"
+	if err := ValidatePromptForKind(PromptKindChatReply, PromptProviderOpenAI, &p); err != nil {
+		t.Fatalf("runtime variables rejected: %v", err)
+	}
+}
+
 func TestPromptFinalHashIncludesLayers(t *testing.T) {
 	p := BuiltinPromptFor(PromptKindChatReply, PromptProviderOpenAI)
 	p.Layers = []PromptLayer{{Layer: PromptLayerAccountDefault, VersionID: 1, Version: 1, Source: PromptSourceLocal, Hash: "a"}}
@@ -173,5 +182,132 @@ func TestParsePromptContentForWithVariablesAllowsExtra(t *testing.T) {
 	}
 	if !strings.Contains(parsed.OpenAI.SystemPrompt, "{{user_name}}") {
 		t.Fatalf("parsed = %+v", parsed.OpenAI)
+	}
+}
+
+// validIntentQuestion builds one intent choice question with the closing category.
+// validIntentQuestion 构造一个带 closing 分类的 intent choice 问题。
+func validIntentQuestion(instructions string) PromptQuestion {
+	return PromptQuestion{
+		Type: "choice", Role: QuestionRoleIntent, Instructions: instructions,
+		Criteria: map[string]string{"closing": "告别", "chat": "闲聊"},
+	}
+}
+
+// TestValidateSystemOnePromptSupportsAddedAndRemovedQuestions verifies a prompt
+// may drop standard roles and add custom noul questions without six fixed slots.
+// TestValidateSystemOnePromptSupportsAddedAndRemovedQuestions 验证 Prompt 可删除标准角色、
+// 新增 custom noul 问题，而不再强制五个固定槽位。
+func TestValidateSystemOnePromptSupportsAddedAndRemovedQuestions(t *testing.T) {
+	p := &SystemOnePrompt{Questions: map[string]PromptQuestion{
+		"directed_to_bot": {
+			Type: "noul", Role: QuestionRoleDirectedToBot, Weight: 2,
+			Instructions: "是否在对机器人说话？",
+		},
+		"intent":  validIntentQuestion("当前意图？"),
+		"urgency": {Type: "noul", Role: QuestionRoleCustom, Weight: 5, Instructions: "是否紧急？"},
+	}}
+	if err := ValidateSystemOnePrompt(p); err != nil {
+		t.Fatalf("added/removed question set rejected: %v", err)
+	}
+}
+
+// TestValidateSystemOnePromptRejectsInvalidSets covers the documented limits.
+// TestValidateSystemOnePromptRejectsInvalidSets 覆盖文档规定的各项限制。
+func TestValidateSystemOnePromptRejectsInvalidSets(t *testing.T) {
+	tooMany := make(map[string]PromptQuestion, 21)
+	for i := 0; i < 21; i++ {
+		key := "custom_q" + string(rune('a'+i))
+		tooMany[key] = PromptQuestion{Type: "noul", Role: QuestionRoleCustom, Weight: 1, Instructions: "问题"}
+	}
+	cases := map[string]*SystemOnePrompt{
+		"empty":    {Questions: map[string]PromptQuestion{}},
+		"too many": {Questions: tooMany},
+		"bad key":  {Questions: map[string]PromptQuestion{"1bad": {Type: "noul", Role: QuestionRoleCustom, Instructions: "x"}}},
+		"empty instructions": {Questions: map[string]PromptQuestion{
+			"note": {Type: "noul", Role: QuestionRoleCustom, Instructions: "  "},
+		}},
+		"intent not choice": {Questions: map[string]PromptQuestion{
+			"intent": {Type: "noul", Role: QuestionRoleIntent, Instructions: "x"},
+		}},
+		"intent missing closing": {Questions: map[string]PromptQuestion{
+			"intent": {Type: "choice", Role: QuestionRoleIntent, Instructions: "x", Criteria: map[string]string{"chat": "闲聊"}},
+		}},
+		"custom choice": {Questions: map[string]PromptQuestion{
+			"note": {Type: "choice", Role: QuestionRoleCustom, Instructions: "x", Criteria: map[string]string{"a": "b"}},
+		}},
+		"duplicate role": {Questions: map[string]PromptQuestion{
+			"directed_to_bot": {Type: "noul", Role: QuestionRoleDirectedToBot, Instructions: "x"},
+			"directed_again":  {Type: "noul", Role: QuestionRoleDirectedToBot, Instructions: "y"},
+		}},
+		"weight out of range": {Questions: map[string]PromptQuestion{
+			"note": {Type: "noul", Role: QuestionRoleCustom, Weight: 11, Instructions: "x"},
+		}},
+		"unknown role": {Questions: map[string]PromptQuestion{
+			"note": {Type: "noul", Role: "weird", Instructions: "x"},
+		}},
+	}
+	for name, p := range cases {
+		if err := ValidateSystemOnePrompt(p); err == nil {
+			t.Fatalf("%s: expected rejection", name)
+		}
+	}
+}
+
+// TestLegacyQuestionRolesInferred verifies prompts stored before Role/Weight keep
+// working through key-based role inference and default weights.
+// TestLegacyQuestionRolesInferred 验证 Role/Weight 之前存储的 Prompt 通过 key 推断角色与
+// 默认权重继续可用。
+func TestLegacyQuestionRolesInferred(t *testing.T) {
+	legacy := &SystemOnePrompt{Questions: map[string]PromptQuestion{
+		"directed_to_bot":      {Type: "noul", Instructions: "a"},
+		"continues_bot_thread": {Type: "noul", Instructions: "b"},
+		"addressed_to_other":   {Type: "noul", Instructions: "c"},
+		"appropriate_to_join":  {Type: "noul", Instructions: "d"},
+		"intent": {
+			Type: "choice", Instructions: "e",
+			Criteria: map[string]string{"question": "q", "chat": "c", "command": "m", "closing": "x", "other": "o"},
+		},
+	}}
+	if err := ValidateSystemOnePrompt(legacy); err != nil {
+		t.Fatalf("legacy prompt rejected: %v", err)
+	}
+	if got := EffectiveQuestionRole("directed_to_bot", legacy.Questions["directed_to_bot"]); got != QuestionRoleDirectedToBot {
+		t.Fatalf("directed role = %q", got)
+	}
+	if got := EffectiveQuestionWeight("directed_to_bot", legacy.Questions["directed_to_bot"]); got != 1 {
+		t.Fatalf("directed weight = %v, want 1", got)
+	}
+	if got := EffectiveQuestionWeight("addressed_to_other", legacy.Questions["addressed_to_other"]); got != -1 {
+		t.Fatalf("addressed weight = %v, want -1", got)
+	}
+	if got := EffectiveQuestionRole("custom_extra", PromptQuestion{Type: "noul"}); got != QuestionRoleCustom {
+		t.Fatalf("unknown key role = %q, want custom", got)
+	}
+}
+
+// TestBuiltinQuestionsCarryRolesAndWeights verifies the built-in five questions
+// are explicit so their behavior does not depend on inference.
+// TestBuiltinQuestionsCarryRolesAndWeights 验证内置五问显式带角色与权重，不依赖推断。
+func TestBuiltinQuestionsCarryRolesAndWeights(t *testing.T) {
+	questions := BuiltinPrompt(PromptProviderJev).SystemOne.Questions
+	want := map[string]struct {
+		role   string
+		weight float64
+	}{
+		"directed_to_bot":      {QuestionRoleDirectedToBot, 1},
+		"continues_bot_thread": {QuestionRoleContinuesBotThread, 1},
+		"addressed_to_other":   {QuestionRoleAddressedToOther, -1},
+		"appropriate_to_join":  {QuestionRoleAppropriateToJoin, 1},
+		"intent":               {QuestionRoleIntent, 0},
+	}
+	for key, expected := range want {
+		q, ok := questions[key]
+		if !ok {
+			t.Fatalf("missing built-in question %q", key)
+		}
+		if q.Role != expected.role || q.Weight != expected.weight {
+			t.Fatalf("question %q role/weight = %q/%v, want %q/%v", key, q.Role, q.Weight, expected.role, expected.weight)
+		}
 	}
 }

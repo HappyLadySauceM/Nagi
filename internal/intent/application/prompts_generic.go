@@ -42,6 +42,7 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 	// Custom variables are the baseline; dynamic caller values win on conflicts.
 	// 自定义变量作为基线；同名时调用方传入的动态值优先。
 	variables = mergePromptVariables(s.customVariableMap(), variables)
+	variables = fillRuntimePromptVariables(variables, botID, targetType, targetID)
 	extra := s.customVariableNames()
 	if kind == "" {
 		kind, _ = domain.PromptKindForID(promptID)
@@ -218,6 +219,35 @@ func mergePromptVariables(base, override map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+// fillRuntimePromptVariables adds runtime values derived from ResolveFor
+// arguments without overriding keys already present in variables.
+// fillRuntimePromptVariables 补齐由 ResolveFor 参数得到的运行时变量，
+// 不覆盖 variables 中已存在的键。
+func fillRuntimePromptVariables(variables map[string]string, botID int64, targetType string, targetID int64) map[string]string {
+	set := func(key, value string) {
+		if value == "" {
+			return
+		}
+		if _, ok := variables[key]; ok {
+			return
+		}
+		if variables == nil {
+			variables = make(map[string]string)
+		}
+		variables[key] = value
+	}
+	if botID > 0 {
+		set("bot_id", fmt.Sprintf("%d", botID))
+	}
+	if targetID > 0 {
+		set("target_id", fmt.Sprintf("%d", targetID))
+	}
+	if targetType != "" {
+		set("scope_type", targetType)
+	}
+	return variables
 }
 
 func decodePromptSupplement(kind, provider string, content json.RawMessage, extra []string) (domain.Prompt, error) {
