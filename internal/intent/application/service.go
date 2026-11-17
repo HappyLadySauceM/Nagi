@@ -757,6 +757,25 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 	return answer, latency
 }
 
+// promptHasCustomNoul reports whether the effective question set adds a custom
+// noul question with a non-zero weight. The aggregate participation fallback is
+// only meaningful in that case; the default five standard questions never count.
+// promptHasCustomNoul 报告生效问题集中是否存在自定义 noul 问题（有效权重≠0）。
+// 仅此情况下综合分兜底才有意义；默认五问都是标准角色，绝不计入。
+func promptHasCustomNoul(in domain.Input) bool {
+	if in.Prompt.SystemOne == nil {
+		return false
+	}
+	for key, q := range in.Prompt.SystemOne.Questions {
+		if q.Type == "noul" &&
+			domain.EffectiveQuestionRole(key, q) == domain.QuestionRoleCustom &&
+			domain.EffectiveQuestionWeight(key, q) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // applyPolicy computes the final decision inside its own span.
 // applyPolicy 在独立 span 内计算最终决策。
 func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.RuleResult,
@@ -765,6 +784,20 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
 	decision := EvaluateReplyPolicy(in, rule, semantic, runtime.Thresholds)
+	// The aggregate participation fallback is only meaningful when the effective
+	// question set adds a custom noul question. The default five standard
+	// questions never enable it, so lowering the interjection threshold cannot
+	// turn their ambiguous result into a reply: default behavior stays unchanged.
+	// 综合参与分兜底仅在生效问题集加入自定义 noul 问题时有意义。默认五问都是标准
+	// 角色，绝不启用该兜底，因此调低插话阈值也不会把默认场景的 ambiguous 改判为回复，
+	// 默认行为保持不变。
+	if decision.Decision == domain.DecisionSilent && decision.ReasonCode == "ambiguous" &&
+		in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
+		semantic.HasParticipation && semantic.ParticipationScore >= runtime.Thresholds.Interjection &&
+		promptHasCustomNoul(in) {
+		decision.Decision = domain.DecisionReply
+		decision.ReasonCode = "participation_score"
+	}
 	decision.Provider = runtime.Provider
 	decision.Model = runtime.Model
 	decision.LatencyMS = latency

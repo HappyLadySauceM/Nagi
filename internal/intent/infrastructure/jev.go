@@ -67,35 +67,26 @@ type jevQuestion struct {
 	Criteria     map[string]string `json:"criteria,omitempty"`
 }
 
-// defaultQuestions follows the documented question set for chat participation.
-// defaultQuestions 遵循文档定义的聊天参与问题集。
-func defaultQuestions() map[string]jevQuestion {
-	return map[string]jevQuestion{
-		"directed_to_bot":      {Type: "noul", Instructions: "当前发言是否明确是在向机器人说话？"},
-		"continues_bot_thread": {Type: "noul", Instructions: "这是否是对机器人最近发言的自然追问？"},
-		"addressed_to_other":   {Type: "noul", Instructions: "这是否主要是在和另一位真人群友说话？"},
-		"appropriate_to_join":  {Type: "noul", Instructions: "在没有被点名的情况下，机器人此时插话是否自然且有帮助？"},
-		"intent": {
-			Type:         "choice",
-			Instructions: "当前消息的主要聊天功能是什么？",
-			Criteria: map[string]string{
-				"question": "求助或提问",
-				"chat":     "普通闲聊或讨论",
-				"command":  "明确提出执行动作",
-				"closing":  "告别、结束或不再期待回复",
-				"other":    "无法归入以上类型",
-			},
-		},
+// questionSpecsFor resolves the effective question configuration for a call.
+// The selected prompt snapshot wins; the built-in prompt is the local fallback
+// and carries the documented roles and weights.
+// questionSpecsFor 解析一次调用生效的问题配置。选定 Prompt 快照优先；
+// 内置 Prompt 是本地兜底，并带有文档定义的角色与权重。
+func questionSpecsFor(in domain.Input) map[string]domain.PromptQuestion {
+	if in.Prompt.SystemOne != nil && len(in.Prompt.SystemOne.Questions) > 0 {
+		return in.Prompt.SystemOne.Questions
 	}
+	return domain.BuiltinPrompt(domain.PromptProviderJev).SystemOne.Questions
 }
 
 // Decide builds the state payload, calls the API and parses answers defensively.
 // Decide 构建状态负载、调用 API 并防御性地解析回答。
 func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error) {
+	specs := questionSpecsFor(in)
 	payload := map[string]any{
 		"model":     c.cfg.Model,
 		"state":     c.buildState(in),
-		"questions": questionsFor(in),
+		"questions": questionsFromSpecs(specs),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -133,18 +124,16 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
 		return domain.SemanticAnswer{}, fmt.Errorf("jev: decode response: %w", err)
 	}
-	return parseAnswers(parsed.Answers)
+	return parseAnswers(parsed.Answers, specs)
 }
 
-// questionsFor uses the selected prompt snapshot; the built-in question set is
-// the final local fallback and never depends on the prompt store.
-// questionsFor 使用选定的 Prompt 快照；内置问题集是最终本地兜底，不依赖 Prompt 存储。
-func questionsFor(in domain.Input) map[string]jevQuestion {
-	if in.Prompt.SystemOne == nil || len(in.Prompt.SystemOne.Questions) == 0 {
-		return defaultQuestions()
-	}
-	out := make(map[string]jevQuestion, len(in.Prompt.SystemOne.Questions))
-	for name, q := range in.Prompt.SystemOne.Questions {
+// questionsFromSpecs maps the effective question configuration to the SystemOne
+// wire payload. Role and Weight are local metadata and are not sent to the model.
+// questionsFromSpecs 把生效的问题配置映射为 SystemOne 请求载荷；
+// Role 与 Weight 是本地元数据，不发送给模型。
+func questionsFromSpecs(specs map[string]domain.PromptQuestion) map[string]jevQuestion {
+	out := make(map[string]jevQuestion, len(specs))
+	for name, q := range specs {
 		out[name] = jevQuestion{Type: q.Type, Instructions: q.Instructions, Criteria: q.Criteria}
 	}
 	return out
@@ -180,13 +169,24 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	}
 }
 
-// parseAnswers extracts noul scores and the choice category; missing, malformed
-// or out-of-range values make the whole answer unusable.
-// parseAnswers 提取 noul 分数与 choice 分类；缺失、畸形或越界的值使整个回答不可用。
-func parseAnswers(answers map[string]json.RawMessage) (domain.SemanticAnswer, error) {
-	out := domain.SemanticAnswer{}
+// parseAnswers extracts one answer per configured question; missing, malformed
+// or out-of-range noul values make the whole answer unusable. Named-role scores
+// also fill Roles, RolePresent and the legacy named fields; every noul question
+// with a non-zero weight contributes to the aggregate participation score.
+// parseAnswers 为每个已配置问题提取回答；noul 缺失、畸形或越界都会使整个回答不可用。
+// 具名角色分数同时写入 Roles、RolePresent 与旧具名字段；每个非零权重的 noul 问题
+// 都计入综合参与分。
+func parseAnswers(answers map[string]json.RawMessage, questions map[string]domain.PromptQuestion) (domain.SemanticAnswer, error) {
+	out := domain.SemanticAnswer{
+		Scores:      make(map[string]float64, len(questions)),
+		Roles:       make(map[string]float64),
+		RolePresent: make(map[string]bool),
+	}
 	if len(answers) == 0 {
 		return out, fmt.Errorf("jev: empty answers")
+	}
+	if len(questions) == 0 {
+		return out, fmt.Errorf("jev: no questions configured")
 	}
 	noul := func(name string) (float64, error) {
 		raw, ok := answers[name]
@@ -204,44 +204,83 @@ func parseAnswers(answers map[string]json.RawMessage) (domain.SemanticAnswer, er
 		}
 		return *v.Noul, nil
 	}
-	var err error
-	if out.DirectedToBot, err = noul("directed_to_bot"); err != nil {
-		return out, err
+	choice := func(name string) (string, error) {
+		raw, ok := answers[name]
+		if !ok {
+			return "", fmt.Errorf("jev: answer %s missing", name)
+		}
+		var v struct {
+			Choice   string `json:"choice"`
+			Label    string `json:"label"`
+			Category string `json:"category"`
+		}
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return "", fmt.Errorf("jev: answer %s is not a choice value", name)
+		}
+		for _, value := range []string{v.Choice, v.Label, v.Category} {
+			if value != "" {
+				return value, nil
+			}
+		}
+		// A choice answer with no resolvable category is a malformed response.
+		// choice 回答解析不出任何分类即视为畸形响应。
+		return "", fmt.Errorf("jev: answer %s has no category", name)
 	}
-	if out.ContinuesBotThread, err = noul("continues_bot_thread"); err != nil {
-		return out, err
+	var numerator, denominator float64
+	terms := 0
+	for name, q := range questions {
+		role := domain.EffectiveQuestionRole(name, q)
+		switch q.Type {
+		case "noul":
+			value, err := noul(name)
+			if err != nil {
+				return out, err
+			}
+			out.Scores[name] = value
+			if role != domain.QuestionRoleCustom && domain.IsKnownQuestionRole(role) {
+				out.Roles[role] = value
+				out.RolePresent[role] = true
+				assignNamedScore(&out, role, value)
+			}
+			if weight := domain.EffectiveQuestionWeight(name, q); weight != 0 {
+				numerator += weight * value
+				denominator += math.Abs(weight)
+				terms++
+			}
+		case "choice":
+			category, err := choice(name)
+			if err != nil {
+				return out, err
+			}
+			if role != domain.QuestionRoleCustom && domain.IsKnownQuestionRole(role) {
+				out.RolePresent[role] = true
+			}
+			if role == domain.QuestionRoleIntent {
+				out.IntentCategory = category
+			}
+		default:
+			return out, fmt.Errorf("jev: answer %s has unsupported type %q", name, q.Type)
+		}
 	}
-	if out.AddressedToOther, err = noul("addressed_to_other"); err != nil {
-		return out, err
-	}
-	if out.AppropriateToJoin, err = noul("appropriate_to_join"); err != nil {
-		return out, err
-	}
-	raw, ok := answers["intent"]
-	if !ok {
-		return out, fmt.Errorf("jev: answer intent missing")
-	}
-	var choice struct {
-		Choice   string `json:"choice"`
-		Label    string `json:"label"`
-		Category string `json:"category"`
-	}
-	if err := json.Unmarshal(raw, &choice); err != nil {
-		return out, fmt.Errorf("jev: answer intent is not a choice value")
-	}
-	out.IntentCategory = choice.Choice
-	if out.IntentCategory == "" {
-		out.IntentCategory = choice.Label
-	}
-	if out.IntentCategory == "" {
-		out.IntentCategory = choice.Category
-	}
-	if out.IntentCategory == "" {
-		// A choice answer with no resolvable category is a malformed response,
-		// not a usable one.
-		// choice 回答解析不出任何分类即视为畸形响应，而非可用回答。
-		return out, fmt.Errorf("jev: answer intent has no category")
+	if terms > 0 {
+		out.ParticipationScore = numerator / denominator
+		out.HasParticipation = true
 	}
 	out.Available = true
 	return out, nil
+}
+
+// assignNamedScore copies a named-role noul score into its legacy field.
+// assignNamedScore 把具名角色的 noul 分数写入对应的旧具名字段。
+func assignNamedScore(out *domain.SemanticAnswer, role string, value float64) {
+	switch role {
+	case domain.QuestionRoleDirectedToBot:
+		out.DirectedToBot = value
+	case domain.QuestionRoleContinuesBotThread:
+		out.ContinuesBotThread = value
+	case domain.QuestionRoleAddressedToOther:
+		out.AddressedToOther = value
+	case domain.QuestionRoleAppropriateToJoin:
+		out.AppropriateToJoin = value
+	}
 }

@@ -607,3 +607,71 @@ func TestProcessTaskUsesLayeredIntentPrompt(t *testing.T) {
 		t.Fatalf("semantic prompt = %+v calls=%d", semantic.input.Prompt, semantic.calls)
 	}
 }
+
+// TestParticipationScoreFallbackForCustomQuestionSet verifies the aggregate
+// participation score replies only when no built-in rule matched and the score
+// reaches the interjection threshold, while a lower score stays ambiguous.
+// TestParticipationScoreFallbackForCustomQuestionSet 验证在内置规则都未命中时，
+// 综合参与分达到插话阈值才回复，低于阈值仍判定 ambiguous。
+func TestParticipationScoreFallbackForCustomQuestionSet(t *testing.T) {
+	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{
+		Available: true, HasParticipation: true, ParticipationScore: 0.97,
+		RolePresent: map[string]bool{}, Scores: map[string]float64{"urgency": 0.97},
+	}}
+	d := newDecider(t, Options{
+		Scopes:   &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
+		Semantic: semantic, Recorder: &fakeRecorder{}, Thresholds: thresholds, Provider: "jev", Model: "jev-latest",
+	})
+	in := baseInput(scopedomain.ModeIntentBased)
+	// A custom noul question is what makes the aggregate fallback meaningful.
+	in.Prompt = domain.Prompt{SystemOne: &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{
+		"urgency": {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 5, Instructions: "是否紧急？"},
+	}}}
+	rule := EvaluateRules(in)
+	if !rule.NeedSemantic {
+		t.Fatalf("rules = %+v, want semantic path", rule)
+	}
+
+	final, _ := d.EvaluateSimulation(context.Background(), in, rule, true)
+	if final.Decision != domain.DecisionReply || final.ReasonCode != "participation_score" {
+		t.Fatalf("high participation decision = %+v, want reply/participation_score", final)
+	}
+
+	semantic.answer.ParticipationScore = 0.50
+	low, _ := d.EvaluateSimulation(context.Background(), in, rule, true)
+	if low.Decision != domain.DecisionSilent || low.ReasonCode != "ambiguous" {
+		t.Fatalf("low participation decision = %+v, want silent/ambiguous", low)
+	}
+}
+
+// TestParticipationScoreFallbackSkippedForDefaultQuestions verifies a very low
+// interjection threshold never lets the aggregate score turn the default five
+// standard questions' ambiguous result into a reply.
+// TestParticipationScoreFallbackSkippedForDefaultQuestions 验证极低的插话阈值也不会让综合分
+// 把默认五问的 ambiguous 结果改判为回复。
+func TestParticipationScoreFallbackSkippedForDefaultQuestions(t *testing.T) {
+	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{
+		Available: true, HasParticipation: true, ParticipationScore: 0.90,
+		RolePresent: map[string]bool{"directed_to_bot": false},
+	}}
+	lowThresholds := domain.Thresholds{Continuation: 0.80, Interjection: 0.01, AddressedOtherMax: 0.60}
+	d := newDecider(t, Options{
+		Scopes:   &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
+		Semantic: semantic, Recorder: &fakeRecorder{}, Thresholds: lowThresholds, Provider: "jev", Model: "jev-latest",
+	})
+	// Default five standard questions: no custom noul question present.
+	in := baseInput(scopedomain.ModeIntentBased)
+	in.Prompt = domain.BuiltinPrompt(domain.PromptProviderJev)
+	rule := EvaluateRules(in)
+	if !rule.NeedSemantic {
+		t.Fatalf("rules = %+v, want semantic path", rule)
+	}
+	final, _ := d.EvaluateSimulation(context.Background(), in, rule, true)
+	if final.Decision != domain.DecisionSilent || final.ReasonCode != "ambiguous" {
+		t.Fatalf("default questions with low threshold = %+v, want silent/ambiguous", final)
+	}
+}

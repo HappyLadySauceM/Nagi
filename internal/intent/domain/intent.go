@@ -147,7 +147,14 @@ func (in Input) BotRepliesLastHour() int {
 }
 
 // SemanticAnswer holds the Jev answer values; Available=false means unusable.
+// Scores maps every configured noul question key to its 0..1 value. Roles,
+// RolePresent and the named fields below mirror the configured named roles so
+// built-in rules can run only when their role was actually asked. Participation
+// Score is the weighted aggregate over noul questions with a non-zero weight.
 // SemanticAnswer 持有 Jev 回答值；Available=false 表示不可用。
+// Scores 把每个已配置的 noul 问题 key 映射到 0..1 分值。Roles、RolePresent 与下方
+// 具名字段对应已配置的具名角色，使内置规则仅在其角色确实被提问时运行。
+// ParticipationScore 是非零权重 noul 问题的加权综合分。
 type SemanticAnswer struct {
 	FailureCode        string
 	Available          bool
@@ -156,6 +163,11 @@ type SemanticAnswer struct {
 	AddressedToOther   float64
 	AppropriateToJoin  float64
 	IntentCategory     string
+	Scores             map[string]float64
+	Roles              map[string]float64
+	RolePresent        map[string]bool
+	ParticipationScore float64
+	HasParticipation   bool
 }
 
 // Thresholds holds the calibrated decision thresholds.

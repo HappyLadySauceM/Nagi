@@ -66,7 +66,7 @@ func BuiltinRules() []BuiltinRuleDefinition {
 			Action: ActionSilent, ReasonCode: "closing", Editable: true, Source: "builtin",
 			scope: BuiltinRuleScopeAll,
 			matches: func(_ Input, semantic SemanticAnswer, _ Thresholds) bool {
-				return semantic.IntentCategory == "closing"
+				return questionRolePresent(semantic, QuestionRoleIntent) && semantic.IntentCategory == "closing"
 			},
 		},
 		{
@@ -75,7 +75,7 @@ func BuiltinRules() []BuiltinRuleDefinition {
 			Action:    ActionSilent, ReasonCode: "addressed_to_other", Editable: true, Source: "builtin",
 			scope: BuiltinRuleScopeGroup,
 			matches: func(_ Input, semantic SemanticAnswer, th Thresholds) bool {
-				return semantic.AddressedToOther >= th.AddressedOtherMax
+				return questionRolePresent(semantic, QuestionRoleAddressedToOther) && semantic.AddressedToOther >= th.AddressedOtherMax
 			},
 		},
 		{
@@ -84,7 +84,7 @@ func BuiltinRules() []BuiltinRuleDefinition {
 			Action:    ActionReply, ReasonCode: "active_thread_continuation", Editable: true, Source: "builtin",
 			scope: BuiltinRuleScopeGroup,
 			matches: func(_ Input, semantic SemanticAnswer, th Thresholds) bool {
-				return semantic.ContinuesBotThread >= th.Continuation
+				return questionRolePresent(semantic, QuestionRoleContinuesBotThread) && semantic.ContinuesBotThread >= th.Continuation
 			},
 		},
 		{
@@ -93,7 +93,9 @@ func BuiltinRules() []BuiltinRuleDefinition {
 			Action:    ActionReply, ReasonCode: "interjection", Editable: true, Source: "builtin",
 			scope: BuiltinRuleScopeGroup,
 			matches: func(in Input, semantic SemanticAnswer, th Thresholds) bool {
-				return in.Policy.ReplyMode == scopedomain.ModeIntentBased && semantic.AppropriateToJoin >= th.Interjection
+				return in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
+					questionRolePresent(semantic, QuestionRoleAppropriateToJoin) &&
+					semantic.AppropriateToJoin >= th.Interjection
 			},
 		},
 		{
@@ -102,10 +104,24 @@ func BuiltinRules() []BuiltinRuleDefinition {
 			Action:    ActionReply, ReasonCode: "directed_to_bot", Editable: true, Source: "builtin",
 			scope: BuiltinRuleScopeGroup,
 			matches: func(_ Input, semantic SemanticAnswer, th Thresholds) bool {
-				return semantic.DirectedToBot >= th.Continuation
+				return questionRolePresent(semantic, QuestionRoleDirectedToBot) && semantic.DirectedToBot >= th.Continuation
 			},
 		},
 	}
+}
+
+// questionRolePresent reports whether a named role contributed a score. A nil
+// RolePresent means the answer predates dynamic questions or was built by a
+// legacy caller; the named score is then treated as present so the original
+// five-question behavior is unchanged. Non-nil maps only report configured roles.
+// questionRolePresent 报告具名角色是否产生了分数。RolePresent 为 nil 表示回答早于
+// 动态问题或由旧调用方构造；此时按存在处理，保持原有五问行为不变。
+// 非 nil 映射只报告已配置的角色。
+func questionRolePresent(semantic SemanticAnswer, role string) bool {
+	if semantic.RolePresent == nil {
+		return true
+	}
+	return semantic.RolePresent[role]
 }
 
 // FixedConstraints returns the server-owned hard constraints in evaluation
