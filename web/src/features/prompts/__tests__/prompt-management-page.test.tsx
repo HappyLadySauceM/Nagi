@@ -18,6 +18,8 @@ vi.mock('../../accounts/account-context', () => ({
 
 const mockedRequest = vi.mocked(apiRequest)
 
+vi.mock('../role-settings-card', () => ({ RoleSettingsCard: () => null }))
+
 const catalog = {
   Items: [
     {
@@ -119,37 +121,6 @@ const detail = {
   ],
 }
 
-const jevQuestions = {
-  directed_to_bot: { Type: 'noul', Instructions: '指向机器人？' },
-  continues_bot_thread: { Type: 'noul', Instructions: '续聊？' },
-  addressed_to_other: { Type: 'noul', Instructions: '对他人？' },
-  appropriate_to_join: { Type: 'noul', Instructions: '插话？' },
-  intent: { Type: 'choice', Instructions: '功能？', Criteria: { question: '提问', chat: '闲聊', command: '动作', closing: '告别', other: '其它' } },
-}
-
-function intentDetail(provider: string) {
-  const content =
-    provider === 'jev'
-      ? { Provider: 'jev', SystemOne: { Questions: jevQuestions } }
-      : { Provider: 'openai', OpenAI: { SystemPrompt: '判定器', UserTemplate: '{{state}}\n{{question}}', ResponseShape: 'single-letter' } }
-  return {
-    PromptID: 'intent.participation',
-    Kind: 'intent_participation',
-    Provider: provider,
-    Builtin: { Version: 1, Status: 'builtin', Source: 'builtin', Hash: 'sha256:intent-builtin', Content: content },
-    Active: {
-      ...version({}),
-      ID: 20,
-      PromptID: 'intent.participation',
-      Kind: 'intent_participation',
-      Provider: provider,
-      Version: 3,
-      Content: content,
-    },
-    Versions: [],
-  }
-}
-
 const effective = {
   PromptID: 'chat.reply',
   Kind: 'chat_reply',
@@ -185,6 +156,9 @@ beforeEach(() => {
     if (path.includes('/rollback')) {
       return Promise.resolve({ Version: version({ ID: 10, Status: 'published' }), ArchivedVersionID: 12 })
     }
+    if (path === '/api/v1/prompts/versions/13?bot_id=998001') {
+      return Promise.resolve({})
+    }
     if (path.includes('/restore-builtin')) {
       return Promise.resolve({
         PromptID: 'chat.reply',
@@ -208,10 +182,6 @@ beforeEach(() => {
       })
     }
     if (path.includes('/effective')) return Promise.resolve(effective)
-    if (path.match(/\/api\/v1\/prompts\/intent\.participation\?/)) {
-      const url = new URL(path, 'http://local')
-      return Promise.resolve(intentDetail(url.searchParams.get('provider') ?? 'jev'))
-    }
     if (path.match(/\/api\/v1\/prompts\/chat\.reply\?/)) {
       return Promise.resolve(path.includes('scope_type=group') ? { ...detail, Active: null, Versions: [] } : detail)
     }
@@ -234,14 +204,14 @@ afterEach(() => {
 })
 
 describe('PromptManagementPage', () => {
-  it('shows builtin, active and draft states across the three layers', async () => {
+  it('shows only chat reply and memory extraction prompts without the old status cards', async () => {
     renderPage()
-    expect(await screen.findByText('内置默认')).toBeTruthy()
-    expect(screen.getAllByText('实际生效').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('编辑草稿').length).toBeGreaterThan(0)
+    expect(await screen.findByText('账号默认')).toBeVisible()
     expect(screen.getByRole('button', { name: /聊天回复/ })).toBeVisible()
-    expect(screen.getByRole('button', { name: /意图判断/ })).toBeVisible()
     expect(screen.getByRole('button', { name: /记忆抽取/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /意图判断/ })).toBeNull()
+    expect(screen.queryByText('实际生效')).toBeNull()
+    expect(screen.queryByText('编辑草稿')).toBeNull()
     expect(screen.getByText('账号默认')).toBeVisible()
     expect(screen.getByText('群聊类型补充')).toBeVisible()
     expect(screen.getByText('私聊类型补充')).toBeVisible()
@@ -295,21 +265,6 @@ describe('PromptManagementPage', () => {
     )
   })
 
-  it('selects the catalog entry for the active provider and switches protocol fields', async () => {
-    renderPage()
-    fireEvent.click(await screen.findByRole('button', { name: /意图判断/ }))
-    await screen.findByText('指向机器人')
-    fireEvent.change(screen.getByLabelText('意图 Prompt Provider'), { target: { value: 'openai' } })
-    await screen.findByText('UserTemplate')
-    await waitFor(() =>
-      expect(mockedRequest).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/prompts/intent.participation?'),
-        expect.anything(),
-      ),
-    )
-    expect(mockedRequest.mock.calls.some(([path]) => String(path).includes('provider=openai'))).toBe(true)
-  })
-
   it('shows an empty supplement instead of the account builtin for a supplement layer', async () => {
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /群聊类型补充/ }))
@@ -318,12 +273,33 @@ describe('PromptManagementPage', () => {
     expect(screen.queryByText(/内置默认 v1/)).toBeNull()
   })
 
-  it('shows the layered effective result for a real target', async () => {
+  it('opens the layered result and knowledge preview in right-side drawers', async () => {
     renderPage()
-    fireEvent.change(await screen.findByLabelText('生效目标 ID'), { target: { value: '700' } })
+    fireEvent.click(await screen.findByRole('button', { name: '打开分层结果' }))
+    expect(await screen.findByRole('dialog')).toBeVisible()
+    fireEvent.change(screen.getByLabelText('生效目标 ID'), { target: { value: '700' } })
     fireEvent.click(screen.getByRole('button', { name: '查看分层结果' }))
     expect(await screen.findByText('最终内容')).toBeVisible()
     expect(screen.getByText(/server_constraints/)).toBeVisible()
     expect(mockedRequest.mock.calls.some(([path]) => String(path).includes('/effective') && String(path).includes('target_id=700'))).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '打开知识上下文预览' }))
+    expect(await screen.findByRole('button', { name: '示例预览' })).toBeVisible()
+    expect(screen.getByText('真实上下文预览')).toBeVisible()
+  })
+
+  it('deletes draft or archived versions only after confirmation', async () => {
+    renderPage()
+    expect(screen.queryByRole('button', { name: '删除 Prompt v2' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: '删除 Prompt v3' }))
+    expect(await screen.findByText('删除 Prompt 版本？')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    await waitFor(() =>
+      expect(mockedRequest).toHaveBeenCalledWith(
+        '/api/v1/prompts/versions/13?bot_id=998001',
+        expect.objectContaining({ method: 'DELETE' }),
+      ),
+    )
   })
 })

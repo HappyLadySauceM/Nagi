@@ -303,4 +303,19 @@ export function useRestorePromptBuiltin() {
   })
 }
 
+export function useDeletePromptVersion() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { botId: number; versionId: number }) =>
+      apiRequest(
+        `${PROMPTS_ENDPOINT}/versions/${input.versionId}?bot_id=${input.botId}`,
+        { method: 'DELETE' },
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['prompts', 'catalog'] })
+      void client.invalidateQueries({ queryKey: ['prompts', 'detail'] })
+    },
+  })
+}
+
 export type { ManagedPromptKind }
