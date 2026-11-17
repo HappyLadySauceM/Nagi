@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Cpu, History, SlidersHorizontal, UserRound, Workflow } from 'lucide-react'
+import { History, SlidersHorizontal, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAccountContext } from '../accounts/account-context'
-import { useModels, modelReady } from '../settings/models'
 import { useSystemSettings } from '../settings/queries'
 import { SettingsCard } from '../settings/components/settings-card'
-import { NumberField, TextField, SwitchField } from '../settings/components/fields'
+import { NumberField, SwitchField } from '../settings/components/fields'
 import { Button } from '../../components/ui/button'
 import { FeedbackState } from '../../components/feedback-state'
 import { Input } from '../../components/ui/input'
@@ -18,21 +16,18 @@ import { queryKeys } from '../../lib/query-keys'
 import type {
   SettingsContext,
   SettingsIntent,
-  SettingsRole,
   SystemSettings,
 } from '../../lib/api/contracts'
 import { useEditGuard } from './edit-guard'
 import { useEffectiveRules } from './rules-queries'
 
 interface ConfigDraft {
-  role: SettingsRole
   context: SettingsContext
   intent: SettingsIntent
 }
 
 function pickConfig(settings: SystemSettings): ConfigDraft {
   return {
-    role: { ...settings.role },
     context: { ...settings.context },
     intent: { ...settings.intent },
   }
@@ -44,7 +39,6 @@ function serialize(draft: ConfigDraft | null): string {
 
 function IntentConfigForm() {
   const query = useSystemSettings()
-  const models = useModels()
   const { selectedBotId } = useAccountContext()
   const effective = useEffectiveRules(
     selectedBotId !== undefined
@@ -77,7 +71,6 @@ function IntentConfigForm() {
         body: {
           Version: version,
           Sections: {
-            Role: { BotName: draft.role.botName },
             Context: { HistoryLimit: draft.context.historyLimit },
             Intent: {
               Enabled: draft.intent.enabled,
@@ -116,9 +109,6 @@ function IntentConfigForm() {
   const continuationOff = isRuleOff('continuation') && isRuleOff('directed_to_bot')
   const interjectionOff = isRuleOff('interjection')
   const addressedOtherOff = isRuleOff('addressed_to_other')
-  const intentModel = models.data?.Catalog.Profiles.find(
-    (profile) => profile.ID === models.data?.Catalog.Defaults.intent,
-  )
   const configErrors = useMemo(() => {
     const errors: Record<string, string> = {}
     if (!draft) return errors
@@ -156,13 +146,14 @@ function IntentConfigForm() {
 
   return (
     <form
-      className="max-w-3xl space-y-4"
+      className="space-y-4"
       onSubmit={(event) => {
         event.preventDefault()
         if (!dirty || change.isPending || hasConfigErrors) return
         change.mutate()
       }}
     >
+      <div className="grid gap-4 lg:grid-cols-2">
       <SettingsCard
         id="intent-pipeline"
         title="回复决策流水线"
@@ -176,23 +167,6 @@ function IntentConfigForm() {
           description="控制消息是否进入回复判断。关闭后不会自动回复，也不会触发模型生成；消息仍按会话策略入库。"
           checked={draft.intent.enabled}
           onChange={(enabled) => updateIntent({ enabled })}
-        />
-      </SettingsCard>
-
-      <SettingsCard
-        id="intent-role"
-        title="角色设置"
-        description="机器人身份会同时用于意图判断与回复生成。"
-        icon={UserRound}
-        tag="共享"
-      >
-        <TextField
-          id="intent-bot-name"
-          label="机器人自称"
-          value={draft.role.botName}
-          onChange={(botName) => setDraft({ ...draft, role: { botName } })}
-          placeholder="例如 Nagi"
-          hint="同时用于意图判断（消息是否指向机器人）和回复生成（回复中的自称）。"
         />
       </SettingsCard>
 
@@ -215,43 +189,7 @@ function IntentConfigForm() {
           error={configErrors['Context.HistoryLimit']}
         />
       </SettingsCard>
-
-      <SettingsCard
-        id="intent-model"
-        title="意图模型"
-        description="模型连接、地址、超时与凭证由模型目录统一维护。"
-        icon={Cpu}
-        tag="模型目录"
-      >
-        {models.isLoading ? (
-          <p role="status" className="py-2 text-sm text-muted-foreground">
-            正在读取模型目录…
-          </p>
-        ) : models.isError ? (
-          <p role="alert" className="py-2 text-sm text-destructive">
-            读取模型目录失败，请到系统配置检查。
-          </p>
-        ) : (
-          <div className="rounded-lg border border-border bg-secondary/20 p-3">
-            <p className="text-sm font-medium">
-              {intentModel ? intentModel.Name : '未选择默认意图模型'}
-            </p>
-            <p className="mt-1 text-meta text-muted-foreground">
-              {intentModel
-                ? modelReady(models.data?.Catalog, 'intent')
-                  ? '已配置并测试通过。'
-                  : '模型已选择，但尚未通过连接测试。'
-                : '语义判断将降级为规则判断。'}
-            </p>
-            <Link className="mt-2 inline-block text-sm underline" to="/settings">
-              前往模型配置
-            </Link>
-          </div>
-        )}
-        <p className="mt-2 text-meta leading-relaxed text-muted-foreground">
-          本页不再重复维护接口地址、模型名或请求超时；这些字段只以模型目录为唯一来源。
-        </p>
-      </SettingsCard>
+      </div>
 
       <SettingsCard
         id="intent-group-thresholds"

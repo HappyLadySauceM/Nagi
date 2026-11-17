@@ -1,6 +1,7 @@
 import { useModels, modelReady } from '../settings/models'
 import { allowWorkspaceChange } from './edit-guard'
 import { IntentConfig } from './config'
+import { PromptManagementPage } from '../prompts/prompt-management-page'
 import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -32,7 +33,7 @@ const KIND_VARIANTS: Record<DecisionEntry['decision'], 'success' | 'secondary' |
 }
 const TABS = [
   ['overview', '运行概览'], ['rules', '规则管理'],
-  ['simulate', '模拟验证'], ['config','识别配置'],
+  ['simulate', '模拟验证'], ['prompts', '意图提示词'], ['config','识别配置'],
 ] as const
 type IntentTab = typeof TABS[number][0]
 
@@ -72,6 +73,7 @@ function IntentWorkspace() {
         {tab === 'overview' ? <IntentOverview onViewAll={() => { void navigate({ to: '/decisions/history' }) }} /> : null}
         {tab === 'rules' ? <RulesPage embedded /> : null}
         {tab === 'simulate' ? <SimulationPanel /> : null}
+        {tab === 'prompts' ? <PromptManagementPage kinds={['intent_participation']} initialKind="intent_participation" /> : null}
  {tab === 'config' ? <IntentConfig/> : null}
       </div>
     </div>

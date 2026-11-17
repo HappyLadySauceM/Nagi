@@ -72,9 +72,15 @@ function scopeSummary(
 /** Three-layer Prompt management: builtin, active and editable drafts per account/scope/provider.
  * 三层 Prompt 管理：按账号/层级/provider 展示内置、实际生效与可编辑草稿。
  */
-export function PromptManagementPage() {
+export function PromptManagementPage({
+  kinds = KINDS,
+  initialKind = kinds[0],
+}: {
+  kinds?: ManagedPromptKind[]
+  initialKind?: ManagedPromptKind
+} = {}) {
   const { selectedBotId, selectedAccount } = useAccountContext()
-  const [kind, setKind] = useState<ManagedPromptKind>('chat_reply')
+  const [kind, setKind] = useState<ManagedPromptKind>(initialKind)
   const [scope, setScope] = useState<ManagedPromptScope>('account')
   const [intentProvider, setIntentProvider] = useState<ManagedPromptProvider>('jev')
   const provider: ManagedPromptProvider = kind === 'intent_participation' ? intentProvider : 'openai'
@@ -235,7 +241,7 @@ export function PromptManagementPage() {
       />
 
       <Card className="flex flex-row flex-wrap items-center gap-2 p-2">
-        {KINDS.map((value) => (
+        {kinds.map((value) => (
           <Button
             key={value}
             type="button"

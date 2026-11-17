@@ -326,4 +326,18 @@ describe('PromptManagementPage', () => {
     expect(screen.getByText(/server_constraints/)).toBeVisible()
     expect(mockedRequest.mock.calls.some(([path]) => String(path).includes('/effective') && String(path).includes('target_id=700'))).toBe(true)
   })
+
+  it('can render only the intent prompt group for the intent module', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <PromptManagementPage kinds={['intent_participation']} initialKind="intent_participation" />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByRole('button', { name: /意图判断/ })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /聊天回复/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /记忆抽取/ })).toBeNull()
+  })
 })
