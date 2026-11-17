@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +51,11 @@ type PromptService struct {
 	remote RemotePromptClient
 	logger *slog.Logger
 
+	// customVariables yields the live user-defined prompt variables; nil means
+	// none are configured. customVariables 提供实时用户自定义 Prompt 变量；
+	// 为 nil 表示未配置。
+	customVariables func() map[string]string
+
 	mu       sync.Mutex
 	attempts map[string]promptSyncAttempt
 }
@@ -74,6 +81,41 @@ func NewPromptService(repo PromptRepository, logger *slog.Logger, remote ...Remo
 		svc.remote = remote[0]
 	}
 	return svc
+}
+
+// SetCustomVariables wires the live custom prompt variables; the callback is
+// read on every resolve so console edits apply without a restart.
+// SetCustomVariables 接入实时自定义 Prompt 变量；每次解析都会读取该回调，
+// 控制台的改动因此无需重启即可生效。
+func (s *PromptService) SetCustomVariables(fn func() map[string]string) {
+	if s == nil {
+		return
+	}
+	s.customVariables = fn
+}
+
+// customVariableMap returns the current custom variables, nil-safe.
+// customVariableMap 返回当前自定义变量，nil 安全。
+func (s *PromptService) customVariableMap() map[string]string {
+	if s == nil || s.customVariables == nil {
+		return nil
+	}
+	return s.customVariables()
+}
+
+// customVariableNames returns the sorted custom variable names for validation.
+// customVariableNames 返回排序后的自定义变量名，供校验使用。
+func (s *PromptService) customVariableNames() []string {
+	variables := s.customVariableMap()
+	if len(variables) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(variables))
+	for name := range variables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Resolve returns a runtime prompt. Any local failure falls back to the
@@ -432,17 +474,16 @@ func validatePromptForProvider(provider string, content domain.Prompt) error {
 // DecodePromptRequest parses a provider-specific intent prompt from admin JSON.
 // DecodePromptRequest 从管理 JSON 解析提供方专属意图 Prompt。
 func DecodePromptRequest(provider string, raw json.RawMessage) (domain.Prompt, error) {
-	return DecodePromptRequestFor(domain.PromptKindIntentParticipation, provider, raw)
+	return domain.ParsePromptContentFor(domain.PromptKindIntentParticipation, provider, raw)
 }
 
-// DecodePromptRequestFor parses one kind/provider prompt from admin JSON.
-// DecodePromptRequestFor 从管理 JSON 解析指定 kind/provider 的 Prompt。
+// DecodePromptRequestFor parses one kind/provider prompt from admin JSON. It
+// defers variable-name checking to the draft service, which knows the live
+// custom variables; structure and provider shape are still validated here.
+// DecodePromptRequestFor 从管理 JSON 解析指定 kind/provider 的 Prompt；
+// 变量名检查延后到草稿服务（它掌握实时自定义变量），此处仍校验结构与提供方形态。
 func DecodePromptRequestFor(kind, provider string, raw json.RawMessage) (domain.Prompt, error) {
-	p, err := domain.ParsePromptContentFor(kind, provider, raw)
-	if err != nil {
-		return domain.Prompt{}, err
-	}
-	return p, nil
+	return domain.ParsePromptContentForWithVariables(kind, provider, raw, promptContentVariableRefs(raw))
 }
 
 // DecodePromptSupplementRequestFor parses additive-only group/private supplement content.
@@ -462,11 +503,41 @@ func DecodePromptSupplementRequestFor(kind, provider string, raw json.RawMessage
 		return domain.Prompt{}, fmt.Errorf("intent: invalid prompt: provider mismatch")
 	}
 	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: payload.SystemOne, OpenAI: payload.OpenAI}
-	if err := domain.ValidatePromptSupplement(kind, provider, &p); err != nil {
+	if err := domain.ValidatePromptSupplementWithVariables(kind, provider, &p, promptContentVariableRefs(raw)); err != nil {
 		return domain.Prompt{}, err
 	}
 	return p, nil
 }
+
+// promptContentVariableRefs extracts the variable names referenced in raw admin
+// JSON so a decode does not reject custom variables before the service can
+// check them against the live custom variable set.
+// promptContentVariableRefs 提取管理 JSON 中引用的变量名，
+// 使解码不会在服务按实时自定义变量集复核之前误拒自定义变量。
+func promptContentVariableRefs(raw []byte) []string {
+	matches := promptVariableRefPattern.FindAllSubmatch(raw, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(matches))
+	names := make([]string, 0, len(matches))
+	for _, match := range matches {
+		name := strings.TrimSpace(string(match[1]))
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names
+}
+
+// promptVariableRefPattern matches one {{variable}} reference inside admin JSON.
+// promptVariableRefPattern 匹配管理 JSON 中的一个 {{variable}} 引用。
+var promptVariableRefPattern = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
 
 var ErrPromptStoreUnavailable = errors.New("intent: prompt store unavailable")
 

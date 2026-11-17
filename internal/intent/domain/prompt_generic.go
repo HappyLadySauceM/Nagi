@@ -146,7 +146,17 @@ func builtinPromptName(kind string) string {
 
 // ValidatePromptForKind checks the editable content against the fixed server
 // contract. Prompt content cannot change permissions or output schema.
+// ValidatePromptForKind 依据固定的服务端契约校验可编辑内容；
+// Prompt 内容不能改变权限或输出结构。
 func ValidatePromptForKind(kind, provider string, p *Prompt) error {
+	return ValidatePromptForKindWithVariables(kind, provider, p, nil)
+}
+
+// ValidatePromptForKindWithVariables is ValidatePromptForKind plus extra custom
+// variable names that the system prompt may reference.
+// ValidatePromptForKindWithVariables 在 ValidatePromptForKind 基础上，
+// 允许 System Prompt 引用额外的自定义变量名。
+func ValidatePromptForKindWithVariables(kind, provider string, p *Prompt, extra []string) error {
 	if p == nil {
 		return errInvalidPrompt("prompt required")
 	}
@@ -190,11 +200,20 @@ func ValidatePromptForKind(kind, provider string, p *Prompt) error {
 	default:
 		return errInvalidPrompt("unsupported prompt kind")
 	}
-	return validatePromptVariables(kind, provider, p, false)
+	return validatePromptVariables(kind, provider, p, false, extra)
 }
 
 // ValidatePromptSupplement verifies the additive-only supplement schema.
+// ValidatePromptSupplement 校验仅追加的补充层结构。
 func ValidatePromptSupplement(kind, provider string, p *Prompt) error {
+	return ValidatePromptSupplementWithVariables(kind, provider, p, nil)
+}
+
+// ValidatePromptSupplementWithVariables is ValidatePromptSupplement plus extra
+// custom variable names that the supplement may reference.
+// ValidatePromptSupplementWithVariables 在 ValidatePromptSupplement 基础上，
+// 允许补充层引用额外的自定义变量名。
+func ValidatePromptSupplementWithVariables(kind, provider string, p *Prompt, extra []string) error {
 	if p == nil {
 		return errInvalidPrompt("prompt required")
 	}
@@ -226,11 +245,23 @@ func ValidatePromptSupplement(kind, provider string, p *Prompt) error {
 	default:
 		return errInvalidPrompt("unsupported prompt kind")
 	}
-	return validatePromptVariables(kind, provider, p, true)
+	return validatePromptVariables(kind, provider, p, true, extra)
 }
 
-func validatePromptVariables(kind, provider string, p *Prompt, supplement bool) error {
+// promptVariableAllowSet returns the fixed base variables plus extra names.
+// promptVariableAllowSet 返回固定基础变量加上额外变量名。
+func promptVariableAllowSet(extra []string) map[string]struct{} {
 	allowed := map[string]struct{}{"bot_name": {}, "scope_type": {}}
+	for _, name := range extra {
+		if name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	return allowed
+}
+
+func validatePromptVariables(kind, provider string, p *Prompt, supplement bool, extra []string) error {
+	allowed := promptVariableAllowSet(extra)
 	switch kind {
 	case PromptKindChatReply:
 		if p.OpenAI == nil {
@@ -345,7 +376,16 @@ func hasPromptPlaceholder(text string) bool {
 }
 
 // ParsePromptContentFor parses stored content for one prompt kind.
+// ParsePromptContentFor 解析某个 kind 的已存储内容。
 func ParsePromptContentFor(kind, provider string, content json.RawMessage) (Prompt, error) {
+	return ParsePromptContentForWithVariables(kind, provider, content, nil)
+}
+
+// ParsePromptContentForWithVariables is ParsePromptContentFor plus extra custom
+// variable names allowed in the stored template.
+// ParsePromptContentForWithVariables 在 ParsePromptContentFor 基础上，
+// 允许已存储模板引用额外的自定义变量名。
+func ParsePromptContentForWithVariables(kind, provider string, content json.RawMessage, extra []string) (Prompt, error) {
 	var raw struct {
 		Provider  string
 		SystemOne *SystemOnePrompt
@@ -372,7 +412,7 @@ func ParsePromptContentFor(kind, provider string, content json.RawMessage) (Prom
 		}
 	}
 	p := Prompt{Kind: kind, Provider: provider, SystemOne: raw.SystemOne, OpenAI: raw.OpenAI}
-	if err := ValidatePromptForKind(kind, provider, &p); err != nil {
+	if err := ValidatePromptForKindWithVariables(kind, provider, &p, extra); err != nil {
 		return Prompt{}, err
 	}
 	return p, nil
@@ -380,14 +420,24 @@ func ParsePromptContentFor(kind, provider string, content json.RawMessage) (Prom
 
 // MergePromptContent composes account default and group/private supplement.
 // It is deliberately append-only; supplements cannot replace fixed schema.
+// MergePromptContent 组合账号默认层与群聊/私聊补充层；
+// 它刻意只做追加，补充层不能替换固定结构。
 func MergePromptContent(kind, provider string, account, supplement Prompt) (Prompt, error) {
-	if err := ValidatePromptForKind(kind, provider, &account); err != nil {
+	return MergePromptContentWithVariables(kind, provider, account, supplement, nil)
+}
+
+// MergePromptContentWithVariables is MergePromptContent plus extra custom
+// variable names allowed in both account default and supplement.
+// MergePromptContentWithVariables 在 MergePromptContent 基础上，
+// 允许账号默认层与补充层引用额外的自定义变量名。
+func MergePromptContentWithVariables(kind, provider string, account, supplement Prompt, extra []string) (Prompt, error) {
+	if err := ValidatePromptForKindWithVariables(kind, provider, &account, extra); err != nil {
 		return Prompt{}, err
 	}
 	if supplement.OpenAI == nil && supplement.SystemOne == nil {
 		return account, nil
 	}
-	if err := ValidatePromptSupplement(kind, provider, &supplement); err != nil {
+	if err := ValidatePromptSupplementWithVariables(kind, provider, &supplement, extra); err != nil {
 		return Prompt{}, err
 	}
 	out := account
@@ -405,13 +455,13 @@ func MergePromptContent(kind, provider string, account, supplement Prompt) (Prom
 			for name, q := range account.SystemOne.Questions {
 				questions[name] = q
 			}
-			for name, extra := range supplement.SystemOne.Questions {
+			for name, addition := range supplement.SystemOne.Questions {
 				q, ok := questions[name]
 				if !ok {
 					return Prompt{}, errInvalidPrompt("supplement question does not exist: " + name)
 				}
-				if strings.TrimSpace(extra.Instructions) != "" {
-					q.Instructions = appendPromptText(q.Instructions, extra.Instructions)
+				if strings.TrimSpace(addition.Instructions) != "" {
+					q.Instructions = appendPromptText(q.Instructions, addition.Instructions)
 				}
 				questions[name] = q
 			}

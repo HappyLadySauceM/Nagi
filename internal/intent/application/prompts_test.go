@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -256,5 +257,118 @@ func TestPromptSyncRemoteRejectsNameMismatch(t *testing.T) {
 	svc := NewPromptService(repo, slog.Default(), remote)
 	if _, err := svc.SyncRemote(context.Background(), domain.BuiltinPromptID, domain.PromptProviderJev, 2, ""); !errors.Is(err, domain.ErrPromptRemoteInvalid) {
 		t.Fatalf("err = %v, want invalid", err)
+	}
+}
+
+// layeredPromptRepo serves account-layer records for ResolveFor tests and
+// delegates the legacy repository methods to the embedded fake.
+// layeredPromptRepo 为 ResolveFor 测试提供账号层记录，其余旧版仓储方法委托给内嵌假实现。
+type layeredPromptRepo struct {
+	*promptSyncRepo
+	accounts []domain.PromptRecord
+}
+
+func (f *layeredPromptRepo) ActiveLayer(_ context.Context, key domain.PromptKey) (domain.PromptRecord, bool, error) {
+	for _, rec := range f.accounts {
+		if rec.PromptID == key.PromptID && rec.Kind == key.Kind && rec.Provider == key.Provider &&
+			rec.BotID == key.BotID && rec.ScopeType == key.ScopeType {
+			return rec, true, nil
+		}
+	}
+	return domain.PromptRecord{}, false, nil
+}
+
+func (f *layeredPromptRepo) HasLayer(ctx context.Context, key domain.PromptKey) (bool, error) {
+	_, found, err := f.ActiveLayer(ctx, key)
+	return found, err
+}
+
+func (*layeredPromptRepo) ListAll(context.Context) ([]domain.PromptRecord, error) {
+	return nil, nil
+}
+
+func (*layeredPromptRepo) VersionsLayer(context.Context, domain.PromptKey) ([]domain.PromptRecord, error) {
+	return nil, nil
+}
+
+func (*layeredPromptRepo) CreateDraftVersion(context.Context, domain.PromptDraftInput) (domain.PromptRecord, error) {
+	return domain.PromptRecord{}, nil
+}
+
+func (*layeredPromptRepo) PublishVersion(context.Context, int64) (domain.PromptRecord, int64, error) {
+	return domain.PromptRecord{}, 0, nil
+}
+
+func (*layeredPromptRepo) RollbackVersion(context.Context, domain.PromptKey, int64) (domain.PromptRecord, int64, error) {
+	return domain.PromptRecord{}, 0, nil
+}
+
+func (*layeredPromptRepo) RestoreBuiltin(context.Context, domain.PromptKey) (int64, error) {
+	return 0, nil
+}
+
+func TestWithContentVariablesMergesContentRefs(t *testing.T) {
+	// extra 与内容中出现的变量名取并集并去重；空内容原样返回 extra。
+	content := json.RawMessage(`{"OpenAI":{"SystemPrompt":"hi {{foo}} {{bar}}"}}`)
+	got := withContentVariables([]string{"foo", "baz"}, content)
+	seen := make(map[string]bool, len(got))
+	for _, name := range got {
+		seen[name] = true
+	}
+	for _, want := range []string{"foo", "baz", "bar"} {
+		if !seen[want] {
+			t.Fatalf("missing %q in %v", want, got)
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("merged = %v, want 3 unique names", got)
+	}
+	if pass := withContentVariables([]string{"x"}, nil); len(pass) != 1 || pass[0] != "x" {
+		t.Fatalf("nil content = %v, want [x]", pass)
+	}
+}
+
+func TestResolveForKeepsStoredPromptAfterCustomVariableRetired(t *testing.T) {
+	// 已发布模板引用了当前已删除的自定义变量时，ResolveFor 仍应解析该模板而不是回退内置；
+	// 未替换的占位符保持字面量，动态变量照常替换。
+	published := domain.BuiltinPromptFor(domain.PromptKindChatReply, domain.PromptProviderOpenAI)
+	published.OpenAI.SystemPrompt = "你好 {{user_name}}，我是 {{bot_name}}。"
+	repo := &layeredPromptRepo{accounts: []domain.PromptRecord{{
+		PromptID: domain.PromptIDChatReply, Kind: domain.PromptKindChatReply, Provider: domain.PromptProviderOpenAI,
+		BotID: 1, ScopeType: domain.PromptScopeAccount, Version: 2, Status: domain.PromptStatusPublished,
+		Source: domain.PromptSourceLocal, Hash: published.Hash, Content: domain.PromptContentJSON(published),
+	}}}
+	service := NewPromptService(repo, testLogger())
+	// 当前没有自定义变量：user_name 视为已删除。
+	service.SetCustomVariables(func() map[string]string { return nil })
+
+	got := service.ResolveFor(context.Background(), domain.PromptIDChatReply, domain.PromptKindChatReply,
+		domain.PromptProviderOpenAI, 1, domain.PromptScopeAccount, 0,
+		map[string]string{"bot_name": "Nagi", "scope_type": "群聊"})
+	if got.FallbackReason == "invalid_local_prompt" {
+		t.Fatalf("stored prompt referencing retired variable fell back to builtin: %+v", got)
+	}
+	if got.Source != domain.PromptSourceLocal {
+		t.Fatalf("source = %q, want local", got.Source)
+	}
+	if !strings.Contains(got.OpenAI.SystemPrompt, "{{user_name}}") {
+		t.Fatalf("retired variable should stay literal, got %q", got.OpenAI.SystemPrompt)
+	}
+	if strings.Contains(got.OpenAI.SystemPrompt, "{{bot_name}}") || !strings.Contains(got.OpenAI.SystemPrompt, "Nagi") {
+		t.Fatalf("bot_name should be rendered, got %q", got.OpenAI.SystemPrompt)
+	}
+}
+
+func TestResolveForStillRejectsUnknownVariableOnSave(t *testing.T) {
+	// 保存路径（CreateDraftFor）仍严格：未配置的变量必须被拒。
+	repo := &layeredPromptRepo{}
+	service := NewPromptService(repo, testLogger())
+	service.SetCustomVariables(func() map[string]string { return nil })
+	p := domain.BuiltinPromptFor(domain.PromptKindChatReply, domain.PromptProviderOpenAI)
+	p.OpenAI.SystemPrompt = "你好 {{user_name}}"
+	_, err := service.CreateDraftFor(context.Background(), domain.PromptIDChatReply, domain.PromptKindChatReply,
+		domain.PromptProviderOpenAI, 1, domain.PromptScopeAccount, &p, "", 0, "", "", "", "")
+	if err == nil {
+		t.Fatal("unknown variable accepted on save")
 	}
 }
