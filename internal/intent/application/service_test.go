@@ -552,6 +552,24 @@ func TestTranscriptionRevocationDiscardsDerivedText(t *testing.T) {
 	}
 }
 
+// fakeRules serves versioned rulesets by scope for policy-prompt tests.
+// fakeRules 为策略 Prompt 测试按作用域提供版本化规则集。
+type fakeRules struct {
+	sets  map[string]domain.Ruleset
+	err   error
+	calls []string
+}
+
+func (f *fakeRules) Active(_ context.Context, botID int64, scopeType string, scopeID int64) (domain.Ruleset, bool, error) {
+	if f.err != nil {
+		return domain.Ruleset{}, false, f.err
+	}
+	key := keyOf(botID, scopeType, scopeID)
+	f.calls = append(f.calls, key)
+	set, ok := f.sets[key]
+	return set, ok, nil
+}
+
 type fakeLayeredPrompt struct {
 	prompt     domain.Prompt
 	calls      int
@@ -605,6 +623,91 @@ func TestProcessTaskUsesLayeredIntentPrompt(t *testing.T) {
 	}
 	if semantic.calls != 1 || semantic.input.Prompt.OpenAI == nil || semantic.input.Prompt.OpenAI.SystemPrompt != "自定义意图 Prompt" {
 		t.Fatalf("semantic prompt = %+v calls=%d", semantic.input.Prompt, semantic.calls)
+	}
+}
+
+// TestProcessTaskUsesPolicyVersionQuestions verifies the runtime prompt takes
+// its SystemOne question set from the effective participation policy version
+// and renders the runtime variables into it.
+// TestProcessTaskUsesPolicyVersionQuestions 验证运行时 Prompt 从生效参与策略版本
+// 取 SystemOne 问题集，并把运行时变量渲染进去。
+func TestProcessTaskUsesPolicyVersionQuestions(t *testing.T) {
+	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
+	set := domain.Ruleset{
+		ID: 9, BotID: 100, ScopeType: "group", ScopeID: 700, Version: 7,
+		Questions: map[string]domain.PromptQuestion{
+			"urgency": {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 5,
+				Instructions: "机器人「{{bot_name}}」(bot {{bot_id}}) 在会话 {{target_id}} 此时插话是否紧急？"},
+		},
+	}
+	rules := &fakeRules{sets: map[string]domain.Ruleset{keyOf(100, "group", 700): set}}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, DirectedToBot: 0.1}}
+	d := newDecider(t, Options{
+		Scopes:   &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
+		Semantic: semantic, Rules: rules, Recorder: &fakeRecorder{},
+		Thresholds: thresholds, Provider: "jev", Model: "jev-latest", BotName: "Nagi",
+	})
+	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if semantic.calls != 1 {
+		t.Fatalf("semantic calls = %d", semantic.calls)
+	}
+	p := semantic.input.Prompt
+	if p.ID != domain.PromptIDIntentParticipation || p.Kind != domain.PromptKindIntentParticipation || p.Provider != "jev" {
+		t.Fatalf("prompt identity = %+v", p)
+	}
+	if p.BotID != 100 || p.TargetType != "group" || p.TargetID != 700 || p.Version != 7 {
+		t.Fatalf("prompt scope/version = %+v", p)
+	}
+	if p.SystemOne == nil || len(p.SystemOne.Questions) != 1 {
+		t.Fatalf("prompt questions = %+v", p.SystemOne)
+	}
+	q, ok := p.SystemOne.Questions["urgency"]
+	if !ok {
+		t.Fatalf("policy question missing: %+v", p.SystemOne.Questions)
+	}
+	if q.Instructions != "机器人「Nagi」(bot 100) 在会话 700 此时插话是否紧急？" {
+		t.Fatalf("runtime variables not rendered: %q", q.Instructions)
+	}
+	if p.RenderedHash == "" {
+		t.Fatal("rendered prompt hash must be set")
+	}
+	if p.Variables["scope_type"] != "group" || p.Variables["sender_id"] != "200" ||
+		p.Variables["bot_name"] != "Nagi" || p.Variables["bot_id"] != "100" || p.Variables["target_id"] != "700" {
+		t.Fatalf("prompt variables = %+v", p.Variables)
+	}
+}
+
+// TestProcessTaskFallsBackWhenPolicyQuestionsEmpty verifies an empty question
+// set on the policy version keeps the original PromptService path.
+// TestProcessTaskFallsBackWhenPolicyQuestionsEmpty 验证策略版本问题集为空时仍走原
+// PromptService 路径。
+func TestProcessTaskFallsBackWhenPolicyQuestionsEmpty(t *testing.T) {
+	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
+		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
+	rules := &fakeRules{sets: map[string]domain.Ruleset{
+		keyOf(100, "group", 700): {ID: 9, BotID: 100, ScopeType: "group", ScopeID: 700, Version: 4},
+	}}
+	prompts := &fakeLayeredPrompt{prompt: domain.Prompt{
+		ID: domain.PromptIDIntentParticipation, Kind: domain.PromptKindIntentParticipation,
+		Provider: "jev", OpenAI: &domain.OpenAIPrompt{SystemPrompt: "回退 PromptService"},
+	}}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, DirectedToBot: 0.1}}
+	d := newDecider(t, Options{
+		Scopes:   &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
+		Semantic: semantic, Rules: rules, Prompts: prompts, Recorder: &fakeRecorder{},
+		Thresholds: thresholds, Provider: "jev", Model: "jev-latest", BotName: "Nagi",
+	})
+	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if prompts.calls != 1 {
+		t.Fatalf("prompts calls = %d, want fallback to PromptService", prompts.calls)
+	}
+	if semantic.input.Prompt.OpenAI == nil || semantic.input.Prompt.OpenAI.SystemPrompt != "回退 PromptService" {
+		t.Fatalf("prompt not from PromptService: %+v", semantic.input.Prompt)
 	}
 }
 
