@@ -297,13 +297,14 @@ function DecisionQuestions({ detail }: { detail: Record<string, unknown> }) {
         <ul className="space-y-1.5">
           {questions.map((question, index) => {
             const key = typeof question.Key === 'string' ? question.Key : String(index)
+            const title = typeof question.Title === 'string' && question.Title.trim() ? question.Title.trim() : key
             const action = question.Action === 'reply' ? '回复' : question.Action === 'silent' ? '沉默' : '未记录动作'
             const scope = question.Scope === 'group' ? '仅群聊' : question.Scope === 'private' ? '仅私聊' : question.Scope === 'all' ? '群聊和私聊' : '未记录范围'
             const trigger = `阈值 ${String(question.Threshold ?? '—')}`
             return (
               <li key={key} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs">
                 <span>
-                  <span className="font-medium">{key}</span>
+                  <span className="font-medium">{title}</span>
                   <span className="mt-0.5 block text-muted-foreground">{scope} · {trigger} · {action}</span>
                 </span>
                 <Badge variant={question.Applicable === false ? 'secondary' : 'success'}>{question.Applicable === false ? '范围不符' : '本次适用'}</Badge>
@@ -449,6 +450,7 @@ function SemanticDetail({ detail, reasonCode }: { detail: Record<string, unknown
         <ul className="space-y-2">
           {comparisons.map((row, index) => {
             const name = String(row.Name ?? '')
+            const title = typeof row.Title === 'string' && row.Title.trim() ? row.Title.trim() : (SCORE_TEXT[name] ?? name)
             const value = scoreNumber(row.Value)
             const threshold = scoreNumber(row.Threshold) ?? thresholdFor(name)
             const action = typeof row.Action === 'string' ? row.Action : ''
@@ -457,7 +459,7 @@ function SemanticDetail({ detail, reasonCode }: { detail: Record<string, unknown
             return (
               <li key={index} className="rounded-lg border border-border px-3 py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="font-medium">{SCORE_TEXT[name] ?? name}</span>
+                  <span className="font-medium">{title}</span>
                   <span className="flex items-center gap-2">
                     <span className="font-mono">{value === undefined ? '—' : value.toFixed(2)}</span>
                     <span className="text-muted-foreground">阈值 {threshold === undefined ? '—' : threshold.toFixed(2)}</span>

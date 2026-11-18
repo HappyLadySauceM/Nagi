@@ -1063,6 +1063,9 @@ export interface ManagedPromptQuestion {
   action?: 'reply' | 'silent'
   scope?: 'all' | 'group' | 'private'
   match?: string
+  /** Display name of a custom decision question.
+   * 自定义决策问题的展示名。 */
+  title?: string
 }
 
 /** Provider-specific content of one Prompt version; absent branches are not sent to the server. */

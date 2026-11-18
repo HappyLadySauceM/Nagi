@@ -726,7 +726,7 @@ func decisionQuestionDetails(questions map[string]domain.PromptQuestion, kind st
 	for _, key := range domain.SortedDecisionQuestions(effective) {
 		question := effective[key]
 		out = append(out, map[string]any{
-			"Key": key, "Order": question.Order, "Scope": question.Scope,
+			"Key": key, "Title": question.Title, "Order": question.Order, "Scope": question.Scope,
 			"Action": string(question.Action), "Threshold": question.Threshold, "Match": question.Match,
 			"Applicable": domain.QuestionApplies(question, kind),
 		})
@@ -749,7 +749,7 @@ func semanticComparisons(semantic domain.SemanticAnswer, questions map[string]do
 			continue
 		}
 		out = append(out, map[string]any{
-			"Name": key, "Value": value, "Operator": ">=", "Threshold": question.Threshold,
+			"Name": key, "Title": question.Title, "Value": value, "Operator": ">=", "Threshold": question.Threshold,
 			"Action": string(question.Action), "Satisfied": value >= question.Threshold,
 		})
 	}

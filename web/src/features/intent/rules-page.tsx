@@ -51,8 +51,13 @@ const QUESTION_LABELS: Record<string, string> = {
   directed_to_bot: '指向机器人',
 }
 
-function questionLabel(key: string) {
-  return QUESTION_LABELS[key] ?? key
+function isCustomQuestion(key: string, question: ManagedPromptQuestion) {
+  return question.role === 'custom' || !(key in QUESTION_LABELS)
+}
+
+function questionLabel(key: string, question: ManagedPromptQuestion) {
+  if (!isCustomQuestion(key, question)) return QUESTION_LABELS[key] ?? key
+  return question.title?.trim() || '未命名'
 }
 
 function sortedQuestions(questions: Record<string, ManagedPromptQuestion>) {
@@ -66,8 +71,10 @@ function decisionQuestionErrors(questions: Record<string, ManagedPromptQuestion>
   const entries = Object.entries(questions)
   if (entries.length > 20) errors.push('最多 20 个决策问题')
   for (const [key, question] of entries) {
-    const label = questionLabel(key)
+    const label = questionLabel(key, question)
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) errors.push(`${label} 的标识无效`)
+    if (isCustomQuestion(key, question) && !question.title?.trim()) errors.push('名称不能为空')
+    if (isCustomQuestion(key, question) && [...(question.title?.trim() ?? '')].length > 40) errors.push('名称不能超过 40 个字')
     if (!question.instructions.trim()) errors.push(`${label} 的题目不能为空`)
     if (question.scope !== 'all' && question.scope !== 'group' && question.scope !== 'private') {
       errors.push(`${label} 需要选择范围`)
@@ -313,19 +320,23 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
             ) : orderedQuestions.map(([key, question]) => (
               <div key={key} className="space-y-3 rounded-lg border border-border p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">{questionLabel(key)}</span>
-                  <Button size="icon" variant="ghost" disabled={!isDraft || busy} aria-label={`删除决策问题 ${questionLabel(key)}`} onClick={() => updateQuestion(key)}>
+                  {isCustomQuestion(key, question) ? (
+                    <Input aria-label={`${questionLabel(key, question)} 名称`} value={question.title ?? ''} placeholder="给这个问题起个名字" disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { title: event.target.value })} />
+                  ) : (
+                    <span className="text-sm font-medium">{questionLabel(key, question)}</span>
+                  )}
+                  <Button size="icon" variant="ghost" disabled={!isDraft || busy} aria-label={`删除决策问题 ${questionLabel(key, question)}`} onClick={() => updateQuestion(key)}>
                     <Trash2 />
                   </Button>
                 </div>
                 <label className="block space-y-1 text-sm">
                   <span className="text-muted-foreground">题目</span>
-                  <Input aria-label={`${questionLabel(key)} 题目`} value={question.instructions} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { instructions: event.target.value })} />
+                  <Input aria-label={`${questionLabel(key, question)} 题目`} value={question.instructions} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { instructions: event.target.value })} />
                 </label>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <label className="space-y-1 text-sm">
                     <span className="text-muted-foreground">范围</span>
-                    <Select aria-label={`${questionLabel(key)} 范围`} value={question.scope ?? 'group'} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { scope: event.target.value as ManagedPromptQuestion['scope'] })}>
+                    <Select aria-label={`${questionLabel(key, question)} 范围`} value={question.scope ?? 'group'} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { scope: event.target.value as ManagedPromptQuestion['scope'] })}>
                       <option value="all">群聊和私聊</option>
                       <option value="group">仅群聊</option>
                       <option value="private">仅私聊</option>
@@ -333,14 +344,14 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="text-muted-foreground">命中后</span>
-                    <Select aria-label={`${questionLabel(key)} 动作`} value={question.action ?? 'reply'} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { action: event.target.value as ManagedPromptQuestion['action'] })}>
+                    <Select aria-label={`${questionLabel(key, question)} 动作`} value={question.action ?? 'reply'} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { action: event.target.value as ManagedPromptQuestion['action'] })}>
                       <option value="reply">回复</option>
                       <option value="silent">沉默</option>
                     </Select>
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="text-muted-foreground">阈值</span>
-                    <Input aria-label={`${questionLabel(key)} 阈值`} inputMode="decimal" value={question.threshold === undefined ? '' : String(question.threshold)} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { threshold: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                    <Input aria-label={`${questionLabel(key, question)} 阈值`} inputMode="decimal" value={question.threshold === undefined ? '' : String(question.threshold)} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { threshold: event.target.value === '' ? undefined : Number(event.target.value) })} />
                   </label>
                 </div>
               </div>
@@ -458,6 +469,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
           threshold: 0.8,
           action: 'reply',
           scope: 'group',
+          title: '',
         },
       }
     })
