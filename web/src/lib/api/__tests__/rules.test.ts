@@ -65,14 +65,17 @@ describe('rule wire boundary',()=>{
   const set=toRuleset({...raw,Questions:{
    directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1,Criteria:null,Order:50,Threshold:0.8,Action:'reply',Scope:'group'},
    intent:{Type:'choice',Instructions:'判断意图分类',Role:'intent',Criteria:{closing:'告别'},Order:10,Action:'silent',Scope:'all',Match:'closing'},
+   custom_1:{Type:'noul',Instructions:'是否紧急？',Role:'custom',Weight:1,Order:60,Threshold:0.8,Action:'reply',Scope:'group',Title:'是否紧急'},
   }})
   expect(set.questions).toEqual({
    directed_to_bot:{type:'noul',instructions:'是否指向机器人',role:'directed_to_bot',weight:1,order:50,threshold:0.8,action:'reply',scope:'group'},
    intent:{type:'noul',instructions:'判断意图分类',role:'intent',order:10,threshold:0.8,action:'silent',scope:'all'},
+   custom_1:{type:'noul',instructions:'是否紧急？',role:'custom',weight:1,order:60,threshold:0.8,action:'reply',scope:'group',title:'是否紧急'},
   })
   expect(toQuestionsRequest(set.questions!)).toEqual({
    directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1,Order:50,Threshold:0.8,Action:'reply',Scope:'group'},
    intent:{Type:'noul',Instructions:'判断意图分类',Role:'intent',Order:10,Threshold:0.8,Action:'silent',Scope:'all'},
+   custom_1:{Type:'noul',Instructions:'是否紧急？',Role:'custom',Weight:1,Order:60,Threshold:0.8,Action:'reply',Scope:'group',Title:'是否紧急'},
   })
  })
  it('defaults a missing question set to an empty map',()=>{

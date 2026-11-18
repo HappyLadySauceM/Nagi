@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // RuleActionType is the effect of a matched rule.
@@ -164,6 +165,12 @@ func validateDecisionQuestions(questions map[string]PromptQuestion) error {
 		}
 		if question.Threshold <= 0 || question.Threshold > 1 {
 			return fmt.Errorf("%w: question %s threshold", ErrInvalidRule, key)
+		}
+		if EffectiveQuestionRole(key, question) == QuestionRoleCustom {
+			title := strings.TrimSpace(question.Title)
+			if title == "" || utf8.RuneCountInString(title) > 40 {
+				return fmt.Errorf("%w: question %s title", ErrInvalidRule, key)
+			}
 		}
 	}
 	return nil

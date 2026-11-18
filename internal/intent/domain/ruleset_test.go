@@ -24,6 +24,12 @@ func TestRulesetValidateQuestions(t *testing.T) {
 	if err := (Ruleset{Questions: DefaultDecisionQuestions()}).Validate(); err != nil {
 		t.Fatalf("default decision questions rejected: %v", err)
 	}
+	named := map[string]PromptQuestion{
+		"custom_1": {Type: "noul", Role: QuestionRoleCustom, Weight: 1, Instructions: "是否紧急？", Title: "是否紧急", Order: 60, Threshold: 0.8, Action: ActionReply, Scope: QuestionScopeGroup},
+	}
+	if err := (Ruleset{Questions: named}).Validate(); err != nil {
+		t.Fatalf("named custom question rejected: %v", err)
+	}
 
 	cases := map[string]map[string]PromptQuestion{
 		"intent missing decision": {
@@ -41,6 +47,9 @@ func TestRulesetValidateQuestions(t *testing.T) {
 		},
 		"missing decision": {
 			"note": {Type: "noul", Role: QuestionRoleCustom, Weight: 1, Instructions: "是否紧急？"},
+		},
+		"custom missing title": {
+			"note": {Type: "noul", Role: QuestionRoleCustom, Weight: 1, Instructions: "是否紧急？", Order: 60, Threshold: 0.8, Action: ActionReply, Scope: QuestionScopeGroup},
 		},
 	}
 	for name, questions := range cases {
@@ -83,5 +92,12 @@ func TestDecisionReasonUsesClosingOnlyForSilentClosing(t *testing.T) {
 	changed.Action = ActionReply
 	if got := DecisionReason("intent", changed); got != "intent" {
 		t.Fatalf("changed intent reason = %s", got)
+	}
+	custom := PromptQuestion{Role: QuestionRoleCustom, Title: " 是否紧急 "}
+	if got := DecisionReason("custom_1", custom); got != "是否紧急" {
+		t.Fatalf("custom reason = %s", got)
+	}
+	if got := DecisionReason("custom_1", PromptQuestion{Role: QuestionRoleCustom}); got != "custom_1" {
+		t.Fatalf("untitled custom reason = %s", got)
 	}
 }

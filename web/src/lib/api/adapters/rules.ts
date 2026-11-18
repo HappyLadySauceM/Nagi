@@ -88,6 +88,7 @@ function toQuestions(raw: unknown): Record<string, ManagedPromptQuestion> {
         : undefined
     const action = readOptionalString(question, 'Action', RULES_ENDPOINT)
     const scope = readOptionalString(question, 'Scope', RULES_ENDPOINT)
+    const title = readOptionalString(question, 'Title', RULES_ENDPOINT)
     if (action !== undefined && action !== 'reply' && action !== 'silent') {
       throw new Error(`决策动作未知：${action}`)
     }
@@ -117,6 +118,7 @@ function toQuestions(raw: unknown): Record<string, ManagedPromptQuestion> {
       ...(threshold !== undefined ? { threshold } : {}),
       ...(action === 'reply' || action === 'silent' ? { action } : {}),
       ...(scope === 'all' || scope === 'group' || scope === 'private' ? { scope } : {}),
+      ...(title ? { title } : {}),
     }
   }
   return questions
@@ -310,6 +312,7 @@ export function toQuestionsRequest(questions: Record<string, ManagedPromptQuesti
     if (question.threshold !== undefined) item.Threshold = question.threshold
     if (question.action) item.Action = question.action
     if (question.scope) item.Scope = question.scope
+    if (question.title?.trim()) item.Title = question.title.trim()
     request[key] = item
   }
   return request

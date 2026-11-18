@@ -51,6 +51,11 @@ type PromptQuestion struct {
 	Action    RuleActionType
 	Scope     string
 	Match     string
+	// Title is the display name of a custom decision question. Known roles keep
+	// their fixed names and ignore it. The key stays a stable identifier.
+	// Title 是自定义决策问题的展示名。已知角色仍用固定名称，不使用它。
+	// key 仍是稳定标识。
+	Title string
 }
 
 // Decision question scopes. all applies to group and private conversations.
@@ -284,8 +289,10 @@ func SortedDecisionQuestions(questions map[string]PromptQuestion) []string {
 }
 
 // DecisionReason returns the stable reason code for a matched decision question.
-// Known roles keep their historical codes; any other question uses its key.
-// DecisionReason 返回命中决策问题的稳定原因码。已知角色保留原有原因码，其它问题使用自己的 key。
+// Known roles keep their historical codes. A custom question uses its display
+// name, and falls back to its key when that name is empty.
+// DecisionReason 返回命中决策问题的稳定原因码。已知角色保留原有原因码。
+// 自定义问题使用展示名，展示名为空时回退到自己的 key。
 func DecisionReason(key string, q PromptQuestion) string {
 	switch EffectiveQuestionRole(key, q) {
 	case QuestionRoleIntent:
@@ -302,6 +309,9 @@ func DecisionReason(key string, q PromptQuestion) string {
 	case QuestionRoleDirectedToBot:
 		return "directed_to_bot"
 	default:
+		if title := strings.TrimSpace(q.Title); title != "" {
+			return title
+		}
 		return key
 	}
 }
