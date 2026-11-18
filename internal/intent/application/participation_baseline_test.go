@@ -220,7 +220,7 @@ func TestParticipationDecisionBaseline(t *testing.T) {
 			if rule.Explicit != tc.wantExplicit || rule.NeedSemantic != tc.wantNeedSemantic {
 				t.Fatalf("rules = %+v, want explicit=%v need_semantic=%v", rule, tc.wantExplicit, tc.wantNeedSemantic)
 			}
-			decision := EvaluateReplyPolicy(tc.input, rule, tc.semantic, baselineThresholds)
+			decision := EvaluateReplyPolicy(tc.input, rule, tc.semantic)
 			if decision.Decision != tc.wantDecision || decision.ReasonCode != tc.wantReason {
 				t.Fatalf("decision = %+v, want %s/%s", decision, tc.wantDecision, tc.wantReason)
 			}
@@ -242,13 +242,13 @@ func TestParticipationBaselineRecordsRuleVersionAndFailure(t *testing.T) {
 	}}}
 	global := &domain.Ruleset{ID: 42, Version: 3, BuiltinRules: map[string]bool{"closing": false}}
 	rule, version := EvaluateRuleChain(in, specific, global)
-	if version != "scope:41@7;global:42@3" {
-		t.Fatalf("ruleset version = %q, want scope:41@7;global:42@3", version)
+	if version != "scope:41@7" {
+		t.Fatalf("ruleset version = %q, want scope:41@7", version)
 	}
 	semantic := domain.SemanticAnswer{Available: false, FailureCode: "semantic_unavailable"}
-	decision := EvaluateReplyPolicy(in, rule, semantic, baselineThresholds)
+	decision := EvaluateReplyPolicy(in, rule, semantic)
 	decision.RulesetVersion = version
-	steps := decisionSteps(in, rule, semantic, decision, 12, true, baselineThresholds, false)
+	steps := decisionSteps(in, rule, semantic, decision, 12, true, false)
 	if len(steps) != 5 {
 		t.Fatalf("steps = %d, want policy/context/rules/semantic/final", len(steps))
 	}
@@ -256,19 +256,15 @@ func TestParticipationBaselineRecordsRuleVersionAndFailure(t *testing.T) {
 		steps[3].Phase != domain.StepSemantic || steps[4].Phase != domain.StepFinal {
 		t.Fatalf("phases = %+v", steps)
 	}
-	evaluations, ok := steps[2].Detail["Evaluations"].([]domain.RuleEvaluation)
-	if !ok || len(evaluations) != 1 || evaluations[0].RulesetID != 41 ||
-		evaluations[0].Version != 7 || evaluations[0].Scope != "specific" || evaluations[0].Status != "matched" {
-		t.Fatalf("rule evaluations = %+v", steps[2].Detail["Evaluations"])
+	questions, ok := steps[2].Detail["Questions"].([]map[string]any)
+	if !ok || len(questions) != 0 {
+		t.Fatalf("specific questions = %+v", steps[2].Detail["Questions"])
 	}
 	if steps[3].Detail["Available"] != false || steps[3].Detail["FailureCode"] != "semantic_unavailable" {
 		t.Fatalf("semantic step = %+v", steps[3].Detail)
 	}
-	thresholds, ok := steps[4].Detail["Thresholds"].(map[string]float64)
-	if !ok || thresholds["Continuation"] != baselineThresholds.Continuation ||
-		thresholds["Interjection"] != baselineThresholds.Interjection ||
-		thresholds["AddressedOtherMax"] != baselineThresholds.AddressedOtherMax {
-		t.Fatalf("threshold snapshot = %+v", steps[4].Detail["Thresholds"])
+	if _, exists := steps[4].Detail["Thresholds"]; exists {
+		t.Fatalf("global thresholds still recorded: %+v", steps[4].Detail["Thresholds"])
 	}
 }
 

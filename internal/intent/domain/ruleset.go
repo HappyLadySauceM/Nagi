@@ -126,6 +126,9 @@ func (r Ruleset) Validate() error {
 		if err := ValidateSystemOnePrompt(&SystemOnePrompt{Questions: r.Questions}); err != nil {
 			return err
 		}
+		if err := validateDecisionQuestions(r.Questions); err != nil {
+			return err
+		}
 	}
 	seen := make(map[int]bool, len(r.Entries))
 	for _, entry := range r.Entries {
@@ -136,6 +139,38 @@ func (r Ruleset) Validate() error {
 			return fmt.Errorf("%w: duplicate priority %d", ErrInvalidRule, entry.Priority)
 		}
 		seen[entry.Priority] = true
+	}
+	return nil
+}
+
+// validateDecisionQuestions checks the ruleset-only decision fields. Prompt
+// content validation stays in ValidateSystemOnePrompt and does not require them.
+// validateDecisionQuestions 校验只属于规则集的决策字段。Prompt 内容校验仍在
+// ValidateSystemOnePrompt，不要求这些字段。
+func validateDecisionQuestions(questions map[string]PromptQuestion) error {
+	for key, question := range questions {
+		switch question.Scope {
+		case QuestionScopeAll, QuestionScopeGroup, QuestionScopePrivate:
+		default:
+			return fmt.Errorf("%w: question %s scope", ErrInvalidRule, key)
+		}
+		switch question.Action {
+		case ActionReply, ActionSilent:
+		default:
+			return fmt.Errorf("%w: question %s action", ErrInvalidRule, key)
+		}
+		if question.Order < 0 {
+			return fmt.Errorf("%w: question %s order", ErrInvalidRule, key)
+		}
+		if question.Type == "choice" {
+			if question.Match == "" || question.Criteria[question.Match] == "" {
+				return fmt.Errorf("%w: question %s match", ErrInvalidRule, key)
+			}
+			continue
+		}
+		if question.Threshold <= 0 || question.Threshold > 1 {
+			return fmt.Errorf("%w: question %s threshold", ErrInvalidRule, key)
+		}
 	}
 	return nil
 }

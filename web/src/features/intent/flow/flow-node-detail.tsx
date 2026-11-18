@@ -13,7 +13,6 @@ import type {
 import { REPLY_MODE_LABELS } from '../../../lib/api/contracts'
 import {
   BRANCH_TEXT,
-  BUILTIN_RULE_TEXT,
   INTENT_CATEGORY_TEXT,
   REPLY_MODE_TEXT,
   RULE_ACTION_TEXT,
@@ -287,10 +286,39 @@ function actionText(action: unknown) {
   return RULE_ACTION_TEXT[type] ?? type
 }
 
+function DecisionQuestions({ detail }: { detail: Record<string, unknown> }) {
+  const questions = Array.isArray(detail.Questions) ? detail.Questions.filter(isRecord) : []
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-medium text-muted-foreground">决策问题</h4>
+      {questions.length === 0 ? (
+        <p className="text-xs text-muted-foreground">这次没有记录决策问题。</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {questions.map((question, index) => {
+            const key = typeof question.Key === 'string' ? question.Key : String(index)
+            const action = question.Action === 'reply' ? '回复' : question.Action === 'silent' ? '沉默' : '未记录动作'
+            const scope = question.Scope === 'group' ? '仅群聊' : question.Scope === 'private' ? '仅私聊' : question.Scope === 'all' ? '群聊和私聊' : '未记录范围'
+            const trigger = typeof question.Match === 'string' && question.Match ? `分类 ${question.Match}` : `阈值 ${String(question.Threshold ?? '—')}`
+            return (
+              <li key={key} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs">
+                <span>
+                  <span className="font-medium">{key}</span>
+                  <span className="mt-0.5 block text-muted-foreground">{scope} · {trigger} · {action}</span>
+                </span>
+                <Badge variant={question.Applicable === false ? 'secondary' : 'success'}>{question.Applicable === false ? '范围不符' : '本次适用'}</Badge>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function RuleDetail({ detail, reasonCode }: { detail: Record<string, unknown>; reasonCode: string }) {
   const rawEvaluations = Array.isArray(detail.Evaluations) ? detail.Evaluations : detail.evaluations
   const evaluations = Array.isArray(rawEvaluations) ? rawEvaluations.filter(isRecord) : []
-  const builtin = isRecord(detail.BuiltinRules) ? detail.BuiltinRules : {}
   const blocked = detail.Blocked === true
   const reason = ruleReason(detail, reasonCode)
   return (
@@ -315,24 +343,7 @@ function RuleDetail({ detail, reasonCode }: { detail: Record<string, unknown>; r
           })}
         </ul>
       </div>
-      <div className="space-y-2">
-        <h4 className="text-xs font-medium text-muted-foreground">语义阶段会用到的内置判断</h4>
-        <ul className="space-y-1.5">
-          {Object.entries(BUILTIN_RULE_TEXT).map(([key, label]) => {
-            const configured = Object.prototype.hasOwnProperty.call(builtin, key)
-            const enabled = configured ? builtin[key] !== false : true
-            return (
-              <li key={key} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs">
-                <span>
-                  <span className="font-medium">{label}</span>
-                  <span className="mt-0.5 block text-muted-foreground">{configured ? '本会话规则集显式设置' : '没有单独关闭，按默认开启'}</span>
-                </span>
-                <Badge variant={enabled ? 'success' : 'secondary'}>{enabled ? '开启' : '关闭'}</Badge>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+      <DecisionQuestions detail={detail} />
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-muted-foreground">版本化规则</h4>
         {evaluations.length > 0 ? (

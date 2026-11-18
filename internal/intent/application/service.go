@@ -119,11 +119,12 @@ func (d *Decider) currentBotName() string {
 	return d.botName
 }
 
-// policyPrompt builds the intent prompt from the question set of the effective
-// participation policy version. It returns false so callers fall back to the
-// standard prompt path when no versioned question set exists.
-// policyPrompt 用生效参与策略版本的问题集构建意图 Prompt；
-// 没有版本化问题集时返回 false，由调用方回退到标准 Prompt 路径。
+// policyPrompt builds the intent prompt from the effective ruleset's questions.
+// It returns false when no ruleset is active. An active ruleset with no
+// applicable questions returns an empty prompt and true, so callers do not
+// fall back to the standard question set.
+// policyPrompt 用生效规则版本的问题构建意图 Prompt。没有生效规则时返回 false。
+// 生效规则没有适用问题时返回空 Prompt 和 true，调用方不再回退到标准问题集。
 func (d *Decider) policyPrompt(ctx context.Context, task domain.Task, runtime RuntimeConfig) (domain.Prompt, bool) {
 	// Only the Jev provider consumes the SystemOne question set; OpenAI keeps the
 	// original PromptService path.
@@ -138,19 +139,26 @@ func (d *Decider) policyPrompt(ctx context.Context, task domain.Task, runtime Ru
 		d.logger.Warn("load participation policy failed; using standard prompt", "error", err, "job_id", task.JobID)
 		return domain.Prompt{}, false
 	}
-	if !hasSet || len(set.Questions) == 0 {
+	if !hasSet {
 		set, hasSet, err = d.rules.Active(ctx, task.BotID, "group", 0)
 		if err != nil {
 			d.logger.Warn("load group participation policy failed; using standard prompt", "error", err, "job_id", task.JobID)
 			return domain.Prompt{}, false
 		}
 	}
-	if !hasSet || len(set.Questions) == 0 {
+	if !hasSet {
 		return domain.Prompt{}, false
+	}
+	questions := domain.ApplicableQuestions(domain.WithDecisionDefaults(set.Questions), task.Kind)
+	// An active ruleset with nothing to ask owns the prompt slot, so the caller
+	// must not fall back to the standard question set.
+	// 生效规则集没有可问的问题时仍占住 Prompt 位置，调用方不得回退到标准问题集。
+	if len(questions) == 0 {
+		return domain.Prompt{}, true
 	}
 
 	base := domain.BuiltinPromptFor(domain.PromptKindIntentParticipation, domain.PromptProviderJev)
-	base.SystemOne = &domain.SystemOnePrompt{Questions: set.Questions}
+	base.SystemOne = &domain.SystemOnePrompt{Questions: questions}
 	base.ID = domain.PromptIDIntentParticipation
 	base.Kind = domain.PromptKindIntentParticipation
 	base.Provider = domain.PromptProviderJev
@@ -317,7 +325,9 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	}
 	prompt := domain.BuiltinPrompt(runtime.Provider)
 	if p, ok := d.policyPrompt(ctx, task, runtime); ok {
-		prompt = p
+		if p.ID != "" || p.SystemOne != nil || p.OpenAI != nil {
+			prompt = p
+		}
 	} else if d.prompts != nil {
 		if layered, ok := d.prompts.(LayeredPromptProvider); ok {
 			variables := map[string]string{"scope_type": task.Kind, "sender_id": strconv.FormatInt(task.Message.SenderID, 10)}
@@ -344,7 +354,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.RulesetVersion = rulesetVersion
 	decision.RunID = runID
 	decision.FlowVersion = domain.FlowVersion
-	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, runtime.Thresholds, historyDegraded)
+	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
 		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
@@ -469,7 +479,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 // 顺序与判定顺序及固定流程定义一致。
 func decisionSteps(in domain.Input, rule domain.RuleResult,
 	semantic domain.SemanticAnswer, decision domain.FinalDecision, latency int64, asked bool,
-	th domain.Thresholds, historyDegraded bool,
+	historyDegraded bool,
 ) []domain.Step {
 	policy := in.Policy
 	policyBranch := "authorized"
@@ -528,9 +538,9 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		Status:      domain.NodeStatusExecuted,
 		Branch:      rulesBranch(rule),
 		ReasonCode:  rule.ReasonCode,
-		Summary:     "内置规则与版本化规则求值完成",
+		Summary:     "决策问题求值完成",
 		Detail: map[string]any{
-			"BuiltinRules": rule.BuiltinRules,
+			"Questions":    decisionQuestionDetails(rule.Questions, in.Task.Kind),
 			"Evaluations":  rule.Evaluations,
 			"evaluations":  rule.Evaluations,
 			"Matched":      rule.Matched,
@@ -563,8 +573,7 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		"PromptHash":           in.Prompt.Hash,
 		"PromptFallbackReason": in.Prompt.FallbackReason,
 		"Scores":               decision.Scores,
-		"Thresholds":           map[string]float64{"Continuation": th.Continuation, "Interjection": th.Interjection, "AddressedOtherMax": th.AddressedOtherMax},
-		"Comparisons":          semanticComparisons(semantic, th),
+		"Comparisons":          semanticComparisons(semantic, decisionQuestions(rule), in.Task.Kind),
 		"LatencyMS":            latency,
 	}
 	if !asked {
@@ -596,8 +605,6 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 			"Decision":   string(decision.Decision),
 			"ReasonCode": decision.ReasonCode,
 			"ReasonText": domain.ReasonText(decision.ReasonCode),
-			"Thresholds": map[string]float64{"Continuation": th.Continuation, "Interjection": th.Interjection, "AddressedOtherMax": th.AddressedOtherMax},
-			"thresholds": map[string]float64{"continuation": th.Continuation, "interjection": th.Interjection, "addressed_other_max": th.AddressedOtherMax},
 		},
 		Evidence: []domain.Evidence{{Kind: "decision", Text: "decision=" + string(decision.Decision)}},
 	})
@@ -690,16 +697,49 @@ func semanticEvidence(asked bool, semantic domain.SemanticAnswer) string {
 	return "intent=" + semantic.IntentCategory
 }
 
-func semanticComparisons(semantic domain.SemanticAnswer, th domain.Thresholds) []map[string]any {
+func decisionQuestions(rule domain.RuleResult) map[string]domain.PromptQuestion {
+	if rule.Questions != nil {
+		return rule.Questions
+	}
+	return domain.DefaultDecisionQuestions()
+}
+
+func decisionQuestionDetails(questions map[string]domain.PromptQuestion, kind string) []map[string]any {
+	effective := questions
+	if effective == nil {
+		effective = domain.DefaultDecisionQuestions()
+	}
+	out := make([]map[string]any, 0, len(effective))
+	for _, key := range domain.SortedDecisionQuestions(effective) {
+		question := effective[key]
+		out = append(out, map[string]any{
+			"Key": key, "Order": question.Order, "Scope": question.Scope,
+			"Action": string(question.Action), "Threshold": question.Threshold, "Match": question.Match,
+			"Applicable": domain.QuestionApplies(question, kind),
+		})
+	}
+	return out
+}
+
+func semanticComparisons(semantic domain.SemanticAnswer, questions map[string]domain.PromptQuestion, kind string) []map[string]any {
 	if !semantic.Available {
 		return []map[string]any{}
 	}
-	return []map[string]any{
-		{"Name": "directed_to_bot", "Value": semantic.DirectedToBot, "Operator": ">=", "Threshold": th.Continuation, "Satisfied": semantic.DirectedToBot >= th.Continuation},
-		{"Name": "continues_bot_thread", "Value": semantic.ContinuesBotThread, "Operator": ">=", "Threshold": th.Continuation, "Satisfied": semantic.ContinuesBotThread >= th.Continuation},
-		{"Name": "appropriate_to_join", "Value": semantic.AppropriateToJoin, "Operator": ">=", "Threshold": th.Interjection, "Satisfied": semantic.AppropriateToJoin >= th.Interjection},
-		{"Name": "addressed_to_other", "Value": semantic.AddressedToOther, "Operator": ">=", "Threshold": th.AddressedOtherMax, "Satisfied": semantic.AddressedToOther >= th.AddressedOtherMax},
+	out := make([]map[string]any, 0)
+	for _, key := range domain.SortedDecisionQuestions(questions) {
+		question := questions[key]
+		if question.Type == "choice" || !domain.QuestionApplies(question, kind) {
+			continue
+		}
+		value, ok := domain.QuestionScore(semantic, key, question)
+		if !ok {
+			continue
+		}
+		out = append(out, map[string]any{
+			"Name": key, "Value": value, "Operator": ">=", "Threshold": question.Threshold, "Satisfied": value >= question.Threshold,
+		})
 	}
+	return out
 }
 
 func boolText(v bool) string {
@@ -817,25 +857,6 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 	return answer, latency
 }
 
-// promptHasCustomNoul reports whether the effective question set adds a custom
-// noul question with a non-zero weight. The aggregate participation fallback is
-// only meaningful in that case; the default five standard questions never count.
-// promptHasCustomNoul 报告生效问题集中是否存在自定义 noul 问题（有效权重≠0）。
-// 仅此情况下综合分兜底才有意义；默认五问都是标准角色，绝不计入。
-func promptHasCustomNoul(in domain.Input) bool {
-	if in.Prompt.SystemOne == nil {
-		return false
-	}
-	for key, q := range in.Prompt.SystemOne.Questions {
-		if q.Type == "noul" &&
-			domain.EffectiveQuestionRole(key, q) == domain.QuestionRoleCustom &&
-			domain.EffectiveQuestionWeight(key, q) != 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // applyPolicy computes the final decision inside its own span.
 // applyPolicy 在独立 span 内计算最终决策。
 func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.RuleResult,
@@ -843,21 +864,7 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 ) domain.FinalDecision {
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
-	decision := EvaluateReplyPolicy(in, rule, semantic, runtime.Thresholds)
-	// The aggregate participation fallback is only meaningful when the effective
-	// question set adds a custom noul question. The default five standard
-	// questions never enable it, so lowering the interjection threshold cannot
-	// turn their ambiguous result into a reply: default behavior stays unchanged.
-	// 综合参与分兜底仅在生效问题集加入自定义 noul 问题时有意义。默认五问都是标准
-	// 角色，绝不启用该兜底，因此调低插话阈值也不会把默认场景的 ambiguous 改判为回复，
-	// 默认行为保持不变。
-	if decision.Decision == domain.DecisionSilent && decision.ReasonCode == "ambiguous" &&
-		in.Policy.ReplyMode == scopedomain.ModeIntentBased &&
-		semantic.HasParticipation && semantic.ParticipationScore >= runtime.Thresholds.Interjection &&
-		promptHasCustomNoul(in) {
-		decision.Decision = domain.DecisionReply
-		decision.ReasonCode = "participation_score"
-	}
+	decision := EvaluateReplyPolicy(in, rule, semantic)
 	decision.Provider = runtime.Provider
 	decision.Model = runtime.Model
 	decision.LatencyMS = latency
@@ -895,7 +902,7 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 		semantic, latency = d.decideSemantic(ctx, in, runtime)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
-	return decision, decisionSteps(in, rule, semantic, decision, latency, called, runtime.Thresholds, false)
+	return decision, decisionSteps(in, rule, semantic, decision, latency, called, false)
 }
 
 // PrepareSimulation loads the same authorized context and activity as live decisions.

@@ -27,10 +27,10 @@ import (
 // 缺失时回退全局集，两者都没有问题时返回无 Prompt。
 func TestSimulationPromptUsesEffectiveQuestionSet(t *testing.T) {
 	specificQuestions := map[string]intentdomain.PromptQuestion{
-		"directed_to_bot": {Type: "noul", Role: "directed_to_bot", Weight: 1, Instructions: "对机器人说话？"},
+		"directed_to_bot": {Type: "noul", Role: "directed_to_bot", Weight: 1, Instructions: "对机器人说话？", Order: 50, Threshold: 0.8, Action: intentdomain.ActionReply, Scope: intentdomain.QuestionScopePrivate},
 	}
 	globalQuestions := map[string]intentdomain.PromptQuestion{
-		"appropriate_to_join": {Type: "noul", Role: "appropriate_to_join", Weight: 1, Instructions: "适合加入？"},
+		"appropriate_to_join": {Type: "noul", Role: "appropriate_to_join", Weight: 1, Instructions: "适合加入？", Order: 40, Threshold: 0.95, Action: intentdomain.ActionReply, Scope: intentdomain.QuestionScopeGroup},
 	}
 
 	prompt, ok := simulationPrompt(
@@ -64,10 +64,13 @@ func TestSimulationPromptUsesEffectiveQuestionSet(t *testing.T) {
 		t.Fatalf("rendered hash = %q, want %q", prompt.RenderedHash, intentdomain.PromptHash(prompt))
 	}
 
-	// An empty specific set falls back to the global set and its version.
-	fallback, ok := simulationPrompt(&intentdomain.Ruleset{Version: 5}, &intentdomain.Ruleset{Version: 3, Questions: globalQuestions}, 42, "group", 0, "")
+	// An empty specific set is authoritative and does not fall back to global questions.
+	if _, ok := simulationPrompt(&intentdomain.Ruleset{Version: 5}, &intentdomain.Ruleset{Version: 3, Questions: globalQuestions}, 42, "group", 0, ""); ok {
+		t.Fatal("empty specific set fell back to global questions")
+	}
+	fallback, ok := simulationPrompt(nil, &intentdomain.Ruleset{Version: 3, Questions: globalQuestions}, 42, "group", 0, "")
 	if !ok || fallback.Version != 3 || len(fallback.SystemOne.Questions) != 1 {
-		t.Fatalf("global fallback = %+v ok=%v", fallback, ok)
+		t.Fatalf("global questions = %+v ok=%v", fallback, ok)
 	}
 	if _, exists := fallback.Variables["target_id"]; exists {
 		t.Fatalf("target_id should be omitted when scopeID <= 0: %+v", fallback.Variables)
@@ -163,7 +166,7 @@ func TestSemanticSimulationAppliesRequestQuestions(t *testing.T) {
 		"reply_mode": "intent_based", "mode": "semantic", "text": "hi",
 		"ruleset_id": draft.ID,
 		"questions": map[string]any{
-			"directed_to_bot": map[string]any{"Type": "noul", "Role": "directed_to_bot", "Weight": 1, "Instructions": "是否在与我说话？"},
+			"directed_to_bot": map[string]any{"Type": "noul", "Role": "directed_to_bot", "Weight": 1, "Instructions": "是否在与我说话？", "Order": 50, "Threshold": 0.8, "Action": "reply", "Scope": "private"},
 		},
 	})
 	rec := httptest.NewRecorder()
@@ -200,11 +203,11 @@ type rulesetState struct {
 }
 
 // TestRulesetQuestionsUpdateAndGet verifies PATCH stores a question set that a
-// later GET returns, that a questions-only PATCH leaves entries and builtin
-// switches untouched, that an invalid set is rejected, and that an explicit
-// empty entries array clears the entries.
+// later GET returns, that a questions-only PATCH leaves stored entries and
+// builtin switches untouched, that an invalid set is rejected, and that an
+// entries field is no longer accepted.
 // TestRulesetQuestionsUpdateAndGet 验证 PATCH 保存问题集后 GET 能返回；仅提交 questions
-// 时条目与内置开关保持不变；无效问题集被拒绝；显式提交 entries=[] 才清空条目。
+// 时已有条目与内置开关保持不变；无效问题集被拒绝；entries 字段不再接受。
 func TestRulesetQuestionsUpdateAndGet(t *testing.T) {
 	pool := dbtest.Open(t)
 	repo, err := intentinfra.NewRulesetsRepo(pool)
@@ -245,8 +248,8 @@ func TestRulesetQuestionsUpdateAndGet(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"questions": map[string]any{
-		"directed_to_bot": map[string]any{"Type": "noul", "Role": "directed_to_bot", "Weight": 1, "Instructions": "是否在对机器人说话？"},
-		"intent":          map[string]any{"Type": "choice", "Role": "intent", "Instructions": "当前意图？", "Criteria": map[string]string{"closing": "告别", "chat": "闲聊"}},
+		"directed_to_bot": map[string]any{"Type": "noul", "Role": "directed_to_bot", "Weight": 1, "Instructions": "是否在对机器人说话？", "Order": 50, "Threshold": 0.8, "Action": "reply", "Scope": "private"},
+		"intent":          map[string]any{"Type": "choice", "Role": "intent", "Instructions": "当前意图？", "Criteria": map[string]string{"closing": "告别", "chat": "闲聊"}, "Order": 10, "Action": "silent", "Scope": "all", "Match": "closing"},
 	}})
 	patch := httptest.NewRecorder()
 	mux.ServeHTTP(patch, httptest.NewRequest(http.MethodPatch, path, bytes.NewReader(body)))
@@ -277,14 +280,7 @@ func TestRulesetQuestionsUpdateAndGet(t *testing.T) {
 	clearBody, _ := json.Marshal(map[string]any{"entries": []any{}})
 	clearRec := httptest.NewRecorder()
 	mux.ServeHTTP(clearRec, httptest.NewRequest(http.MethodPatch, path, bytes.NewReader(clearBody)))
-	if clearRec.Code != http.StatusOK {
-		t.Fatalf("clear entries status = %d: %s", clearRec.Code, clearRec.Body.String())
-	}
-	cleared := readState()
-	if len(cleared.Entries) != 0 {
-		t.Fatalf("explicit empty entries did not clear: %+v", cleared.Entries)
-	}
-	if enabled, ok := cleared.BuiltinRules["closing"]; !ok || enabled {
-		t.Fatalf("entries clear changed builtin switches: %+v", cleared.BuiltinRules)
+	if clearRec.Code != http.StatusBadRequest {
+		t.Fatalf("entries field status = %d, want 400: %s", clearRec.Code, clearRec.Body.String())
 	}
 }

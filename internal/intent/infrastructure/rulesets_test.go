@@ -44,6 +44,9 @@ func TestRulesetQuestionsReplaceAndClone(t *testing.T) {
 	if stored.Questions["intent"].Type != "choice" || stored.Questions["directed_to_bot"].Role != domain.QuestionRoleDirectedToBot {
 		t.Fatalf("stored questions = %+v", stored.Questions)
 	}
+	if stored.Questions["directed_to_bot"].Scope != domain.QuestionScopeGroup || stored.Questions["intent"].Match != "closing" {
+		t.Fatalf("legacy decision fields = %+v", stored.Questions)
+	}
 	if err := repo.Publish(ctx, first.ID); err != nil {
 		t.Fatal(err)
 	}

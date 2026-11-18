@@ -371,8 +371,9 @@ func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 	if steps[3].Detail["called"] != true || steps[3].Detail["available"] != false {
 		t.Fatalf("legacy semantic detail aliases = %+v", steps[3].Detail)
 	}
-	if _, ok := steps[4].Detail["thresholds"].(map[string]float64); !ok {
-		t.Fatalf("legacy final thresholds alias = %+v", steps[4].Detail)
+	questions, ok := steps[2].Detail["Questions"].([]map[string]any)
+	if !ok || len(questions) == 0 {
+		t.Fatalf("decision questions = %+v", steps[2].Detail["Questions"])
 	}
 }
 
@@ -638,6 +639,7 @@ func TestProcessTaskUsesPolicyVersionQuestions(t *testing.T) {
 		ID: 9, BotID: 100, ScopeType: "group", ScopeID: 700, Version: 7,
 		Questions: map[string]domain.PromptQuestion{
 			"urgency": {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 5,
+				Order: 10, Threshold: 0.8, Action: domain.ActionReply, Scope: domain.QuestionScopeGroup,
 				Instructions: "机器人「{{bot_name}}」(bot {{bot_id}}) 在会话 {{target_id}} 此时插话是否紧急？"},
 		},
 	}
@@ -680,11 +682,11 @@ func TestProcessTaskUsesPolicyVersionQuestions(t *testing.T) {
 	}
 }
 
-// TestProcessTaskFallsBackWhenPolicyQuestionsEmpty verifies an empty question
-// set on the policy version keeps the original PromptService path.
-// TestProcessTaskFallsBackWhenPolicyQuestionsEmpty 验证策略版本问题集为空时仍走原
-// PromptService 路径。
-func TestProcessTaskFallsBackWhenPolicyQuestionsEmpty(t *testing.T) {
+// TestProcessTaskSkipsSemanticWhenPolicyQuestionsEmpty verifies an active
+// ruleset with no questions does not ask the standard prompt or the model.
+// TestProcessTaskSkipsSemanticWhenPolicyQuestionsEmpty 验证生效规则集没有问题时，
+// 不再使用标准 Prompt，也不调用模型。
+func TestProcessTaskSkipsSemanticWhenPolicyQuestionsEmpty(t *testing.T) {
 	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
 		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
 	rules := &fakeRules{sets: map[string]domain.Ruleset{
@@ -703,49 +705,46 @@ func TestProcessTaskFallsBackWhenPolicyQuestionsEmpty(t *testing.T) {
 	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if prompts.calls != 1 {
-		t.Fatalf("prompts calls = %d, want fallback to PromptService", prompts.calls)
+	if prompts.calls != 0 {
+		t.Fatalf("prompts calls = %d, want no standard prompt", prompts.calls)
 	}
-	if semantic.input.Prompt.OpenAI == nil || semantic.input.Prompt.OpenAI.SystemPrompt != "回退 PromptService" {
-		t.Fatalf("prompt not from PromptService: %+v", semantic.input.Prompt)
+	if semantic.calls != 0 {
+		t.Fatalf("semantic calls = %d, want none", semantic.calls)
 	}
 }
 
-// TestParticipationScoreFallbackForCustomQuestionSet verifies the aggregate
-// participation score replies only when no built-in rule matched and the score
-// reaches the interjection threshold, while a lower score stays ambiguous.
-// TestParticipationScoreFallbackForCustomQuestionSet 验证在内置规则都未命中时，
-// 综合参与分达到插话阈值才回复，低于阈值仍判定 ambiguous。
-func TestParticipationScoreFallbackForCustomQuestionSet(t *testing.T) {
+// TestCustomDecisionQuestionUsesItsOwnThreshold verifies a custom question
+// replies only when its own score reaches its own threshold.
+// TestCustomDecisionQuestionUsesItsOwnThreshold 验证自定义问题只在分数达到自己的阈值时回复。
+func TestCustomDecisionQuestionUsesItsOwnThreshold(t *testing.T) {
 	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
 		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{
-		Available: true, HasParticipation: true, ParticipationScore: 0.97,
-		RolePresent: map[string]bool{}, Scores: map[string]float64{"urgency": 0.97},
+		Available: true, Scores: map[string]float64{"urgency": 0.97},
 	}}
 	d := newDecider(t, Options{
 		Scopes:   &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
 		Semantic: semantic, Recorder: &fakeRecorder{}, Thresholds: thresholds, Provider: "jev", Model: "jev-latest",
 	})
 	in := baseInput(scopedomain.ModeIntentBased)
-	// A custom noul question is what makes the aggregate fallback meaningful.
-	in.Prompt = domain.Prompt{SystemOne: &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{
-		"urgency": {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 5, Instructions: "是否紧急？"},
-	}}}
 	rule := EvaluateRules(in)
+	rule.Questions = map[string]domain.PromptQuestion{
+		"urgency": {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 1, Instructions: "是否紧急？",
+			Order: 10, Threshold: 0.80, Action: domain.ActionReply, Scope: domain.QuestionScopeGroup},
+	}
 	if !rule.NeedSemantic {
 		t.Fatalf("rules = %+v, want semantic path", rule)
 	}
 
 	final, _ := d.EvaluateSimulation(context.Background(), in, rule, true)
-	if final.Decision != domain.DecisionReply || final.ReasonCode != "participation_score" {
-		t.Fatalf("high participation decision = %+v, want reply/participation_score", final)
+	if final.Decision != domain.DecisionReply || final.ReasonCode != "urgency" {
+		t.Fatalf("high score decision = %+v, want reply/urgency", final)
 	}
 
-	semantic.answer.ParticipationScore = 0.50
+	semantic.answer.Scores["urgency"] = 0.50
 	low, _ := d.EvaluateSimulation(context.Background(), in, rule, true)
 	if low.Decision != domain.DecisionSilent || low.ReasonCode != "ambiguous" {
-		t.Fatalf("low participation decision = %+v, want silent/ambiguous", low)
+		t.Fatalf("low score decision = %+v, want silent/ambiguous", low)
 	}
 }
 

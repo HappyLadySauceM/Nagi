@@ -86,12 +86,26 @@ function toQuestions(raw: unknown): Record<string, ManagedPromptQuestion> {
       type === 'noul' && role !== undefined && typeof question.Weight === 'number'
         ? question.Weight
         : undefined
+    const action = readOptionalString(question, 'Action', RULES_ENDPOINT)
+    const scope = readOptionalString(question, 'Scope', RULES_ENDPOINT)
+    const match = readOptionalString(question, 'Match', RULES_ENDPOINT)
+    if (action !== undefined && action !== 'reply' && action !== 'silent') {
+      throw new Error(`决策动作未知：${action}`)
+    }
+    if (scope !== undefined && scope !== 'all' && scope !== 'group' && scope !== 'private') {
+      throw new Error(`决策范围未知：${scope}`)
+    }
     questions[key] = {
       type: type as ManagedPromptQuestion['type'],
       instructions: readString(question, 'Instructions', RULES_ENDPOINT, ''),
       ...(criteria ? { criteria } : {}),
       ...(role ? { role } : {}),
       ...(weight !== undefined ? { weight } : {}),
+      ...(typeof question.Order === 'number' ? { order: question.Order } : {}),
+      ...(typeof question.Threshold === 'number' && question.Threshold !== 0 ? { threshold: question.Threshold } : {}),
+      ...(action === 'reply' || action === 'silent' ? { action } : {}),
+      ...(scope === 'all' || scope === 'group' || scope === 'private' ? { scope } : {}),
+      ...(match ? { match } : {}),
     }
   }
   return questions
@@ -266,12 +280,9 @@ export function toRuleEntriesRequest(entries: RuleEntry[]) {
  * 未设置时省略；noul 问题显式保留 0 权重，表示该题不计入综合分。
  */
 export function toQuestionsRequest(questions: Record<string, ManagedPromptQuestion>) {
-  const request: Record<
-    string,
-    { Type: string; Instructions: string; Criteria?: Record<string, string>; Role?: string; Weight?: number }
-  > = {}
+  const request: Record<string, Record<string, unknown>> = {}
   for (const [key, question] of Object.entries(questions)) {
-    const item: { Type: string; Instructions: string; Criteria?: Record<string, string>; Role?: string; Weight?: number } = {
+    const item: Record<string, unknown> = {
       Type: question.type,
       Instructions: question.instructions,
     }
@@ -284,6 +295,11 @@ export function toQuestionsRequest(questions: Record<string, ManagedPromptQuesti
     if (question.type === 'noul' && question.weight !== undefined) {
       item.Weight = question.weight
     }
+    if (question.order !== undefined) item.Order = question.order
+    if (question.threshold !== undefined) item.Threshold = question.threshold
+    if (question.action) item.Action = question.action
+    if (question.scope) item.Scope = question.scope
+    if (question.match) item.Match = question.match
     request[key] = item
   }
   return request
