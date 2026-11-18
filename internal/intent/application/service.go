@@ -119,6 +119,18 @@ func (d *Decider) currentBotName() string {
 	return d.botName
 }
 
+// scorePrompt turns stored category questions into score questions before a
+// semantic call. Ruleset prompts are already converted; a published prompt is not.
+// scorePrompt 在语义调用前把已保存的分类题转成分数题。
+// 规则版本里的问题已经转换过，已发布 Prompt 还没有。
+func scorePrompt(prompt domain.Prompt) domain.Prompt {
+	if prompt.SystemOne == nil || len(prompt.SystemOne.Questions) == 0 {
+		return prompt
+	}
+	prompt.SystemOne = &domain.SystemOnePrompt{Questions: domain.WithDecisionDefaults(prompt.SystemOne.Questions)}
+	return prompt
+}
+
 // policyPrompt builds the intent prompt from the effective ruleset's questions.
 // It returns false when no ruleset is active. An active ruleset with no
 // applicable questions returns an empty prompt and true, so callers do not
@@ -339,6 +351,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 			prompt = d.prompts.Resolve(ctx, runtime.Provider)
 		}
 	}
+	prompt = scorePrompt(prompt)
 	prompt.ConversationID = task.ConversationID
 	runID := uuid.NewString()
 	in := domain.Input{Task: task, Recent: history, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
@@ -736,7 +749,8 @@ func semanticComparisons(semantic domain.SemanticAnswer, questions map[string]do
 			continue
 		}
 		out = append(out, map[string]any{
-			"Name": key, "Value": value, "Operator": ">=", "Threshold": question.Threshold, "Satisfied": value >= question.Threshold,
+			"Name": key, "Value": value, "Operator": ">=", "Threshold": question.Threshold,
+			"Action": string(question.Action), "Satisfied": value >= question.Threshold,
 		})
 	}
 	return out

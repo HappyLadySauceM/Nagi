@@ -185,12 +185,11 @@ func TestParsePromptContentForWithVariablesAllowsExtra(t *testing.T) {
 	}
 }
 
-// validIntentQuestion builds one intent choice question with the closing category.
-// validIntentQuestion 构造一个带 closing 分类的 intent choice 问题。
+// validIntentQuestion builds one intent score question.
+// validIntentQuestion 构造一个 intent 分数题。
 func validIntentQuestion(instructions string) PromptQuestion {
 	return PromptQuestion{
-		Type: "choice", Role: QuestionRoleIntent, Instructions: instructions,
-		Criteria: map[string]string{"closing": "告别", "chat": "闲聊"},
+		Type: "noul", Role: QuestionRoleIntent, Instructions: instructions,
 	}
 }
 
@@ -226,9 +225,6 @@ func TestValidateSystemOnePromptRejectsInvalidSets(t *testing.T) {
 		"bad key":  {Questions: map[string]PromptQuestion{"1bad": {Type: "noul", Role: QuestionRoleCustom, Instructions: "x"}}},
 		"empty instructions": {Questions: map[string]PromptQuestion{
 			"note": {Type: "noul", Role: QuestionRoleCustom, Instructions: "  "},
-		}},
-		"intent not choice": {Questions: map[string]PromptQuestion{
-			"intent": {Type: "noul", Role: QuestionRoleIntent, Instructions: "x"},
 		}},
 		"intent missing closing": {Questions: map[string]PromptQuestion{
 			"intent": {Type: "choice", Role: QuestionRoleIntent, Instructions: "x", Criteria: map[string]string{"chat": "闲聊"}},

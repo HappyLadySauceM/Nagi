@@ -40,10 +40,12 @@ type PromptQuestion struct {
 	Criteria     map[string]string
 	Role         string
 	Weight       float64
-	// Order, Threshold, Action, Scope and Match belong to a ruleset decision
-	// question. Prompt management does not require them.
-	// Order、Threshold、Action、Scope 与 Match 属于规则版本里的决策问题；
-	// Prompt 管理不要求这些字段。
+	// Order, Threshold, Action and Scope belong to a ruleset decision question.
+	// Every decision question is a score: it hits when the score reaches Threshold.
+	// Prompt management does not require these fields. Match is unread.
+	// Order、Threshold、Action 与 Scope 属于规则版本里的决策问题。
+	// 每条决策问题都是分数题，分数达到 Threshold 即命中。
+	// Prompt 管理不要求这些字段。Match 不再参与判断。
 	Order     int
 	Threshold float64
 	Action    RuleActionType
@@ -146,14 +148,13 @@ func DefaultDecisionQuestions() map[string]PromptQuestion {
 		threshold float64
 		action    RuleActionType
 		scope     string
-		match     string
 	}
 	defaults := map[string]meta{
-		"intent":               {10, 0, ActionSilent, QuestionScopeAll, "closing"},
-		"addressed_to_other":   {20, 0.60, ActionSilent, QuestionScopeGroup, ""},
-		"continues_bot_thread": {30, 0.80, ActionReply, QuestionScopeGroup, ""},
-		"appropriate_to_join":  {40, 0.95, ActionReply, QuestionScopeGroup, ""},
-		"directed_to_bot":      {50, 0.80, ActionReply, QuestionScopeGroup, ""},
+		"intent":               {10, 0.80, ActionSilent, QuestionScopeAll},
+		"addressed_to_other":   {20, 0.60, ActionSilent, QuestionScopeGroup},
+		"continues_bot_thread": {30, 0.80, ActionReply, QuestionScopeGroup},
+		"appropriate_to_join":  {40, 0.95, ActionReply, QuestionScopeGroup},
+		"directed_to_bot":      {50, 0.80, ActionReply, QuestionScopeGroup},
 	}
 	for key, item := range defaults {
 		question := questions[key]
@@ -161,18 +162,46 @@ func DefaultDecisionQuestions() map[string]PromptQuestion {
 		question.Threshold = item.threshold
 		question.Action = item.action
 		question.Scope = item.scope
-		question.Match = item.match
 		questions[key] = question
 	}
 	return questions
 }
 
+// legacyIntentInstructions is the classification prompt replaced by a score.
+// legacyIntentInstructions 是已被分数题替换的旧分类题目。
+const legacyIntentInstructions = "当前消息的主要聊天功能是什么？"
+
+// goodbyeInstructions asks whether the message is ending the conversation.
+// goodbyeInstructions 询问当前消息是否在结束对话。
+const goodbyeInstructions = "当前消息是在告别、结束或不再期待回复吗？"
+
+// asScoreQuestion turns a category question into a threshold question.
+// A still-default classification prompt becomes the goodbye question.
+// asScoreQuestion 把分类题转成阈值题。仍是默认分类题目时，改为告别问题。
+func asScoreQuestion(question PromptQuestion) PromptQuestion {
+	if question.Type != "choice" {
+		return question
+	}
+	question.Type = "noul"
+	question.Match = ""
+	question.Criteria = nil
+	if question.Threshold <= 0 || question.Threshold > 1 {
+		question.Threshold = 0.8
+	}
+	if strings.TrimSpace(question.Instructions) == "" || question.Instructions == legacyIntentInstructions {
+		question.Instructions = goodbyeInstructions
+	}
+	return question
+}
+
 // WithDecisionDefaults fills decision fields for questions saved before those
-// fields existed. A question that already has a scope is left unchanged. Known
-// questions receive the default five-question policy; any other question
-// replies in groups at 0.8. Nil and empty maps stay as they are.
-// WithDecisionDefaults 为缺少决策字段的旧问题补上默认值。已经有范围的问题保持不变。
-// 五条已知问题使用默认策略，其它问题在群聊以 0.8 回复。nil 和空集合保持原样。
+// fields existed. Category questions become score questions first. A question
+// that already has a scope then keeps its remaining decision fields. Known
+// questions without a scope receive the default five-question policy; any
+// other question replies in groups at 0.8. Nil and empty maps stay as they are.
+// WithDecisionDefaults 为缺少决策字段的旧问题补上默认值。分类题会先变成分数题。
+// 已经有范围的问题保留其余决策字段。没有范围的五条已知问题使用默认策略，
+// 其它问题在群聊以 0.8 回复。nil 和空集合保持原样。
 func WithDecisionDefaults(questions map[string]PromptQuestion) map[string]PromptQuestion {
 	if len(questions) == 0 {
 		return questions
@@ -180,6 +209,7 @@ func WithDecisionDefaults(questions map[string]PromptQuestion) map[string]Prompt
 	defaults := DefaultDecisionQuestions()
 	out := make(map[string]PromptQuestion, len(questions))
 	for key, question := range questions {
+		question = asScoreQuestion(question)
 		if question.Scope != "" {
 			out[key] = question
 			continue
@@ -189,11 +219,10 @@ func WithDecisionDefaults(questions map[string]PromptQuestion) map[string]Prompt
 			question.Threshold = item.Threshold
 			question.Action = item.Action
 			question.Scope = item.Scope
-			question.Match = item.Match
 		} else {
 			question.Action = ActionReply
 			question.Scope = QuestionScopeGroup
-			if question.Type != "choice" && question.Threshold == 0 {
+			if question.Threshold == 0 {
 				question.Threshold = 0.8
 			}
 		}
@@ -260,7 +289,7 @@ func SortedDecisionQuestions(questions map[string]PromptQuestion) []string {
 func DecisionReason(key string, q PromptQuestion) string {
 	switch EffectiveQuestionRole(key, q) {
 	case QuestionRoleIntent:
-		if q.Match == "closing" && q.Action == ActionSilent {
+		if q.Action == ActionSilent {
 			return "closing"
 		}
 		return key
@@ -420,17 +449,15 @@ func ValidateSystemOnePrompt(p *SystemOnePrompt) error {
 		if !IsKnownQuestionRole(role) {
 			return errInvalidPrompt("unknown question role " + role)
 		}
-		if role == QuestionRoleIntent {
-			if q.Type != "choice" {
-				return errInvalidPrompt("intent question must be choice")
+		if q.Type != "noul" {
+			// Only an intent classification may stay a choice, and it must name closing.
+			// 只有 intent 分类可以仍是 choice，且必须包含 closing。
+			if role != QuestionRoleIntent || q.Type != "choice" {
+				return errInvalidPrompt("question " + name + " must be noul")
 			}
 			if _, ok := q.Criteria["closing"]; !ok {
 				return errInvalidPrompt("intent criteria must contain closing")
 			}
-		} else if q.Type != "noul" {
-			// Every non-intent role, including custom, is a noul score.
-			// 除 intent 外的角色（含 custom）都必须是 noul 分数。
-			return errInvalidPrompt("question " + name + " must be noul")
 		}
 		if q.Type == "choice" && len(q.Criteria) == 0 {
 			return errInvalidPrompt("choice criteria required")
@@ -491,15 +518,8 @@ func BuiltinPrompt(provider string) Prompt {
 				Instructions: "在没有被点名的情况下，机器人此时插话是否自然且有帮助？",
 			},
 			"intent": {
-				Type: "choice", Role: QuestionRoleIntent, Weight: 0,
-				Instructions: "当前消息的主要聊天功能是什么？",
-				Criteria: map[string]string{
-					"question": "求助或提问",
-					"chat":     "普通闲聊或讨论",
-					"command":  "明确提出执行动作",
-					"closing":  "告别、结束或不再期待回复",
-					"other":    "无法归入以上类型",
-				},
+				Type: "noul", Role: QuestionRoleIntent, Weight: 0,
+				Instructions: goodbyeInstructions,
 			},
 		}}
 	}

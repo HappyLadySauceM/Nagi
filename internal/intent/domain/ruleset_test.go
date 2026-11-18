@@ -10,7 +10,7 @@ import "testing"
 // Prompt 规则拒绝格式错误的问题集。
 func TestRulesetValidateQuestions(t *testing.T) {
 	intent := validIntentQuestion("当前意图？")
-	intent.Order, intent.Action, intent.Scope, intent.Match = 10, ActionSilent, QuestionScopeAll, "closing"
+	intent.Order, intent.Action, intent.Scope, intent.Threshold = 10, ActionSilent, QuestionScopeAll, 0.8
 	valid := map[string]PromptQuestion{
 		"directed_to_bot": {Type: "noul", Role: QuestionRoleDirectedToBot, Weight: 1, Instructions: "是否在对机器人说话？", Order: 50, Threshold: 0.8, Action: ActionReply, Scope: QuestionScopeGroup},
 		"intent":          intent,
@@ -26,7 +26,7 @@ func TestRulesetValidateQuestions(t *testing.T) {
 	}
 
 	cases := map[string]map[string]PromptQuestion{
-		"intent not choice": {
+		"intent missing decision": {
 			"intent": {Type: "noul", Role: QuestionRoleIntent, Instructions: "x"},
 		},
 		"intent missing closing": {
@@ -65,8 +65,9 @@ func TestWithDecisionDefaultsFillsLegacyQuestions(t *testing.T) {
 	if urgency.Scope != QuestionScopeGroup || urgency.Action != ActionReply || urgency.Threshold != 0.8 {
 		t.Fatalf("custom question = %+v", urgency)
 	}
-	if got["intent"].Match != "chat" || got["intent"].Action != ActionReply {
-		t.Fatalf("explicit decision fields changed: %+v", got["intent"])
+	intent := got["intent"]
+	if intent.Type != "noul" || intent.Match != "" || intent.Threshold != 0.8 || intent.Action != ActionReply || intent.Scope != QuestionScopeAll || intent.Instructions != "当前意图？" {
+		t.Fatalf("choice question was not converted: %+v", intent)
 	}
 	if len(WithDecisionDefaults(nil)) != 0 || len(WithDecisionDefaults(map[string]PromptQuestion{})) != 0 {
 		t.Fatal("empty question lists were filled")
@@ -79,7 +80,6 @@ func TestDecisionReasonUsesClosingOnlyForSilentClosing(t *testing.T) {
 		t.Fatalf("default intent reason = %s", got)
 	}
 	changed := closing
-	changed.Match = "chat"
 	changed.Action = ActionReply
 	if got := DecisionReason("intent", changed); got != "intent" {
 		t.Fatalf("changed intent reason = %s", got)

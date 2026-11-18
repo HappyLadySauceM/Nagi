@@ -134,7 +134,7 @@ func TestParticipationDecisionBaseline(t *testing.T) {
 		},
 		{
 			name: "closing", input: baselineGroupInput("好，那先这样。", nil),
-			semantic:     domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.90, AddressedToOther: 0.10, IntentCategory: "closing"},
+			semantic:     domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.90, AddressedToOther: 0.10, Scores: map[string]float64{"intent": 0.9}},
 			wantDecision: domain.DecisionSilent, wantReason: "closing", wantNeedSemantic: true,
 		},
 		{
@@ -169,7 +169,7 @@ func TestParticipationDecisionBaseline(t *testing.T) {
 		},
 		{
 			name: "private_closing", input: baselinePrivateInput("好，那先这样"),
-			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.10, ContinuesBotThread: 0.10, AddressedToOther: 0.10, AppropriateToJoin: 0.10, IntentCategory: "closing"},
+			semantic:     domain.SemanticAnswer{Available: true, DirectedToBot: 0.10, ContinuesBotThread: 0.10, AddressedToOther: 0.10, AppropriateToJoin: 0.10, Scores: map[string]float64{"intent": 0.9}},
 			wantDecision: domain.DecisionSilent, wantReason: "closing", wantNeedSemantic: true,
 		},
 		{

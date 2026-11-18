@@ -68,11 +68,11 @@ describe('rule wire boundary',()=>{
   }})
   expect(set.questions).toEqual({
    directed_to_bot:{type:'noul',instructions:'是否指向机器人',role:'directed_to_bot',weight:1,order:50,threshold:0.8,action:'reply',scope:'group'},
-   intent:{type:'choice',instructions:'判断意图分类',role:'intent',criteria:{closing:'告别'},order:10,action:'silent',scope:'all',match:'closing'},
+   intent:{type:'noul',instructions:'判断意图分类',role:'intent',order:10,threshold:0.8,action:'silent',scope:'all'},
   })
   expect(toQuestionsRequest(set.questions!)).toEqual({
    directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1,Order:50,Threshold:0.8,Action:'reply',Scope:'group'},
-   intent:{Type:'choice',Instructions:'判断意图分类',Criteria:{closing:'告别'},Role:'intent',Order:10,Action:'silent',Scope:'all',Match:'closing'},
+   intent:{Type:'noul',Instructions:'判断意图分类',Role:'intent',Order:10,Threshold:0.8,Action:'silent',Scope:'all'},
   })
  })
  it('defaults a missing question set to an empty map',()=>{

@@ -117,7 +117,7 @@ func TestReplyPolicyContinuationAndInterjection(t *testing.T) {
 		t.Fatalf("addressed to other: %+v", d)
 	}
 
-	closing := domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.9, AddressedToOther: 0.1, IntentCategory: "closing"}
+	closing := domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.9, AddressedToOther: 0.1, Scores: map[string]float64{"intent": 0.9}}
 	if d := EvaluateReplyPolicy(in, rule, closing); d.Decision != domain.DecisionSilent || d.ReasonCode != "closing" {
 		t.Fatalf("closing: %+v", d)
 	}

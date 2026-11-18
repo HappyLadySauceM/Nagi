@@ -189,9 +189,11 @@ func TestSemanticSimulationAppliesRequestQuestions(t *testing.T) {
 // rulesetState 捕获用于断言 PATCH 保留语义的字段。
 type rulesetState struct {
 	Questions map[string]struct {
-		Type     string
-		Role     string
-		Criteria map[string]string
+		Type         string
+		Role         string
+		Instructions string
+		Criteria     map[string]string
+		Threshold    float64
 	}
 	Entries []struct {
 		Priority int
@@ -249,7 +251,7 @@ func TestRulesetQuestionsUpdateAndGet(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{"questions": map[string]any{
 		"directed_to_bot": map[string]any{"Type": "noul", "Role": "directed_to_bot", "Weight": 1, "Instructions": "是否在对机器人说话？", "Order": 50, "Threshold": 0.8, "Action": "reply", "Scope": "private"},
-		"intent":          map[string]any{"Type": "choice", "Role": "intent", "Instructions": "当前意图？", "Criteria": map[string]string{"closing": "告别", "chat": "闲聊"}, "Order": 10, "Action": "silent", "Scope": "all", "Match": "closing"},
+		"intent":          map[string]any{"Type": "noul", "Role": "intent", "Instructions": "当前意图？", "Order": 10, "Threshold": 0.8, "Action": "silent", "Scope": "all"},
 	}})
 	patch := httptest.NewRecorder()
 	mux.ServeHTTP(patch, httptest.NewRequest(http.MethodPatch, path, bytes.NewReader(body)))
@@ -258,7 +260,7 @@ func TestRulesetQuestionsUpdateAndGet(t *testing.T) {
 	}
 
 	state := readState()
-	if state.Questions["intent"].Type != "choice" || state.Questions["intent"].Criteria["closing"] != "告别" || state.Questions["directed_to_bot"].Role != "directed_to_bot" {
+	if state.Questions["intent"].Type != "noul" || state.Questions["intent"].Threshold != 0.8 || state.Questions["intent"].Instructions != "当前意图？" || state.Questions["directed_to_bot"].Role != "directed_to_bot" {
 		t.Fatalf("questions = %+v", state.Questions)
 	}
 	if len(state.Entries) != 1 || state.Entries[0].Action.ReasonCode != "seed" {

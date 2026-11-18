@@ -157,7 +157,7 @@ it('explains reply mode, cited context, matched rules and semantic scores in Chi
         Detail: {
           NeedSemantic: true,
           Questions: [
-            { Key: 'intent', Order: 10, Scope: 'all', Action: 'silent', Match: 'closing', Applicable: true },
+            { Key: 'intent', Order: 10, Scope: 'all', Action: 'silent', Threshold: 0.8, Applicable: true },
           ],
           Evaluations: [
             {
@@ -188,6 +188,7 @@ it('explains reply mode, cited context, matched rules and semantic scores in Chi
           intent_category: 'question',
           Comparisons: [
             { Name: 'directed_to_bot', Value: 0.9, Threshold: 0.8, Satisfied: true },
+            { Name: 'intent', Value: 0.9, Threshold: 0.8, Action: 'silent', Satisfied: true },
             { Name: 'addressed_to_other', Value: 0.2, Threshold: 0.6, Satisfied: false },
           ],
         },
@@ -241,7 +242,7 @@ it('explains reply mode, cited context, matched rules and semantic scores in Chi
   fireEvent.click(await screen.findByRole('button', { name: '规则 实际执行' }))
   expect(await screen.findByText('没有明确指向，交给语义判定决定要不要插话')).toBeVisible()
   expect(screen.getByText('intent')).toBeVisible()
-  expect(screen.getByText('群聊和私聊 · 分类 closing · 沉默')).toBeVisible()
+  expect(screen.getByText('群聊和私聊 · 阈值 0.8 · 沉默')).toBeVisible()
   expect(screen.getByText('本次适用')).toBeVisible()
   expect(screen.getByText('回复模式是「由意图判定是否插话」，正文包含「你好」')).toBeVisible()
   expect(screen.getByText('交给语义判定')).toBeVisible()
@@ -253,6 +254,8 @@ it('explains reply mode, cited context, matched rules and semantic scores in Chi
   expect(await screen.findByText('求助或提问')).toBeVisible()
   expect(screen.getByText('是否在跟机器人说话')).toBeVisible()
   expect(screen.getByText('成立')).toBeVisible()
+  expect(screen.getByText('是否在告别或结束')).toBeVisible()
+  expect(screen.getByText('会沉默')).toBeVisible()
   expect(screen.getByText('是否主要在跟另一位真人说话')).toBeVisible()
   expect(screen.getByText('不抑制')).toBeVisible()
   expect(screen.getByText(/这是私聊，聊天功能是「求助或提问」，不是告别，所以仍然回复/)).toBeVisible()

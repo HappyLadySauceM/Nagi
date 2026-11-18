@@ -309,7 +309,9 @@ it('saves edited decision questions and targets without entries or builtin switc
   expect(body).not.toHaveProperty('builtin_rules')
   expect(body).toHaveProperty('targets')
   expect(body.questions.directed_to_bot).toMatchObject({ Type: 'noul', Instructions: '更新后的指向描述', Role: 'directed_to_bot', Weight: 1, Order: 50, Threshold: 0.8, Action: 'reply', Scope: 'group' })
-  expect(body.questions.intent).toMatchObject({ Type: 'choice', Role: 'intent', Criteria: { closing: '告别' }, Order: 10, Action: 'silent', Scope: 'all', Match: 'closing' })
+  expect(body.questions.intent).toMatchObject({ Type: 'noul', Role: 'intent', Instructions: '判断聊天意图', Order: 10, Threshold: 0.8, Action: 'silent', Scope: 'all' })
+  expect(body.questions.intent).not.toHaveProperty('Match')
+  expect(body.questions.intent).not.toHaveProperty('Criteria')
   client.clear()
 })
 
@@ -325,7 +327,7 @@ it('sends the current question set in the semantic simulate request body', async
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const questions = {
     directed_to_bot: { type: 'noul' as const, instructions: '是否在跟我说话', role: 'directed_to_bot' as const, weight: 1 },
-    intent: { type: 'choice' as const, instructions: '判断聊天意图', role: 'intent' as const, criteria: { question: '提问', chat: '闲聊' } },
+    intent: { type: 'noul' as const, instructions: '判断聊天意图', role: 'intent' as const, weight: 0, threshold: 0.8, action: 'silent' as const, scope: 'all' as const },
   }
   render(
     <QueryClientProvider client={client}>
@@ -343,7 +345,7 @@ it('sends the current question set in the semantic simulate request body', async
   await waitFor(() => expect(body).toBeDefined())
   expect((body as { questions: unknown }).questions).toEqual({
     directed_to_bot: { Type: 'noul', Instructions: '是否在跟我说话', Role: 'directed_to_bot', Weight: 1 },
-    intent: { Type: 'choice', Instructions: '判断聊天意图', Role: 'intent', Criteria: { question: '提问', chat: '闲聊' } },
+    intent: { Type: 'noul', Instructions: '判断聊天意图', Role: 'intent', Weight: 0, Threshold: 0.8, Action: 'silent', Scope: 'all' },
   })
   client.clear()
 })

@@ -81,7 +81,7 @@ func TestDisabledEntriesAndSemanticOverride(t *testing.T) {
 
 func TestDeletedQuestionsDoNotBypassHardGates(t *testing.T) {
 	in := baseInput(scopedomain.ModeIntentBased)
-	semantic := domain.SemanticAnswer{Available: true, DirectedToBot: 0.9, IntentCategory: "closing"}
+	semantic := domain.SemanticAnswer{Available: true, DirectedToBot: 0.9, Scores: map[string]float64{"intent": 0.9}}
 	rule := EvaluateRules(in)
 	if got := EvaluateReplyPolicy(in, rule, semantic); got.ReasonCode != "closing" {
 		t.Fatalf("closing: %+v", got)

@@ -75,9 +75,7 @@ function decisionQuestionErrors(questions: Record<string, ManagedPromptQuestion>
     if (question.action !== 'reply' && question.action !== 'silent') {
       errors.push(`${label} 需要选择回复或沉默`)
     }
-    if (question.type === 'choice') {
-      if (!question.match || !question.criteria?.[question.match]) errors.push(`${label} 需要选择会触发动作的分类`)
-    } else if (question.threshold === undefined || !(question.threshold > 0 && question.threshold <= 1)) {
+    if (question.threshold === undefined || !(question.threshold > 0 && question.threshold <= 1)) {
       errors.push(`${label} 的阈值必须大于 0 且不超过 1`)
     }
   }
@@ -167,7 +165,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
     <div className="space-y-5">
       {!embedded ? <PageHeader
         title="参与判断"
-        description="这里只维护规则版本。打开草稿后编辑有序的决策问题：题目、范围、动作，以及阈值或分类匹配。未发布任何规则时运行时使用默认五题；版本一旦保存，就只使用它自己的问题。"
+        description="这里只维护规则版本。打开草稿后编辑有序的决策问题：题目、范围、命中后和阈值。未发布任何规则时运行时使用默认五题；版本一旦保存，就只使用它自己的问题。"
         className="xl:col-span-2"
       /> : null}
 
@@ -327,8 +325,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
                 <div className="grid gap-2 sm:grid-cols-3">
                   <label className="space-y-1 text-sm">
                     <span className="text-muted-foreground">范围</span>
-                    <Select aria-label={`${questionLabel(key)} 范围`} value={question.scope ?? ''} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { scope: event.target.value as ManagedPromptQuestion['scope'] })}>
-                      <option value="">选择范围</option>
+                    <Select aria-label={`${questionLabel(key)} 范围`} value={question.scope ?? 'group'} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { scope: event.target.value as ManagedPromptQuestion['scope'] })}>
                       <option value="all">群聊和私聊</option>
                       <option value="group">仅群聊</option>
                       <option value="private">仅私聊</option>
@@ -336,26 +333,15 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="text-muted-foreground">命中后</span>
-                    <Select aria-label={`${questionLabel(key)} 动作`} value={question.action ?? ''} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { action: event.target.value as ManagedPromptQuestion['action'] })}>
-                      <option value="">选择动作</option>
+                    <Select aria-label={`${questionLabel(key)} 动作`} value={question.action ?? 'reply'} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { action: event.target.value as ManagedPromptQuestion['action'] })}>
                       <option value="reply">回复</option>
                       <option value="silent">沉默</option>
                     </Select>
                   </label>
-                  {question.type === 'choice' ? (
-                    <label className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">触发分类</span>
-                      <Select aria-label={`${questionLabel(key)} 分类`} value={question.match ?? ''} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { match: event.target.value })}>
-                        <option value="">选择分类</option>
-                        {Object.entries(question.criteria ?? {}).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                      </Select>
-                    </label>
-                  ) : (
-                    <label className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">阈值</span>
-                      <Input aria-label={`${questionLabel(key)} 阈值`} inputMode="decimal" value={question.threshold === undefined ? '' : String(question.threshold)} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { threshold: event.target.value === '' ? undefined : Number(event.target.value) })} />
-                    </label>
-                  )}
+                  <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">阈值</span>
+                    <Input aria-label={`${questionLabel(key)} 阈值`} inputMode="decimal" value={question.threshold === undefined ? '' : String(question.threshold)} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { threshold: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                  </label>
                 </div>
               </div>
             ))}

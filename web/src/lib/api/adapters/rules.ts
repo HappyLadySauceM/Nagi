@@ -65,7 +65,7 @@ function toQuestions(raw: unknown): Record<string, ManagedPromptQuestion> {
   const questions: Record<string, ManagedPromptQuestion> = {}
   for (const [key, value] of Object.entries(record)) {
     const question = asRecord(value, RULES_ENDPOINT, 'Question')
-    const type = readString(question, 'Type', RULES_ENDPOINT)
+    let type = readString(question, 'Type', RULES_ENDPOINT)
     if (type !== 'noul' && type !== 'choice') {
       throw new Error(`问题类型未知：${type}`)
     }
@@ -88,24 +88,35 @@ function toQuestions(raw: unknown): Record<string, ManagedPromptQuestion> {
         : undefined
     const action = readOptionalString(question, 'Action', RULES_ENDPOINT)
     const scope = readOptionalString(question, 'Scope', RULES_ENDPOINT)
-    const match = readOptionalString(question, 'Match', RULES_ENDPOINT)
     if (action !== undefined && action !== 'reply' && action !== 'silent') {
       throw new Error(`决策动作未知：${action}`)
     }
     if (scope !== undefined && scope !== 'all' && scope !== 'group' && scope !== 'private') {
       throw new Error(`决策范围未知：${scope}`)
     }
+    let instructions = readString(question, 'Instructions', RULES_ENDPOINT, '')
+    let threshold = typeof question.Threshold === 'number' && question.Threshold !== 0 ? question.Threshold : undefined
+    let scoredCriteria = criteria
+    if (type === 'choice') {
+      // A stored category question is edited and judged as a score.
+      // 已保存的分类题按分数题编辑和判断。
+      type = 'noul'
+      scoredCriteria = undefined
+      if (threshold === undefined) threshold = 0.8
+      if (instructions.trim() === '' || instructions === '当前消息的主要聊天功能是什么？') {
+        instructions = '当前消息是在告别、结束或不再期待回复吗？'
+      }
+    }
     questions[key] = {
-      type: type as ManagedPromptQuestion['type'],
-      instructions: readString(question, 'Instructions', RULES_ENDPOINT, ''),
-      ...(criteria ? { criteria } : {}),
+      type: 'noul',
+      instructions,
+      ...(scoredCriteria && Object.keys(scoredCriteria).length > 0 ? { criteria: scoredCriteria } : {}),
       ...(role ? { role } : {}),
       ...(weight !== undefined ? { weight } : {}),
       ...(typeof question.Order === 'number' ? { order: question.Order } : {}),
-      ...(typeof question.Threshold === 'number' && question.Threshold !== 0 ? { threshold: question.Threshold } : {}),
+      ...(threshold !== undefined ? { threshold } : {}),
       ...(action === 'reply' || action === 'silent' ? { action } : {}),
       ...(scope === 'all' || scope === 'group' || scope === 'private' ? { scope } : {}),
-      ...(match ? { match } : {}),
     }
   }
   return questions
@@ -299,7 +310,6 @@ export function toQuestionsRequest(questions: Record<string, ManagedPromptQuesti
     if (question.threshold !== undefined) item.Threshold = question.threshold
     if (question.action) item.Action = question.action
     if (question.scope) item.Scope = question.scope
-    if (question.match) item.Match = question.match
     request[key] = item
   }
   return request
