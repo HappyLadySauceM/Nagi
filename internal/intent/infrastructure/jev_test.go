@@ -42,7 +42,7 @@ const validAnswers = `{
     "continues_bot_thread": {"noul": 0.88},
     "addressed_to_other": {"noul": 0.10},
     "appropriate_to_join": {"noul": 0.30},
-    "intent": {"choice": "chat"}
+    "intent": {"noul": 0.2}
   }
 }`
 
@@ -69,7 +69,7 @@ func TestJevClientParsesValidAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decide: %v", err)
 	}
-	if !answer.Available || answer.ContinuesBotThread != 0.88 || answer.AddressedToOther != 0.10 || answer.IntentCategory != "chat" {
+	if !answer.Available || answer.ContinuesBotThread != 0.88 || answer.AddressedToOther != 0.10 || answer.Scores["intent"] != 0.2 {
 		t.Fatalf("answer = %+v", answer)
 	}
 	if gotAuth != "Bearer test-key" || gotModel != "jev-latest" {
@@ -151,7 +151,7 @@ func TestJevClientUsesPromptSnapshot(t *testing.T) {
 		"continues_bot_thread": {Type: "noul", Instructions: "custom continuation instruction"},
 		"addressed_to_other":   {Type: "noul", Instructions: "custom other instruction"},
 		"appropriate_to_join":  {Type: "noul", Instructions: "custom join instruction"},
-		"intent":               {Type: "choice", Instructions: "custom intent instruction", Criteria: map[string]string{"chat": "chat"}},
+		"intent":               {Type: "noul", Instructions: "custom intent instruction"},
 	}}}
 	if _, err := testClient(t, srv.URL).Decide(context.Background(), in); err != nil {
 		t.Fatalf("decide: %v", err)

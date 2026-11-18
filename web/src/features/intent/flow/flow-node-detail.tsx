@@ -299,7 +299,7 @@ function DecisionQuestions({ detail }: { detail: Record<string, unknown> }) {
             const key = typeof question.Key === 'string' ? question.Key : String(index)
             const action = question.Action === 'reply' ? '回复' : question.Action === 'silent' ? '沉默' : '未记录动作'
             const scope = question.Scope === 'group' ? '仅群聊' : question.Scope === 'private' ? '仅私聊' : question.Scope === 'all' ? '群聊和私聊' : '未记录范围'
-            const trigger = typeof question.Match === 'string' && question.Match ? `分类 ${question.Match}` : `阈值 ${String(question.Threshold ?? '—')}`
+            const trigger = `阈值 ${String(question.Threshold ?? '—')}`
             return (
               <li key={key} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs">
                 <span>
@@ -392,11 +392,16 @@ function scoreNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function comparisonEffect(name: string, satisfied: boolean) {
+function comparisonEffect(name: string, satisfied: boolean, action: string) {
   if (name === 'addressed_to_other') {
     return satisfied
       ? { label: '会抑制', hint: '达到后，群聊优先保持沉默', variant: 'destructive' as const, bar: 'bg-destructive' }
       : { label: '不抑制', hint: '未达到，不因此沉默', variant: 'outline' as const, bar: 'bg-muted-foreground/50' }
+  }
+  if (action === 'silent') {
+    return satisfied
+      ? { label: '会沉默', hint: '达到后保持沉默', variant: 'destructive' as const, bar: 'bg-destructive' }
+      : { label: '不沉默', hint: '未达到，不因此沉默', variant: 'outline' as const, bar: 'bg-muted-foreground/50' }
   }
   return satisfied
     ? { label: '成立', hint: '达到后，群聊可以因此回复', variant: 'success' as const, bar: 'bg-success' }
@@ -446,7 +451,8 @@ function SemanticDetail({ detail, reasonCode }: { detail: Record<string, unknown
             const name = String(row.Name ?? '')
             const value = scoreNumber(row.Value)
             const threshold = scoreNumber(row.Threshold) ?? thresholdFor(name)
-            const effect = comparisonEffect(name, row.Satisfied === true)
+            const action = typeof row.Action === 'string' ? row.Action : ''
+            const effect = comparisonEffect(name, row.Satisfied === true, action)
             const width = value === undefined ? 0 : Math.max(0, Math.min(100, Math.round(value * 100)))
             return (
               <li key={index} className="rounded-lg border border-border px-3 py-2">

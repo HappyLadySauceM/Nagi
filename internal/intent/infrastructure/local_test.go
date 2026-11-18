@@ -47,7 +47,7 @@ func TestLocalCandidateProbabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !answer.Available || answer.DirectedToBot < 0.8 || answer.IntentCategory != "question" {
+	if !answer.Available || answer.DirectedToBot < 0.8 || answer.Scores["intent"] < 0.8 {
 		t.Fatalf("unexpected answer %+v", answer)
 	}
 }

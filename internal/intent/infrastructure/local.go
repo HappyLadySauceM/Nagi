@@ -43,7 +43,7 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 	var state bytes.Buffer
 	_ = json.NewEncoder(&state).Encode(map[string]any{"channel": in.Task.Kind, "bot_name": c.Config.BotName, "message": in.Task.Message.Text, "recent": recent})
 	values := make([]float64, 4)
-	var category string
+	var intentScore float64
 	c.gateOnce.Do(func() { c.gate = make(chan struct{}, 2) })
 	sem := c.gate
 	var wg sync.WaitGroup
@@ -64,11 +64,10 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 				return
 			}
 			defer func() { <-sem }()
-			q := "消息类型是什么？A=求助提问，B=闲聊，C=命令，D=告别结束，E=其它。"
-			labels := []string{"A", "B", "C", "D", "E"}
+			q := "当前消息是在告别、结束或不再期待回复吗？ A=是，B=否。"
+			labels := []string{"A", "B"}
 			if i < 4 {
 				q = questions[i] + " A=是，B=否。"
-				labels = []string{"A", "B"}
 			}
 			probs, err := c.score(ctx, systemPrompt, state.String(), q, labels, userTemplate)
 			mu.Lock()
@@ -82,13 +81,7 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 			if i < 4 {
 				values[i] = probs[0]
 			} else {
-				best := 0
-				for j := range probs {
-					if probs[j] > probs[best] {
-						best = j
-					}
-				}
-				category = []string{"question", "chat", "command", "closing", "other"}[best]
+				intentScore = probs[0]
 			}
 		}(i)
 	}
@@ -96,7 +89,7 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 	if first != nil {
 		return domain.SemanticAnswer{}, first
 	}
-	return domain.SemanticAnswer{Available: true, DirectedToBot: values[0], ContinuesBotThread: values[1], AddressedToOther: values[2], AppropriateToJoin: values[3], IntentCategory: category}, nil
+	return domain.SemanticAnswer{Available: true, DirectedToBot: values[0], ContinuesBotThread: values[1], AddressedToOther: values[2], AppropriateToJoin: values[3], Scores: map[string]float64{"intent": intentScore}}, nil
 }
 
 func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question string, labels []string, userTemplate string) ([]float64, error) {

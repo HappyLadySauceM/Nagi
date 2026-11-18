@@ -143,10 +143,6 @@ func matchDecisionQuestions(in domain.Input, semantic domain.SemanticAnswer, que
 }
 
 func questionMatched(semantic domain.SemanticAnswer, key string, question domain.PromptQuestion) bool {
-	if question.Type == "choice" {
-		choice, ok := domain.QuestionChoice(semantic, key, question)
-		return ok && choice == question.Match
-	}
 	score, ok := domain.QuestionScore(semantic, key, question)
 	return ok && score >= question.Threshold
 }

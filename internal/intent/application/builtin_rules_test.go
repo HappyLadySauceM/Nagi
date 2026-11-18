@@ -40,7 +40,7 @@ func TestBuiltinRuleCatalogMatchesEvaluation(t *testing.T) {
 	}{
 		{
 			name:       "closing",
-			semantic:   domain.SemanticAnswer{Available: true, IntentCategory: "closing"},
+			semantic:   domain.SemanticAnswer{Available: true, Scores: map[string]float64{"intent": 0.9}},
 			wantReason: "closing",
 			wantAction: domain.DecisionSilent,
 		},

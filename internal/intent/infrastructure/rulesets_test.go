@@ -41,10 +41,10 @@ func TestRulesetQuestionsReplaceAndClone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Questions["intent"].Type != "choice" || stored.Questions["directed_to_bot"].Role != domain.QuestionRoleDirectedToBot {
+	if stored.Questions["intent"].Type != "noul" || stored.Questions["intent"].Threshold != 0.8 || stored.Questions["directed_to_bot"].Role != domain.QuestionRoleDirectedToBot {
 		t.Fatalf("stored questions = %+v", stored.Questions)
 	}
-	if stored.Questions["directed_to_bot"].Scope != domain.QuestionScopeGroup || stored.Questions["intent"].Match != "closing" {
+	if stored.Questions["directed_to_bot"].Scope != domain.QuestionScopeGroup || stored.Questions["intent"].Match != "" {
 		t.Fatalf("legacy decision fields = %+v", stored.Questions)
 	}
 	if err := repo.Publish(ctx, first.ID); err != nil {
@@ -54,7 +54,7 @@ func TestRulesetQuestionsReplaceAndClone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(clone.Questions) != len(questions) || clone.Questions["intent"].Criteria["closing"] != "告别" {
+	if len(clone.Questions) != len(questions) || clone.Questions["intent"].Type != "noul" || clone.Questions["intent"].Instructions != "当前意图？" {
 		t.Fatalf("cloned questions = %+v", clone.Questions)
 	}
 

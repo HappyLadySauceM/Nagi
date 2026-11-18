@@ -15,6 +15,7 @@ export const SCORE_TEXT: Record<string, string> = {
   continues_bot_thread: '是否在追问机器人刚才的话',
   addressed_to_other: '是否主要在跟另一位真人说话',
   appropriate_to_join: '此时插话是否自然、有帮助',
+  intent: '是否在告别或结束',
   intent_category: '聊天功能',
 }
 

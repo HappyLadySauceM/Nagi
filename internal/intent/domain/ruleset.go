@@ -162,12 +162,6 @@ func validateDecisionQuestions(questions map[string]PromptQuestion) error {
 		if question.Order < 0 {
 			return fmt.Errorf("%w: question %s order", ErrInvalidRule, key)
 		}
-		if question.Type == "choice" {
-			if question.Match == "" || question.Criteria[question.Match] == "" {
-				return fmt.Errorf("%w: question %s match", ErrInvalidRule, key)
-			}
-			continue
-		}
 		if question.Threshold <= 0 || question.Threshold > 1 {
 			return fmt.Errorf("%w: question %s threshold", ErrInvalidRule, key)
 		}
