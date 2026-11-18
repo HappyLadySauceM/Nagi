@@ -146,7 +146,7 @@ func edgeIf(condition bool, value string) string {
 
 // BuildRuleRun projects a rules-only simulation into the same run contract.
 // BuildRuleRun 将只运行规则的模拟投影为同一运行契约。
-func BuildRuleRun(in domain.Input, rule domain.RuleResult, th domain.Thresholds, flowVersion string) contracts.Run {
+func BuildRuleRun(in domain.Input, rule domain.RuleResult, _ domain.Thresholds, flowVersion string) contracts.Run {
 	decision := domain.FinalDecision{Decision: domain.DecisionDefer, ReasonCode: rule.ReasonCode, FlowVersion: flowVersion}
 	if rule.Blocked {
 		decision.Decision = domain.DecisionSilent
@@ -160,6 +160,6 @@ func BuildRuleRun(in domain.Input, rule domain.RuleResult, th domain.Thresholds,
 		decision.Decision = domain.DecisionReply
 		decision.ReasonCode = "explicit_mention"
 	}
-	decision.Steps = decisionSteps(in, rule, domain.SemanticAnswer{}, decision, 0, false, th, false)
+	decision.Steps = decisionSteps(in, rule, domain.SemanticAnswer{}, decision, 0, false, false)
 	return BuildRunFromDecision(decision, contracts.Delivery{})
 }

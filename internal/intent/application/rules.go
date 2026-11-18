@@ -62,11 +62,11 @@ func blocked(reason string) domain.RuleResult {
 	return domain.RuleResult{Blocked: true, ReasonCode: reason}
 }
 
-// EvaluateReplyPolicy combines rule gate, semantic answer and thresholds into the
-// final decision; it never invents reasons from raw probabilities alone.
-// EvaluateReplyPolicy 将规则闸门、语义回答与阈值合成为最终决策；
-// 不会把单一概率直接当作动作指令。
-func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domain.SemanticAnswer, th domain.Thresholds) domain.FinalDecision {
+// EvaluateReplyPolicy combines the rule gate and decision questions into the
+// final decision. Each question carries its own threshold, action and scope.
+// EvaluateReplyPolicy 将规则闸门与决策问题合成为最终决策。
+// 每条问题自带阈值、动作和适用范围。
+func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domain.SemanticAnswer) domain.FinalDecision {
 	if rule.Blocked {
 		return silent(rule.ReasonCode)
 	}
@@ -75,18 +75,12 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 	if rule.Explicit {
 		return reply("explicit_mention")
 	}
-	if rule.ForceReply {
-		// A published rule overrides the built-in reason but still runs after the
-		// hard gates, so frequency limits keep their veto.
-		// 已发布规则覆盖内置原因码，但仍排在硬闸门之后，频率限制保留否决权。
-		return reply(rule.ForceReason)
-	}
 	if rule.AlwaysReply {
 		// Reply mode wins over an absent semantic answer.
 		// 回复模式优先于缺失的语义回答。
 		return reply("always_reply")
 	}
-	if !semantic.Available {
+	if rule.NeedSemantic && !semantic.Available {
 		// Semantic unavailability must not silence a one-to-one chat: the scope
 		// already accepted intent-based replies there.
 		// 语义不可用不应让一对一对话沉默：该作用域已允许按意图回复。
@@ -98,25 +92,63 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 		// Jev 不可用：群聊绝不自动插话；仅明确指向放行，且已在上方返回。
 		return silent("jev_unavailable")
 	}
+	scores := decisionScores(semantic)
+	questions := rule.Questions
+	if questions == nil {
+		questions = domain.DefaultDecisionQuestions()
+	}
+	if decision, matched := matchDecisionQuestions(in, semantic, questions, scores); matched {
+		return decision
+	}
+	// A one-to-one conversation is addressed to the bot by construction. Treat
+	// normal private messages as expected replies; closing remains a question.
+	// 一对一对话按语义即指向机器人。私聊正常消息按期待回复处理；告别仍由决策问题表达。
+	if in.Task.Kind == "private" {
+		return withScores(domain.DecisionReply, "private_normal", scores)
+	}
+	if !rule.NeedSemantic {
+		return silent("no_decision_question")
+	}
+	return withScores(domain.DecisionSilent, "ambiguous", scores)
+}
+
+func decisionScores(semantic domain.SemanticAnswer) map[string]float64 {
 	scores := map[string]float64{
 		"directed_to_bot":      semantic.DirectedToBot,
 		"continues_bot_thread": semantic.ContinuesBotThread,
 		"addressed_to_other":   semantic.AddressedToOther,
 		"appropriate_to_join":  semantic.AppropriateToJoin,
 	}
-	if decision, matched := domain.EvaluateBuiltinRules(in, rule, semantic, th); matched {
-		decision.Scores = scores
-		return decision
+	for key, value := range semantic.Scores {
+		scores[key] = value
 	}
-	// A one-to-one conversation is addressed to the bot by construction. Treat
-	// normal private messages as expected replies instead of applying group
-	// participation thresholds; closing remains the explicit silence signal.
-	// 一对一对话按语义即指向机器人。私聊正常消息按期待回复处理，不再套用群聊参与阈值；
-	// 告别仍保留明确沉默信号。
-	if in.Task.Kind == "private" {
-		return withScores(domain.DecisionReply, "private_normal", scores)
+	return scores
+}
+
+// matchDecisionQuestions applies the ordered question list and returns the first hit.
+// matchDecisionQuestions 按顺序检查决策问题，返回首个命中。
+func matchDecisionQuestions(in domain.Input, semantic domain.SemanticAnswer, questions map[string]domain.PromptQuestion, scores map[string]float64) (domain.FinalDecision, bool) {
+	for _, key := range domain.SortedDecisionQuestions(questions) {
+		question := questions[key]
+		if !domain.QuestionApplies(question, in.Task.Kind) || !questionMatched(semantic, key, question) {
+			continue
+		}
+		decision := domain.DecisionSilent
+		if question.Action == domain.ActionReply {
+			decision = domain.DecisionReply
+		}
+		return withScores(decision, domain.DecisionReason(key, question), scores), true
 	}
-	return withScores(domain.DecisionSilent, "ambiguous", scores)
+	return domain.FinalDecision{}, false
+}
+
+func questionMatched(semantic domain.SemanticAnswer, key string, question domain.PromptQuestion) bool {
+	if question.Type == "choice" {
+		choice, ok := domain.QuestionChoice(semantic, key, question)
+		return ok && choice == question.Match
+	}
+	score, ok := domain.QuestionScore(semantic, key, question)
+	return ok && score >= question.Threshold
 }
 
 func silent(reason string) domain.FinalDecision {
@@ -203,40 +235,39 @@ func matchEntry(m domain.RuleMatch, in domain.Input) bool {
 	return true
 }
 
-// EvaluateRuleChain evaluates specific rules before global rules and shares builtin settings.
-// EvaluateRuleChain 先执行指定会话规则，再执行全局规则，并合并内置判断设置。
+// EvaluateRuleChain selects the decision questions for one message. A specific
+// ruleset replaces the global one entirely, including an empty question list.
+// Neither set means the caller keeps the five defaults. Condition entries are
+// not evaluated.
+// EvaluateRuleChain 为一条消息选择决策问题。指定会话规则完整替换全局规则，
+// 包括空问题列表。两者都没有时调用方继续使用五条默认问题。条件条目不再求值。
 func EvaluateRuleChain(in domain.Input, specific, global *domain.Ruleset) (domain.RuleResult, string) {
 	rule := EvaluateRules(in)
-	rule.BuiltinRules = make(map[string]bool)
+	var questions map[string]domain.PromptQuestion
 	version := ""
-	for _, set := range []*domain.Ruleset{global, specific} {
-		if set != nil {
-			for key, value := range set.BuiltinRules {
-				rule.BuiltinRules[key] = value
-			}
-		}
-	}
-	if specific != nil {
-		before := len(rule.Evaluations)
-		rule = ApplyRuleset(rule, in, specific.Entries)
-		for i := before; i < len(rule.Evaluations); i++ {
-			rule.Evaluations[i].RulesetID = specific.ID
-			rule.Evaluations[i].Version = specific.Version
-			rule.Evaluations[i].Scope = "specific"
-		}
+	fromRuleset := false
+	switch {
+	case specific != nil:
+		questions = domain.WithDecisionDefaults(specific.Questions)
+		fromRuleset = true
 		version = fmt.Sprintf("scope:%d@%d", specific.ID, specific.Version)
+	case global != nil:
+		questions = domain.WithDecisionDefaults(global.Questions)
+		fromRuleset = true
+		version = fmt.Sprintf("global:%d@%d", global.ID, global.Version)
 	}
-	if global != nil {
-		version += fmt.Sprintf(";global:%d@%d", global.ID, global.Version)
-		if !rule.Matched {
-			before := len(rule.Evaluations)
-			rule = ApplyRuleset(rule, in, global.Entries)
-			for i := before; i < len(rule.Evaluations); i++ {
-				rule.Evaluations[i].RulesetID = global.ID
-				rule.Evaluations[i].Version = global.Version
-				rule.Evaluations[i].Scope = "global"
-			}
+	if fromRuleset {
+		if questions == nil {
+			questions = map[string]domain.PromptQuestion{}
 		}
+		rule.Questions = questions
+	}
+	effective := questions
+	if !fromRuleset {
+		effective = domain.DefaultDecisionQuestions()
+	}
+	if rule.NeedSemantic && !domain.HasApplicableQuestion(effective, in.Task.Kind) {
+		rule.NeedSemantic = false
 	}
 	return rule, version
 }

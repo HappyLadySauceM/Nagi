@@ -40,7 +40,24 @@ type PromptQuestion struct {
 	Criteria     map[string]string
 	Role         string
 	Weight       float64
+	// Order, Threshold, Action, Scope and Match belong to a ruleset decision
+	// question. Prompt management does not require them.
+	// Order、Threshold、Action、Scope 与 Match 属于规则版本里的决策问题；
+	// Prompt 管理不要求这些字段。
+	Order     int
+	Threshold float64
+	Action    RuleActionType
+	Scope     string
+	Match     string
 }
+
+// Decision question scopes. all applies to group and private conversations.
+// 决策问题的适用范围。all 同时适用于群聊和私聊。
+const (
+	QuestionScopeAll     = "all"
+	QuestionScopeGroup   = "group"
+	QuestionScopePrivate = "private"
+)
 
 // Prompt question role values. A named role maps a question onto the score used
 // by one built-in rule; custom questions only contribute to the aggregate score.
@@ -117,6 +134,190 @@ func EffectiveQuestionWeight(key string, q PromptQuestion) float64 {
 		return DefaultQuestionWeight(InferQuestionRole(key))
 	}
 	return q.Weight
+}
+
+// DefaultDecisionQuestions returns the five editable decision questions used
+// when no ruleset is active and when a new draft is created.
+// DefaultDecisionQuestions 返回没有生效规则、以及新建草稿时使用的五条可编辑决策问题。
+func DefaultDecisionQuestions() map[string]PromptQuestion {
+	questions := BuiltinPrompt(PromptProviderJev).SystemOne.Questions
+	type meta struct {
+		order     int
+		threshold float64
+		action    RuleActionType
+		scope     string
+		match     string
+	}
+	defaults := map[string]meta{
+		"intent":               {10, 0, ActionSilent, QuestionScopeAll, "closing"},
+		"addressed_to_other":   {20, 0.60, ActionSilent, QuestionScopeGroup, ""},
+		"continues_bot_thread": {30, 0.80, ActionReply, QuestionScopeGroup, ""},
+		"appropriate_to_join":  {40, 0.95, ActionReply, QuestionScopeGroup, ""},
+		"directed_to_bot":      {50, 0.80, ActionReply, QuestionScopeGroup, ""},
+	}
+	for key, item := range defaults {
+		question := questions[key]
+		question.Order = item.order
+		question.Threshold = item.threshold
+		question.Action = item.action
+		question.Scope = item.scope
+		question.Match = item.match
+		questions[key] = question
+	}
+	return questions
+}
+
+// WithDecisionDefaults fills decision fields for questions saved before those
+// fields existed. A question that already has a scope is left unchanged. Known
+// questions receive the default five-question policy; any other question
+// replies in groups at 0.8. Nil and empty maps stay as they are.
+// WithDecisionDefaults 为缺少决策字段的旧问题补上默认值。已经有范围的问题保持不变。
+// 五条已知问题使用默认策略，其它问题在群聊以 0.8 回复。nil 和空集合保持原样。
+func WithDecisionDefaults(questions map[string]PromptQuestion) map[string]PromptQuestion {
+	if len(questions) == 0 {
+		return questions
+	}
+	defaults := DefaultDecisionQuestions()
+	out := make(map[string]PromptQuestion, len(questions))
+	for key, question := range questions {
+		if question.Scope != "" {
+			out[key] = question
+			continue
+		}
+		if item, ok := defaults[key]; ok {
+			question.Order = item.Order
+			question.Threshold = item.Threshold
+			question.Action = item.Action
+			question.Scope = item.Scope
+			question.Match = item.Match
+		} else {
+			question.Action = ActionReply
+			question.Scope = QuestionScopeGroup
+			if question.Type != "choice" && question.Threshold == 0 {
+				question.Threshold = 0.8
+			}
+		}
+		out[key] = question
+	}
+	return out
+}
+
+// QuestionApplies reports whether a decision question runs for one conversation kind.
+// QuestionApplies 报告一条决策问题是否适用于指定会话类型。
+func QuestionApplies(q PromptQuestion, kind string) bool {
+	switch q.Scope {
+	case QuestionScopeAll:
+		return kind == QuestionScopeGroup || kind == QuestionScopePrivate
+	case QuestionScopeGroup, QuestionScopePrivate:
+		return q.Scope == kind
+	default:
+		return false
+	}
+}
+
+// ApplicableQuestions copies the questions that apply to one conversation kind.
+// ApplicableQuestions 复制适用于指定会话类型的问题。
+func ApplicableQuestions(questions map[string]PromptQuestion, kind string) map[string]PromptQuestion {
+	out := make(map[string]PromptQuestion)
+	for key, question := range questions {
+		if QuestionApplies(question, kind) {
+			out[key] = question
+		}
+	}
+	return out
+}
+
+// HasApplicableQuestion reports whether any question applies to the kind.
+// HasApplicableQuestion 报告是否有问题适用于该会话类型。
+func HasApplicableQuestion(questions map[string]PromptQuestion, kind string) bool {
+	for _, question := range questions {
+		if QuestionApplies(question, kind) {
+			return true
+		}
+	}
+	return false
+}
+
+// SortedDecisionQuestions returns question keys in evaluation order.
+// SortedDecisionQuestions 按求值顺序返回问题 key。
+func SortedDecisionQuestions(questions map[string]PromptQuestion) []string {
+	keys := make([]string, 0, len(questions))
+	for key := range questions {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if questions[keys[i]].Order != questions[keys[j]].Order {
+			return questions[keys[i]].Order < questions[keys[j]].Order
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
+// DecisionReason returns the stable reason code for a matched decision question.
+// Known roles keep their historical codes; any other question uses its key.
+// DecisionReason 返回命中决策问题的稳定原因码。已知角色保留原有原因码，其它问题使用自己的 key。
+func DecisionReason(key string, q PromptQuestion) string {
+	switch EffectiveQuestionRole(key, q) {
+	case QuestionRoleIntent:
+		if q.Match == "closing" && q.Action == ActionSilent {
+			return "closing"
+		}
+		return key
+	case QuestionRoleContinuesBotThread:
+		return "active_thread_continuation"
+	case QuestionRoleAppropriateToJoin:
+		return "interjection"
+	case QuestionRoleAddressedToOther:
+		return "addressed_to_other"
+	case QuestionRoleDirectedToBot:
+		return "directed_to_bot"
+	default:
+		return key
+	}
+}
+
+// QuestionScore returns the noul score for one question. An explicit score map
+// wins; otherwise a named role uses its legacy field when that role was asked.
+// QuestionScore 返回一个问题的 noul 分数。显式分数字典优先；
+// 否则具名角色在确实被提问时使用旧字段。
+func QuestionScore(semantic SemanticAnswer, key string, q PromptQuestion) (float64, bool) {
+	if semantic.Scores != nil {
+		if value, ok := semantic.Scores[key]; ok {
+			return value, true
+		}
+	}
+	role := EffectiveQuestionRole(key, q)
+	if !questionRolePresent(semantic, role) {
+		return 0, false
+	}
+	switch role {
+	case QuestionRoleDirectedToBot:
+		return semantic.DirectedToBot, true
+	case QuestionRoleContinuesBotThread:
+		return semantic.ContinuesBotThread, true
+	case QuestionRoleAddressedToOther:
+		return semantic.AddressedToOther, true
+	case QuestionRoleAppropriateToJoin:
+		return semantic.AppropriateToJoin, true
+	default:
+		return 0, false
+	}
+}
+
+// QuestionChoice returns the selected category for one choice question.
+// QuestionChoice 返回一个分类问题选中的类别。
+func QuestionChoice(semantic SemanticAnswer, key string, q PromptQuestion) (string, bool) {
+	if semantic.Choices != nil {
+		if value, ok := semantic.Choices[key]; ok && value != "" {
+			return value, true
+		}
+	}
+	role := EffectiveQuestionRole(key, q)
+	if role != QuestionRoleIntent || !questionRolePresent(semantic, role) || semantic.IntentCategory == "" {
+		return "", false
+	}
+	return semantic.IntentCategory, true
 }
 
 // SystemOnePrompt is the provider-specific SystemOne question set.

@@ -76,13 +76,15 @@ func TestBuiltinRuleCatalogMatchesEvaluation(t *testing.T) {
 			if !rule.NeedSemantic {
 				t.Fatalf("rules = %+v, want semantic path", rule)
 			}
-			got := EvaluateReplyPolicy(in, rule, tc.semantic, thresholds)
+			got := EvaluateReplyPolicy(in, rule, tc.semantic)
 			if got.Decision != tc.wantAction || got.ReasonCode != tc.wantReason {
 				t.Fatalf("decision = %s/%s, want %s/%s", got.Decision, got.ReasonCode, tc.wantAction, tc.wantReason)
 			}
-			rule.BuiltinRules = map[string]bool{tc.name: false}
-			if disabled := EvaluateReplyPolicy(in, rule, tc.semantic, thresholds); disabled.ReasonCode == tc.wantReason {
-				t.Fatalf("disabled rule %s still produced %q", tc.name, tc.wantReason)
+			questions := domain.DefaultDecisionQuestions()
+			delete(questions, decisionQuestionKey(tc.name))
+			rule.Questions = questions
+			if disabled := EvaluateReplyPolicy(in, rule, tc.semantic); disabled.ReasonCode == tc.wantReason {
+				t.Fatalf("deleted question %s still produced %q", tc.name, tc.wantReason)
 			}
 		})
 	}
@@ -104,6 +106,19 @@ func TestBuiltinRuleCatalogPrivateApplicability(t *testing.T) {
 	}
 }
 
+func decisionQuestionKey(ruleID string) string {
+	switch ruleID {
+	case "closing":
+		return "intent"
+	case "continuation":
+		return "continues_bot_thread"
+	case "interjection":
+		return "appropriate_to_join"
+	default:
+		return ruleID
+	}
+}
+
 // TestBuiltinRulesSkipWhenRoleAbsent verifies a rule whose named role was not
 // asked (RolePresent false) is skipped, so removing a question disables the
 // corresponding built-in rule instead of matching a zero-valued placeholder.
@@ -119,14 +134,14 @@ func TestBuiltinRulesSkipWhenRoleAbsent(t *testing.T) {
 		Available: true, DirectedToBot: 0.99,
 		RolePresent: map[string]bool{"directed_to_bot": false},
 	}
-	if got := EvaluateReplyPolicy(in, rule, absent, thresholds); got.Decision != domain.DecisionSilent || got.ReasonCode != "ambiguous" {
+	if got := EvaluateReplyPolicy(in, rule, absent); got.Decision != domain.DecisionSilent || got.ReasonCode != "ambiguous" {
 		t.Fatalf("absent role decision = %+v, want silent/ambiguous", got)
 	}
 	present := domain.SemanticAnswer{
 		Available: true, DirectedToBot: 0.99,
 		RolePresent: map[string]bool{"directed_to_bot": true},
 	}
-	if got := EvaluateReplyPolicy(in, rule, present, thresholds); got.ReasonCode != "directed_to_bot" {
+	if got := EvaluateReplyPolicy(in, rule, present); got.ReasonCode != "directed_to_bot" {
 		t.Fatalf("present role decision = %+v, want directed_to_bot", got)
 	}
 }

@@ -63,16 +63,16 @@ describe('rule wire boundary',()=>{
  })
  it('parses the per-version question set and serialises PascalCase PATCH fields',()=>{
   const set=toRuleset({...raw,Questions:{
-   directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1,Criteria:null},
-   intent:{Type:'choice',Instructions:'判断意图分类',Role:'intent',Criteria:{closing:'告别'}},
+   directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1,Criteria:null,Order:50,Threshold:0.8,Action:'reply',Scope:'group'},
+   intent:{Type:'choice',Instructions:'判断意图分类',Role:'intent',Criteria:{closing:'告别'},Order:10,Action:'silent',Scope:'all',Match:'closing'},
   }})
   expect(set.questions).toEqual({
-   directed_to_bot:{type:'noul',instructions:'是否指向机器人',role:'directed_to_bot',weight:1},
-   intent:{type:'choice',instructions:'判断意图分类',role:'intent',criteria:{closing:'告别'}},
+   directed_to_bot:{type:'noul',instructions:'是否指向机器人',role:'directed_to_bot',weight:1,order:50,threshold:0.8,action:'reply',scope:'group'},
+   intent:{type:'choice',instructions:'判断意图分类',role:'intent',criteria:{closing:'告别'},order:10,action:'silent',scope:'all',match:'closing'},
   })
   expect(toQuestionsRequest(set.questions!)).toEqual({
-   directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1},
-   intent:{Type:'choice',Instructions:'判断意图分类',Criteria:{closing:'告别'},Role:'intent'},
+   directed_to_bot:{Type:'noul',Instructions:'是否指向机器人',Role:'directed_to_bot',Weight:1,Order:50,Threshold:0.8,Action:'reply',Scope:'group'},
+   intent:{Type:'choice',Instructions:'判断意图分类',Criteria:{closing:'告别'},Role:'intent',Order:10,Action:'silent',Scope:'all',Match:'closing'},
   })
  })
  it('defaults a missing question set to an empty map',()=>{

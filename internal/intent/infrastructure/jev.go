@@ -179,6 +179,7 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 func parseAnswers(answers map[string]json.RawMessage, questions map[string]domain.PromptQuestion) (domain.SemanticAnswer, error) {
 	out := domain.SemanticAnswer{
 		Scores:      make(map[string]float64, len(questions)),
+		Choices:     make(map[string]string),
 		Roles:       make(map[string]float64),
 		RolePresent: make(map[string]bool),
 	}
@@ -255,6 +256,7 @@ func parseAnswers(answers map[string]json.RawMessage, questions map[string]domai
 			if role != domain.QuestionRoleCustom && domain.IsKnownQuestionRole(role) {
 				out.RolePresent[role] = true
 			}
+			out.Choices[name] = category
 			if role == domain.QuestionRoleIntent {
 				out.IntentCategory = category
 			}

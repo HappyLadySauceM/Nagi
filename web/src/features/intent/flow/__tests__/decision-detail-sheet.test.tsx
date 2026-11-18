@@ -156,7 +156,9 @@ it('explains reply mode, cited context, matched rules and semantic scores in Chi
         Summary: '交给语义',
         Detail: {
           NeedSemantic: true,
-          BuiltinRules: { closing: false },
+          Questions: [
+            { Key: 'intent', Order: 10, Scope: 'all', Action: 'silent', Match: 'closing', Applicable: true },
+          ],
           Evaluations: [
             {
               RulesetID: 4,
@@ -238,8 +240,9 @@ it('explains reply mode, cited context, matched rules and semantic scores in Chi
   await waitFor(() => expect(screen.queryByText('查看原文')).toBeNull())
   fireEvent.click(await screen.findByRole('button', { name: '规则 实际执行' }))
   expect(await screen.findByText('没有明确指向，交给语义判定决定要不要插话')).toBeVisible()
-  expect(screen.getByText('告别或结束时保持沉默')).toBeVisible()
-  expect(screen.getByText('关闭')).toBeVisible()
+  expect(screen.getByText('intent')).toBeVisible()
+  expect(screen.getByText('群聊和私聊 · 分类 closing · 沉默')).toBeVisible()
+  expect(screen.getByText('本次适用')).toBeVisible()
   expect(screen.getByText('回复模式是「由意图判定是否插话」，正文包含「你好」')).toBeVisible()
   expect(screen.getByText('交给语义判定')).toBeVisible()
   expect(screen.getByText('命中')).toBeVisible()

@@ -722,8 +722,8 @@ export interface Ruleset {
   status: 'draft' | 'published' | 'archived'
   note: string
   entries: RuleEntry[]
-  /** Per-version SystemOne question set; empty means the built-in questions apply.
-   * 本版本覆盖的 SystemOne 问题集；为空表示沿用内置问题。 */
+  /** Ordered decision questions for this version. An empty map means this version makes no semantic judgment.
+   * 本版本的有序决策问题。空对象表示这个版本不做语义判断。 */
   questions?: Record<string, ManagedPromptQuestion>
 }
 
@@ -1056,6 +1056,13 @@ export interface ManagedPromptQuestion {
   criteria?: Record<string, string>
   role?: ManagedPromptRole
   weight?: number
+  /** Ruleset decision fields. Prompt management leaves them unset.
+   * 规则版本的决策字段。Prompt 管理页不填写这些字段。 */
+  order?: number
+  threshold?: number
+  action?: 'reply' | 'silent'
+  scope?: 'all' | 'group' | 'private'
+  match?: string
 }
 
 /** Provider-specific content of one Prompt version; absent branches are not sent to the server. */

@@ -117,7 +117,7 @@ func TestBuildRunFromDecisionHasFixedNodesAndEdges(t *testing.T) {
 func TestFixedFlowOrderMatchesDecisionSteps(t *testing.T) {
 	steps := decisionSteps(domain.Input{}, domain.RuleResult{Blocked: true, ReasonCode: "policy_disabled"},
 		domain.SemanticAnswer{}, domain.FinalDecision{Decision: domain.DecisionSilent, ReasonCode: "policy_disabled"},
-		0, false, domain.Thresholds{}, false)
+		0, false, false)
 	flow := domain.FixedFlow()
 	if len(steps) != len(flow.Nodes) {
 		t.Fatalf("steps=%d flow nodes=%d", len(steps), len(flow.Nodes))

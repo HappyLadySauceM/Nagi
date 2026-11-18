@@ -164,6 +164,7 @@ type SemanticAnswer struct {
 	AppropriateToJoin  float64
 	IntentCategory     string
 	Scores             map[string]float64
+	Choices            map[string]string
 	Roles              map[string]float64
 	RolePresent        map[string]bool
 	ParticipationScore float64
@@ -215,6 +216,12 @@ type RuleResult struct {
 	// ForceReason is the rule-supplied reason code; empty otherwise.
 	// ForceReason 是规则提供的原因码，其它情况为空。
 	ForceReason string
+	// Questions is the decision list for this evaluation. Nil means no ruleset
+	// supplied one and the policy uses the five defaults. A non-nil empty map
+	// means the ruleset explicitly has no decision questions.
+	// Questions 是本次求值的决策问题。nil 表示没有规则集提供问题，策略使用五条默认问题；
+	// 非 nil 的空 map 表示该规则集明确没有任何决策问题。
+	Questions map[string]PromptQuestion
 }
 
 // Step phases recorded with every decision. The strings are stable because the

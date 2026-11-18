@@ -103,32 +103,32 @@ func TestReplyPolicyContinuationAndInterjection(t *testing.T) {
 	rule := domain.RuleResult{NeedSemantic: true}
 
 	cont := domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.9, AddressedToOther: 0.2, IntentCategory: "chat"}
-	if d := EvaluateReplyPolicy(in, rule, cont, thresholds); d.Decision != domain.DecisionReply || d.ReasonCode != "active_thread_continuation" {
+	if d := EvaluateReplyPolicy(in, rule, cont); d.Decision != domain.DecisionReply || d.ReasonCode != "active_thread_continuation" {
 		t.Fatalf("continuation: %+v", d)
 	}
 
 	join := domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.1, AppropriateToJoin: 0.97, AddressedToOther: 0.1, IntentCategory: "chat"}
-	if d := EvaluateReplyPolicy(in, rule, join, thresholds); d.Decision != domain.DecisionReply || d.ReasonCode != "interjection" {
+	if d := EvaluateReplyPolicy(in, rule, join); d.Decision != domain.DecisionReply || d.ReasonCode != "interjection" {
 		t.Fatalf("interjection: %+v", d)
 	}
 
 	other := domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.1, AddressedToOther: 0.9, IntentCategory: "chat"}
-	if d := EvaluateReplyPolicy(in, rule, other, thresholds); d.Decision != domain.DecisionSilent || d.ReasonCode != "addressed_to_other" {
+	if d := EvaluateReplyPolicy(in, rule, other); d.Decision != domain.DecisionSilent || d.ReasonCode != "addressed_to_other" {
 		t.Fatalf("addressed to other: %+v", d)
 	}
 
 	closing := domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.9, AddressedToOther: 0.1, IntentCategory: "closing"}
-	if d := EvaluateReplyPolicy(in, rule, closing, thresholds); d.Decision != domain.DecisionSilent || d.ReasonCode != "closing" {
+	if d := EvaluateReplyPolicy(in, rule, closing); d.Decision != domain.DecisionSilent || d.ReasonCode != "closing" {
 		t.Fatalf("closing: %+v", d)
 	}
 
 	unavailable := domain.SemanticAnswer{}
-	if d := EvaluateReplyPolicy(in, rule, unavailable, thresholds); d.Decision != domain.DecisionSilent || d.ReasonCode != "jev_unavailable" {
+	if d := EvaluateReplyPolicy(in, rule, unavailable); d.Decision != domain.DecisionSilent || d.ReasonCode != "jev_unavailable" {
 		t.Fatalf("jev unavailable: %+v", d)
 	}
 
 	ambiguous := domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.5, AddressedToOther: 0.5, IntentCategory: "chat"}
-	if d := EvaluateReplyPolicy(in, rule, ambiguous, thresholds); d.Decision != domain.DecisionSilent || d.ReasonCode != "ambiguous" {
+	if d := EvaluateReplyPolicy(in, rule, ambiguous); d.Decision != domain.DecisionSilent || d.ReasonCode != "ambiguous" {
 		t.Fatalf("ambiguous: %+v", d)
 	}
 }
@@ -146,7 +146,7 @@ func TestGroupAlwaysReplyRepliesWithoutSemantics(t *testing.T) {
 	}
 	// The pipeline never calls Jev in this mode, so the policy must not need it.
 	// 该模式不会调用 Jev，因此策略不得依赖语义回答。
-	if d := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}, thresholds); d.Decision != domain.DecisionReply || d.ReasonCode != "always_reply" {
+	if d := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}); d.Decision != domain.DecisionReply || d.ReasonCode != "always_reply" {
 		t.Fatalf("decision = %+v, want reply/always_reply", d)
 	}
 
@@ -157,7 +157,7 @@ func TestGroupAlwaysReplyRepliesWithoutSemantics(t *testing.T) {
 	if !rule.Explicit || !rule.AlwaysReply {
 		t.Fatalf("explicit mention should keep AlwaysReply: %+v", rule)
 	}
-	if d := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}, thresholds); d.Decision != domain.DecisionReply || d.ReasonCode != "explicit_mention" {
+	if d := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}); d.Decision != domain.DecisionReply || d.ReasonCode != "explicit_mention" {
 		t.Fatalf("decision = %+v, want reply/explicit_mention", d)
 	}
 }
@@ -224,7 +224,7 @@ func TestPrivateReplyModesDiverge(t *testing.T) {
 				}
 				return
 			}
-			got := EvaluateReplyPolicy(in, rule, tc.semantic, thresholds)
+			got := EvaluateReplyPolicy(in, rule, tc.semantic)
 			if got.Decision != tc.want || got.ReasonCode != tc.wantReason {
 				t.Fatalf("decision = %+v, want %s/%s", got, tc.want, tc.wantReason)
 			}

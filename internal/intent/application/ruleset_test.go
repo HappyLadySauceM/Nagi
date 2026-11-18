@@ -79,41 +79,62 @@ func TestDisabledEntriesAndSemanticOverride(t *testing.T) {
 	}
 }
 
-func TestBuiltinSwitchesDoNotBypassHardGates(t *testing.T) {
+func TestDeletedQuestionsDoNotBypassHardGates(t *testing.T) {
 	in := baseInput(scopedomain.ModeIntentBased)
 	semantic := domain.SemanticAnswer{Available: true, DirectedToBot: 0.9, IntentCategory: "closing"}
 	rule := EvaluateRules(in)
-	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "closing" {
+	if got := EvaluateReplyPolicy(in, rule, semantic); got.ReasonCode != "closing" {
 		t.Fatalf("closing: %+v", got)
 	}
-	rule.BuiltinRules = map[string]bool{"closing": false}
-	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "directed_to_bot" {
-		t.Fatalf("disabled closing: %+v", got)
+	questions := domain.DefaultDecisionQuestions()
+	delete(questions, "intent")
+	rule.Questions = questions
+	if got := EvaluateReplyPolicy(in, rule, semantic); got.ReasonCode != "directed_to_bot" {
+		t.Fatalf("deleted closing: %+v", got)
 	}
-	rule.BuiltinRules["directed_to_bot"] = false
-	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "ambiguous" {
-		t.Fatalf("disabled directed: %+v", got)
+	delete(questions, "directed_to_bot")
+	if got := EvaluateReplyPolicy(in, rule, semantic); got.ReasonCode != "ambiguous" {
+		t.Fatalf("deleted directed: %+v", got)
 	}
 	in.Policy.Enabled = false
 	rule = EvaluateRules(in)
-	rule.BuiltinRules = map[string]bool{"closing": false}
-	if got := EvaluateReplyPolicy(in, rule, semantic, thresholds); got.ReasonCode != "policy_disabled" {
+	rule.Questions = questions
+	if got := EvaluateReplyPolicy(in, rule, semantic); got.ReasonCode != "policy_disabled" {
 		t.Fatalf("hard gate bypassed: %+v", got)
 	}
 }
 
-func TestRuleChainSpecificThenGlobal(t *testing.T) {
+func TestEmptyQuestionListDoesNotClaimAmbiguousSemantic(t *testing.T) {
 	in := baseInput(scopedomain.ModeIntentBased)
-	global := domain.Ruleset{ID: 1, Version: 2, Entries: []domain.RuleEntry{{Priority: 0, Action: domain.RuleAction{Type: domain.ActionSilent, ReasonCode: "global_stop"}}}, BuiltinRules: map[string]bool{"closing": false}}
-	specific := domain.Ruleset{ID: 2, Version: 3, Entries: []domain.RuleEntry{{Priority: 0, Match: domain.RuleMatch{TextContains: "specific"}, Action: domain.RuleAction{Type: domain.ActionRequireSemantic, ReasonCode: "specific_semantic"}}}, BuiltinRules: map[string]bool{"closing": true}}
-	rule, version := EvaluateRuleChain(in, &specific, &global)
-	if !rule.Blocked || rule.ReasonCode != "global_stop" || version == "" || !rule.BuiltinRules["closing"] {
-		t.Fatalf("fallback: %+v %s", rule, version)
+	rule, _ := EvaluateRuleChain(in, &domain.Ruleset{ID: 2, Version: 3}, nil)
+	got := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{})
+	if got.Decision != domain.DecisionSilent || got.ReasonCode != "no_decision_question" {
+		t.Fatalf("empty group questions = %+v", got)
 	}
-	in.Task.Message.Text = "specific"
-	rule, _ = EvaluateRuleChain(in, &specific, &global)
-	if rule.Blocked || !rule.Matched || !rule.NeedSemantic {
-		t.Fatalf("specific semantic did not stop fallback: %+v", rule)
+	in.Task.Kind = "private"
+	rule, _ = EvaluateRuleChain(in, &domain.Ruleset{ID: 2, Version: 3}, nil)
+	got = EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{})
+	if got.Decision != domain.DecisionReply || got.ReasonCode != "private_normal" {
+		t.Fatalf("empty private questions = %+v", got)
+	}
+}
+
+func TestRuleChainSpecificReplacesGlobalQuestions(t *testing.T) {
+	in := baseInput(scopedomain.ModeIntentBased)
+	global := domain.Ruleset{ID: 1, Version: 2, Questions: domain.DefaultDecisionQuestions()}
+	specific := domain.Ruleset{ID: 2, Version: 3}
+	rule, version := EvaluateRuleChain(in, &specific, &global)
+	if version != "scope:2@3" || rule.NeedSemantic || len(rule.Questions) != 0 {
+		t.Fatalf("empty specific set = %+v %s", rule, version)
+	}
+	specific.Questions = domain.DefaultDecisionQuestions()
+	rule, version = EvaluateRuleChain(in, &specific, &global)
+	if version != "scope:2@3" || !rule.NeedSemantic || len(rule.Questions) != 5 {
+		t.Fatalf("specific questions = %+v %s", rule, version)
+	}
+	rule, version = EvaluateRuleChain(in, nil, &global)
+	if version != "global:1@2" || !rule.NeedSemantic || len(rule.Questions) != 5 {
+		t.Fatalf("global questions = %+v %s", rule, version)
 	}
 	in.Policy.Enabled = false
 	rule, _ = EvaluateRuleChain(in, &specific, &global)

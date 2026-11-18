@@ -10,14 +10,6 @@ export const SCOPE_KIND_TEXT: Record<string, string> = {
   private: '私聊',
 }
 
-export const BUILTIN_RULE_TEXT: Record<string, string> = {
-  closing: '告别或结束时保持沉默',
-  continuation: '延续机器人刚才的话题时可以回复',
-  directed_to_bot: '识别为在跟机器人说话时可以回复',
-  addressed_to_other: '主要在跟另一位真人说话时保持沉默',
-  interjection: '没被点名时，插话足够自然就可以回复',
-}
-
 export const SCORE_TEXT: Record<string, string> = {
   directed_to_bot: '是否在跟机器人说话',
   continues_bot_thread: '是否在追问机器人刚才的话',
@@ -65,6 +57,7 @@ const REASON_TEXT: Record<string, string> = {
   addressed_to_other: '正在与另一位真人对话，优先抑制',
   closing: '告别结束，保持安静',
   ambiguous: '语义结果不明确',
+  no_decision_question: '没有决策问题，群聊保持安静',
   jev_unavailable: '语义服务不可用，群聊保持安静',
   private_semantic_unavailable: '私聊语义不可用，按一对一策略回复',
   private_normal: '私聊正常问候/提问/闲聊，按一对一策略回复',

@@ -11,7 +11,6 @@ import { Card } from '../../components/ui/card'
 import { FeedbackState } from '../../components/feedback-state'
 import { PageHeader } from '../../components/page-header'
 import { Input } from '../../components/ui/input'
-import { Skeleton } from '../../components/ui/skeleton'
 import { Switch } from '../../components/ui/switch'
 import { Select } from '../../components/ui/select'
 import {
@@ -24,10 +23,7 @@ import {
 } from '../../components/ui/table'
 import {
   RULESET_STATUS_LABELS,
-  RULE_ACTION_LABELS,
-  type ManagedPromptContent,
   type ManagedPromptQuestion,
-  type RuleEntry,
   type Ruleset,
   type ScopeType,
 } from '../../lib/api/contracts'
@@ -36,11 +32,7 @@ import { ApiError } from '../../lib/api/client'
 import { useContacts, useGroups } from '../directory/queries'
 import { useAccountContext } from '../accounts/account-context'
 import { FlowRunView } from './flow/flow-run-view'
-import { BuiltinRulesPanel } from './components/builtin-rules-panel'
-import { PromptContentView, PromptEditor } from '../prompts/prompt-content-editor'
-import { normaliseContentForScope, validatePromptContent } from '../prompts/prompt-content'
 import {
-  useBuiltinRuleCatalog,
   useCreateDraft,
   useDeleteRuleset,
   usePublishRuleset,
@@ -51,10 +43,45 @@ import {
   useSimulate,
 } from './rules-queries'
 
-const EMPTY_ENTRY: RuleEntry = {
-  priority: 0,
-  match: {},
-  action: { type: 'silent', reasonCode: '' },
+const QUESTION_LABELS: Record<string, string> = {
+  intent: '告别结束',
+  addressed_to_other: '对他人说话',
+  continues_bot_thread: '延续机器人话题',
+  appropriate_to_join: '适合加入',
+  directed_to_bot: '指向机器人',
+}
+
+function questionLabel(key: string) {
+  return QUESTION_LABELS[key] ?? key
+}
+
+function sortedQuestions(questions: Record<string, ManagedPromptQuestion>) {
+  return Object.entries(questions).sort(
+    (left, right) => (left[1].order ?? 0) - (right[1].order ?? 0) || left[0].localeCompare(right[0]),
+  )
+}
+
+function decisionQuestionErrors(questions: Record<string, ManagedPromptQuestion>) {
+  const errors: string[] = []
+  const entries = Object.entries(questions)
+  if (entries.length > 20) errors.push('最多 20 个决策问题')
+  for (const [key, question] of entries) {
+    const label = questionLabel(key)
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) errors.push(`${label} 的标识无效`)
+    if (!question.instructions.trim()) errors.push(`${label} 的题目不能为空`)
+    if (question.scope !== 'all' && question.scope !== 'group' && question.scope !== 'private') {
+      errors.push(`${label} 需要选择范围`)
+    }
+    if (question.action !== 'reply' && question.action !== 'silent') {
+      errors.push(`${label} 需要选择回复或沉默`)
+    }
+    if (question.type === 'choice') {
+      if (!question.match || !question.criteria?.[question.match]) errors.push(`${label} 需要选择会触发动作的分类`)
+    } else if (question.threshold === undefined || !(question.threshold > 0 && question.threshold <= 1)) {
+      errors.push(`${label} 的阈值必须大于 0 且不超过 1`)
+    }
+  }
+  return errors
 }
 
 export function RulesPage({ embedded = false }: { embedded?: boolean }) {
@@ -81,12 +108,9 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   }, [selectedBotId, scopeType, scopeId])
 
   const versions = useRulesets(selectedBotId ? { botId: selectedBotId, scopeType: 'group', scopeId: -1 } : null)
-  const builtinCatalog = useBuiltinRuleCatalog()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const detail = useRuleset(selectedId)
-  const [entries, setEntries] = useState<RuleEntry[]>([])
   const [dirty, setDirty] = useState(false)
-  const [builtinRules, setBuiltinRules] = useState<Record<string, boolean>>({})
   const [questions, setQuestions] = useState<Record<string, ManagedPromptQuestion>>({})
   const [targetText, setTargetText] = useState('')
   const [allTargets, setAllTargets] = useState(true)
@@ -95,20 +119,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
 
   useEffect(() => {
     if (detail.data && !dirty) {
-      setEntries(detail.data.entries)
-      setBuiltinRules(detail.data.builtinRules ?? {})
-      // An empty question set means "use the built-in questions": keep it empty
-      // instead of injecting blanks, so rule-only edits stay savable.
-      // 空问题集表示「沿用内置问题」：保持为空，不注入空白模板，规则编辑仍可保存。
-      const storedQuestions = detail.data.questions ?? {}
-      setQuestions(
-        Object.keys(storedQuestions).length > 0
-          ? normaliseContentForScope('intent_participation', 'jev', 'account', {
-              provider: 'jev',
-              systemOne: { questions: storedQuestions },
-            }).systemOne?.questions ?? {}
-          : {},
-      )
+      setQuestions(detail.data.questions ?? {})
       setAllTargets(!detail.data.targets?.length)
       setTargetText((detail.data.targets ?? []).map(target => `${target.kind}:${target.id}`).join(', '))
     }
@@ -127,27 +138,9 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   const publish = usePublishRuleset()
   const rollback = useRollbackRuleset()
 
-  const globalBuiltinRules = versions.data?.find(set => set.status === 'published' && !set.targets?.length)?.builtinRules ?? {}
   const isDraft = current?.status === 'draft'
-  const hasQuestions = Object.keys(questions).length > 0
-  const storedHasQuestions = Object.keys(current?.questions ?? {}).length > 0
-  const questionContent = useMemo<ManagedPromptContent>(
-    () => ({ provider: 'jev', systemOne: { questions } }),
-    [questions],
-  )
-  const storedQuestionContent = useMemo<ManagedPromptContent>(
-    () => ({ provider: 'jev', systemOne: { questions: current?.questions ?? {} } }),
-    [current?.questions],
-  )
-  // An empty set is valid ("inherit built-in"); only a configured set is validated.
-  // 空问题集合法（沿用内置），仅对已配置的问题集执行校验。
-  const questionErrors = useMemo(
-    () =>
-      Object.keys(questions).length > 0
-        ? validatePromptContent('intent_participation', 'jev', 'account', questionContent)
-        : [],
-    [questions, questionContent],
-  )
+  const orderedQuestions = useMemo(() => sortedQuestions(questions), [questions])
+  const questionErrors = useMemo(() => decisionQuestionErrors(questions), [questions])
   const matchingFriends=useContacts(selectedBotId,{search:targetSearch,page:1,limit:20},!allTargets && isDraft && targetKind==='private')
   const matchingGroups=useGroups(selectedBotId,{search:targetSearch,page:1,limit:20},!allTargets && isDraft && targetKind==='group')
   const targetQuery=targetKind==='private'?matchingFriends:matchingGroups
@@ -165,7 +158,8 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
   async function changeTarget(change: () => void) {
     if (busy || (dirty && !await confirmAction('放弃未保存的修改并切换目标？'))) return
     setDirty(false)
-    setSelectedId(null); setEntries([]);
+    setSelectedId(null)
+    setQuestions({})
     change()
   }
 
@@ -173,11 +167,9 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
     <div className="space-y-5">
       {!embedded ? <PageHeader
         title="参与判断"
-        description="在同一处维护版本化的参与策略：语义问题、适用会话、内置判断与自定义规则。草稿可编辑，发布后只读，可回滚历史版本；规则预览只做求值，不调用模型、不发送。"
+        description="这里只维护规则版本。打开草稿后编辑有序的决策问题：题目、范围、动作，以及阈值或分类匹配。未发布任何规则时运行时使用默认五题；版本一旦保存，就只使用它自己的问题。"
         className="xl:col-span-2"
       /> : null}
-
-      <BuiltinRulesPanel botId={selectedBotId} scopeType={scopeType} scopeId={Number(scopeId) || 0} />
 
       <Card className="p-4">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -232,7 +224,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
         <FeedbackState
           variant="empty"
           title="还没有规则版本"
-          description="新建草稿后可添加规则；未发布前仍沿用内置规则。"
+          description="新建草稿会带上五条默认决策问题。未发布任何版本时，运行时仍使用这五条默认问题。"
         />
       ) : (
         <Card className="overflow-hidden">
@@ -301,7 +293,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
         <div className="min-w-0 space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-medium">
-              v{current.version} 规则条目
+              v{current.version} 决策问题
               {isDraft ? <span className="ml-2 text-meta text-muted-foreground">草稿可编辑</span> : null}
             </div>
 
@@ -314,166 +306,84 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
               <div className="flex gap-2"><Select aria-label="搜索目标类型" value={targetKind} onChange={event=>setTargetKind(event.target.value as ScopeType)}><option value="private">好友</option><option value="group">群聊</option></Select><Input aria-label="搜索规则目标" placeholder="搜索昵称、备注或号码" value={targetSearch} onChange={event=>setTargetSearch(event.target.value)}/></div>
               {targetQuery.isError?<FeedbackState variant="error" error={targetQuery.error} onRetry={()=>void targetQuery.refetch()} compact/>:targetQuery.isFetching?<p className="text-xs">搜索中…</p>:<div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto">{choices.map(row=><Button type="button" size="sm" variant="outline" key={row.id} onClick={()=>{const value=`${targetKind}:${row.id}`;setTargetText(old=>[...new Set([...old.split(/[,，\s]+/).filter(Boolean),value])].join(', '));setDirty(true)}}>{row.name || '未命名'} · {row.id}</Button>)}</div>}
             </div>:null}
-            <p className="text-xs text-muted-foreground">指定会话规则优先；未命中再执行全局规则。发布时检查目标冲突。</p>
+            <p className="text-xs text-muted-foreground">指定会话的规则版本会整份替换全局版本。发布时检查目标冲突。</p>
           </div>
-          <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
-            <div className="text-sm font-medium">语义问题</div>
-            <p className="text-xs text-muted-foreground">参与判断使用的 Jev 问题集：可增删题目、调整 Role、Weight 与分类；为空时沿用内置问题。</p>
-            {isDraft ? (
-              hasQuestions ? (
-                <PromptEditor
-                  kind="intent_participation"
-                  provider="jev"
-                  scope="account"
-                  content={questionContent}
-                  onChange={(content) => {
-                    setQuestions(content.systemOne?.questions ?? {})
-                    setDirty(true)
-                  }}
-                />
-              ) : (
-                <div className="space-y-2 rounded-md border border-dashed border-border p-3">
-                  <p className="text-sm text-muted-foreground">未设置，沿用内置问题。</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => {
-                      setQuestions(
-                        normaliseContentForScope('intent_participation', 'jev', 'account', undefined)
-                          .systemOne?.questions ?? {},
-                      )
-                      setDirty(true)
-                    }}
-                  >
-                    从内置五问开始
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">按顺序检查，先命中的问题先生效。删空后，这个版本不做语义判断。</p>
+            {orderedQuestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">这个版本不做语义判断。</p>
+            ) : orderedQuestions.map(([key, question]) => (
+              <div key={key} className="space-y-3 rounded-lg border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{questionLabel(key)}</span>
+                  <Button size="icon" variant="ghost" disabled={!isDraft || busy} aria-label={`删除决策问题 ${questionLabel(key)}`} onClick={() => updateQuestion(key)}>
+                    <Trash2 />
                   </Button>
                 </div>
-              )
-            ) : storedHasQuestions ? (
-              <PromptContentView kind="intent_participation" provider="jev" content={storedQuestionContent} />
-            ) : (
-              <p className="text-sm text-muted-foreground">沿用内置问题（未覆盖）</p>
-            )}
+                <label className="block space-y-1 text-sm">
+                  <span className="text-muted-foreground">题目</span>
+                  <Input aria-label={`${questionLabel(key)} 题目`} value={question.instructions} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { instructions: event.target.value })} />
+                </label>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">范围</span>
+                    <Select aria-label={`${questionLabel(key)} 范围`} value={question.scope ?? ''} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { scope: event.target.value as ManagedPromptQuestion['scope'] })}>
+                      <option value="">选择范围</option>
+                      <option value="all">群聊和私聊</option>
+                      <option value="group">仅群聊</option>
+                      <option value="private">仅私聊</option>
+                    </Select>
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">命中后</span>
+                    <Select aria-label={`${questionLabel(key)} 动作`} value={question.action ?? ''} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { action: event.target.value as ManagedPromptQuestion['action'] })}>
+                      <option value="">选择动作</option>
+                      <option value="reply">回复</option>
+                      <option value="silent">沉默</option>
+                    </Select>
+                  </label>
+                  {question.type === 'choice' ? (
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">触发分类</span>
+                      <Select aria-label={`${questionLabel(key)} 分类`} value={question.match ?? ''} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { match: event.target.value })}>
+                        <option value="">选择分类</option>
+                        {Object.entries(question.criteria ?? {}).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </Select>
+                    </label>
+                  ) : (
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">阈值</span>
+                      <Input aria-label={`${questionLabel(key)} 阈值`} inputMode="decimal" value={question.threshold === undefined ? '' : String(question.threshold)} disabled={!isDraft || busy} onChange={(event) => updateQuestion(key, { threshold: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                    </label>
+                  )}
+                </div>
+              </div>
+            ))}
             {isDraft && questionErrors.length > 0 ? (
               <ul role="alert" className="space-y-1 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 {questionErrors.map((message) => <li key={message}>{message}</li>)}
               </ul>
             ) : null}
           </div>
-          {builtinCatalog.isLoading ? (
-            <Skeleton className="h-20 w-full" />
-          ) : builtinCatalog.isError ? (
-            <FeedbackState
-              compact
-              variant="error"
-              title="读取内置规则开关失败"
-              error={builtinCatalog.error}
-              onRetry={() => void builtinCatalog.refetch()}
-            />
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {(builtinCatalog.data?.rules ?? []).map((rule) => (
-                <label key={rule.ruleId} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
-                  <span className="text-sm">
-                    {rule.title}
-                    <span className="ml-2 text-xs text-muted-foreground">{rule.condition || '无额外条件'}</span>
-                  </span>
-                  <Switch
-                    aria-label={rule.title}
-                    checked={builtinRules[rule.ruleId] ?? (!allTargets ? globalBuiltinRules[rule.ruleId] : undefined) ?? true}
-                    disabled={!isDraft || busy}
-                    onCheckedChange={(value) => {
-                      setBuiltinRules((old) => ({ ...old, [rule.ruleId]: value }))
-                      setDirty(true)
-                    }}
-                  />
-                </label>
-              ))}
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">参与授权、观察模式、回复模式、冷却和小时额度始终生效。</p>
-
-          {entries.length === 0 ? (
-            <p className="text-meta text-muted-foreground">尚未添加条目；命中优先级最小的规则先生效。</p>
-          ) : (
-            <div className="space-y-2">
-              {entries.map((entry, index) => (
-                <div key={index} className="grid gap-2 rounded-md border border-border/60 p-3 sm:grid-cols-2 2xl:grid-cols-3">
-                  <label className="flex items-center gap-2 text-sm"><Switch aria-label="启用规则条目" checked={entry.enabled ?? true} disabled={!isDraft || busy} onCheckedChange={enabled => updateEntry(index, { enabled })} />启用</label>
-                  <Input
-                    value={String(entry.priority)}
-                    disabled={!isDraft || busy}
-                    onChange={(e) => updateEntry(index, { priority: Number(e.target.value) || 0 })}
-                    aria-label="优先级"
-                  />
-                  <Input
-                    value={entry.match.textContains ?? ''}
-                    disabled={!isDraft || busy}
-                    aria-label="包含文本"
-                    placeholder="包含文本"
-                    onChange={(e) => updateEntry(index, { match: { ...entry.match, textContains: e.target.value || undefined } })}
-                  />
-                  <Select
-                    aria-label="规则会话类型"
-                    value={entry.match.kind ?? ''}
-                    disabled={!isDraft || busy}
-                    onChange={(e) => updateEntry(index, { match: { ...entry.match, kind: e.target.value || undefined } })}
-                  >
-                    <option value="">任意会话</option>
-                    <option value="group">仅群聊</option>
-                    <option value="private">仅私聊</option>
-                  </Select>
-                  <Select
-                    aria-label="规则动作"
-                    value={entry.action.type}
-                    disabled={!isDraft || busy}
-                    onChange={(e) => updateEntry(index, { action: { ...entry.action, type: e.target.value as RuleEntry['action']['type'] } })}
-                  >
-                    {Object.entries(RULE_ACTION_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </Select>
-                  <Input
-                    aria-label="规则原因码"
-                    value={entry.action.reasonCode}
-                    disabled={!isDraft || busy}
-                    placeholder="原因码"
-                    onChange={(e) => updateEntry(index, { action: { ...entry.action, reasonCode: e.target.value } })}
-                  />
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    disabled={!isDraft || busy}
-                    onClick={() => { setEntries(entries.filter((_, i) => i !== index)); setDirty(true) }}
-                    aria-label="删除条目"
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       ) : null}
           </div>
           <aside className={`min-h-0 overflow-y-auto p-5 lg:border-l lg:border-border ${editorView === 'test' ? '' : 'hidden lg:block'}`}>
-          {current ? <SimulateCard layout="stacked" key={current.id} scope={{ botId: current.botId, scopeType: current.targets?.[0]?.kind ?? current.scopeType, scopeId: current.targets?.[0]?.id ?? 0 }} entries={entries} builtinRules={builtinRules} previewGlobal={allTargets} previewTargetsText={targetText} questions={questions} /> : null}
+          {current ? <SimulateCard layout="stacked" key={current.id} scope={{ botId: current.botId, scopeType: current.targets?.[0]?.kind ?? current.scopeType, scopeId: current.targets?.[0]?.id ?? 0 }} previewGlobal={allTargets} previewTargetsText={targetText} questions={questions} /> : null}
           </aside></div>
           <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-4">
             {current ? <Button variant="ghost" className="text-destructive" disabled={busy} onClick={() => setDeleting(current)}><Trash2 />删除版本</Button> : null}
             {current ? <Button variant="outline" disabled={busy} onClick={async () => current && (!dirty || await confirmAction('放弃未保存的修改并新建草稿？')) && createDraft.mutate({ note: '', cloneActive: true, cloneFromId: current.id }, { onSuccess: set => { setDirty(false); setSelectedId(set.id); setEditorView('edit'); toast.success(`已创建 v${set.version} 草稿`) }, onError: error => toast.error(describeError(error).title) })}>从此版本创建草稿</Button> : null}
 {current ? (            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => { setEntries([...entries, { ...EMPTY_ENTRY, priority: Math.max(-1, ...entries.map(entry => entry.priority)) + 1 }]); setDirty(true) }} disabled={!isDraft || busy}>
+              <Button size="sm" variant="outline" onClick={addQuestion} disabled={!isDraft || busy || Object.keys(questions).length >= 20}>
                 <Plus />
-                添加条目
+                添加决策问题
               </Button>
               <Button
                 size="sm"
-                disabled={!isDraft || !dirty || busy || questionErrors.length > 0 || (!allTargets && (!targetText.trim() || targetText.split(/[,，\s]+/).filter(Boolean).some(value => !/^(private|group):[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value.split(':')[1]))))) || entries.some(entry => !Number.isSafeInteger(entry.priority) || entry.priority < 0 || !entry.action.reasonCode.trim()) || new Set(entries.map(entry => entry.priority)).size !== entries.length}
+                disabled={!isDraft || !dirty || busy || questionErrors.length > 0 || (!allTargets && (!targetText.trim() || targetText.split(/[,，\s]+/).filter(Boolean).some(value => !/^(private|group):[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value.split(':')[1])))))}
                 onClick={() =>
-                  save.mutate({ id: current.id, entries, builtinRules, questions, targets: allTargets ? [] : targetText.split(/[,，\s]+/).filter(Boolean).map(value => { const [kind,id] = value.split(':'); return {kind: kind as ScopeType, id:Number(id)} }) }, {
+                  save.mutate({ id: current.id, questions, targets: allTargets ? [] : targetText.split(/[,，\s]+/).filter(Boolean).map(value => { const [kind,id] = value.split(':'); return {kind: kind as ScopeType, id:Number(id)} }) }, {
                     onSuccess: () => { setDirty(false); toast.success('草稿已保存') },
                     onError: (error) => toast.error(describeError(error).title),
                   })
@@ -532,13 +442,44 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
     </div>
   )
 
-  function updateEntry(index: number, patch: Partial<RuleEntry>) {
-    setEntries((prev) => prev.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)))
+  function updateQuestion(key: string, patch?: Partial<ManagedPromptQuestion>) {
+    setQuestions((prev) => {
+      if (!patch) {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      }
+      const currentQuestion = prev[key]
+      if (!currentQuestion) return prev
+      return { ...prev, [key]: { ...currentQuestion, ...patch } }
+    })
+    setDirty(true)
+  }
+
+  function addQuestion() {
+    setQuestions((prev) => {
+      let index = 1
+      while (prev[`custom_${index}`]) index += 1
+      const order = Math.max(0, ...Object.values(prev).map((question) => question.order ?? 0)) + 10
+      return {
+        ...prev,
+        [`custom_${index}`]: {
+          type: 'noul',
+          instructions: '',
+          role: 'custom',
+          weight: 1,
+          order,
+          threshold: 0.8,
+          action: 'reply',
+          scope: 'group',
+        },
+      }
+    })
     setDirty(true)
   }
 }
 
-export function SimulateCard({ scope, entries, builtinRules, previewGlobal, previewTargetsText, questions, layout = 'columns' }: { previewTargetsText?: string; layout?: 'stacked' | 'columns'; scope: { botId: number; scopeType: ScopeType; scopeId: number }; entries?: RuleEntry[]; builtinRules?: Record<string, boolean>; previewGlobal?: boolean; questions?: Record<string, ManagedPromptQuestion> }) {
+export function SimulateCard({ scope, previewGlobal, previewTargetsText, questions, layout = 'columns' }: { previewTargetsText?: string; layout?: 'stacked' | 'columns'; scope: { botId: number; scopeType: ScopeType; scopeId: number }; previewGlobal?: boolean; questions?: Record<string, ManagedPromptQuestion> }) {
   const [simulationKind,setSimulationKind]=useState<ScopeType>(scope.scopeType)
   const [simulationTarget,setSimulationTarget]=useState(scope.scopeId>0?String(scope.scopeId):'')
   const actualScope={botId:scope.botId,scopeType:simulationKind,scopeId:Number(simulationTarget)}
@@ -548,9 +489,10 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
   const [explicit, setExplicit] = useState(false)
   const [replyMode, setReplyMode] = useState('intent_based')
   const [seconds, setSeconds] = useState('60')
+  const editing = questions !== undefined
   const targets = (previewTargetsText ?? '').split(/[,，\s]+/).filter(Boolean)
-  const targetAllowed = entries === undefined || previewGlobal || (targets.length > 0 && targets.every(value => /^(private|group):[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value.split(':')[1]))) && targets.includes(`${simulationKind}:${simulationTarget}`))
-  const snapshot = JSON.stringify({ actualScope, entries, builtinRules, previewGlobal, previewTargetsText, questions, mode, text, explicit, replyMode, seconds })
+  const targetAllowed = !editing || previewGlobal || (targets.length > 0 && targets.every(value => /^(private|group):[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value.split(':')[1]))) && targets.includes(`${simulationKind}:${simulationTarget}`))
+  const snapshot = JSON.stringify({ actualScope, previewGlobal, previewTargetsText, questions, mode, text, explicit, replyMode, seconds })
   const [submitted, setSubmitted] = useState('')
 
   return (
@@ -560,7 +502,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
       <div className="grid gap-2 sm:grid-cols-2"><Select aria-label="模拟实际会话类型" value={simulationKind} onChange={event=>{setSimulationKind(event.target.value as ScopeType);simulate.reset()}}><option value="private">好友私聊</option><option value="group">群聊</option></Select><Input aria-label="模拟实际目标号码" placeholder="输入用于判断范围的 QQ 号或群号" value={simulationTarget} onChange={event=>{setSimulationTarget(event.target.value);simulate.reset()}}/></div>
       <div className="text-xs text-muted-foreground">实际模拟对象：{simulationKind==='private'?'好友':'群聊'} {simulationTarget || '未选择'}</div>
       {!targetAllowed ? <p role="alert" className="text-warning">测试对象不在当前编辑的适用范围内，请调整测试对象或规则范围。</p> : null}
-      <div className="text-sm font-medium">只读规则预览 · {entries ? '当前编辑内容' : '当前生效版本'}</div>
+      <div className="text-sm font-medium">只读规则预览 · {editing ? '当前编辑内容' : '当前生效版本'}</div>
       <Select aria-label="验证方式" value={mode} onChange={e => { setMode(e.target.value as 'rules' | 'semantic'); simulate.reset() }}><option value="rules">规则预览 · 不调用模型</option><option value="semantic">完整语义验证 · 使用真实模型</option></Select>
       <p className="text-meta text-muted-foreground">{mode === 'semantic' ? '使用当前参与权限、真实会话活动与获准读取的历史，以及服务 Provider 和严格阈值；会调用真实模型并可能产生费用，不保存决策或发送 QQ 消息。' : '只读规则预览：不调用模型、不发送、不含实际频率限制。'}</p>
       <div className="flex gap-2"><Select aria-label="模拟回复模式" value={replyMode} onChange={e => setReplyMode(e.target.value)}><option value="intent_based">智能判断</option><option value="always_reply">始终回复</option><option value="mention_only">仅明确指向</option><option value="observe_only">仅观察</option></Select><Input aria-label="距上次回复秒数" disabled={mode==='semantic'} value={seconds} onChange={e => setSeconds(e.target.value)} inputMode="numeric" /></div>
@@ -575,7 +517,7 @@ export function SimulateCard({ scope, entries, builtinRules, previewGlobal, prev
           onClick={() => {
             setSubmitted(snapshot)
             simulate.mutate(
-              { mode, builtinRules, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, entries, secondsSinceReply: Number(seconds), questions: mode === 'semantic' ? questions : undefined },
+              { mode, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, secondsSinceReply: Number(seconds), questions: mode === 'semantic' ? questions : undefined },
               { onError: (error) => toast.error(describeError(error).title) },
             )
           }}

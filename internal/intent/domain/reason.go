@@ -10,6 +10,7 @@ var reasonText = map[string]string{
 	"addressed_to_other":           "正在与另一位真人对话，优先抑制",
 	"closing":                      "告别结束，保持安静",
 	"ambiguous":                    "语义结果不明确",
+	"no_decision_question":         "没有决策问题，群聊保持安静",
 	"jev_unavailable":              "语义服务不可用，群聊保持安静",
 	"private_semantic_unavailable": "私聊语义不可用，按一对一策略回复",
 	"private_normal":               "私聊正常问候/提问/闲聊，按一对一策略回复",

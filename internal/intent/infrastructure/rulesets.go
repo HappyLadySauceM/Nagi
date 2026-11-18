@@ -122,6 +122,13 @@ func (r *RulesetsRepo) CreateDraft(ctx context.Context, bot int64, kind string, 
 			b.SetTargets(source.Targets).SetBuiltinRules(source.BuiltinRules).SetQuestions(source.Questions)
 		}
 	}
+	if source == nil {
+		data, err := json.Marshal(domain.DefaultDecisionQuestions())
+		if err != nil {
+			return domain.Ruleset{}, err
+		}
+		b.SetQuestions(data)
+	}
 	v, err := b.Save(ctx)
 	if err != nil {
 		return domain.Ruleset{}, err
@@ -362,6 +369,8 @@ func rulesetModel(v *ent.IntentRuleset) (domain.Ruleset, error) {
 		}
 		if len(out.Questions) == 0 {
 			out.Questions = nil
+		} else {
+			out.Questions = domain.WithDecisionDefaults(out.Questions)
 		}
 	}
 	return out, nil

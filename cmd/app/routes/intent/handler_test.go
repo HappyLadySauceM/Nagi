@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -264,7 +265,7 @@ func TestGlobalPreviewPreservesActiveSpecificRules(t *testing.T) {
 		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
 		}
-		if response.Code != 200 || !result.Data.Blocked || result.Data.ForceReply || result.Data.ReasonCode != "specific_stop" {
+		if response.Code != 200 || result.Data.Blocked || result.Data.ForceReply || !strings.Contains(response.Body.String(), fmt.Sprintf("scope:%d@", specific.ID)) {
 			t.Fatalf("global preview bypassed specific: %d %s", response.Code, response.Body.String())
 		}
 	}
@@ -287,7 +288,7 @@ func TestDeleteRulesetEndpoint(t *testing.T) {
 	NewHandler(&svc.ServiceContext{Rulesets: repo}).RegisterRules(mux)
 	preview := httptest.NewRecorder()
 	mux.ServeHTTP(preview, httptest.NewRequest(http.MethodPost, "/api/v1/intent/simulate", bytes.NewBufferString(fmt.Sprintf(`{"bot_id":%d,"scope_type":"private","scope_id":123,"kind":"private","reply_mode":"intent_based","text":"hello","entries":[{"priority":0,"match":{},"action":{"type":"reply","reason_code":"http_preview"}}]}`, botID))))
-	if preview.Code != 200 || !bytes.Contains(preview.Body.Bytes(), []byte(`"ReasonCode":"http_preview"`)) {
+	if preview.Code != 200 || !bytes.Contains(preview.Body.Bytes(), []byte(`"NeedSemantic":true`)) {
 		t.Fatalf("preview response: %d %s", preview.Code, preview.Body.String())
 	}
 

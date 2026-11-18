@@ -93,12 +93,10 @@ export function useSaveEntries() {
   const queryClient = useQueryClient()
   const invalidate = useInvalidateRules()
   return useMutation({
-    mutationFn: (variables: { id: number; entries: RuleEntry[]; builtinRules?: Record<string, boolean>; targets?: RuleTarget[]; questions: Record<string, ManagedPromptQuestion> }) =>
+    mutationFn: (variables: { id: number; targets?: RuleTarget[]; questions: Record<string, ManagedPromptQuestion> }) =>
       apiRequest(`/api/v1/intent/rulesets/${variables.id}`, {
         method: 'PATCH',
         body: {
-          entries: toRuleEntriesRequest(variables.entries),
-          builtin_rules: variables.builtinRules ?? {},
           targets: variables.targets,
           questions: toQuestionsRequest(variables.questions),
         },

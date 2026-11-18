@@ -172,10 +172,8 @@ func (h *Handler) UpdateRuleset(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var body struct {
-		Entries      *[]intentdomain.RuleEntry               `json:"entries"`
-		BuiltinRules *map[string]bool                        `json:"builtin_rules"`
-		Targets      *[]intentdomain.RuleTarget              `json:"targets"`
-		Questions    *map[string]intentdomain.PromptQuestion `json:"questions"`
+		Targets   *[]intentdomain.RuleTarget              `json:"targets"`
+		Questions *map[string]intentdomain.PromptQuestion `json:"questions"`
 	}
 	if err := decoder.Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "请求体不合法或包含未知字段")
@@ -188,12 +186,6 @@ func (h *Handler) UpdateRuleset(w http.ResponseWriter, r *http.Request) {
 	if body.Targets != nil {
 		validate.Targets = *body.Targets
 	}
-	if body.Entries != nil {
-		validate.Entries = *body.Entries
-	}
-	if body.BuiltinRules != nil {
-		validate.BuiltinRules = *body.BuiltinRules
-	}
 	if body.Questions != nil {
 		validate.Questions = *body.Questions
 	}
@@ -201,8 +193,8 @@ func (h *Handler) UpdateRuleset(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	options := intentinfra.RuleOptions{BuiltinRules: body.BuiltinRules, Targets: body.Targets, Questions: body.Questions}
-	switch err := h.svcCtx.Rulesets.ReplaceEntries(r.Context(), id, body.Entries, options); {
+	options := intentinfra.RuleOptions{Targets: body.Targets, Questions: body.Questions}
+	switch err := h.svcCtx.Rulesets.ReplaceEntries(r.Context(), id, nil, options); {
 	case errors.Is(err, intentinfra.ErrTargetConflict):
 		common.WriteFailure(w, http.StatusConflict, "target already has another active ruleset")
 		return
@@ -312,10 +304,6 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid simulation input")
 		return
 	}
-	if body.Entries != nil && body.RulesetID != 0 {
-		common.WriteFailure(w, http.StatusBadRequest, "select entries or version")
-		return
-	}
 	if body.RulesetID != 0 {
 		selected, readErr := h.svcCtx.Rulesets.Get(r.Context(), body.RulesetID)
 		if readErr != nil || selected.BotID != body.BotID {
@@ -324,18 +312,14 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		}
 		set, ok = selected, true
 	}
-	if body.Entries != nil {
-		set.Entries = *body.Entries
-		set.BuiltinRules = body.BuiltinRules
-		set.Version = 0
-		ok = true
-	}
-	// Only semantic simulation previews an edited question set; rules-only
-	// previews ignore request questions so a half-edited set cannot fail them.
-	// 仅语义模拟预览编辑中的问题集；仅规则预览忽略请求 questions，
-	// 避免编辑到一半的问题集让规则预览失败。
+	// Semantic simulation previews the edited question list. Rules-only previews
+	// ignore it so a half-edited set cannot fail them. Condition entries are
+	// not part of the decision.
+	// 语义模拟预览编辑中的问题列表。仅规则预览忽略它，避免编辑到一半的问题集失败。
+	// 条件条目不再参与决策。
 	if body.Mode == "semantic" && body.Questions != nil {
 		set.Questions = body.Questions
+		ok = true
 	}
 	if err := set.Validate(); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid rule entries")
@@ -466,11 +450,14 @@ func simulationPrompt(specificSet, globalSet *intentdomain.Ruleset, botID int64,
 	var questions map[string]intentdomain.PromptQuestion
 	var version int
 	switch {
-	case specificSet != nil && len(specificSet.Questions) > 0:
-		questions, version = specificSet.Questions, specificSet.Version
-	case globalSet != nil && len(globalSet.Questions) > 0:
-		questions, version = globalSet.Questions, globalSet.Version
+	case specificSet != nil:
+		questions, version = intentdomain.ApplicableQuestions(specificSet.Questions, kind), specificSet.Version
+	case globalSet != nil:
+		questions, version = intentdomain.ApplicableQuestions(globalSet.Questions, kind), globalSet.Version
 	default:
+		return intentdomain.Prompt{}, false
+	}
+	if len(questions) == 0 {
 		return intentdomain.Prompt{}, false
 	}
 	base := intentdomain.BuiltinPromptFor(intentdomain.PromptKindIntentParticipation, intentdomain.PromptProviderJev)

@@ -110,7 +110,7 @@ func (s *ReplayService) Recalculate(ctx context.Context, decisionID int64) (cont
 	decision.RunID = "recalc-" + uuid.NewString()
 	decision.FlowVersion = domain.FlowVersion
 	asked := rule.NeedSemantic && !rule.Blocked
-	decision.Steps = decisionSteps(in, rule, snapshot.Semantic, decision, 0, asked, runtime.Thresholds, false)
+	decision.Steps = decisionSteps(in, rule, snapshot.Semantic, decision, 0, asked, false)
 	before := BuildRunFromRecord(beforeRecord, contracts.Delivery{})
 	before.Prompt = promptInfoFromDomain(snapshot.Prompt)
 	after := BuildRunFromDecision(decision, contracts.Delivery{})
@@ -154,7 +154,7 @@ func (s *ReplayService) ReplayModel(ctx context.Context, decisionID int64) (cont
 	decision.RulesetVersion = snapshot.RulesetVersion
 	decision.RunID = "replay-" + uuid.NewString()
 	decision.FlowVersion = domain.FlowVersion
-	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, runtime.Thresholds, false)
+	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, false)
 	run := BuildRunFromDecision(decision, contracts.Delivery{})
 	run.DecisionID = decisionID
 	run.Prompt = promptInfoFromDomain(snapshot.Prompt)

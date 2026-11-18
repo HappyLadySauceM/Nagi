@@ -140,7 +140,7 @@ afterEach(() => {
 })
 
 describe('IntentConfig', () => {
-  it('shows only the pipeline, context and group threshold sections', async () => {
+  it('shows the pipeline and shared context sections', async () => {
     mockedRequest.mockImplementation((path: string) => {
       if (path === '/api/v1/settings') return Promise.resolve(settingsView())
       if (path.startsWith('/api/v1/intent/rules/effective')) return Promise.resolve(effectiveRules)
@@ -150,22 +150,18 @@ describe('IntentConfig', () => {
 
     expect(await screen.findByRole('switch', { name: '回复决策流水线' })).toBeVisible()
     expect(screen.getByText('会话上下文')).toBeVisible()
-    expect(screen.getByText('群聊高级设置')).toBeVisible()
+    expect(screen.queryByText('群聊高级设置')).toBeNull()
     expect(screen.queryByText('角色设置')).toBeNull()
     expect(screen.queryByText('意图模型')).toBeNull()
     expect(screen.queryByLabelText('机器人自称')).toBeNull()
     expect(screen.getByLabelText('历史条数上限')).toHaveValue(30)
     expect(screen.getByText(/默认 30，范围 1–200/)).toBeVisible()
-    expect(screen.getByText('0.80 / 0.95 / 0.60 是默认起点，不是准确率承诺。')).toBeVisible()
-    expect(screen.getByText('私聊正常回复按会话策略处理，不受以上三个群聊门槛控制。')).toBeVisible()
-    expect(screen.getByText('全局默认规则「自然插话」已关闭；具体群聊覆盖时仍使用该阈值。')).toBeVisible()
-    expect(screen.getByText('全局默认规则「对他人说话优先抑制」已关闭；具体群聊覆盖时仍使用该阈值。')).toBeVisible()
     expect(screen.queryByLabelText('接口地址')).toBeNull()
     expect(screen.queryByLabelText('模型名称')).toBeNull()
     expect(screen.queryByLabelText('请求超时')).toBeNull()
   })
 
-  it('saves Context and thresholds without submitting the Role section', async () => {
+  it('saves context and keeps the stored thresholds without a Role section', async () => {
     let patchBody: unknown
     mockedRequest.mockImplementation((path: string, options?: { method?: string; body?: unknown }) => {
       if (path === '/api/v1/settings' && options?.method === 'PATCH') {
@@ -179,7 +175,6 @@ describe('IntentConfig', () => {
     renderConfig()
 
     fireEvent.change(await screen.findByLabelText('历史条数上限'), { target: { value: '40' } })
-    fireEvent.change(screen.getByLabelText('接续话题阈值'), { target: { value: '0.7' } })
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
 
     await waitFor(() => expect(patchBody).toBeDefined())
@@ -189,7 +184,7 @@ describe('IntentConfig', () => {
     expect(body.Sections.Context).toEqual({ HistoryLimit: 40 })
     expect(body.Sections.Intent).toMatchObject({
       Enabled: true,
-      ContinuationThreshold: 0.7,
+      ContinuationThreshold: 0.8,
       InterjectionThreshold: 0.95,
       AddressedOtherMax: 0.6,
     })
@@ -198,27 +193,6 @@ describe('IntentConfig', () => {
     expect(body.Sections.Intent).not.toHaveProperty('Model')
     expect(body.Sections.Intent).not.toHaveProperty('TimeoutSeconds')
     expect(await screen.findByText('配置已保存')).toBeVisible()
-  })
-
-  it('marks Continuation unavailable only when both consumer rules are closed', async () => {
-    const bothContinuationRulesOff = {
-      ...effectiveRules,
-      BuiltinRules: effectiveRules.BuiltinRules.map((rule) =>
-        rule.RuleID === 'continuation' || rule.RuleID === 'directed_to_bot'
-          ? { ...rule, Enabled: false, Applicable: false, Status: 'not_applicable', Reason: 'disabled' }
-          : rule,
-      ),
-    }
-    mockedRequest.mockImplementation((path: string) => {
-      if (path === '/api/v1/settings') return Promise.resolve(settingsView())
-      if (path === '/api/v1/models') return Promise.resolve(modelsView)
-      if (path.startsWith('/api/v1/intent/rules/effective')) return Promise.resolve(bothContinuationRulesOff)
-      throw new Error(`unexpected request: ${path}`)
-    })
-    renderConfig()
-
-    expect(await screen.findByText('全局默认规则「延续机器人话题」、「指向机器人」已关闭；具体群聊覆盖时仍使用该阈值。')).toBeVisible()
-    expect(screen.getByRole('spinbutton', { name: '接续话题阈值' })).toBeVisible()
   })
 
   it('blocks saving when the history limit is cleared', async () => {
