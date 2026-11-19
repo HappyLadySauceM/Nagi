@@ -143,7 +143,7 @@ func directNameCall(text string, segments []ob.Segment, name string) bool {
 		}
 	}
 	if rest, ok := strings.CutSuffix(strings.TrimRight(text, punctuation), name); ok {
-		return shortCall(rest)
+		return strings.Trim(rest, punctuation) == "谁是" || shortCall(rest)
 	}
 	return false
 }
