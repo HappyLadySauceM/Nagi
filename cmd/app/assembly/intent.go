@@ -252,6 +252,9 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 				if descriptor.ID == pluginscontracts.MemoryDetailToolID && !current.AllowMemoryRead {
 					return fmt.Errorf("memory read authorization revoked")
 				}
+				if descriptor.ID == pluginscontracts.HistorySearchToolID && (!current.AllowHistoryRead || !current.StoreMessages) {
+					return fmt.Errorf("history search authorization revoked")
+				}
 				if descriptor.ID == pluginscontracts.MemorySourceToolID && (!current.AllowMemoryRead || !current.AllowHistoryRead) {
 					return fmt.Errorf("memory source authorization revoked")
 				}
@@ -281,6 +284,9 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 			// Revoked tools never reach the model, so it cannot even request them.
 			// 已撤销的工具不会到达模型，模型连请求它的机会都没有。
 			if registered.Descriptor.ID == pluginscontracts.MemoryDetailToolID && !req.AllowMemoryRead {
+				continue
+			}
+			if registered.Descriptor.ID == pluginscontracts.HistorySearchToolID && !req.AllowHistoryRead {
 				continue
 			}
 			if registered.Descriptor.ID == pluginscontracts.MemorySourceToolID && (!req.AllowMemoryRead || !req.AllowHistoryRead) {

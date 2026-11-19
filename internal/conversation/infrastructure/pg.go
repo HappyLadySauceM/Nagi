@@ -159,7 +159,7 @@ func (r *Repo) RecentMessages(ctx context.Context, conversationID string, limit 
 func (r *Repo) JobIngress(ctx context.Context, botID, jobID int64) (*domain.JobIngress, error) {
 	job, err := r.pool.Client.MessageJob.Query().
 		Where(ej.ID(jobID), ej.HasIncomingMessageIDRefWith(em.BotID(botID), em.DirectionEQ(string(domain.Incoming)))).
-		WithIncomingMessageIDRef().Only(ctx)
+		WithIncomingMessageIDRef(func(query *ent.MessageQuery) { query.WithConversationIDRef() }).Only(ctx)
 	if ent.IsNotFound(err) {
 		return nil, nil
 	}
@@ -177,7 +177,14 @@ func (r *Repo) JobIngress(ctx context.Context, botID, jobID int64) (*domain.JobI
 	if err != nil {
 		return nil, err
 	}
-	return &domain.JobIngress{Message: message, TraceParent: job.Traceparent, Status: job.Status}, nil
+	conversation, err := row.Edges.ConversationIDRefOrErr()
+	if err != nil {
+		return nil, err
+	}
+	return &domain.JobIngress{
+		Kind: domain.Kind(conversation.Kind), TargetID: conversation.TargetID,
+		Message: message, TraceParent: job.Traceparent, Status: job.Status,
+	}, nil
 }
 
 // MessageByID returns one stored message scoped to its bot account. A missing
@@ -743,4 +750,69 @@ func (r *Repo) MediaAttachment(ctx context.Context, bot int64, conversation stri
 		return nil, err
 	}
 	return obdomain.SegmentsFromWire(data)
+}
+
+// HistoryIndexBatch scans source rows in ID order for the rotating index rebuild.
+// HistoryIndexBatch 按 ID 正序扫描原始消息，供轮转重建搜索索引。
+func (r *Repo) HistoryIndexBatch(ctx context.Context, afterID int64, limit int) ([]domain.IndexedMessage, error) {
+	rows, err := r.pool.Client.Message.Query().Where(em.IDGT(afterID)).
+		Order(ent.Asc(em.FieldID)).Limit(limit).WithConversationIDRef().All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]domain.IndexedMessage, 0, len(rows))
+	for _, row := range rows {
+		conversation, err := row.Edges.ConversationIDRefOrErr()
+		if err != nil {
+			return nil, err
+		}
+		message, err := messageModel(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, domain.IndexedMessage{Message: message, Kind: domain.Kind(conversation.Kind), TargetID: conversation.TargetID})
+	}
+	return result, nil
+}
+
+// HistoryMessages resolves ranked candidates in the exact source conversation.
+// HistoryMessages 在确切的来源会话中读取检索候选。
+func (r *Repo) HistoryMessages(ctx context.Context, search domain.HistorySearch, ids []int64) ([]domain.Message, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	conversation, err := uuid.Parse(search.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	query := r.pool.Client.Message.Query().Where(
+		em.IDIn(ids...), em.BotID(search.BotID), em.ConversationID(conversation),
+		em.Or(em.CreatedAtLT(search.Before), em.And(em.CreatedAtEQ(search.Before), em.IDLT(search.BeforeID))),
+	)
+	if search.SenderID > 0 {
+		query.Where(em.SenderID(search.SenderID))
+	}
+	if !search.After.IsZero() {
+		query.Where(em.CreatedAtGTE(search.After))
+	}
+	rows, err := query.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]*ent.Message, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	messages := make([]domain.Message, 0, len(rows))
+	for _, id := range ids {
+		if row := byID[id]; row != nil {
+			delete(byID, id)
+			message, err := messageModel(row)
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, message)
+		}
+	}
+	return messages, nil
 }

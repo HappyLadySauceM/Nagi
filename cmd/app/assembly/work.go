@@ -4,10 +4,13 @@ package assembly
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	mediainfra "github.com/HappyLadySauceM/Nagi/internal/media/infrastructure"
 	modelinfra "github.com/HappyLadySauceM/Nagi/internal/models/infrastructure"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -88,11 +91,12 @@ type Runtime struct {
 	// (no database configured); Worker is nil until intent is enabled.
 	// pool 为 nil（未配置数据库）时 Directory、Scope、Conversation、Memory 与 Audit 为 nil；
 	// intent 未启用时 Worker 为 nil。
-	Directory    *directoryapp.Service
-	Scope        *scopeapp.Service
-	Conversation *conversationapp.Service
-	Memory       *memoryapp.Service
-	Audit        auditcontracts.Recorder
+	Directory     *directoryapp.Service
+	Scope         *scopeapp.Service
+	Conversation  *conversationapp.Service
+	HistorySearch *conversationapp.HistorySearch
+	Memory        *memoryapp.Service
+	Audit         auditcontracts.Recorder
 	// AIAudit stores mandatory worker-run facts separately from best-effort
 	// management audit entries.
 	// AIAudit 独立保存必须落库的 worker 运行事实，不与尽力而为的管理审计混用。
@@ -299,6 +303,19 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			builtin.WithoutPublicDuplicates(builtin.NewQQMemberProvider(groupInfoResolver{accounts: rt.Registry})),
 			builtin.WithoutPublicDuplicates(builtin.NewQQAdminProvider(groupInfoResolver{accounts: rt.Registry})),
 			builtin.WithoutPublicDuplicates(builtin.NewQQProfileProvider(groupInfoResolver{accounts: rt.Registry})),
+		}
+		if cfg.HistorySearch.Endpoint != "" {
+			client, err := historySearchHTTPClient(cfg.HistorySearch.CAFile)
+			if err != nil {
+				return nil, err
+			}
+			index, err := conversationinfra.NewHistoryIndex(cfg.HistorySearch.Endpoint, cfg.HistorySearch.APIKey, client)
+			if err != nil {
+				return nil, err
+			}
+			rt.HistorySearch = conversationapp.NewHistorySearch(attachmentRepo, index, rt.Scope,
+				func() int { return rt.SettingsProvider.Settings().Messages.RetentionDays }, logger)
+			providers = append(providers, builtin.NewHistoryProvider(rt.HistorySearch))
 		}
 		publicAccount := func(botID int64) (obcontracts.PublicAPI, bool) {
 			conn, ok := rt.Registry.Lookup(botID)
@@ -668,4 +685,24 @@ func sendingLimitsFor(ctx context.Context, policies *outboundinfra.PoliciesRepo,
 		MaxCharsPerMessage: live.Agent.Sending.MaxCharsPerMessage,
 		MaxTotalChars:      live.Agent.Sending.MaxTotalCharsPerRun,
 	}, nil
+}
+
+func historySearchHTTPClient(caFile string) (*http.Client, error) {
+	if caFile == "" {
+		return nil, nil
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("history search: load system root CA: %w", err)
+	}
+	certs, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("history search: read Elasticsearch CA: %w", err)
+	}
+	if !roots.AppendCertsFromPEM(certs) {
+		return nil, fmt.Errorf("history search: Elasticsearch CA file has no certificates")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	return &http.Client{Transport: transport}, nil
 }
