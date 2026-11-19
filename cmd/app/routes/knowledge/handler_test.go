@@ -235,7 +235,7 @@ func TestPreviewRealReadsMemoryWhenAuthorized(t *testing.T) {
 	}
 	handler := NewHandler(&svc.ServiceContext{Memory: memoryService, Scope: scopeService})
 	rec := httptest.NewRecorder()
-	handler.Preview(rec, httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/preview", strings.NewReader(`{"bot_id":7,"preview_mode":"real","target_type":"group","target_id":700,"query":"美式"}`)))
+	handler.Preview(rec, httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/preview", strings.NewReader(`{"bot_id":7,"preview_mode":"real","target_type":"group","target_id":700,"query":"美式","subject_type":"user","subject_id":"42","subject_source":"admin_explicit"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("authorized real preview status = %d body=%s", rec.Code, rec.Body.String())
 	}

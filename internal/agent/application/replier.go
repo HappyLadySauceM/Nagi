@@ -807,8 +807,9 @@ func recallSubject(task intentdomain.Task, history []intentdomain.Message) (stri
 	if len(mentions) > 1 {
 		return "unknown", "", "unknown", "", true
 	}
+	subjectID, source, evidence := "", "unknown", ""
 	if len(mentions) == 1 {
-		return "user", mentions[0], "mention", "mention:" + mentions[0], false
+		subjectID, source, evidence = mentions[0], "mention", "mention:"+mentions[0]
 	}
 	if replyID != "" {
 		for _, message := range history {
@@ -816,28 +817,50 @@ func recallSubject(task intentdomain.Task, history []intentdomain.Message) (stri
 				continue
 			}
 			id := fmt.Sprintf("%d", message.SenderID)
-			return "user", id, "reply_target", "reply:" + id, false
+			if subjectID != "" && subjectID != id {
+				return "unknown", "", "unknown", "", true
+			}
+			subjectID, source, evidence = id, "reply_target", "reply:"+id
+			break
 		}
-		return "unknown", "", "reply_target", "reply:" + replyID, false
 	}
 	if firstPersonSelf(task.Message.Text) && speakerID != "" {
+		if subjectID != "" && subjectID != speakerID {
+			return "unknown", "", "unknown", "", true
+		}
 		return "user", speakerID, "self", "self", false
+	}
+	if subjectID != "" {
+		return "user", subjectID, source, evidence, false
+	}
+	text := strings.TrimSpace(task.Message.Text)
+	for _, marker := range []string{"本群", "这个群", "群里", "群规"} {
+		if strings.HasPrefix(text, marker) {
+			return "group", fmt.Sprintf("%d", task.TargetID), "explicit_group", marker, false
+		}
+	}
+	if replyID != "" {
+		return "unknown", "", "reply_target", "reply:" + replyID, false
 	}
 	return "unknown", "", "unknown", "", false
 }
 
-// firstPersonSelf recognizes a narrow first-person self statement; ambiguous
-// aliases and group facts remain unknown instead of being guessed.
-// firstPersonSelf 识别窄范围的第一人称自述；模糊别名与群体事实保持 unknown，
-// 不做猜测。
+// firstPersonSelf recognizes common first-person statements and questions.
+// firstPersonSelf 识别常见的第一人称自述和提问。
 func firstPersonSelf(text string) bool {
-	text = strings.TrimSpace(text)
-	if text == "" || strings.Contains(text, "我们") {
+	text = strings.TrimSpace(obdomain.PlainText(obdomain.ParseCQ(text)))
+	text = strings.TrimSpace(strings.TrimPrefix(text, "请问"))
+	if text == "" || strings.HasPrefix(text, "我们") {
 		return false
 	}
-	for _, marker := range []string{"我觉得", "我喜欢", "我爱", "我是", "我叫", "我在", "我住"} {
-		if strings.Contains(text, marker) {
-			return true
+	for _, marker := range []string{"我喜欢", "我爱喝", "我爱吃", "我是", "我叫", "我住", "我平时点", "我平时喝", "我平时吃", "我通常喝", "我常喝", "我最喜欢", "我能吃"} {
+		if rest, matched := strings.CutPrefix(text, marker); matched {
+			modifier, _, hasModifier := strings.Cut(strings.TrimSpace(rest), "的")
+			switch modifier {
+			case "什么口味", "哪种口味", "什么类型", "哪种", "哪款":
+				return true
+			}
+			return !hasModifier
 		}
 	}
 	return false

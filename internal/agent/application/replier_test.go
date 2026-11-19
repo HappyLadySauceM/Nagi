@@ -1429,3 +1429,35 @@ func TestReplierRecallRequestSeparatesSpeakerAndMentionSubject(t *testing.T) {
 		t.Fatalf("subject missing from memory prompt: %q", system)
 	}
 }
+
+func TestRecallSubjectUsesFirstPersonAndRejectsConflicts(t *testing.T) {
+	task := groupTaskForAgent()
+	task.Message.Text = "我平时点什么饮料？"
+	got := recallRequest(task, nil)
+	if got.SubjectType != "user" || got.SubjectID != "200" || got.SubjectSource != "self" {
+		t.Fatalf("first person: %+v", got)
+	}
+	task.Message.Text = "我喜欢什么口味的咖啡？"
+	got = recallRequest(task, nil)
+	if got.SubjectType != "user" || got.SubjectID != "200" {
+		t.Fatalf("first-person question with qualified object: %+v", got)
+	}
+	task.Segments = []obdomain.Segment{obdomain.At(1001)}
+	got = recallRequest(task, nil)
+	if got.SubjectType != "unknown" || !got.SubjectAmbiguous {
+		t.Fatalf("conflicting subjects: %+v", got)
+	}
+	task.Segments = nil
+	for _, question := range []string{"我最好的朋友喜欢什么饮料？", "我喜欢的人爱喝什么？", "我喜欢喝咖啡的朋友一般点什么甜品？"} {
+		task.Message.Text = question
+		got = recallRequest(task, nil)
+		if got.SubjectType != "unknown" {
+			t.Fatalf("third-party subject %q: %+v", question, got)
+		}
+	}
+	task.Message.Text = "本群的活动是几点？"
+	got = recallRequest(task, nil)
+	if got.SubjectType != "group" || got.SubjectSource != "explicit_group" {
+		t.Fatalf("group subject: %+v", got)
+	}
+}

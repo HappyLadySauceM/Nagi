@@ -39,6 +39,8 @@ export interface KnowledgePreviewInput {
   targetId?: number
   conversationId?: string
   query?: string
+  subjectType?: 'unknown' | 'user' | 'group'
+  subjectId?: string
 }
 
 /** One explicit read-only preview request; skipped layers remain visible to the caller.
@@ -56,6 +58,9 @@ export function useKnowledgePreview() {
           target_id: input.targetId ?? 0,
           conversation_id: input.conversationId ?? '',
           query: input.query ?? '',
+          subject_type: input.subjectType ?? 'unknown',
+          subject_id: input.subjectId ?? '',
+          subject_source: input.subjectId ? 'admin_explicit' : 'unknown',
         },
       }).then(toKnowledgePreview),
   })

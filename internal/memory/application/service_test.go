@@ -273,7 +273,7 @@ func TestReviseChangesNextRecall(t *testing.T) {
 	svc, _ := NewService(repo)
 	ctx := context.Background()
 	id, _, err := svc.Propose(ctx, CandidateInput{
-		BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "旧内容",
+		BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "旧内容", SubjectType: domain.SubjectGroup, SubjectID: "700",
 	})
 	if err != nil {
 		t.Fatalf("propose: %v", err)
@@ -299,7 +299,7 @@ func TestPrivateMemoriesStayPerUser(t *testing.T) {
 	ctx := context.Background()
 	for _, owner := range []string{"200", "201"} {
 		id, _, err := svc.Propose(ctx, CandidateInput{
-			BotID: 1, Visibility: domain.VisibilityPrivateUser, OwnerKey: owner, Content: "用户" + owner + "的偏好",
+			BotID: 1, Visibility: domain.VisibilityPrivateUser, OwnerKey: owner, Content: "用户" + owner + "的偏好", SubjectType: domain.SubjectUser, SubjectID: owner,
 		})
 		if err != nil {
 			t.Fatalf("propose %s: %v", owner, err)
@@ -308,7 +308,7 @@ func TestPrivateMemoriesStayPerUser(t *testing.T) {
 			t.Fatalf("approve %s: %v", owner, err)
 		}
 	}
-	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "private", TargetID: 200, Query: "偏好", Limit: 5})
+	got, err := svc.Recall(ctx, contracts.RecallRequest{BotID: 1, Kind: "private", TargetID: 200, Query: "偏好", Limit: 5, SubjectType: "user", SubjectID: "200"})
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
@@ -528,7 +528,7 @@ func TestRecallSubjectAwareAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
-	if len(got.Items) != 2 || got.Items[0].MemoryID != "a" || got.Items[0].SubjectType != "user" || got.Items[0].SubjectID != "1001" {
+	if len(got.Items) != 1 || got.Items[0].MemoryID != "a" || got.Items[0].SubjectType != "user" || got.Items[0].SubjectID != "1001" {
 		t.Fatalf("recall items = %+v", got.Items)
 	}
 	if got.Items[0].SubjectMatch != domain.SubjectMatchExact || got.Items[0].SelectionReason != domain.SelectionReasonSubjectExact || got.Items[0].Score != 3 {

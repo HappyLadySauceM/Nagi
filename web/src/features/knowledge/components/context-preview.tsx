@@ -71,6 +71,8 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
   const [targetId, setTargetId] = useState('')
   const [conversationId, setConversationId] = useState('')
   const [query, setQuery] = useState('喜欢喝什么')
+  const [subjectType, setSubjectType] = useState<'unknown' | 'user' | 'group'>('unknown')
+  const [subjectId, setSubjectId] = useState('')
   const [validation, setValidation] = useState('')
   const preview = useKnowledgePreview()
 
@@ -85,6 +87,12 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
       setValidation('真实预览必须选择群聊或私聊，并填写大于 0 的目标 ID（群号或 QQ）。')
       return
     }
+    const selectedSubject = mode === 'real' ? subjectType : 'unknown'
+    const selectedId = selectedSubject === 'group' ? String(numericTargetId) : subjectId.trim()
+    if (selectedSubject === 'user' && !/^[1-9][0-9]*$/.test(selectedId)) {
+      setValidation('请填写个人主体的 QQ 号。')
+      return
+    }
     preview.mutate({
       botId,
       mode,
@@ -92,6 +100,8 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
       targetId: mode === 'real' ? numericTargetId : undefined,
       conversationId: mode === 'real' ? conversationId.trim() : '',
       query: query.trim(),
+      subjectType: selectedSubject,
+      subjectId: selectedSubject === 'unknown' ? undefined : selectedId,
     })
   }
 
@@ -116,7 +126,11 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
           <Select
             aria-label="预览目标类型"
             value={targetType}
-            onChange={(event) => setTargetType(event.target.value as 'group' | 'private')}
+            onChange={(event) => {
+              const kind = event.target.value as 'group' | 'private'
+              setTargetType(kind)
+              if (kind === 'private' && subjectType === 'group') setSubjectType('unknown')
+            }}
           >
             <option value="group">群聊</option>
             <option value="private">私聊</option>
@@ -150,6 +164,23 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
             placeholder="例如：喜欢喝什么"
           />
         </label>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="space-y-1 text-xs">
+          <span className="text-muted-foreground">记忆主体</span>
+          <Select aria-label="记忆主体" value={subjectType} onChange={(event) => setSubjectType(event.target.value as typeof subjectType)}>
+            <option value="unknown">未指定</option>
+            <option value="user">个人</option>
+            {targetType === 'group' ? <option value="group">当前群</option> : null}
+          </Select>
+        </label>
+        {subjectType === 'user' ? (
+          <label className="space-y-1 text-xs">
+            <span className="text-muted-foreground">主体 QQ 号</span>
+            <Input aria-label="主体 QQ 号" inputMode="numeric" value={subjectId} onChange={(event) => setSubjectId(event.target.value)} />
+          </label>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
