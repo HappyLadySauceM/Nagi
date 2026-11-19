@@ -131,8 +131,12 @@ jobs:
           POSTGRES_USER: nagi
           POSTGRES_PASSWORD: nagi-local
           POSTGRES_DB: nagi_test
+        # Keep disposable database writes off the runner disk and probe the final TCP server.
+        # 临时测试库写入内存，TCP 探测只检查正式启动的数据库进程。
         options: >-
-          --health-cmd "pg_isready -U nagi -d nagi_test"
+          --tmpfs /var/lib/postgresql/data:rw,size=512m
+          --health-cmd "pg_isready -h 127.0.0.1 -U nagi -d nagi_test -t 3"
+          --health-start-period 45s
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
