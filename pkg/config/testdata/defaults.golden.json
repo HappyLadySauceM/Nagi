@@ -77,6 +77,7 @@
       "bucket": "",
       "enabled": false,
       "endpoint": "",
+      "inbound-max-mib": 512,
       "prefix": "nagi/",
       "public-endpoint": "",
       "retention-days": 30,

@@ -44,6 +44,8 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/intent/inbound", h.Inbound)
 	mux.HandleFunc("GET /api/v1/intent/inbound/{message_id}", h.Inbound)
+	mux.HandleFunc("GET /api/v1/intent/inbound/{message_id}/attachments/{attachment_id}", h.DownloadAttachment)
+	mux.HandleFunc("POST /api/v1/intent/inbound/{message_id}/attachments/backfill", h.BackfillAttachments)
 	mux.HandleFunc("GET /api/v1/intent/overview", h.Overview)
 	mux.HandleFunc("GET /api/v1/intent/flow", h.Flow)
 	mux.HandleFunc("GET /api/v1/intent/decisions", h.List)

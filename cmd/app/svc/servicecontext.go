@@ -19,6 +19,7 @@ import (
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
+	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
@@ -69,7 +70,8 @@ type ServiceContext struct {
 	AIAudit auditcontracts.AIReader
 	// MediaArchive signs administrator-only artifact reads when configured.
 	// MediaArchive 在已配置时为管理员专用的工件读取签名。
-	MediaArchive MediaURLSigner
+	MediaArchive   MediaURLSigner
+	InboundArchive mediacontracts.InboundArchiveReader
 	// Stats may be nil when the database is not configured.
 	// 未配置数据库时 Stats 可为 nil。
 	Stats StatsProvider

@@ -73,6 +73,7 @@ type SourceMessage struct {
 // IngestInput is the input for persisting one authorized inbound message.
 // IngestInput 是持久化一条已授权入站消息的输入。
 type IngestInput struct {
+	ArchiveOnly       bool
 	BotID             int64
 	Kind              Kind
 	TargetID          int64

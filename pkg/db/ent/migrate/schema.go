@@ -354,6 +354,53 @@ var (
 			},
 		},
 	}
+	// InboundAttachmentsColumns holds the columns for the "inbound_attachments" table.
+	InboundAttachmentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "message_id", Type: field.TypeInt64},
+		{Name: "segment_index", Type: field.TypeInt},
+		{Name: "kind", Type: field.TypeString},
+		{Name: "source", Type: field.TypeJSON, Nullable: true},
+		{Name: "status", Type: field.TypeString, Default: schema.Expr("'pending'::text")},
+		{Name: "failure_code", Type: field.TypeString, Default: schema.Expr("''::text")},
+		{Name: "attempts", Type: field.TypeInt, Default: schema.Expr("0")},
+		{Name: "filename", Type: field.TypeString, Default: schema.Expr("''::text")},
+		{Name: "content_type", Type: field.TypeString, Default: schema.Expr("''::text")},
+		{Name: "size_bytes", Type: field.TypeInt64, Default: schema.Expr("0")},
+		{Name: "sha256", Type: field.TypeString, Default: schema.Expr("''::text")},
+		{Name: "bucket", Type: field.TypeString, Default: schema.Expr("''::text")},
+		{Name: "object_key", Type: field.TypeString, Default: schema.Expr("''::text")},
+		{Name: "lease_token", Type: field.TypeUUID, Nullable: true},
+		{Name: "lease_expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "next_run_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "expires_at", Type: field.TypeTime},
+	}
+	// InboundAttachmentsTable holds the schema information for the "inbound_attachments" table.
+	InboundAttachmentsTable = &schema.Table{
+		Name:       "inbound_attachments",
+		Columns:    InboundAttachmentsColumns,
+		PrimaryKey: []*schema.Column{InboundAttachmentsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "inboundattachment_message_id_segment_index",
+				Unique:  true,
+				Columns: []*schema.Column{InboundAttachmentsColumns[1], InboundAttachmentsColumns[2]},
+			},
+			{
+				Name:    "inboundattachment_next_run_at_id",
+				Unique:  false,
+				Columns: []*schema.Column{InboundAttachmentsColumns[16], InboundAttachmentsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "status IN ('pending', 'processing', 'purging')",
+				},
+			},
+			{
+				Name:    "inboundattachment_expires_at_id",
+				Unique:  false,
+				Columns: []*schema.Column{InboundAttachmentsColumns[17], InboundAttachmentsColumns[0]},
+			},
+		},
+	}
 	// IntentDecisionsColumns holds the columns for the "intent_decisions" table.
 	IntentDecisionsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
@@ -1098,6 +1145,7 @@ var (
 		ContactsTable,
 		ConversationsTable,
 		GroupMembersTable,
+		InboundAttachmentsTable,
 		IntentDecisionsTable,
 		IntentDecisionSnapshotsTable,
 		IntentDecisionStepsTable,
@@ -1174,6 +1222,9 @@ func init() {
 	GroupMembersTable.ForeignKeys[0].RefTable = BotAccountsTable
 	GroupMembersTable.Annotation = &entsql.Annotation{
 		Table: "group_members",
+	}
+	InboundAttachmentsTable.Annotation = &entsql.Annotation{
+		Table: "inbound_attachments",
 	}
 	IntentDecisionsTable.ForeignKeys[0].RefTable = MessageJobsTable
 	IntentDecisionsTable.Annotation = &entsql.Annotation{

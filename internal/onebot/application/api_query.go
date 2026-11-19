@@ -3,7 +3,9 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
@@ -453,4 +455,39 @@ func (s *ClientService) GetVersionInfo(ctx context.Context) (domain.VersionInfo,
 		ProtocolVersion: row.ProtocolVersion,
 		Extra:           decodeExtra(payload, "app_name", "app_version", "protocol_version"),
 	}, nil
+}
+
+// GetAttachmentFileURL resolves an original file through the receiving account.
+func (s *ClientService) GetAttachmentFileURL(ctx context.Context, group bool, targetID int64, fileID, busID, fileHash string) (string, error) {
+	if targetID <= 0 || strings.TrimSpace(fileID) == "" {
+		return "", fmt.Errorf("missing attachment identity")
+	}
+	action := domain.Action{Name: "get_private_file_url", Params: map[string]any{"file_id": fileID, "user_id": targetID}}
+	if fileHash != "" {
+		action.Params["file_hash"] = fileHash
+	}
+	if group {
+		action = domain.Action{Name: "get_group_file_url", Params: map[string]any{"file_id": fileID, "group_id": targetID}}
+		if busID != "" {
+			action.Params["busid"] = busID
+		}
+	}
+	payload, err := s.Call(ctx, action)
+	if err != nil {
+		return "", err
+	}
+	result, err := decodeFileResult(payload)
+	return result.URL, err
+}
+
+// GetOriginalRecord resolves the cached inbound recording without transcoding.
+func (s *ClientService) GetOriginalRecord(ctx context.Context, file string) (domain.FileResult, error) {
+	if strings.TrimSpace(file) == "" {
+		return domain.FileResult{}, fmt.Errorf("missing record identity")
+	}
+	payload, err := s.Call(ctx, domain.Action{Name: domain.ActionGetRecord, Params: map[string]any{"file": file}})
+	if err != nil {
+		return domain.FileResult{}, err
+	}
+	return decodeFileResult(payload)
 }

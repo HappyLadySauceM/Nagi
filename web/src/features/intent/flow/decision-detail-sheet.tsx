@@ -9,6 +9,7 @@ import { DecisionConclusion } from './decision-conclusion'
 import { formatDateTime } from '../../../lib/format'
 import { Select } from '../../../components/ui/select'
 import { Card } from '../../../components/ui/card'
+import type { toInboundMessage } from '../../../lib/api/adapters/intent'
 import type { DecisionDetailEntry } from '../../../lib/api/contracts'
 import { DeliveryPanel } from './delivery-panel'
 import { ReplayControls } from './replay-controls'
@@ -74,7 +75,7 @@ export function DecisionDetailSheet({
           />
         ) : detail.data ? (
           <div className="space-y-4">
-            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} />
+            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} botId={inbound?.botId} />
             {detail.data.run && detail.data.run.snapshotStatus !== 'legacy' ? (
               <FlowRunView run={detail.data.run} showDelivery={false} showReplay={false} />
             ) : (
@@ -92,7 +93,7 @@ export function DecisionDetailSheet({
           </div>
         ) : message.data ? (
           <div className="space-y-4">
-            <IngressPanel ingress={message.data} jobId={message.data.jobId} />
+            <IngressPanel ingress={message.data} jobId={message.data.jobId} botId={inbound?.botId} />
             <Card className="p-5 text-sm">尚无参与决策记录</Card>
             {inbound && message.data.jobId > 0 && (
               <>
@@ -107,9 +108,15 @@ export function DecisionDetailSheet({
   )
 }
 
-function IngressPanel({ ingress, jobId }: {
-  ingress: (NonNullable<DecisionDetailEntry['ingress']> & { jobError?: string }) | undefined
+const attachmentStatuses: Record<string, string> = {
+  pending: '等待归档', processing: '正在归档', uploaded: '已归档', expired: '已过期',
+  unavailable: '无法归档', failed: '归档失败', purging: '待清理',
+}
+
+function IngressPanel({ ingress, jobId, botId }: {
+  ingress: (NonNullable<DecisionDetailEntry['ingress']> & Partial<Pick<ReturnType<typeof toInboundMessage>, 'attachments' | 'jobError'>>) | undefined
   jobId: number
+  botId?: number
 }) {
   return <Card className="space-y-2 p-5 text-sm">
     <h3 className="font-semibold">QQ 入站消息</h3>
@@ -123,9 +130,23 @@ function IngressPanel({ ingress, jobId }: {
       {ingress.segmentTypes.length > 0 && <p>{ingress.segmentTypes.map(type => segmentLabels[type] ?? type).join(' · ')}</p>}
       <p className="text-muted-foreground">
         已入库 · 消息 {ingress.messageId}
-        {jobId > 0 ? ` · 任务 ${jobId} · ${jobStatus[ingress.jobStatus] ?? ingress.jobStatus}` : ' · 无任务记录'}
-        {ingress.jobError ? ` · ${ingress.jobError}` : ''}
+        {jobId > 0 ? ` · 任务 ${jobId} · ${ingress.jobError === 'archive_only' ? '仅归档' : jobStatus[ingress.jobStatus] ?? ingress.jobStatus}` : ' · 无任务记录'}
+        {ingress.jobError && ingress.jobError !== 'archive_only' ? ` · ${ingress.jobError}` : ''}
       </p>
+      {botId && ingress.attachments && ingress.attachments.length > 0 && (
+        <ul className="space-y-1" aria-label="已登记的附件">
+          {ingress.attachments.map(attachment => (
+            <li key={attachment.id} className="flex flex-wrap items-center gap-x-3">
+              <span>{attachment.filename || segmentLabels[attachment.kind] || attachment.kind}</span>
+              <span>{attachmentStatuses[attachment.status] ?? attachment.status}</span>
+              {attachment.failureCode && <span className="text-muted-foreground">{attachment.failureCode}</span>}
+              {attachment.status === 'uploaded' && <a className="underline" download
+                href={`/api/v1/intent/inbound/${ingress.messageId}/attachments/${encodeURIComponent(attachment.id)}?bot_id=${botId}`}
+              >下载附件</a>}
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="break-all font-mono text-xs">{ingress.traceId ? `入站 Trace ${ingress.traceId}` : '无入站 Trace 记录'}</p>
     </> : <p className="text-muted-foreground">入站记录不可用 · 任务 {jobId}</p>}
   </Card>

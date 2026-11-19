@@ -103,8 +103,9 @@ type Runtime struct {
 	AIAudit auditcontracts.AIStore
 	// MediaArchive stores audit media and runs retention cleanup.
 	// MediaArchive 负责审计媒体存储与保留期清理。
-	MediaArchive *auditinfra.MediaArchive
-	Worker       *conversationinfra.Worker
+	MediaArchive   *auditinfra.MediaArchive
+	InboundArchive *mediainfra.InboundArchive
+	Worker         *conversationinfra.Worker
 	// Decisions reads recorded intent decisions; nil until intent is enabled.
 	// Decisions 读取已记录的意图决策；intent 未启用时为 nil。
 	Decisions       intentcontracts.DecisionReader
@@ -209,7 +210,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if rt.Scope, err = buildScope(pool); err != nil {
 			return nil, err
 		}
-		if rt.Conversation, err = buildConversation(pool, logger); err != nil {
+		if rt.Conversation, err = buildConversation(pool, logger, cfg.Observability.MediaArchive.Enabled); err != nil {
 			return nil, err
 		}
 		if rt.Memory, err = buildMemory(pool, rt.Scope); err != nil {
@@ -232,6 +233,9 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		ingress, ingressErr := conversationinfra.NewIngress(rt.Conversation, rt.Scope, identities, logger)
 		if ingressErr != nil {
 			return nil, ingressErr
+		}
+		if cfg.Observability.MediaArchive.Enabled {
+			ingress.EnableFileNotices()
 		}
 		handlers = append(handlers, ingress)
 		// Membership notices keep group_members current without polling OneBot.
@@ -288,6 +292,14 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			}
 			rt.MediaArchive = archive
 			mediaService.Archiver = archive
+			rt.InboundArchive, archiveErr = mediainfra.NewInboundArchive(pool, mediaService, rt.Scope, mediainfra.InboundArchiveOptions{
+				Endpoint: cfg.Observability.MediaArchive.Endpoint, Bucket: cfg.Observability.MediaArchive.Bucket,
+				AccessKey: cfg.Observability.MediaArchive.AccessKey, SecretKey: cfg.Observability.MediaArchive.SecretKey,
+				Prefix: cfg.Observability.MediaArchive.Prefix, MaxBytes: cfg.Observability.MediaArchive.InboundMaxMiB << 20,
+			}, logger)
+			if archiveErr != nil {
+				return nil, archiveErr
+			}
 		}
 		attachmentRepo, attachmentErr := conversationinfra.NewRepo(pool)
 		if attachmentErr != nil {
@@ -522,12 +534,16 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 
 // buildConversation binds the pgx repository to the conversation service.
 // buildConversation 将 pgx 仓库绑定到会话服务。
-func buildConversation(pool *db.Pool, logger *slog.Logger) (*conversationapp.Service, error) {
+func buildConversation(pool *db.Pool, logger *slog.Logger, archiveEnabled bool) (*conversationapp.Service, error) {
 	scopeRepo, err := scopeinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
 	}
-	repo, err := conversationinfra.NewRepo(pool, conversationinfra.WithMemoryAuthorizationStamper(scopeRepo))
+	opts := []conversationinfra.RepoOption{conversationinfra.WithMemoryAuthorizationStamper(scopeRepo)}
+	if archiveEnabled {
+		opts = append(opts, conversationinfra.WithInboundAttachments(30*24*time.Hour))
+	}
+	repo, err := conversationinfra.NewRepo(pool, opts...)
 	if err != nil {
 		return nil, err
 	}

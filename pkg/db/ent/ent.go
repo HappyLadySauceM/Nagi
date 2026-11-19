@@ -23,6 +23,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
@@ -112,6 +113,7 @@ func checkColumn(t, c string) error {
 			contact.Table:                       contact.ValidColumn,
 			conversation.Table:                  conversation.ValidColumn,
 			groupmember.Table:                   groupmember.ValidColumn,
+			inboundattachment.Table:             inboundattachment.ValidColumn,
 			intentdecision.Table:                intentdecision.ValidColumn,
 			intentdecisionsnapshot.Table:        intentdecisionsnapshot.ValidColumn,
 			intentdecisionstep.Table:            intentdecisionstep.ValidColumn,

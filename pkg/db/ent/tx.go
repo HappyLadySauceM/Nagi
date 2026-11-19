@@ -36,6 +36,8 @@ type Tx struct {
 	Conversation *ConversationClient
 	// GroupMember is the client for interacting with the GroupMember builders.
 	GroupMember *GroupMemberClient
+	// InboundAttachment is the client for interacting with the InboundAttachment builders.
+	InboundAttachment *InboundAttachmentClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
 	IntentDecision *IntentDecisionClient
 	// IntentDecisionSnapshot is the client for interacting with the IntentDecisionSnapshot builders.
@@ -214,6 +216,7 @@ func (tx *Tx) init() {
 	tx.Contact = NewContactClient(tx.config)
 	tx.Conversation = NewConversationClient(tx.config)
 	tx.GroupMember = NewGroupMemberClient(tx.config)
+	tx.InboundAttachment = NewInboundAttachmentClient(tx.config)
 	tx.IntentDecision = NewIntentDecisionClient(tx.config)
 	tx.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(tx.config)
 	tx.IntentDecisionStep = NewIntentDecisionStepClient(tx.config)

@@ -24,5 +24,7 @@
   "20261117110000_prompt_version_soft_delete.down.sql": "9d07cd14e5871150faf8d8ecbeffd685411427be13129ea2c6252266e744daba",
   "20261117110000_prompt_version_soft_delete.up.sql": "39d09583f7288b24b5281d731f51b28e6370b889580d8a09c2c6fb3ccd6cca94",
   "20261118090000_add_intent_ruleset_questions.down.sql": "47a0a8a69a86fbdc61cd1f700c9967c0e84028c96ae5ef3a1561f7f54a515502",
-  "20261118090000_add_intent_ruleset_questions.up.sql": "844d0f2ffbfc79248f9d1fda97f4a367150428deb0d3de886a6d272d0a43d97b"
+  "20261118090000_add_intent_ruleset_questions.up.sql": "844d0f2ffbfc79248f9d1fda97f4a367150428deb0d3de886a6d272d0a43d97b",
+  "20261119134524_inbound_attachments.down.sql": "b7c4a02e9f217f2eb4f30c5d7a5aa1ab3d382dea7d283bfc17978ce62a725945",
+  "20261119134524_inbound_attachments.up.sql": "cc82ff41c69f838f8d886c2ad9337190dc0af7917c9488859b98565f85e56ba6"
 }

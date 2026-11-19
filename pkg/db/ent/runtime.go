@@ -16,6 +16,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
@@ -250,6 +251,56 @@ func init() {
 	groupmemberDescRole := groupmemberFields[6].Descriptor()
 	// groupmember.DefaultRole holds the default value on creation for the role field.
 	groupmember.DefaultRole = groupmemberDescRole.Default.(string)
+	inboundattachmentFields := nagi.InboundAttachment{}.Fields()
+	_ = inboundattachmentFields
+	// inboundattachmentDescSegmentIndex is the schema descriptor for segment_index field.
+	inboundattachmentDescSegmentIndex := inboundattachmentFields[2].Descriptor()
+	// inboundattachment.SegmentIndexValidator is a validator for the "segment_index" field. It is called by the builders before save.
+	inboundattachment.SegmentIndexValidator = inboundattachmentDescSegmentIndex.Validators[0].(func(int) error)
+	// inboundattachmentDescStatus is the schema descriptor for status field.
+	inboundattachmentDescStatus := inboundattachmentFields[5].Descriptor()
+	// inboundattachment.DefaultStatus holds the default value on creation for the status field.
+	inboundattachment.DefaultStatus = inboundattachmentDescStatus.Default.(string)
+	// inboundattachmentDescFailureCode is the schema descriptor for failure_code field.
+	inboundattachmentDescFailureCode := inboundattachmentFields[6].Descriptor()
+	// inboundattachment.DefaultFailureCode holds the default value on creation for the failure_code field.
+	inboundattachment.DefaultFailureCode = inboundattachmentDescFailureCode.Default.(string)
+	// inboundattachmentDescAttempts is the schema descriptor for attempts field.
+	inboundattachmentDescAttempts := inboundattachmentFields[7].Descriptor()
+	// inboundattachment.DefaultAttempts holds the default value on creation for the attempts field.
+	inboundattachment.DefaultAttempts = inboundattachmentDescAttempts.Default.(int)
+	// inboundattachmentDescFilename is the schema descriptor for filename field.
+	inboundattachmentDescFilename := inboundattachmentFields[8].Descriptor()
+	// inboundattachment.DefaultFilename holds the default value on creation for the filename field.
+	inboundattachment.DefaultFilename = inboundattachmentDescFilename.Default.(string)
+	// inboundattachmentDescContentType is the schema descriptor for content_type field.
+	inboundattachmentDescContentType := inboundattachmentFields[9].Descriptor()
+	// inboundattachment.DefaultContentType holds the default value on creation for the content_type field.
+	inboundattachment.DefaultContentType = inboundattachmentDescContentType.Default.(string)
+	// inboundattachmentDescSizeBytes is the schema descriptor for size_bytes field.
+	inboundattachmentDescSizeBytes := inboundattachmentFields[10].Descriptor()
+	// inboundattachment.DefaultSizeBytes holds the default value on creation for the size_bytes field.
+	inboundattachment.DefaultSizeBytes = inboundattachmentDescSizeBytes.Default.(int64)
+	// inboundattachmentDescSha256 is the schema descriptor for sha256 field.
+	inboundattachmentDescSha256 := inboundattachmentFields[11].Descriptor()
+	// inboundattachment.DefaultSha256 holds the default value on creation for the sha256 field.
+	inboundattachment.DefaultSha256 = inboundattachmentDescSha256.Default.(string)
+	// inboundattachmentDescBucket is the schema descriptor for bucket field.
+	inboundattachmentDescBucket := inboundattachmentFields[12].Descriptor()
+	// inboundattachment.DefaultBucket holds the default value on creation for the bucket field.
+	inboundattachment.DefaultBucket = inboundattachmentDescBucket.Default.(string)
+	// inboundattachmentDescObjectKey is the schema descriptor for object_key field.
+	inboundattachmentDescObjectKey := inboundattachmentFields[13].Descriptor()
+	// inboundattachment.DefaultObjectKey holds the default value on creation for the object_key field.
+	inboundattachment.DefaultObjectKey = inboundattachmentDescObjectKey.Default.(string)
+	// inboundattachmentDescNextRunAt is the schema descriptor for next_run_at field.
+	inboundattachmentDescNextRunAt := inboundattachmentFields[16].Descriptor()
+	// inboundattachment.DefaultNextRunAt holds the default value on creation for the next_run_at field.
+	inboundattachment.DefaultNextRunAt = inboundattachmentDescNextRunAt.Default.(func() time.Time)
+	// inboundattachmentDescID is the schema descriptor for id field.
+	inboundattachmentDescID := inboundattachmentFields[0].Descriptor()
+	// inboundattachment.DefaultID holds the default value on creation for the id field.
+	inboundattachment.DefaultID = inboundattachmentDescID.Default.(func() uuid.UUID)
 	intentdecisionFields := nagi.IntentDecision{}.Fields()
 	_ = intentdecisionFields
 	// intentdecisionDescModel is the schema descriptor for model field.

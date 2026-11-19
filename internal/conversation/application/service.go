@@ -190,3 +190,14 @@ func (s *Service) RecordOutgoing(ctx context.Context, conversationID string, bot
 	}
 	return s.repo.RecordOutgoing(ctx, conversationID, botID, text, platformMessageID, sentStatus, outboundID, claim...)
 }
+
+// BackfillInboundAttachments registers late archive work for a retained message.
+func (s *Service) BackfillInboundAttachments(ctx context.Context, botID, messageID int64) error {
+	repo, ok := s.repo.(interface {
+		BackfillInboundAttachments(context.Context, int64, int64) error
+	})
+	if !ok {
+		return fmt.Errorf("conversation: attachment backfill unavailable")
+	}
+	return repo.BackfillInboundAttachments(ctx, botID, messageID)
+}

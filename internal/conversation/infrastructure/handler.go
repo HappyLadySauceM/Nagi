@@ -32,8 +32,9 @@ type Ingress struct {
 	// configured; traces then carry no user dimension at all.
 	// 未启用原始模式且未配置假名密钥时 identities 可为 nil；
 	// 此时 trace 不携带用户维度。
-	identities *observability.Identities
-	logger     *slog.Logger
+	identities  *observability.Identities
+	logger      *slog.Logger
+	fileNotices bool
 }
 
 // NewIngress validates dependencies and builds the handler. The originating
@@ -52,7 +53,13 @@ func (h *Ingress) Name() string { return "ai_ingress" }
 
 // Match accepts message events only; it must stay cheap and pure.
 // Match 仅接受消息事件；必须保持廉价且无副作用。
-func (h *Ingress) Match(event obdomain.Event) bool { return event.IsMessage() }
+func (h *Ingress) Match(event obdomain.Event) bool {
+	return event.IsMessage() || h.fileNotices && isFileNotice(event)
+}
+
+func (h *Ingress) EnableFileNotices() {
+	h.fileNotices = true
+}
 
 // Handle resolves the scope and ingests authorized messages. Unauthorized content
 // is dropped before any persistence or telemetry; database failures fail closed.
@@ -77,6 +84,17 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		"segments":   len(event.Segments),
 	})
 
+	archiveOnly := !event.IsMessage()
+	if archiveOnly {
+		if !h.fileNotices {
+			return nil
+		}
+		var ok bool
+		event, ok = fileNoticeMessage(event)
+		if !ok {
+			return nil
+		}
+	}
 	botID := int64(bot)
 	if botID <= 0 {
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
@@ -145,6 +163,7 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	}
 
 	input := domain.IngestInput{
+		ArchiveOnly:       archiveOnly,
 		BotID:             botID,
 		Kind:              domain.Kind(scopeType),
 		TargetID:          targetID,

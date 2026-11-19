@@ -149,6 +149,9 @@ func Run(ctx context.Context, opts options.Options) error {
 	svcCtx.Conversation = rt.Conversation
 	svcCtx.AIAudit = rt.AIAudit
 	svcCtx.MediaArchive = rt.MediaArchive
+	if rt.InboundArchive != nil {
+		svcCtx.InboundArchive = rt.InboundArchive
+	}
 	svcCtx.Tools = rt.Tools
 	svcCtx.Decisions = rt.Decisions
 	svcCtx.IntentSimulator = rt.IntentSimulator
@@ -241,6 +244,14 @@ func Run(ctx context.Context, opts options.Options) error {
 		go func() {
 			defer close(archiveDone)
 			rt.MediaArchive.Run(runCtx)
+		}()
+	}
+
+	if rt.InboundArchive != nil {
+		loops.Add(1)
+		go func() {
+			defer loops.Done()
+			rt.InboundArchive.Run(runCtx)
 		}()
 	}
 

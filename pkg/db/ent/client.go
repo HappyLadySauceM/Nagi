@@ -27,6 +27,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
@@ -76,6 +77,8 @@ type Client struct {
 	Conversation *ConversationClient
 	// GroupMember is the client for interacting with the GroupMember builders.
 	GroupMember *GroupMemberClient
+	// InboundAttachment is the client for interacting with the InboundAttachment builders.
+	InboundAttachment *InboundAttachmentClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
 	IntentDecision *IntentDecisionClient
 	// IntentDecisionSnapshot is the client for interacting with the IntentDecisionSnapshot builders.
@@ -134,6 +137,7 @@ func (c *Client) init() {
 	c.Contact = NewContactClient(c.config)
 	c.Conversation = NewConversationClient(c.config)
 	c.GroupMember = NewGroupMemberClient(c.config)
+	c.InboundAttachment = NewInboundAttachmentClient(c.config)
 	c.IntentDecision = NewIntentDecisionClient(c.config)
 	c.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(c.config)
 	c.IntentDecisionStep = NewIntentDecisionStepClient(c.config)
@@ -255,6 +259,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Contact:                       NewContactClient(cfg),
 		Conversation:                  NewConversationClient(cfg),
 		GroupMember:                   NewGroupMemberClient(cfg),
+		InboundAttachment:             NewInboundAttachmentClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
@@ -303,6 +308,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Contact:                       NewContactClient(cfg),
 		Conversation:                  NewConversationClient(cfg),
 		GroupMember:                   NewGroupMemberClient(cfg),
+		InboundAttachment:             NewInboundAttachmentClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
@@ -352,11 +358,11 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
-		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
-		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
-		c.IntentReplayEvaluation, c.IntentRuleActivation, c.IntentRuleEntry,
-		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.Contact, c.Conversation, c.GroupMember, c.InboundAttachment,
+		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
+		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
+		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryExtractionCursor,
+		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Use(hooks...)
@@ -369,11 +375,11 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
-		c.Contact, c.Conversation, c.GroupMember, c.IntentDecision,
-		c.IntentDecisionSnapshot, c.IntentDecisionStep, c.IntentPromptVersion,
-		c.IntentReplayEvaluation, c.IntentRuleActivation, c.IntentRuleEntry,
-		c.IntentRuleset, c.Memory, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.Contact, c.Conversation, c.GroupMember, c.InboundAttachment,
+		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
+		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
+		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryExtractionCursor,
+		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
 		n.Intercept(interceptors...)
@@ -405,6 +411,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Conversation.mutate(ctx, m)
 	case *GroupMemberMutation:
 		return c.GroupMember.mutate(ctx, m)
+	case *InboundAttachmentMutation:
+		return c.InboundAttachment.mutate(ctx, m)
 	case *IntentDecisionMutation:
 		return c.IntentDecision.mutate(ctx, m)
 	case *IntentDecisionSnapshotMutation:
@@ -2274,6 +2282,139 @@ func (c *GroupMemberClient) mutate(ctx context.Context, m *GroupMemberMutation) 
 		return (&GroupMemberDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown GroupMember mutation op: %q", m.Op())
+	}
+}
+
+// InboundAttachmentClient is a client for the InboundAttachment schema.
+type InboundAttachmentClient struct {
+	config
+}
+
+// NewInboundAttachmentClient returns a client for the InboundAttachment from the given config.
+func NewInboundAttachmentClient(c config) *InboundAttachmentClient {
+	return &InboundAttachmentClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `inboundattachment.Hooks(f(g(h())))`.
+func (c *InboundAttachmentClient) Use(hooks ...Hook) {
+	c.hooks.InboundAttachment = append(c.hooks.InboundAttachment, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `inboundattachment.Intercept(f(g(h())))`.
+func (c *InboundAttachmentClient) Intercept(interceptors ...Interceptor) {
+	c.inters.InboundAttachment = append(c.inters.InboundAttachment, interceptors...)
+}
+
+// Create returns a builder for creating a InboundAttachment entity.
+func (c *InboundAttachmentClient) Create() *InboundAttachmentCreate {
+	mutation := newInboundAttachmentMutation(c.config, OpCreate)
+	return &InboundAttachmentCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of InboundAttachment entities.
+func (c *InboundAttachmentClient) CreateBulk(builders ...*InboundAttachmentCreate) *InboundAttachmentCreateBulk {
+	return &InboundAttachmentCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *InboundAttachmentClient) MapCreateBulk(slice any, setFunc func(*InboundAttachmentCreate, int)) *InboundAttachmentCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &InboundAttachmentCreateBulk{err: fmt.Errorf("calling to InboundAttachmentClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*InboundAttachmentCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &InboundAttachmentCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for InboundAttachment.
+func (c *InboundAttachmentClient) Update() *InboundAttachmentUpdate {
+	mutation := newInboundAttachmentMutation(c.config, OpUpdate)
+	return &InboundAttachmentUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *InboundAttachmentClient) UpdateOne(_m *InboundAttachment) *InboundAttachmentUpdateOne {
+	mutation := newInboundAttachmentMutation(c.config, OpUpdateOne, withInboundAttachment(_m))
+	return &InboundAttachmentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *InboundAttachmentClient) UpdateOneID(id uuid.UUID) *InboundAttachmentUpdateOne {
+	mutation := newInboundAttachmentMutation(c.config, OpUpdateOne, withInboundAttachmentID(id))
+	return &InboundAttachmentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for InboundAttachment.
+func (c *InboundAttachmentClient) Delete() *InboundAttachmentDelete {
+	mutation := newInboundAttachmentMutation(c.config, OpDelete)
+	return &InboundAttachmentDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *InboundAttachmentClient) DeleteOne(_m *InboundAttachment) *InboundAttachmentDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *InboundAttachmentClient) DeleteOneID(id uuid.UUID) *InboundAttachmentDeleteOne {
+	builder := c.Delete().Where(inboundattachment.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &InboundAttachmentDeleteOne{builder}
+}
+
+// Query returns a query builder for InboundAttachment.
+func (c *InboundAttachmentClient) Query() *InboundAttachmentQuery {
+	return &InboundAttachmentQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeInboundAttachment},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a InboundAttachment entity by its id.
+func (c *InboundAttachmentClient) Get(ctx context.Context, id uuid.UUID) (*InboundAttachment, error) {
+	return c.Query().Where(inboundattachment.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *InboundAttachmentClient) GetX(ctx context.Context, id uuid.UUID) *InboundAttachment {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *InboundAttachmentClient) Hooks() []Hook {
+	return c.hooks.InboundAttachment
+}
+
+// Interceptors returns the client interceptors.
+func (c *InboundAttachmentClient) Interceptors() []Interceptor {
+	return c.inters.InboundAttachment
+}
+
+func (c *InboundAttachmentClient) mutate(ctx context.Context, m *InboundAttachmentMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&InboundAttachmentCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&InboundAttachmentUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&InboundAttachmentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&InboundAttachmentDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown InboundAttachment mutation op: %q", m.Op())
 	}
 }
 
@@ -5172,20 +5313,22 @@ type (
 	hooks struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
-		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
-		IntentPromptVersion, IntentReplayEvaluation, IntentRuleActivation,
-		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
-		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
-		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Hook
+		GroupMember, InboundAttachment, IntentDecision, IntentDecisionSnapshot,
+		IntentDecisionStep, IntentPromptVersion, IntentReplayEvaluation,
+		IntentRuleActivation, IntentRuleEntry, IntentRuleset, Memory,
+		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
+		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
+		SystemSetting []ent.Hook
 	}
 	inters struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
-		GroupMember, IntentDecision, IntentDecisionSnapshot, IntentDecisionStep,
-		IntentPromptVersion, IntentReplayEvaluation, IntentRuleActivation,
-		IntentRuleEntry, IntentRuleset, Memory, MemoryExtractionCursor,
-		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
-		ScopeMemoryAuthorizationEvent, ScopePolicy, SystemSetting []ent.Interceptor
+		GroupMember, InboundAttachment, IntentDecision, IntentDecisionSnapshot,
+		IntentDecisionStep, IntentPromptVersion, IntentReplayEvaluation,
+		IntentRuleActivation, IntentRuleEntry, IntentRuleset, Memory,
+		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
+		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
+		SystemSetting []ent.Interceptor
 	}
 )
 

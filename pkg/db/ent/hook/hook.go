@@ -141,6 +141,18 @@ func (f GroupMemberFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupMemberMutation", m)
 }
 
+// The InboundAttachmentFunc type is an adapter to allow the use of ordinary
+// function as InboundAttachment mutator.
+type InboundAttachmentFunc func(context.Context, *ent.InboundAttachmentMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f InboundAttachmentFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.InboundAttachmentMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.InboundAttachmentMutation", m)
+}
+
 // The IntentDecisionFunc type is an adapter to allow the use of ordinary
 // function as IntentDecision mutator.
 type IntentDecisionFunc func(context.Context, *ent.IntentDecisionMutation) (ent.Value, error)

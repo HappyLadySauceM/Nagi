@@ -342,6 +342,7 @@ type MediaArchive struct {
 	Bucket         string `yaml:"bucket"`
 	Prefix         string `yaml:"prefix"`
 	RetentionDays  int    `yaml:"retention-days"`
+	InboundMaxMiB  int64  `yaml:"inbound-max-mib"`
 }
 
 // HistorySearch configures the optional Elasticsearch index for chat history.
@@ -436,6 +437,7 @@ func defaults() Config {
 			MediaArchive: MediaArchive{
 				Prefix:        "nagi/",
 				RetentionDays: 30,
+				InboundMaxMiB: 512,
 			},
 		},
 		Role:    Role{},
@@ -709,6 +711,9 @@ func (c *Config) Validate() error {
 	}
 	archive := c.Observability.MediaArchive
 	if archive.Enabled {
+		if archive.InboundMaxMiB < 1 || archive.InboundMaxMiB > 2048 {
+			return fmt.Errorf("config: observability.media-archive.inbound-max-mib must be between 1 and 2048")
+		}
 		if archive.RetentionDays < 1 || archive.RetentionDays > 3650 {
 			return fmt.Errorf("config: observability.media-archive.retention-days 必须在 1-3650 之间")
 		}
