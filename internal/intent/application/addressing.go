@@ -129,10 +129,8 @@ func directNameCall(text string, segments []ob.Segment, name string) bool {
 			(question || tail == "" || strings.HasPrefix(tail, "这") || strings.HasPrefix(tail, "那")) {
 			return true
 		}
-		for _, request := range []string{"请帮", "请解释", "请分析", "帮我", "能帮", "可以帮"} {
-			if strings.HasPrefix(rest, request) {
-				return true
-			}
+		if directRequest(rest) {
+			return true
 		}
 		if question {
 			for _, request := range []string{"你能", "你可以", "你觉得"} {
@@ -143,7 +141,48 @@ func directNameCall(text string, segments []ob.Segment, name string) bool {
 		}
 	}
 	if rest, ok := strings.CutSuffix(strings.TrimRight(text, punctuation), name); ok {
-		return strings.Trim(rest, punctuation) == "谁是" || shortCall(rest)
+		return strings.Trim(rest, punctuation) == "谁是" || shortCall(rest) || trailingNameQuestion(rest)
+	}
+	return false
+}
+
+func trailingNameQuestion(beforeName string) bool {
+	body := strings.TrimRightFunc(beforeName, unicode.IsSpace)
+	separator, _ := utf8.DecodeLastRuneInString(body)
+	switch separator {
+	case '，', ',', '？', '?':
+		body = strings.TrimSpace(strings.TrimSuffix(body, string(separator)))
+	case '啊', '呀', '吗', '嘛', '呢':
+	default:
+		return false
+	}
+	if comma := strings.IndexAny(body, "，,"); comma >= 0 {
+		preamble := body[:comma]
+		if !strings.HasPrefix(preamble, "我") || strings.ContainsAny(preamble, "问：:") {
+			return false
+		}
+		_, width := utf8.DecodeRuneInString(body[comma:])
+		body = strings.TrimSpace(body[comma+width:])
+	}
+	if strings.ContainsAny(body, "，,：:") || strings.HasPrefix(body, "你们") {
+		return false
+	}
+	if directRequest(body) {
+		return true
+	}
+	for _, question := range []string{"什么", "怎么", "哪", "几点", "多少", "为啥"} {
+		if strings.Contains(body, question) {
+			return true
+		}
+	}
+	return strings.HasSuffix(body, "吗") || strings.HasSuffix(body, "嘛")
+}
+
+func directRequest(text string) bool {
+	for _, prefix := range []string{"请帮", "请解释", "请分析", "帮我", "能帮", "可以帮"} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
 	}
 	return false
 }
