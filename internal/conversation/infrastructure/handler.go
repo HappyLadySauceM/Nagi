@@ -132,6 +132,9 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	})
 	scopeSpan.End()
 	if !policy.Enabled || !policy.StoreMessages {
+		if counter, ok := h.ingest.(interface{ CountBlockedIngress(int64) }); ok {
+			counter.CountBlockedIngress(botID)
+		}
 		// Default deny: scopes without explicit enablement and storage consent
 		// never persist or process message content.
 		// 默认拒绝：未显式开启并同意存储的作用域，绝不持久化或处理消息内容。

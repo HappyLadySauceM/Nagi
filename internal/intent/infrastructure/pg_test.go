@@ -710,3 +710,43 @@ func TestTopicsProjectIndependentTransitions(t *testing.T) {
 		t.Fatalf("unassociated reference = %+v, err=%v", ref, err)
 	}
 }
+
+func TestInboundLedgerIncludesUndecidedMessages(t *testing.T) {
+	pool := dbtest.Open(t)
+	ctx := context.Background()
+	first, botID, conversationID := seedJob(t, pool)
+	second, _, _ := seedJob(t, pool)
+	repo, err := NewDecisionsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := dbtest.Claim(t, pool, first)
+	for _, action := range []domain.Decision{domain.DecisionReply, domain.DecisionSilent} {
+		if err := repo.Record(ctx, first, domain.FinalDecision{Decision: action}, claim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	query := contracts.InboundQuery{BotID: botID, Limit: 1}
+	rows, err := repo.ListInbound(ctx, query)
+	if err != nil || len(rows) != 1 || rows[0].DecisionID != 0 || rows[0].JobID != second || rows[0].JobStatus != "pending" {
+		t.Fatalf("pending row = %+v, error = %v", rows, err)
+	}
+	query.BeforeID = rows[0].MessageID
+	query.ConversationID = conversationID
+	rows, err = repo.ListInbound(ctx, query)
+	if err != nil || len(rows) != 1 || rows[0].JobID != first || rows[0].Decision != "silent" {
+		t.Fatalf("latest decision row = %+v, error = %v", rows, err)
+	}
+	messageID := rows[0].MessageID
+	query = contracts.InboundQuery{BotID: botID, Limit: 1, MessageID: messageID}
+	rows, err = repo.ListInbound(ctx, query)
+	if err != nil || len(rows) != 1 || len(rows[0].DecisionIDs) != 2 ||
+		rows[0].DecisionIDs[0] != rows[0].DecisionID || rows[0].DecisionIDs[0] <= rows[0].DecisionIDs[1] {
+		t.Fatalf("decision history lookup = %+v, error = %v", rows, err)
+	}
+	query = contracts.InboundQuery{BotID: botID + 1, Limit: 1, MessageID: messageID}
+	rows, err = repo.ListInbound(ctx, query)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("other account lookup = %+v, error = %v", rows, err)
+	}
+}

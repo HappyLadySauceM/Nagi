@@ -42,6 +42,8 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register wires routes using Go 1.22 method+path patterns.
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/intent/inbound", h.Inbound)
+	mux.HandleFunc("GET /api/v1/intent/inbound/{message_id}", h.Inbound)
 	mux.HandleFunc("GET /api/v1/intent/overview", h.Overview)
 	mux.HandleFunc("GET /api/v1/intent/flow", h.Flow)
 	mux.HandleFunc("GET /api/v1/intent/decisions", h.List)

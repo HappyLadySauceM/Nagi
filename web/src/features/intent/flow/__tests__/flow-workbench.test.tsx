@@ -26,6 +26,16 @@ const entry = {
   CreatedAt: '2026-11-12T08:00:00Z',
 }
 
+const inbound = {
+  ...entry, MessageID: 100, DecisionID: 42, SenderID: 8, PlatformMessageID: 200,
+  Text: 'Nagi在吗', JobStatus: 'done', ReceivedAt: entry.CreatedAt,
+}
+
+const pending = {
+  ...inbound, MessageID: 101, JobID: 10, DecisionID: 0,
+  Text: '', SegmentTypes: ['image'], Decision: '', ReasonCode: '', JobStatus: 'pending',
+}
+
 const run = {
   DecisionID: 42,
   JobID: 9,
@@ -77,15 +87,18 @@ it('removes inline details and opens the drawer from a row via click, Enter and 
     'fetch',
     vi.fn((input: string) => {
       const url = new URL(String(input), 'http://localhost')
-      if (url.pathname === '/api/v1/intent/decisions' && url.searchParams.get('limit') === '7') {
-        return Promise.resolve(response({ Items: [entry], Limit: 7 }))
+      if (url.pathname === '/api/v1/intent/inbound' && url.searchParams.get('limit') === '7') {
+        return Promise.resolve(response({ Items: [pending, inbound], Limit: 7 }))
       }
+      if (url.pathname === '/api/v1/intent/inbound/100') return Promise.resolve(response(inbound))
+      if (url.pathname === '/api/v1/intent/inbound/101') return Promise.resolve(response(pending))
       if (url.pathname === '/api/v1/intent/decisions/42') return Promise.resolve(response(detail))
       if (url.pathname === '/api/v1/intent/flow') return Promise.resolve(response(flow))
       if (url.pathname === '/api/v1/intent/replay-evaluations') {
         return Promise.resolve(response({ Items: [], Limit: 20 }))
       }
-      if (url.pathname === '/api/v1/audit/runs') return Promise.resolve(response({ Items: [] }))
+      if (url.pathname === '/api/v1/audit/runs') return Promise.resolve(response({ items: [] }))
+      if (url.pathname === '/api/v1/agent/outbound') return Promise.resolve(response({ Summary: {}, Items: [] }))
       throw new Error(`Unexpected request ${url.pathname}`)
     }),
   )
@@ -97,11 +110,11 @@ it('removes inline details and opens the drawer from a row via click, Enter and 
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByText('conv-42')).toBeVisible()
+  expect(await screen.findByText('Nagi在吗')).toBeVisible()
   expect(screen.queryByText('决策详情')).toBeNull()
   expect(screen.queryByText('最终判定')).toBeNull()
 
-  const row = screen.getByText('conv-42').closest('tr')
+  const row = screen.getByText('Nagi在吗').closest('tr')
   expect(row).not.toBeNull()
   fireEvent.click(row!)
   expect(await screen.findByText('决策详情')).toBeVisible()
@@ -116,5 +129,9 @@ it('removes inline details and opens the drawer from a row via click, Enter and 
 
   fireEvent.keyDown(row!, { key: ' ' })
   expect(await screen.findByText('决策详情')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
+  await waitFor(() => expect(screen.queryByText('决策详情')).toBeNull())
+  fireEvent.click(screen.getByRole('row', { name: '查看入站消息 101' }))
+  expect(await screen.findByText('尚无参与决策记录')).toBeVisible()
   client.clear()
 })

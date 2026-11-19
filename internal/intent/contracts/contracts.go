@@ -216,3 +216,24 @@ type SimulationEvaluator interface {
 	PrepareSimulation(context.Context, domain.Input) (domain.Input, error)
 	EvaluateSimulation(context.Context, domain.Input, domain.RuleResult, bool) (domain.FinalDecision, []domain.Step)
 }
+
+type InboundQuery struct {
+	BotID          int64
+	ConversationID string
+	BeforeID       int64
+	MessageID      int64
+	Limit          int
+}
+
+type InboundRecord struct {
+	MessageID, PlatformMessageID, SenderID, JobID, DecisionID int64
+	ConversationID, Text, TraceParent, JobStatus, JobError    string
+	Decision, ReasonCode, Model                               string
+	SegmentTypes                                              []string
+	DecisionIDs                                               []int64
+	ReceivedAt                                                time.Time
+}
+
+type InboundReader interface {
+	ListInbound(context.Context, InboundQuery) ([]InboundRecord, error)
+}
