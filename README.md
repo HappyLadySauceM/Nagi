@@ -8,8 +8,8 @@
 - 业务层：目录同步、作用域授权（默认全关）、会话持久化、有界工作器、意图决策、Eino Agent 回复与工具调用、长期记忆
 - 运维层：管理 HTTP API、Bearer 鉴权与审计、聚合指标、可选 Langfuse 追踪
 
-架构细节与分层约定见 [`docs/architecture.md`](docs/architecture.md)，
-优化路线见 `docs/Nagi_Implementation_Plan_v2.0.md`。
+当前优化路线见[群聊参与、记忆与画像质量计划](docs/intent-memory-quality-plan.md)。
+开发和运维可查阅[架构与运行约定](docs/architecture.md)与[配置漂移检测](docs/config-drift.md)。历次设计和验收记录见[文档归档](docs/archive/README.md)。
 
 ## 前置条件
 
