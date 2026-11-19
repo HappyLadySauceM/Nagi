@@ -588,3 +588,53 @@ func TestPromptsRepoPublishRollbackConcurrent(t *testing.T) {
 		t.Fatalf("published versions = %d", published)
 	}
 }
+
+func TestAwaitedRequestUsesLatestDecisionOfSameSender(t *testing.T) {
+	pool := dbtest.Open(t)
+	conversations, err := conversationinfra.NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := NewDecisionsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const botID, senderID, otherSender = int64(992002), int64(992001), int64(992003)
+	base := time.Now().UnixNano()
+	ingest := func(offset, sender int64, text string) conversationdomain.IngestResult {
+		t.Helper()
+		result, err := conversations.Ingest(ctx, conversationdomain.IngestInput{
+			BotID: botID, Kind: conversationdomain.KindGroup, TargetID: base % 1_000_000_000,
+			PlatformMessageID: base + offset, SenderID: sender, Text: text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	request := ingest(0, senderID, "Nagi你能看看我下面发的这个内容嘛？")
+	claim := dbtest.Claim(t, pool, request.JobID)
+	if err := decisions.Record(ctx, request.JobID, domain.FinalDecision{Decision: domain.DecisionDefer, ReasonCode: "awaiting_content"}, claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.CompleteJob(ctx, request.JobID, claim); err != nil {
+		t.Fatal(err)
+	}
+
+	unrelated := ingest(1, otherSender, "[图片]")
+	followup := ingest(2, senderID, "[图片]")
+	duplicate := ingest(3, senderID, "[图片]")
+	for _, sample := range []struct{ jobID, botID, expected int64 }{
+		{jobID: unrelated.JobID, botID: botID},
+		{jobID: followup.JobID, botID: botID, expected: base},
+		{jobID: followup.JobID, botID: botID + 1},
+		{jobID: duplicate.JobID, botID: botID},
+	} {
+		message, err := decisions.AwaitedRequest(ctx, domain.Task{JobID: sample.jobID, BotID: sample.botID})
+		if err != nil || sample.expected == 0 && message != nil ||
+			sample.expected != 0 && (message == nil || message.MessageID != sample.expected) {
+			t.Fatalf("job %d: awaited = %+v, err = %v", sample.jobID, message, err)
+		}
+	}
+}

@@ -41,8 +41,14 @@ func EvaluateRules(in domain.Input) domain.RuleResult {
 	}
 	switch in.Policy.ReplyMode {
 	case scopedomain.ModeMentionOnly:
+		if awaitingReply(in) {
+			return domain.RuleResult{ForceReply: true, ForceReason: "awaited_content_received"}
+		}
 		if !explicit {
 			return blocked("not_addressed")
+		}
+		if requestsFollowingContent(in) {
+			return domain.RuleResult{WaitForContent: true, ReasonCode: "awaiting_content"}
 		}
 		return domain.RuleResult{Explicit: explicit}
 	case scopedomain.ModeAlwaysReply:
@@ -51,6 +57,12 @@ func EvaluateRules(in domain.Input) domain.RuleResult {
 		// always_reply 不得依赖语义判定：语义不可用曾让该模式完全沉默。
 		return domain.RuleResult{Explicit: explicit, AlwaysReply: true}
 	default: // intent_based
+		if requestsFollowingContent(in) {
+			return domain.RuleResult{WaitForContent: true, ReasonCode: "awaiting_content"}
+		}
+		if awaitingReply(in) {
+			return domain.RuleResult{ForceReply: true, ForceReason: "awaited_content_received"}
+		}
 		if explicit {
 			return domain.RuleResult{Explicit: true}
 		}
@@ -72,6 +84,9 @@ func blocked(reason string) domain.RuleResult {
 func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domain.SemanticAnswer) domain.FinalDecision {
 	if rule.Blocked {
 		return silent(rule.ReasonCode)
+	}
+	if rule.WaitForContent {
+		return domain.FinalDecision{Decision: domain.DecisionDefer, ReasonCode: rule.ReasonCode}
 	}
 	// Explicit addressing passes the intent gate and is only rate-bound.
 	// 明确指向通过意图闸门，仅受频率规则约束。

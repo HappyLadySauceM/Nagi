@@ -150,6 +150,8 @@ func BuildRuleRun(in domain.Input, rule domain.RuleResult, _ domain.Thresholds, 
 	decision := domain.FinalDecision{Decision: domain.DecisionDefer, ReasonCode: rule.ReasonCode, FlowVersion: flowVersion}
 	if rule.Blocked {
 		decision.Decision = domain.DecisionSilent
+	} else if rule.WaitForContent {
+		decision.Decision = domain.DecisionDefer
 	} else if rule.ForceReply {
 		decision.Decision = domain.DecisionReply
 		decision.ReasonCode = rule.ForceReason

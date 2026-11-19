@@ -332,3 +332,78 @@ func TestClusterGroupCalls(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupWaitsForTheNamedSendersImage(t *testing.T) {
+	request := domain.Message{MessageID: 11, SenderID: 101, Text: "Nagi你能看看我下面发的这个内容嘛？"}
+	input := domain.Input{
+		BotName:  "Nagi",
+		Policy:   scopedomain.Policy{Enabled: true, AllowHistoryRead: true, ReplyMode: scopedomain.ModeIntentBased},
+		Activity: domain.BotActivity{Known: true},
+		Task:     domain.Task{Kind: "group", BotID: 900, Message: request},
+	}
+	decision := EvaluateReplyPolicy(input, EvaluateRules(input), domain.SemanticAnswer{})
+	if decision.Decision != domain.DecisionDefer || decision.ReasonCode != "awaiting_content" {
+		t.Fatalf("request decision = %+v", decision)
+	}
+
+	unrelated := domain.Message{MessageID: 12, SenderID: 202, Segments: []obdomain.Segment{obdomain.Image("unrelated")}}
+	input.Recent = []domain.Message{request, unrelated}
+	input.Task.Message = domain.Message{MessageID: 13, SenderID: request.SenderID}
+	input.Task.Segments = []obdomain.Segment{obdomain.Image("requested")}
+	input.AwaitedRequest = &request
+	decision = EvaluateReplyPolicy(input, EvaluateRules(input), domain.SemanticAnswer{})
+	if decision.Decision != domain.DecisionReply || decision.ReasonCode != "awaited_content_received" {
+		t.Fatalf("image decision = %+v", decision)
+	}
+	if history := replyHistory(input, decision.ReasonCode); len(history) != 1 || history[0].MessageID != request.MessageID {
+		t.Fatalf("generation context = %+v", history)
+	}
+
+	input.Task.Message = unrelated
+	decision = EvaluateReplyPolicy(input, EvaluateRules(input), domain.SemanticAnswer{})
+	if decision.Decision != domain.DecisionSilent {
+		t.Fatalf("other sender decision = %+v", decision)
+	}
+}
+
+func TestAwaitedContentUsesCorrectReferenceAndContentType(t *testing.T) {
+	request := domain.Message{MessageID: 11, SenderID: 101, Text: "Nagi你能看看我下面发的图片嘛？"}
+	input := domain.Input{
+		Policy:         scopedomain.Policy{AllowHistoryRead: true},
+		AwaitedRequest: &request,
+		Task:           domain.Task{BotID: 900, Message: domain.Message{SenderID: request.SenderID}},
+	}
+	input.Task.Segments = []obdomain.Segment{obdomain.Reply(11), obdomain.Image("requested")}
+	if !awaitingReply(input) {
+		t.Fatal("image quoting the request did not match")
+	}
+	input.Task.Segments[0] = obdomain.Reply(10)
+	if awaitingReply(input) {
+		t.Fatal("image quoting a different message matched")
+	}
+	request.Text = "Nagi你能看看我下面发的文字嘛？"
+	input.Task.Segments = []obdomain.Segment{obdomain.Text("这是需要你查看的完整说明。")}
+	if !awaitingReply(input) {
+		t.Fatal("text did not match the pre-announced text request")
+	}
+	input.Task.Segments = []obdomain.Segment{obdomain.Reply(11), obdomain.Text("选 B")}
+	if !awaitingReply(input) {
+		t.Fatal("short text quoting the request did not match")
+	}
+}
+
+func TestReplyHistoryKeepsEarlierDiscussionTextWithoutAttachments(t *testing.T) {
+	input := domain.Input{
+		Recent: []domain.Message{{MessageID: 11, Segments: []obdomain.Segment{obdomain.Image("unrelated"), obdomain.Text("选 B，因为它能直接转换。")}}},
+		Task: domain.Task{Kind: "group", BotID: 900, Message: domain.Message{MessageID: 12}, Segments: []obdomain.Segment{
+			obdomain.At(900), obdomain.Text("刚才为什么选 B？"),
+		}},
+	}
+	for i := int64(20); i < 25; i++ {
+		input.Recent = append(input.Recent, domain.Message{MessageID: i, Segments: []obdomain.Segment{obdomain.Image("unrelated")}})
+	}
+	history := replyHistory(input, "explicit_mention")
+	if len(history) != 1 || len(history[0].Segments) != 0 || history[0].Text != "选 B，因为它能直接转换。" {
+		t.Fatalf("discussion context = %+v", history)
+	}
+}

@@ -777,3 +777,64 @@ func TestParticipationScoreFallbackSkippedForDefaultQuestions(t *testing.T) {
 		t.Fatalf("default questions with low threshold = %+v, want silent/ambiguous", final)
 	}
 }
+
+type awaitingRecorder struct {
+	fakeRecorder
+	prior domain.Message
+}
+
+func (r *awaitingRecorder) AwaitedRequest(_ context.Context, _ domain.Task) (*domain.Message, error) {
+	return &r.prior, nil
+}
+
+type contextCapturingExecutor struct {
+	histories [][]domain.Message
+}
+
+func (e *contextCapturingExecutor) ExecuteReply(_ context.Context, _ domain.Task, history []domain.Message) error {
+	e.histories = append(e.histories, history)
+	return nil
+}
+
+func TestProcessTaskUsesOnlyAwaitedContextForImage(t *testing.T) {
+	task := groupTask()
+	task.Message.Text = "Nagi你能看看我下面发的这个内容嘛？"
+	otherImage := domain.Message{MessageID: 5002, SenderID: 201, Segments: []obdomain.Segment{obdomain.Image("other")}}
+	history := &fakeHistory{messages: []domain.Message{task.Message, otherImage}}
+	recorder := &awaitingRecorder{prior: task.Message}
+	executor := &contextCapturingExecutor{}
+	semantic := &fakeSemantic{}
+	decider := newDecider(t, Options{
+		BotName: "Nagi", History: history, Semantic: semantic, Recorder: recorder, Executor: executor,
+		Activity: &fakeActivity{},
+		Scopes: &fakeScopes{policies: map[string]scopedomain.Policy{
+			keyOf(task.BotID, task.Kind, task.TargetID): {
+				ScopeType: scopedomain.ScopeGroup, Enabled: true, AllowHistoryRead: true, ReplyMode: scopedomain.ModeIntentBased,
+			},
+		}},
+	})
+	if err := decider.ProcessTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if got := recorder.decisions[0]; got.Decision != domain.DecisionDefer {
+		t.Fatalf("request decision = %+v", got)
+	}
+	if len(executor.histories) != 0 {
+		t.Fatal("pre-announced request generated a reply before the image arrived")
+	}
+	task.JobID++
+	task.Message = domain.Message{MessageID: 5003, SenderID: task.Message.SenderID}
+	task.Segments = []obdomain.Segment{obdomain.Image("requested")}
+	if err := decider.ProcessTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if got := recorder.decisions[1]; got.ReasonCode != "awaited_content_received" {
+		t.Fatalf("image decision = %+v", got)
+	}
+	if history.limit != 0 || semantic.calls != 0 {
+		t.Fatalf("full history or semantic service used: history limit=%d, calls=%d", history.limit, semantic.calls)
+	}
+	if len(executor.histories) != 1 || len(executor.histories[0]) != 1 || executor.histories[0][0].MessageID != recorder.prior.MessageID {
+		t.Fatalf("generation context = %+v", executor.histories)
+	}
+}

@@ -20,6 +20,7 @@ import (
 
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
@@ -46,6 +47,12 @@ type PromptProvider interface {
 // HistoryReader 提供用于决策上下文的已授权近期消息。
 type HistoryReader interface {
 	RecentIntentMessages(ctx context.Context, conversationID string, limit int) ([]domain.Message, error)
+}
+
+// AwaitedContentReader reads a prior decision that is waiting for this sender.
+// AwaitedContentReader 读取正在等待该发送人补充内容的先前决策。
+type AwaitedContentReader interface {
+	AwaitedRequest(context.Context, domain.Task) (*domain.Message, error)
 }
 
 // ActivityReader supplies bot reply metadata for the rate rules. It reads
@@ -331,7 +338,33 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		d.logger.Debug("intent pipeline disabled; job skipped", "job_id", task.JobID)
 		return nil
 	}
-	history, activity, historyDegraded, err := d.loadContext(ctx, task, policy)
+	var awaited *domain.Message
+	if task.Kind == "group" && policy.AllowHistoryRead && eligibleSupplement(task) {
+		if reader, ok := d.recorder.(AwaitedContentReader); ok {
+			var err error
+			awaited, err = reader.AwaitedRequest(ctx, task)
+			if err != nil {
+				return fmt.Errorf("intent: load awaited request: %w", err)
+			}
+		}
+	}
+	botName := d.currentBotName()
+	early := domain.Input{Task: task, BotName: botName, Policy: policy, AwaitedRequest: awaited}
+	readHistory := true
+	if task.Kind == "group" {
+		quoted := false
+		for _, segment := range task.Segments {
+			if segment.Type == obdomain.SegReply {
+				quoted = true
+				break
+			}
+		}
+		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task) ||
+			directNameCall(task.Message.Text, task.Segments, botName) || requestsFollowingContent(early)) {
+			readHistory = false
+		}
+	}
+	history, activity, historyDegraded, err := d.loadContext(ctx, task, policy, readHistory)
 	if err != nil {
 		return err
 	}
@@ -354,7 +387,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	prompt = scorePrompt(prompt)
 	prompt.ConversationID = task.ConversationID
 	runID := uuid.NewString()
-	in := domain.Input{Task: task, BotName: d.currentBotName(), Recent: history, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
+	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
 
 	rule, rulesetVersion := d.applyRules(ctx, in)
 	var semantic domain.SemanticAnswer
@@ -370,7 +403,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
 		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
 	}
 
@@ -424,7 +457,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	// console explains that replies need both switches on.
 	// 关闭生成模型时仍记录决策但不发送；控制台的说明是回复需要两个开关同时开启。
 	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled {
-		return d.executor.ExecuteReply(ctx, task, history)
+		return d.executor.ExecuteReply(ctx, task, replyHistory(in, decision.ReasonCode))
 	}
 	return nil
 }
@@ -433,7 +466,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 // one span; the span exists even when history reads are unauthorized.
 // loadContext 在单个 span 内读取授权历史与频率规则元数据；
 // 即使未授权读取历史，该 span 仍然存在。
-func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scopedomain.Policy) ([]domain.Message, domain.BotActivity, bool, error) {
+func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scopedomain.Policy, readHistory bool) ([]domain.Message, domain.BotActivity, bool, error) {
 	ctx, span := tracer().Start(ctx, "nagi.intent.load_context")
 	defer span.End()
 	span.SetAttributes(attribute.Bool("nagi.history_allowed", policy.AllowHistoryRead))
@@ -449,7 +482,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 
 	var history []domain.Message
 	degraded := false
-	if policy.AllowHistoryRead && d.history != nil {
+	if policy.AllowHistoryRead && readHistory && d.history != nil {
 		var err error
 		history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, historyLimit)
 		if err != nil {
@@ -481,7 +514,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"context_count":  len(history),
 		"activity_known": activity.Known,
-		"history_read":   policy.AllowHistoryRead,
+		"history_read":   policy.AllowHistoryRead && readHistory,
 	})
 	return history, activity, degraded, nil
 }
@@ -605,6 +638,27 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		Evidence:    []domain.Evidence{{Kind: "semantic", Text: semanticEvidence(asked, semantic)}},
 		DurationMS:  latency,
 	})
+	if in.HistoryWindowSkipped {
+		step := &steps[1]
+		step.Status = domain.NodeStatusSkipped
+		step.Branch = "history_not_needed"
+		step.Summary = "本次无需读取近期聊天窗口"
+		step.Detail["HistorySource"] = "not_needed"
+		step.Detail["Skipped"] = true
+		if in.AwaitedRequest != nil {
+			step.Status = domain.NodeStatusExecuted
+			step.Branch = "awaited_request_only"
+			step.Summary = "仅加载待补充的原请求"
+			step.Detail["HistorySource"] = "database"
+			step.Detail["HistoryCount"] = 1
+		}
+	}
+	if in.AwaitedRequest != nil {
+		steps[1].Detail["AwaitedRequestMessageID"] = in.AwaitedRequest.MessageID
+		steps[1].Evidence = append(steps[1].Evidence, domain.Evidence{
+			Kind: "context", Text: "awaited_request=" + strconv.FormatInt(in.AwaitedRequest.MessageID, 10),
+		})
+	}
 	steps = append(steps, domain.Step{
 		Index:       4,
 		Phase:       domain.StepFinal,
@@ -938,7 +992,7 @@ func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domai
 		in.Activity = domain.BotActivity{Known: true}
 		return in, nil
 	}
-	history, activity, _, err := d.loadContext(ctx, in.Task, in.Policy)
+	history, activity, _, err := d.loadContext(ctx, in.Task, in.Policy, true)
 	if err != nil {
 		return in, err
 	}

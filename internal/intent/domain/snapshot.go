@@ -28,11 +28,13 @@ const (
 // SnapshotInput is the exact decision input needed by the replay paths.
 // SnapshotInput 是回放路径所需的精确决策输入。
 type SnapshotInput struct {
-	Task     Task
-	Recent   []Message
-	Activity BotActivity
-	Policy   scopedomain.Policy
-	Now      time.Time
+	Task                 Task
+	Recent               []Message
+	AwaitedRequest       *Message `json:",omitempty"`
+	HistoryWindowSkipped bool     `json:",omitempty"`
+	Activity             BotActivity
+	Policy               scopedomain.Policy
+	Now                  time.Time
 }
 
 // DecisionSnapshot stores the original input, semantic answer and prompt
