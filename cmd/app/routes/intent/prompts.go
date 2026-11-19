@@ -11,35 +11,11 @@ import (
 	"strconv"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 )
-
-type promptSummary struct {
-	PromptID      string
-	Name          string
-	ActiveVersion int
-	Status        string
-	Source        string
-	UpdatedAt     string
-}
-
-type promptVersionInfo struct {
-	ID          int64
-	PromptID    string
-	Name        string
-	Provider    string
-	Version     int
-	Status      string
-	Source      string
-	SourceRef   string
-	Hash        string
-	Note        string
-	Content     json.RawMessage
-	CreatedAt   string
-	PublishedAt string
-}
 
 func (h *Handler) RegisterPrompts(mux *http.ServeMux) {
 	h.RegisterUnifiedPrompts(mux)
@@ -66,7 +42,7 @@ func (h *Handler) ListPrompts(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(records) == 0 {
 		builtin := intentdomain.BuiltinPrompt(intentdomain.PromptProviderJev)
-		common.WriteSuccess(w, map[string]any{"Items": []promptSummary{{
+		common.WriteSuccess(w, map[string]any{"Items": []v1.PromptSummary{{
 			PromptID: builtin.ID, Name: builtin.Name, ActiveVersion: builtin.Version,
 			Status: intentdomain.PromptStatusPublished, Source: intentdomain.PromptSourceBuiltin,
 		}}})
@@ -87,13 +63,13 @@ func (h *Handler) ListPrompts(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(order) == 0 {
 		builtin := intentdomain.BuiltinPrompt(intentdomain.PromptProviderJev)
-		common.WriteSuccess(w, map[string]any{"Items": []promptSummary{{
+		common.WriteSuccess(w, map[string]any{"Items": []v1.PromptSummary{{
 			PromptID: builtin.ID, Name: builtin.Name, ActiveVersion: builtin.Version,
 			Status: intentdomain.PromptStatusPublished, Source: intentdomain.PromptSourceBuiltin,
 		}}})
 		return
 	}
-	items := make([]promptSummary, 0, len(order))
+	items := make([]v1.PromptSummary, 0, len(order))
 	for _, id := range order {
 		versions := byID[id]
 		sort.Slice(versions, func(i, j int) bool { return versions[i].Version > versions[j].Version })
@@ -104,7 +80,7 @@ func (h *Handler) ListPrompts(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		items = append(items, promptSummary{
+		items = append(items, v1.PromptSummary{
 			PromptID: active.PromptID, Name: active.Name, ActiveVersion: active.Version,
 			Status: active.Status, Source: active.Source, UpdatedAt: active.CreatedAt,
 		})
@@ -127,13 +103,13 @@ func (h *Handler) GetPrompt(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取 Prompt 版本失败")
 		return
 	}
-	items := make([]promptVersionInfo, 0, len(records))
+	items := make([]v1.PromptVersionInfo, 0, len(records))
 	for _, rec := range records {
 		items = append(items, toPromptVersion(rec))
 	}
 	if len(items) == 0 {
 		builtin := intentdomain.BuiltinPrompt(provider)
-		items = append(items, promptVersionInfo{
+		items = append(items, v1.PromptVersionInfo{
 			PromptID: builtin.ID, Name: builtin.Name, Provider: builtin.Provider, Version: builtin.Version,
 			Status: intentdomain.PromptStatusPublished, Source: intentdomain.PromptSourceBuiltin,
 			Hash: builtin.Hash, Content: intentdomain.PromptContentJSON(builtin),
@@ -365,8 +341,8 @@ func (h *Handler) SyncPrompt(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, result)
 }
 
-func toPromptVersion(rec intentdomain.PromptRecord) promptVersionInfo {
-	return promptVersionInfo{
+func toPromptVersion(rec intentdomain.PromptRecord) v1.PromptVersionInfo {
+	return v1.PromptVersionInfo{
 		ID: rec.ID, PromptID: rec.PromptID, Name: rec.Name, Provider: rec.Provider,
 		Version: rec.Version, Status: rec.Status, Source: rec.Source, SourceRef: rec.SourceRef,
 		Hash: rec.Hash, Note: rec.Note, Content: rec.Content,

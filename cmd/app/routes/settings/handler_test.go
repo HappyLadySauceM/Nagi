@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
@@ -121,7 +122,7 @@ func TestPutRejectsInvalidSettingsWithFieldErrors(t *testing.T) {
 	handler, _ := newTestHandler(t)
 	invalid := defaults()
 	invalid.Agent.MaxSteps = 0
-	body, _ := json.Marshal(updateRequest{Settings: invalid, Version: 1})
+	body, _ := json.Marshal(v1.UpdateRequest{Settings: invalid, Version: 1})
 	rec := httptest.NewRecorder()
 	handler.Put(rec, httptest.NewRequest(http.MethodPut, "/api/v1/settings", bytes.NewReader(body)))
 	if rec.Code != http.StatusBadRequest {
@@ -143,7 +144,7 @@ func TestPutRejectsInvalidSettingsWithFieldErrors(t *testing.T) {
 func TestPutRejectsStaleRevision(t *testing.T) {
 	// 版本冲突返回 409，提示刷新后重试。
 	handler, _ := newTestHandler(t)
-	body, _ := json.Marshal(updateRequest{Settings: defaults(), Version: 42})
+	body, _ := json.Marshal(v1.UpdateRequest{Settings: defaults(), Version: 42})
 	rec := httptest.NewRecorder()
 	handler.Put(rec, httptest.NewRequest(http.MethodPut, "/api/v1/settings", bytes.NewReader(body)))
 	if rec.Code != http.StatusConflict {
@@ -156,7 +157,7 @@ func TestPutStoresNewRevision(t *testing.T) {
 	handler, _ := newTestHandler(t)
 	next := defaults()
 	next.Agent.Sending.MaxMessagesPerRun = 5
-	body, _ := json.Marshal(updateRequest{Settings: next, Version: 1})
+	body, _ := json.Marshal(v1.UpdateRequest{Settings: next, Version: 1})
 	rec := httptest.NewRecorder()
 	handler.Put(rec, httptest.NewRequest(http.MethodPut, "/api/v1/settings", bytes.NewReader(body)))
 	if rec.Code != http.StatusOK {

@@ -13,51 +13,11 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 )
-
-type unifiedPromptLayer struct {
-	BotID           int64
-	ScopeType       string
-	ScopeID         int64
-	ActiveVersion   int
-	ActiveVersionID int64
-	ActiveSource    string
-	Status          string
-	UpdatedAt       string
-}
-
-type unifiedPromptSummary struct {
-	PromptID       string
-	Kind           string
-	Name           string
-	Provider       string
-	BuiltinVersion int
-	Layers         []unifiedPromptLayer
-}
-
-type unifiedPromptVersion struct {
-	ID          int64
-	PromptID    string
-	Kind        string
-	Name        string
-	Provider    string
-	BotID       int64
-	ScopeType   string
-	ScopeID     int64
-	Version     int
-	Status      string
-	Source      string
-	SourceRef   string
-	Hash        string
-	Note        string
-	Content     json.RawMessage
-	CreatedAt   string
-	PublishedAt string
-	ArchivedAt  string
-}
 
 func writePromptSuccess(w http.ResponseWriter, status int, data any) {
 	common.WriteJSON(w, status, common.Envelope{Code: status, Message: "success", Data: data})
@@ -181,7 +141,7 @@ func (h *Handler) ListUnifiedPrompts(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "scope_type 必须为 account|group|private")
 		return
 	}
-	items := []unifiedPromptSummary{}
+	items := []v1.UnifiedPromptSummary{}
 	for _, promptID := range []string{intentdomain.PromptIDChatReply, intentdomain.PromptIDIntentParticipation, intentdomain.PromptIDMemoryExtraction} {
 		kind, _ := intentdomain.PromptKindForID(promptID)
 		if kindFilter != "" && kind != kindFilter {
@@ -203,7 +163,7 @@ func (h *Handler) ListUnifiedPrompts(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, provider := range providers {
 			builtin := intentdomain.BuiltinPromptFor(kind, provider)
-			byLayer := map[string]unifiedPromptLayer{}
+			byLayer := map[string]v1.UnifiedPromptLayer{}
 			for _, rec := range records {
 				if rec.PromptID != promptID || rec.Provider != provider {
 					continue
@@ -219,18 +179,18 @@ func (h *Handler) ListUnifiedPrompts(w http.ResponseWriter, r *http.Request) {
 				}
 				layer := byLayer[rec.ScopeType]
 				if rec.Status == intentdomain.PromptStatusPublished {
-					layer = unifiedPromptLayer{BotID: rec.BotID, ScopeType: rec.ScopeType, ScopeID: rec.ScopeID, ActiveVersion: rec.Version, ActiveVersionID: rec.ID, ActiveSource: rec.Source, Status: rec.Status, UpdatedAt: rec.PublishedAt}
+					layer = v1.UnifiedPromptLayer{BotID: rec.BotID, ScopeType: rec.ScopeType, ScopeID: rec.ScopeID, ActiveVersion: rec.Version, ActiveVersionID: rec.ID, ActiveSource: rec.Source, Status: rec.Status, UpdatedAt: rec.PublishedAt}
 				} else if layer.ActiveVersion == 0 {
 					layer.BotID, layer.ScopeType, layer.ScopeID, layer.Status, layer.UpdatedAt = rec.BotID, rec.ScopeType, rec.ScopeID, rec.Status, rec.CreatedAt
 				}
 				byLayer[rec.ScopeType] = layer
 			}
-			layers := make([]unifiedPromptLayer, 0, len(byLayer))
+			layers := make([]v1.UnifiedPromptLayer, 0, len(byLayer))
 			for _, layer := range byLayer {
 				layers = append(layers, layer)
 			}
 			sort.Slice(layers, func(i, j int) bool { return layers[i].ScopeType < layers[j].ScopeType })
-			items = append(items, unifiedPromptSummary{PromptID: promptID, Kind: kind, Name: builtin.Name, Provider: provider, BuiltinVersion: builtin.Version, Layers: layers})
+			items = append(items, v1.UnifiedPromptSummary{PromptID: promptID, Kind: kind, Name: builtin.Name, Provider: provider, BuiltinVersion: builtin.Version, Layers: layers})
 		}
 	}
 	common.WriteSuccess(w, map[string]any{"Items": items})
@@ -268,8 +228,8 @@ func (h *Handler) GetUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	builtin := intentdomain.BuiltinPromptFor(kind, provider)
-	versions := make([]unifiedPromptVersion, 0, len(records))
-	active := (*unifiedPromptVersion)(nil)
+	versions := make([]v1.UnifiedPromptVersion, 0, len(records))
+	active := (*v1.UnifiedPromptVersion)(nil)
 	for _, rec := range records {
 		item := toUnifiedPromptVersion(rec)
 		versions = append(versions, item)
@@ -904,8 +864,8 @@ func promptLayersResponse(layers []intentdomain.PromptLayer) []map[string]any {
 	return out
 }
 
-func toUnifiedPromptVersion(rec intentdomain.PromptRecord) unifiedPromptVersion {
-	return unifiedPromptVersion{
+func toUnifiedPromptVersion(rec intentdomain.PromptRecord) v1.UnifiedPromptVersion {
+	return v1.UnifiedPromptVersion{
 		ID: rec.ID, PromptID: rec.PromptID, Kind: rec.Kind, Name: rec.Name, Provider: rec.Provider,
 		BotID: rec.BotID, ScopeType: rec.ScopeType, ScopeID: rec.ScopeID, Version: rec.Version,
 		Status: rec.Status, Source: rec.Source, SourceRef: rec.SourceRef, Hash: rec.Hash,

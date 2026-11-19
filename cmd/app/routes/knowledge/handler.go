@@ -15,6 +15,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
@@ -95,44 +96,13 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// previewMemory preserves the existing knowledge-preview memory shape and
-// appends recall audit fields. The embedded domain row keeps ID/Status/OwnerKey/
-// UpdatedAt available to the current adapter.
-// previewMemory 保持知识预览既有记忆形状，并附加召回审计字段；内嵌领域行
-// 保留 ID/Status/OwnerKey/UpdatedAt 供现有适配器使用。
-type previewMemory struct {
-	memorydomain.Memory
-	Score           float64  `json:"Score,omitempty"`
-	HitKeywords     []string `json:"HitKeywords,omitempty"`
-	SubjectMatch    string   `json:"SubjectMatch,omitempty"`
-	SelectionReason string   `json:"SelectionReason,omitempty"`
-}
-
-// previewRequest is the read-only context preview input.
-// previewRequest 是只读上下文预览请求。
-type previewRequest struct {
-	BotID            int64  `json:"bot_id"`
-	PreviewMode      string `json:"preview_mode"`
-	TargetType       string `json:"target_type"`
-	TargetID         int64  `json:"target_id"`
-	ConversationID   string `json:"conversation_id"`
-	Query            string `json:"query"`
-	SpeakerType      string `json:"speaker_type"`
-	SpeakerID        string `json:"speaker_id"`
-	SubjectType      string `json:"subject_type"`
-	SubjectID        string `json:"subject_id"`
-	SubjectSource    string `json:"subject_source"`
-	SubjectEvidence  string `json:"subject_evidence"`
-	SubjectAmbiguous bool   `json:"subject_ambiguous"`
-}
-
 // Preview returns prompt defaults, effective prompt versions, tool constraints,
 // memory and history for one target. Example mode never touches scope, memory
 // or conversation storage; real mode resolves the live policy before reading.
 // Preview 返回目标上下文中的 Prompt 默认值、实际生效版本、工具约束、记忆与历史。
 // 示例模式不访问作用域、记忆或会话存储；真实模式先解析实时策略再读取。
 func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
-	var body previewRequest
+	var body v1.PreviewRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -246,7 +216,7 @@ func (h *Handler) previewPrompts(ctx context.Context, botID int64, targetType st
 	return out
 }
 
-func (h *Handler) realContext(r *http.Request, body previewRequest, botID int64, targetType string, targetID int64) (map[string]any, string, int, string) {
+func (h *Handler) realContext(r *http.Request, body v1.PreviewRequest, botID int64, targetType string, targetID int64) (map[string]any, string, int, string) {
 	if h.svcCtx.Scope == nil || h.svcCtx.Memory == nil {
 		return nil, "", http.StatusServiceUnavailable, "database not configured"
 	}
@@ -334,9 +304,9 @@ func (h *Handler) realContext(r *http.Request, body previewRequest, botID int64,
 			if err != nil {
 				return nil, "", http.StatusInternalServerError, "read memory context failed"
 			}
-			items := make([]previewMemory, 0, len(result.Items))
+			items := make([]v1.PreviewMemory, 0, len(result.Items))
 			for _, item := range result.Items {
-				items = append(items, previewMemory{
+				items = append(items, v1.PreviewMemory{
 					Memory:          item.Memory,
 					Score:           item.Score,
 					HitKeywords:     item.HitKeywords,

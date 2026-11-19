@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
@@ -18,31 +19,6 @@ import (
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
-
-// rulesetInfo is the API representation of one version.
-// rulesetInfo 是单个版本的 API 表示。
-type rulesetInfo struct {
-	ID           int64
-	BotID        int64
-	ScopeType    string
-	ScopeID      int64
-	Version      int
-	Status       string
-	Note         string
-	Entries      []entryInfo
-	BuiltinRules map[string]bool
-	Targets      []intentdomain.RuleTarget
-	Questions    map[string]intentdomain.PromptQuestion
-}
-
-// entryInfo is one rule entry.
-// entryInfo 是一条规则条目。
-type entryInfo struct {
-	Enabled  *bool
-	Priority int
-	Match    intentdomain.RuleMatch
-	Action   intentdomain.RuleAction
-}
 
 // RegisterRules wires the ruleset endpoints.
 // RegisterRules 注册规则集接口。
@@ -102,7 +78,7 @@ func (h *Handler) ListRulesets(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取规则集失败")
 		return
 	}
-	items := make([]rulesetInfo, 0, len(sets))
+	items := make([]v1.RulesetInfo, 0, len(sets))
 	for _, set := range sets {
 		items = append(items, toRulesetInfo(set))
 	}
@@ -489,13 +465,13 @@ func simulationPrompt(specificSet, globalSet *intentdomain.Ruleset, botID int64,
 	return base, true
 }
 
-func toRulesetInfo(set intentdomain.Ruleset) rulesetInfo {
-	info := rulesetInfo{
+func toRulesetInfo(set intentdomain.Ruleset) v1.RulesetInfo {
+	info := v1.RulesetInfo{
 		ID: set.ID, BotID: set.BotID, ScopeType: set.ScopeType, ScopeID: set.ScopeID,
 		Version: set.Version, Status: set.Status, Note: set.Note, BuiltinRules: set.BuiltinRules, Targets: set.Targets, Questions: set.Questions,
 	}
 	for _, entry := range set.Entries {
-		info.Entries = append(info.Entries, entryInfo{Enabled: entry.Enabled, Priority: entry.Priority, Match: entry.Match, Action: entry.Action})
+		info.Entries = append(info.Entries, v1.EntryInfo{Enabled: entry.Enabled, Priority: entry.Priority, Match: entry.Match, Action: entry.Action})
 	}
 	return info
 }

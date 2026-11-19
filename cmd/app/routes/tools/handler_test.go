@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	"github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/replytool"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
@@ -131,7 +132,7 @@ func TestListReportsDefaults(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var envelope struct {
-		Data catalog
+		Data v1.Catalog
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -162,7 +163,7 @@ func TestListExposesVoiceTranscriptionAsPipelineCapability(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	var envelope struct{ Data catalog }
+	var envelope struct{ Data v1.Catalog }
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +181,7 @@ func TestListExposesVoiceTranscriptionAsPipelineCapability(t *testing.T) {
 
 // toolByID returns one entry of a decoded catalog.
 // toolByID 返回已解码清单中的单个工具。
-func toolByID(t *testing.T, tools []toolInfo, id string) toolInfo {
+func toolByID(t *testing.T, tools []v1.ToolInfo, id string) v1.ToolInfo {
 	t.Helper()
 	for _, tool := range tools {
 		if tool.ID == id {
@@ -188,7 +189,7 @@ func toolByID(t *testing.T, tools []toolInfo, id string) toolInfo {
 		}
 	}
 	t.Fatalf("tool %q missing from catalog", id)
-	return toolInfo{}
+	return v1.ToolInfo{}
 }
 
 // TestListWithoutScopeKindTreatsEveryToolAsApplicable verifies the default
@@ -207,7 +208,7 @@ func TestListWithoutScopeKindTreatsEveryToolAsApplicable(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var envelope struct {
-		Data catalog
+		Data v1.Catalog
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -245,7 +246,7 @@ func TestListFiltersByScopeKind(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var envelope struct {
-		Data catalog
+		Data v1.Catalog
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -313,7 +314,7 @@ func TestListScopeKindBoundaries(t *testing.T) {
 				return
 			}
 			var envelope struct {
-				Data catalog
+				Data v1.Catalog
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 				t.Fatalf("decode: %v", err)
@@ -340,7 +341,7 @@ func TestListDerivesRiskLevelFromReadOnly(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var envelope struct {
-		Data catalog
+		Data v1.Catalog
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -371,7 +372,7 @@ func TestPublicCatalogSeparatesConversationKinds(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatal(rec.Body.String())
 			}
-			var envelope struct{ Data catalog }
+			var envelope struct{ Data v1.Catalog }
 			if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 				t.Fatal(err)
 			}
@@ -416,7 +417,7 @@ func TestListExposesGroupRoleRequirements(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	var envelope struct{ Data catalog }
+	var envelope struct{ Data v1.Catalog }
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}

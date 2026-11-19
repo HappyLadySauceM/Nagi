@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
@@ -228,7 +229,7 @@ func TestEffectiveRulesDraftAndPublish(t *testing.T) {
 		Version       string
 		Source        string
 		BuiltinRules  []builtinRulePayload
-		ActiveRuleset *rulesetInfo
+		ActiveRuleset *v1.RulesetInfo
 	}
 	getRulePayload(t, mux, "/api/v1/intent/rules/effective?bot_id="+strconv.FormatInt(botID, 10)+"&scope_type=group&scope_id=700", &after)
 	closing := ruleByID(after.BuiltinRules, "closing")
@@ -251,7 +252,7 @@ func TestEffectiveRulesDraftAndPublish(t *testing.T) {
 	}
 	var inherited struct {
 		BuiltinRules  []builtinRulePayload
-		GlobalRuleset *rulesetInfo
+		GlobalRuleset *v1.RulesetInfo
 	}
 	getRulePayload(t, mux, "/api/v1/intent/rules/effective?bot_id="+strconv.FormatInt(botID, 10)+"&scope_type=group&scope_id=700", &inherited)
 	if ruleByID(inherited.BuiltinRules, "continuation").Enabled {

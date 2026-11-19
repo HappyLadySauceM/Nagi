@@ -7,24 +7,9 @@ import (
 	"strconv"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
-
-// policyInfo is the API representation of one scope's sending policy.
-// policyInfo 是单个作用域出站策略的 API 表示。
-type policyInfo struct {
-	BotID               int64
-	ScopeType           string
-	ScopeID             int64
-	Exists              bool
-	AllowSendCurrent    bool
-	EffectiveEnabled    bool
-	BlockedReasons      []string
-	MinIntervalMS       int
-	MaxMessagesPerRun   int
-	MaxCharsPerMessage  int
-	MaxTotalCharsPerRun int
-}
 
 // RegisterPolicy wires the sending-policy endpoint.
 // RegisterPolicy 注册出站策略接口。
@@ -43,7 +28,7 @@ func (h *Handler) GetSendingPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	live := h.svcCtx.SettingsProvider.Settings()
-	info := policyInfo{
+	info := v1.PolicyInfo{
 		BotID: botID, ScopeType: scopeType, ScopeID: scopeID,
 		MinIntervalMS:       700,
 		BlockedReasons:      make([]string, 0),

@@ -9,6 +9,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
@@ -50,58 +51,6 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 // Register 以 Go 1.22 的方法+路径模式注册路由。
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/tools", h.List)
-}
-
-// toolInfo describes one registered tool, including its default grant state
-// and, when a scope kind was requested, whether it applies to that kind.
-// toolInfo 描述单个已注册工具，包含其默认授予状态；
-// 请求带会话类型时，还包含该工具是否适用于该类型。
-type toolInfo struct {
-	BlockedReasons    []string
-	ID                string
-	Provider          string
-	Description       string
-	Category          string
-	ScopeKinds        []string
-	RiskLevel         contracts.RiskLevel
-	RequiresGroupRole string
-	ReadOnly          bool
-	SideEffect        bool
-	Permission        string
-	// DefaultGranted mirrors the runtime resolution for this tool.
-	// DefaultGranted 对应该工具的运行时授予结果。
-	DefaultGranted bool
-	// Applicable is true when the tool applies to the requested scope kind, and
-	// always true for requests without scope_kind.
-	// Applicable 表示工具是否适用于请求的会话类型；未指定会话类型时恒为 true。
-	Applicable bool
-	// UnavailableReason is empty when applicable, otherwise a stable
-	// machine-readable code such as scope_kind_mismatch.
-	// UnavailableReason 在适用时为空串，否则为 scope_kind_mismatch 等稳定机器码。
-	UnavailableReason string
-}
-
-// permissionInfo groups the tools that require one permission.
-// permissionInfo 归组需要同一权限的工具。
-type permissionInfo struct {
-	Requires          []string
-	Description       string
-	RiskLevel         contracts.RiskLevel
-	RequiresGroupRole string
-	ID                string
-	Tools             []string
-	DefaultGranted    bool
-	Kind              string
-	Applicable        bool
-	UnavailableReason string
-}
-
-// catalog is the response of GET /api/v1/tools.
-// catalog 是 GET /api/v1/tools 的响应体。
-type catalog struct {
-	Providers   []string
-	Tools       []toolInfo
-	Permissions []permissionInfo
 }
 
 // scopeKindFilter validates the optional scope_kind query parameter; an empty
@@ -158,10 +107,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	live := h.liveSettings()
 	granted := pluginsapp.ResolvePermissions(visible, live.Tools.PermissionDefaults, nil)
 
-	out := catalog{
+	out := v1.Catalog{
 		Providers:   make([]string, 0),
-		Tools:       make([]toolInfo, 0, len(visible)),
-		Permissions: make([]permissionInfo, 0),
+		Tools:       make([]v1.ToolInfo, 0, len(visible)),
+		Permissions: make([]v1.PermissionInfo, 0),
 	}
 	seenProviders := make(map[string]bool, len(visible))
 	for _, registered := range visible {
@@ -173,7 +122,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(out.Providers)
 
-	byPermission := make(map[string]*permissionInfo)
+	byPermission := make(map[string]*v1.PermissionInfo)
 	for _, registered := range visible {
 		descriptor := registered.Descriptor
 		applicable := true
@@ -194,7 +143,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		if !live.Intent.Enabled {
 			blocked = append(blocked, "未启用意图流水线")
 		}
-		out.Tools = append(out.Tools, toolInfo{
+		out.Tools = append(out.Tools, v1.ToolInfo{
 			BlockedReasons:    blocked,
 			ID:                descriptor.ID,
 			Provider:          registered.ProviderID,
@@ -215,7 +164,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		group, ok := byPermission[descriptor.Permission]
 		if !ok {
-			group = &permissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission], Description: descriptor.Description, RiskLevel: descriptor.EffectiveRiskLevel(), RequiresGroupRole: descriptor.RequiresGroupRole, Kind: "tool", Applicable: applicable, UnavailableReason: unavailableReason}
+			group = &v1.PermissionInfo{ID: descriptor.Permission, DefaultGranted: granted[descriptor.Permission], Description: descriptor.Description, RiskLevel: descriptor.EffectiveRiskLevel(), RequiresGroupRole: descriptor.RequiresGroupRole, Kind: "tool", Applicable: applicable, UnavailableReason: unavailableReason}
 			byPermission[descriptor.Permission] = group
 		} else {
 			// Keep the strictest risk and group role so the group never depends
@@ -234,7 +183,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		group.Tools = append(group.Tools, descriptor.ID)
 	}
-	byPermission["media.voice.transcribe"] = &permissionInfo{ID: "media.voice.transcribe", DefaultGranted: granted["media.voice.transcribe"], Description: "识别收到的语音：将当前会话语音及视频音轨转写为文字", RiskLevel: contracts.RiskRead, Tools: []string{}, Kind: "pipeline", Applicable: true}
+	byPermission["media.voice.transcribe"] = &v1.PermissionInfo{ID: "media.voice.transcribe", DefaultGranted: granted["media.voice.transcribe"], Description: "识别收到的语音：将当前会话语音及视频音轨转写为文字", RiskLevel: contracts.RiskRead, Tools: []string{}, Kind: "pipeline", Applicable: true}
 	extraDescriptions := map[string]string{"qq.cross_conversation": "跨会话操作：将来源会话已授权能力用于当前机器人的其他私聊或群聊；发送还需发送消息授权", "qq.content.links": "发送链接：允许消息包含链接或远程媒体地址", "qq.content.at_all": "发送 @全体：允许通知群内所有成员", "qq.content.media": "发送媒体：允许图片、语音及其他非文本消息段"}
 	for _, registered := range visible {
 		for _, permission := range registered.Descriptor.AdditionalPermissions {
@@ -250,7 +199,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 				if strings.HasPrefix(permission, "qq.content.") {
 					risk = contracts.RiskWrite
 				}
-				group = &permissionInfo{ID: permission, DefaultGranted: granted[permission], Description: extraDescriptions[permission], RiskLevel: risk, Kind: "tool", Applicable: true}
+				group = &v1.PermissionInfo{ID: permission, DefaultGranted: granted[permission], Description: extraDescriptions[permission], RiskLevel: risk, Kind: "tool", Applicable: true}
 				byPermission[permission] = group
 			}
 			group.Tools = append(group.Tools, registered.Descriptor.ID)
