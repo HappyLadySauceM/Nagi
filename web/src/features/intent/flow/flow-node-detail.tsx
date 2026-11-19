@@ -165,6 +165,7 @@ function contextAuthRows(detail: Record<string, unknown>): Array<[string, string
     ['记忆写入', authState(detail.AllowMemoryWrite)],
     ['历史来源', historySource],
     ['历史条数', detail.HistoryCount === undefined ? '—' : String(detail.HistoryCount)],
+    ...(Array.isArray(detail.TopicCandidates) ? [['候选话题', detail.TopicCandidates.join('、') || '无'] as [string, string]] : []),
     ['记忆条数', detail.MemoryCount === undefined ? '—' : String(detail.MemoryCount)],
     ['跳过', valueText(detail.Skipped)],
     ['降级', valueText(detail.Degraded)],
@@ -500,7 +501,25 @@ function SemanticDetail({ detail, reasonCode }: { detail: Record<string, unknown
   )
 }
 
+const TOPIC_ACTION_TEXT: Record<string, string> = {
+  opened: '开启话题',
+  reopened: '重新开启',
+  waiting: '等待补充材料',
+  follow_up: '追问并续期',
+  contribution: '有效补充并续期',
+  personal_exit: '个人退出',
+  close: '结束话题',
+}
+
+const TOPIC_SOURCE_TEXT: Record<string, string> = {
+  decision: '参与决策',
+  quote: '引用消息',
+  supplement: '收到约定的补充',
+  semantic: '语义归属',
+}
+
 function DecisionDetail({ detail }: { detail: Record<string, unknown> }) {
+  const topic = isRecord(detail.Topic) ? detail.Topic : null
   return (
     <Section title="最终判定">
       <FieldGrid
@@ -510,6 +529,16 @@ function DecisionDetail({ detail }: { detail: Record<string, unknown> }) {
           ['原因码', detail.ReasonCode],
         ]}
       />
+      {topic ? (
+        <FieldGrid
+          rows={[
+            ['话题 ID', topic.ID],
+            ['话题变化', TOPIC_ACTION_TEXT[String(topic.Action)] ?? topic.Action],
+            ['关联依据', TOPIC_SOURCE_TEXT[String(topic.Source)] ?? topic.Source],
+            ['跳过短冷却', topic.CooldownBypassed],
+          ]}
+        />
+      ) : null}
     </Section>
   )
 }

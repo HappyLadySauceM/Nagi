@@ -4,6 +4,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -203,6 +204,39 @@ func TestJevClientParsesCustomQuestionSet(t *testing.T) {
 		if _, ok := fields["weight"]; ok {
 			t.Fatalf("question %q leaked weight to model: %+v", key, fields)
 		}
+	}
+}
+
+func TestJevTopicQuestionsDoNotReplacePublishedQuestions(t *testing.T) {
+	action := domain.TopicActionKey(0)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Questions map[string]jevQuestion `json:"questions"`
+		}
+		_ = readJSON(r, &request)
+		answers := map[string]any{}
+		for key, question := range request.Questions {
+			switch {
+			case question.Type == "choice":
+				answers[key] = map[string]string{"choice": domain.TopicClose}
+			case key == action:
+				answers[key] = map[string]float64{"noul": .31}
+			default:
+				answers[key] = map[string]float64{"noul": .93}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"answers": answers})
+	}))
+	defer srv.Close()
+	in := testInput()
+	in.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 23, Active: true}}}
+	in.Prompt = domain.Prompt{SystemOne: &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{
+		action: {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 1, Instructions: "原有题目"},
+	}}}
+	answer, err := testClient(t, srv.URL).Decide(context.Background(), in)
+	if err != nil || len(answer.Scores) != 1 || answer.Scores[action] != .31 || len(answer.TopicJudgments) != 1 ||
+		answer.TopicJudgments[0] != (domain.TopicJudgment{Affinity: .93, Action: domain.TopicClose}) {
+		t.Fatalf("answer = %+v, err=%v", answer, err)
 	}
 }
 

@@ -67,6 +67,8 @@ function IntentConfigForm() {
               ContinuationThreshold: draft.intent.continuationThreshold,
               InterjectionThreshold: draft.intent.interjectionThreshold,
               AddressedOtherMax: draft.intent.addressedOtherMax,
+              TopicContinuationEnabled: draft.intent.topicContinuationEnabled,
+              TopicIdleSeconds: draft.intent.topicIdleSeconds,
             },
           },
         },
@@ -87,6 +89,9 @@ function IntentConfigForm() {
     if (!draft) return errors
     if (!Number.isInteger(draft.context.historyLimit) || draft.context.historyLimit < 1 || draft.context.historyLimit > 200) {
       errors['Context.HistoryLimit'] = '请填写 1–200 的整数'
+    }
+    if (!Number.isInteger(draft.intent.topicIdleSeconds) || draft.intent.topicIdleSeconds < 30 || draft.intent.topicIdleSeconds > 3600) {
+      errors['Intent.TopicIdleSeconds'] = '请填写 30–3600 的整数'
     }
     return errors
   }, [draft])
@@ -151,6 +156,30 @@ function IntentConfigForm() {
           unit="条"
           hint="默认 30，范围 1–200。按条数读取；只有会话策略允许读取历史时才会读取。"
           error={configErrors['Context.HistoryLimit']}
+        />
+      </SettingsCard>
+      <SettingsCard
+        id="intent-group-topics"
+        title="群聊话题续接"
+        description="让多个群友在同一个话题中自然追问或补充。"
+        icon={Workflow}
+        tag="群聊"
+      >
+        <SwitchField
+          id="intent-group-topics-enabled"
+          label="群聊话题续接"
+          description="适用于允许读取历史、按意图回复的群。"
+          checked={draft.intent.topicContinuationEnabled}
+          onChange={(topicContinuationEnabled) => updateIntent({ topicContinuationEnabled })}
+        />
+        <NumberField
+          id="intent-topic-idle-seconds"
+          label="话题空闲到期"
+          value={draft.intent.topicIdleSeconds}
+          onChange={(topicIdleSeconds) => updateIntent({ topicIdleSeconds })}
+          unit="秒"
+          hint="默认 300 秒，范围 30–3600。有效追问或补充会续期。"
+          error={configErrors['Intent.TopicIdleSeconds']}
         />
       </SettingsCard>
       </div>

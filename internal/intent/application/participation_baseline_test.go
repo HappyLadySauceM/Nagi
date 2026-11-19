@@ -468,3 +468,61 @@ func TestReplyHistoryKeepsEarlierDiscussionTextWithoutAttachments(t *testing.T) 
 		t.Fatalf("discussion context = %+v", history)
 	}
 }
+
+func TestGroupTopicParticipation(t *testing.T) {
+	for _, tc := range []struct {
+		name, action string
+		scores       []float64
+		quoted       bool
+		replies      int
+		want         domain.Decision
+		wantTopic    int64
+		skipCooldown bool
+	}{
+		{"another member follows up during cooldown", domain.TopicFollowUp, []float64{.95, .12}, false, 1, domain.DecisionReply, 10, true},
+		{"ambiguous between parallel topics", domain.TopicFollowUp, []float64{.96, .90}, false, 1, domain.DecisionSilent, 0, false},
+		{"exact quote overrides affinity", "other", []float64{.10, .98}, true, 1, domain.DecisionReply, 10, true},
+		{"leave keeps topic open", domain.TopicLeave, []float64{.95, .12}, false, 1, domain.DecisionSilent, 10, false},
+		{"close affects a single topic", domain.TopicClose, []float64{.09, .92}, false, 1, domain.DecisionSilent, 20, false},
+		{"hourly limit still applies to a quote", domain.TopicFollowUp, []float64{.95, .12}, true, 5, domain.DecisionSilent, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baselineGroupInput("那为什么？", nil)
+			in.Task.JobID = 901
+			in.Task.Message.SenderID = 77
+			in.Policy.AllowHistoryRead = true
+			in.Policy.MinReplyIntervalMS = 10000
+			in.Policy.MaxRepliesPerHour = 5
+			in.Activity = domain.BotActivity{Known: true, LastReplyAt: in.Now.Add(-2 * time.Second), RepliesLastHour: tc.replies}
+			in.Topics = &domain.TopicContext{IdleSeconds: 300, Candidates: []domain.TopicCandidate{
+				{ID: 10, Active: true, ExpiresAt: in.Now.Add(30 * time.Second), History: []domain.Message{{Text: "数据库超时", SenderID: 31}}},
+				{ID: 20, Active: true, ExpiresAt: in.Now.Add(60 * time.Second), History: []domain.Message{{Text: "晚饭安排", SenderID: 22}}},
+			}}
+			if tc.quoted {
+				in.Topics.QuotedID, in.Topics.QuotedBot = 10, true
+			}
+			semantic := domain.SemanticAnswer{Available: true, TopicJudgments: []domain.TopicJudgment{
+				{Affinity: tc.scores[0], Action: tc.action}, {Affinity: tc.scores[1], Action: tc.action},
+			}}
+			gate, _ := topicRuleInput(in)
+			got := evaluateTopicDecision(in, EvaluateRules(gate), semantic)
+			if got.Decision != tc.want || (got.Topic == nil) != (tc.wantTopic == 0) {
+				t.Fatalf("unexpected decision: %+v", got)
+			}
+			if got.Topic != nil {
+				if got.Topic.ID != tc.wantTopic || got.Topic.CooldownBypassed != tc.skipCooldown {
+					t.Fatalf("unexpected change: %+v", got.Topic)
+				}
+				if tc.action == domain.TopicLeave && !got.Topic.ExpiresAt.Equal(in.Topics.Candidates[0].ExpiresAt) {
+					t.Fatal("personal exit refreshed the topic")
+				}
+				if got.Decision == domain.DecisionReply {
+					history := topicReplyHistory(in, got)
+					if len(history) != 1 || history[0].Text != "数据库超时" {
+						t.Fatalf("mixed parallel histories: %+v", history)
+					}
+				}
+			}
+		})
+	}
+}

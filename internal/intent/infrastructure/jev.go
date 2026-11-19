@@ -11,6 +11,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
 	"strings"
@@ -85,6 +86,22 @@ func questionSpecsFor(in domain.Input) map[string]domain.PromptQuestion {
 // Decide 构建状态负载、调用 API 并防御性地解析回答。
 func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error) {
 	specs := questionSpecsFor(in)
+	var topicKeys map[string]string
+	if topics := domain.TopicQuestions(in.Topics); len(topics) != 0 {
+		specs = maps.Clone(specs)
+		topicKeys = make(map[string]string, len(topics))
+		for key, question := range topics {
+			requestKey := key
+			for {
+				if _, exists := specs[requestKey]; !exists {
+					break
+				}
+				requestKey += "_"
+			}
+			specs[requestKey] = question
+			topicKeys[key] = requestKey
+		}
+	}
 	payload := map[string]any{
 		"model":     c.cfg.Model,
 		"state":     c.buildState(in),
@@ -126,7 +143,19 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
 		return domain.SemanticAnswer{}, fmt.Errorf("jev: decode response: %w", err)
 	}
-	return parseAnswers(parsed.Answers, specs)
+	answer, err := parseAnswers(parsed.Answers, specs)
+	if err != nil || len(topicKeys) == 0 {
+		return answer, err
+	}
+	for i := range in.Topics.Candidates {
+		scoreKey, actionKey := topicKeys[domain.TopicQuestionKey(i)], topicKeys[domain.TopicActionKey(i)]
+		answer.TopicJudgments = append(answer.TopicJudgments, domain.TopicJudgment{
+			Affinity: answer.Scores[scoreKey], Action: answer.Choices[actionKey],
+		})
+		delete(answer.Scores, scoreKey)
+		delete(answer.Choices, actionKey)
+	}
+	return answer, nil
 }
 
 // questionsFromSpecs maps the effective question configuration to the SystemOne
@@ -168,7 +197,7 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	if botLastSpoke < 0 {
 		botLastSpoke = -1
 	}
-	return map[string]any{
+	state := map[string]any{
 		"bot_name":                   c.cfg.BotName,
 		"channel":                    in.Task.Kind,
 		"current_message":            map[string]any{"sender": sender, "text": semanticText(in.Task.Message.Text)},
@@ -177,6 +206,30 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 		"mentions_bot":               in.MentionsBot(),
 		"replies_to_bot":             in.RepliesToBot(),
 	}
+	addTopicState(state, in.Topics)
+	return state
+}
+
+func addTopicState(state map[string]any, topics *domain.TopicContext) {
+	if topics == nil || len(topics.Candidates) == 0 {
+		return
+	}
+	if topics.Reference != nil {
+		text := []rune(semanticText(topics.Reference.Text))
+		if len(text) > 500 {
+			text = text[:500]
+		}
+		state["quoted_message"] = string(text)
+	}
+	candidates := make(map[string]any, len(topics.Candidates))
+	for i, candidate := range topics.Candidates {
+		key := domain.TopicQuestionKey(i)
+		candidates[key] = map[string]any{"messages": candidate.History, "active": candidate.Active, "waiting": candidate.Waiting}
+		if candidate.ID == topics.QuotedID {
+			state["quoted_topic"] = key
+		}
+	}
+	state["active_topics"] = candidates
 }
 
 func semanticText(text string) string {

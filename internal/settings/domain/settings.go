@@ -99,10 +99,12 @@ type Intent struct {
 	Model    string `json:"Model"`
 	// TimeoutSeconds bounds one semantic decision call.
 	// TimeoutSeconds 限制单次语义判定调用。
-	TimeoutSeconds        int     `json:"TimeoutSeconds"`
-	ContinuationThreshold float64 `json:"ContinuationThreshold"`
-	InterjectionThreshold float64 `json:"InterjectionThreshold"`
-	AddressedOtherMax     float64 `json:"AddressedOtherMax"`
+	TimeoutSeconds           int     `json:"TimeoutSeconds"`
+	ContinuationThreshold    float64 `json:"ContinuationThreshold"`
+	InterjectionThreshold    float64 `json:"InterjectionThreshold"`
+	AddressedOtherMax        float64 `json:"AddressedOtherMax"`
+	TopicContinuationEnabled bool    `json:"TopicContinuationEnabled"`
+	TopicIdleSeconds         int     `json:"TopicIdleSeconds"`
 
 	// BotName and HistoryLimit are legacy persisted fields. UnmarshalJSON reads
 	// them for old rows, Normalize migrates them into Role/Context, and the
@@ -131,6 +133,18 @@ func (i *Intent) UnmarshalJSON(data []byte) error {
 	i.BotName = raw.BotName
 	i.HistoryLimit = raw.HistoryLimit
 	return nil
+}
+
+// ActiveTopicIdleSeconds returns zero while group topic continuation is disabled.
+// ActiveTopicIdleSeconds 在群聊话题续接关闭时返回零。
+func (i Intent) ActiveTopicIdleSeconds() int {
+	if !i.TopicContinuationEnabled {
+		return 0
+	}
+	if i.TopicIdleSeconds == 0 {
+		return 300
+	}
+	return i.TopicIdleSeconds
 }
 
 // Agent holds the limits of one reply run.
@@ -264,6 +278,9 @@ func (s *Settings) Normalize() {
 	s.Intent.Provider = strings.ToLower(strings.TrimSpace(s.Intent.Provider))
 	s.Intent.Endpoint = strings.TrimSpace(s.Intent.Endpoint)
 	s.Intent.Model = strings.TrimSpace(s.Intent.Model)
+	if s.Intent.TopicIdleSeconds == 0 {
+		s.Intent.TopicIdleSeconds = 300
+	}
 	s.Role.BotName = strings.TrimSpace(s.Role.BotName)
 	if s.Role.BotName == "" {
 		s.Role.BotName = strings.TrimSpace(s.Intent.BotName)
@@ -399,6 +416,9 @@ func (s Settings) validateAI(problems *ValidationError) {
 }
 
 func (s Settings) validateIntent(problems *ValidationError) {
+	if s.Intent.TopicIdleSeconds != 0 && !inRange(s.Intent.TopicIdleSeconds, 30, 3600) {
+		problems.Add("Intent.TopicIdleSeconds", rangeHint(30, 3600))
+	}
 	if s.Intent.Provider != "jev" && s.Intent.Provider != "openai" {
 		problems.Add("Intent.Provider", "仅支持 jev 或 openai")
 	}

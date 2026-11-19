@@ -496,11 +496,12 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		Dynamic: func() intentapp.RuntimeConfig {
 			current := settings.Settings()
 			return intentapp.RuntimeConfig{
-				Enabled:      current.Intent.Enabled,
-				AIEnabled:    current.AI.Enabled,
-				HistoryLimit: current.Context.HistoryLimit,
-				Provider:     current.Intent.Provider,
-				Model:        current.Intent.Model,
+				Enabled:          current.Intent.Enabled,
+				AIEnabled:        current.AI.Enabled,
+				HistoryLimit:     current.Context.HistoryLimit,
+				Provider:         current.Intent.Provider,
+				Model:            current.Intent.Model,
+				TopicIdleSeconds: current.Intent.ActiveTopicIdleSeconds(),
 				Thresholds: intentdomain.Thresholds{
 					Continuation:      current.Intent.ContinuationThreshold,
 					Interjection:      current.Intent.InterjectionThreshold,
@@ -537,6 +538,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			return intentapp.WithRuntimeConfig(ctx, intentapp.RuntimeConfig{
 				Enabled: current.Intent.Enabled, AIEnabled: current.AI.Enabled,
 				HistoryLimit: current.Context.HistoryLimit, Provider: current.Intent.Provider, Model: current.Intent.Model,
+				TopicIdleSeconds: current.Intent.ActiveTopicIdleSeconds(),
 				Thresholds: intentdomain.Thresholds{
 					Continuation:      current.Intent.ContinuationThreshold,
 					Interjection:      current.Intent.InterjectionThreshold,

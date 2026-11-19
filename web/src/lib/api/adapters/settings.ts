@@ -116,6 +116,8 @@ function toIntent(raw: unknown): SettingsIntent {
     continuationThreshold: readNumber(record, 'ContinuationThreshold', SETTINGS_ENDPOINT),
     interjectionThreshold: readNumber(record, 'InterjectionThreshold', SETTINGS_ENDPOINT),
     addressedOtherMax: readNumber(record, 'AddressedOtherMax', SETTINGS_ENDPOINT),
+    topicContinuationEnabled: readBoolean(record, 'TopicContinuationEnabled', SETTINGS_ENDPOINT, false),
+    topicIdleSeconds: readNumber(record, 'TopicIdleSeconds', SETTINGS_ENDPOINT, 300),
   }
 }
 
@@ -194,6 +196,8 @@ export function toSettingsPutBody(settings: SystemSettings, version: number): un
         ContinuationThreshold: settings.intent.continuationThreshold,
         InterjectionThreshold: settings.intent.interjectionThreshold,
         AddressedOtherMax: settings.intent.addressedOtherMax,
+        TopicContinuationEnabled: settings.intent.topicContinuationEnabled,
+        TopicIdleSeconds: settings.intent.topicIdleSeconds,
       },
       Agent: {
         MaxSteps: settings.agent.maxSteps,

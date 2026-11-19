@@ -41,7 +41,9 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 		recent = append(recent, map[string]any{"MessageID": m.MessageID, "SenderID": m.SenderID, "IsBot": m.IsBot, "Text": m.Text, "CreatedAt": m.CreatedAt})
 	}
 	var state bytes.Buffer
-	_ = json.NewEncoder(&state).Encode(map[string]any{"channel": in.Task.Kind, "bot_name": c.Config.BotName, "message": in.Task.Message.Text, "recent": recent})
+	payload := map[string]any{"channel": in.Task.Kind, "bot_name": c.Config.BotName, "message": in.Task.Message.Text, "recent": recent}
+	addTopicState(payload, in.Topics)
+	_ = json.NewEncoder(&state).Encode(payload)
 	values := make([]float64, 4)
 	var intentScore float64
 	c.gateOnce.Do(func() { c.gate = make(chan struct{}, 2) })
@@ -89,7 +91,49 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 	if first != nil {
 		return domain.SemanticAnswer{}, first
 	}
-	return domain.SemanticAnswer{Available: true, DirectedToBot: values[0], ContinuesBotThread: values[1], AddressedToOther: values[2], AppropriateToJoin: values[3], Scores: map[string]float64{"intent": intentScore}}, nil
+	answer := domain.SemanticAnswer{Available: true, DirectedToBot: values[0], ContinuesBotThread: values[1], AddressedToOther: values[2], AppropriateToJoin: values[3], Scores: map[string]float64{"intent": intentScore}}
+	if in.Topics != nil && len(in.Topics.Candidates) > 0 {
+		c.scoreTopic(ctx, in.Topics, systemPrompt, state.String(), userTemplate, &answer)
+	}
+	return answer, nil
+}
+
+func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContext, systemPrompt, state, userTemplate string, answer *domain.SemanticAnswer) {
+	actions := []string{domain.TopicFollowUp, domain.TopicContribution, domain.TopicLeave, domain.TopicClose}
+	labels := []string{"A"}
+	question := strings.Builder{}
+	question.WriteString("选择当前消息的话题和行为。A=新话题、不明确或对另一群友说话。只在有明确证据时归入话题。行为如下：")
+	for i := range topics.Candidates {
+		for action, description := range []string{"追问机器人", "补充有效信息", "仅自己退出", "结束整个话题"} {
+			key := string(rune('B' + i*len(actions) + action))
+			labels = append(labels, key)
+			fmt.Fprintf(&question, " %s=%s的%s。", key, domain.TopicQuestionKey(i), description)
+		}
+	}
+	select {
+	case c.gate <- struct{}{}:
+		defer func() { <-c.gate }()
+	case <-ctx.Done():
+		return
+	}
+	values, err := c.score(ctx, systemPrompt, state, question.String(), labels, userTemplate)
+	if err != nil {
+		return
+	}
+	best := 0
+	answer.TopicJudgments = make([]domain.TopicJudgment, len(topics.Candidates))
+	for i, probability := range values {
+		if i != 0 {
+			topic := &answer.TopicJudgments[(i-1)/len(actions)]
+			topic.Affinity = max(topic.Affinity, probability)
+		}
+		if probability > values[best] {
+			best = i
+		}
+	}
+	if best > 0 && values[best] >= .80 {
+		answer.TopicJudgments[(best-1)/len(actions)].Action = actions[(best-1)%len(actions)]
+	}
 }
 
 func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question string, labels []string, userTemplate string) ([]float64, error) {
