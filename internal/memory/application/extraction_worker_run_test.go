@@ -37,7 +37,7 @@ func (f *fakeExtractionRepo) ListUnregisteredMessages(context.Context, int64, st
 	return f.messages, nil
 }
 
-func (f *fakeExtractionRepo) CreateExtractionJobs(_ context.Context, _ domain.ExtractionScope, messages []domain.ExtractionSourceMessage, wait time.Duration) (int, error) {
+func (f *fakeExtractionRepo) CreateExtractionJobs(_ context.Context, _ domain.ExtractionScope, messages []domain.ExtractionSourceMessage, wait time.Duration, _ ...int64) (int, error) {
 	f.created = len(messages)
 	f.createdWait = wait
 	return len(messages), nil
@@ -74,7 +74,7 @@ func (f *fakeExtractionRepo) PersistExtractionPromptSnapshot(_ context.Context, 
 	return nil
 }
 
-func (f *fakeExtractionRepo) RecoverStaleExtractionJobs(context.Context, int, []time.Duration) error {
+func (f *fakeExtractionRepo) RecoverStaleExtractionJobs(context.Context, int, []time.Duration, ...int64) error {
 	return nil
 }
 

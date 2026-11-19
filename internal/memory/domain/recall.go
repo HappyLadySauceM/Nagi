@@ -32,6 +32,7 @@ type RecallQuery struct {
 	Kind        string
 	TargetID    int64
 	Query       string
+	Keywords    []QueryTerm
 	SubjectType SubjectType
 	SubjectID   string
 	Limit       int
@@ -52,7 +53,10 @@ type RecallHit struct {
 // RankRecall 按非通用关键词命中过滤，应用主体感知排序，并返回可区分
 // 「无有效关键词」与「有关键词但无命中」的诊断信息。
 func RankRecall(memories []Memory, query RecallQuery) ([]RecallHit, bool, string) {
-	terms := QueryKeywords(query.Query)
+	terms := query.Keywords
+	if terms == nil {
+		terms = QueryKeywords(query.Query)
+	}
 	validTerms := 0
 	for _, term := range terms {
 		if !term.Common {
@@ -65,6 +69,10 @@ func RankRecall(memories []Memory, query RecallQuery) ([]RecallHit, bool, string
 
 	hits := make([]RecallHit, 0, len(memories))
 	for _, memory := range memories {
+		match := subjectMatch(query, memory)
+		if match == "" {
+			continue
+		}
 		matched := make([]QueryTerm, 0, len(terms))
 		for _, term := range terms {
 			if containsFold(memory.Content, term.Term) {
@@ -94,7 +102,6 @@ func RankRecall(memories []Memory, query RecallQuery) ([]RecallHit, bool, string
 		if score > 3.0 {
 			score = 3.0
 		}
-		match := subjectMatch(query, memory)
 		hits = append(hits, RecallHit{
 			Memory:       memory,
 			Score:        score + subjectWeight(match),
@@ -141,28 +148,29 @@ func RankRecall(memories []Memory, query RecallQuery) ([]RecallHit, bool, string
 // subjectMatch evaluates the contract's subject priority for one memory.
 // subjectMatch 按契约优先级评估一条记忆的主体匹配等级。
 func subjectMatch(query RecallQuery, memory Memory) string {
-	subjectType := query.SubjectType
-	if subjectType == "" {
-		subjectType = SubjectUnknown
+	if query.SubjectType == SubjectUser {
+		if memory.SubjectType == SubjectUser && strings.TrimSpace(query.SubjectID) != "" &&
+			strings.TrimSpace(query.SubjectID) == strings.TrimSpace(memory.SubjectID) {
+			return SubjectMatchExact
+		}
+		return ""
 	}
-	subjectID := strings.TrimSpace(query.SubjectID)
-	if subjectType == SubjectUnknown {
-		return SubjectMatchNone
+	groupID := strconv.FormatInt(query.TargetID, 10)
+	if query.SubjectType == SubjectGroup && strings.TrimSpace(query.SubjectID) != groupID {
+		return ""
 	}
-	memorySubjectID := strings.TrimSpace(memory.SubjectID)
-	if subjectType == memory.SubjectType && subjectID != "" && memorySubjectID != "" && subjectID == memorySubjectID {
-		return SubjectMatchExact
-	}
-	if query.Kind == "group" && memory.SubjectType == SubjectGroup && memorySubjectID == strconv.FormatInt(query.TargetID, 10) {
+	if query.Kind == "group" && memory.SubjectType == SubjectGroup &&
+		strings.TrimSpace(memory.SubjectID) == groupID {
+		if query.SubjectType == SubjectGroup {
+			return SubjectMatchExact
+		}
 		return SubjectMatchGroup
 	}
-	if memory.Visibility == VisibilityBotShared && (memory.SubjectType == "" || memory.SubjectType == SubjectUnknown) {
+	if memory.Visibility == VisibilityBotShared && (memory.SubjectType == "" || memory.SubjectType == SubjectUnknown) &&
+		strings.TrimSpace(memory.SubjectID) == "" {
 		return SubjectMatchShared
 	}
-	if memory.SubjectType != "" && memory.SubjectType != SubjectUnknown && memorySubjectID != "" {
-		return SubjectMatchOther
-	}
-	return SubjectMatchNone
+	return ""
 }
 
 func subjectWeight(match string) float64 {

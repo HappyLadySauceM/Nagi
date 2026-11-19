@@ -54,6 +54,9 @@ func EvaluateRules(in domain.Input) domain.RuleResult {
 		if explicit {
 			return domain.RuleResult{Explicit: true}
 		}
+		if reason := groupCallReason(in); reason != "" {
+			return domain.RuleResult{ForceReply: true, ForceReason: reason}
+		}
 		return domain.RuleResult{NeedSemantic: true}
 	}
 }
@@ -79,6 +82,9 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 		// Reply mode wins over an absent semantic answer.
 		// 回复模式优先于缺失的语义回答。
 		return reply("always_reply")
+	}
+	if rule.ForceReply {
+		return reply(rule.ForceReason)
 	}
 	if rule.NeedSemantic && !semantic.Available {
 		// Semantic unavailability must not silence a one-to-one chat: the scope

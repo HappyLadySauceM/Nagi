@@ -507,6 +507,7 @@ export interface ExtractionJob {
 
 export interface ExtractionSettings {
   scope: 'global'
+  version: number
   enabled: boolean
   concurrency: number
   batchMaxMessages: number
@@ -589,6 +590,7 @@ export interface KnowledgePreview {
   memory: {
     skipped: boolean
     reason: string
+    source?: string
     items: KnowledgePreviewMemory[]
   }
   history: {

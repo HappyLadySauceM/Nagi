@@ -500,6 +500,7 @@ func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnaps
 	}
 	return domain.Input{
 		Task:     snapshot.Input.Task,
+		BotName:  d.currentBotName(),
 		Recent:   snapshot.Input.Recent,
 		Activity: snapshot.Input.Activity,
 		Policy:   policy,

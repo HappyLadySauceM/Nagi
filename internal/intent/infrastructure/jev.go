@@ -13,9 +13,11 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
 // JevConfig configures the Jev HTTP adapter.
@@ -142,13 +144,21 @@ func questionsFromSpecs(specs map[string]domain.PromptQuestion) map[string]jevQu
 // buildState maps the decision input into the documented state shape.
 // buildState 将决策输入映射为文档定义的状态形态。
 func (c *JevClient) buildState(in domain.Input) map[string]any {
-	recent := make([]map[string]any, 0, len(in.Recent))
-	for _, m := range in.Recent {
+	history, currentTime := in.HistoryBeforeCurrent()
+	if currentTime.IsZero() {
+		currentTime = in.Now
+	}
+	recent := make([]map[string]any, 0, len(history))
+	for _, m := range history {
 		sender := "bot"
 		if !m.IsBot {
 			sender = fmt.Sprintf("user_%d", m.SenderID)
 		}
-		recent = append(recent, map[string]any{"sender": sender, "text": m.Text})
+		entry := map[string]any{"sender": sender, "text": semanticText(m.Text)}
+		if !m.CreatedAt.IsZero() && !currentTime.IsZero() {
+			entry["seconds_ago"] = int64(currentTime.Sub(m.CreatedAt).Seconds())
+		}
+		recent = append(recent, entry)
 	}
 	sender := "bot"
 	if !in.Task.Message.IsBot {
@@ -161,12 +171,30 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	return map[string]any{
 		"bot_name":                   c.cfg.BotName,
 		"channel":                    in.Task.Kind,
-		"current_message":            map[string]any{"sender": sender, "text": in.Task.Message.Text},
+		"current_message":            map[string]any{"sender": sender, "text": semanticText(in.Task.Message.Text)},
 		"recent_messages":            recent,
 		"bot_last_spoke_seconds_ago": botLastSpoke,
 		"mentions_bot":               in.MentionsBot(),
 		"replies_to_bot":             in.RepliesToBot(),
 	}
+}
+
+func semanticText(text string) string {
+	if !strings.Contains(text, "[CQ:") {
+		return text
+	}
+	var out strings.Builder
+	for _, segment := range ob.ParseCQ(text) {
+		switch segment.Type {
+		case ob.SegText:
+			out.WriteString(segment.Data["text"])
+		case ob.SegImage:
+			out.WriteString("[图片]")
+		default:
+			fmt.Fprintf(&out, "[%s]", segment.Type)
+		}
+	}
+	return out.String()
 }
 
 // parseAnswers extracts one answer per configured question; missing, malformed

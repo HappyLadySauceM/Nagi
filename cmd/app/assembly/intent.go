@@ -129,6 +129,7 @@ func (p intentProcessor) Process(ctx context.Context, job conversationdomain.Job
 			MessageID: job.Message.PlatformMessageID,
 			SenderID:  job.Message.SenderID,
 			Text:      job.Message.Text,
+			CreatedAt: job.Message.CreatedAt,
 		},
 		Segments: job.Message.Segments,
 	})

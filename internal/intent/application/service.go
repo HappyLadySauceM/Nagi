@@ -354,7 +354,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	prompt = scorePrompt(prompt)
 	prompt.ConversationID = task.ConversationID
 	runID := uuid.NewString()
-	in := domain.Input{Task: task, Recent: history, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
+	in := domain.Input{Task: task, BotName: d.currentBotName(), Recent: history, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
 
 	rule, rulesetVersion := d.applyRules(ctx, in)
 	var semantic domain.SemanticAnswer

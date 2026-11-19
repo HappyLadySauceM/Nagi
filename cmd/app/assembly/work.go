@@ -135,9 +135,8 @@ type Runtime struct {
 	// SettingsProvider is the live snapshot every run reads.
 	// SettingsProvider 是每次运行读取的实时快照。
 	SettingsProvider *settingsapp.Provider
-	// ExtractionWorker runs asynchronous memory candidate extraction; nil when
-	// memory.extraction.enabled is false.
-	// ExtractionWorker 运行异步记忆候选提取；memory.extraction.enabled 为 false 时为 nil。
+	// ExtractionWorker runs asynchronous memory candidate extraction when configured.
+	// ExtractionWorker 在已配置数据库时运行异步记忆候选提取。
 	ExtractionWorker *memoryapp.ExtractionWorker
 }
 
@@ -381,6 +380,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil, settingsErr
 		}
 		rt.Scope.SetModels(settingsService)
+		rt.Memory.SetRecallRewriter(memoryinfra.NewModelRecallRewriter(settingsService))
 		rt.Scope.SetPermissionResolver(func(overrides map[string]bool) scopeapp.PermissionState {
 			live := settingsProvider.Settings()
 			visible := toolRegistry.Snapshot()
@@ -401,39 +401,41 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if promptErr != nil {
 			return nil, promptErr
 		}
-		if cfg.Memory.Extraction.Enabled {
-			extractionRepo, extractionRepoErr := memoryinfra.NewRepo(pool)
-			if extractionRepoErr != nil {
-				return nil, extractionRepoErr
-			}
-			extractionRetryDelays := make([]time.Duration, 0, len(cfg.Memory.Extraction.RetryDelays))
-			for _, delay := range cfg.Memory.Extraction.RetryDelays {
-				extractionRetryDelays = append(extractionRetryDelays, delay.D())
-			}
-			extractionWorker, extractionWorkerErr := memoryapp.NewExtractionWorker(
-				extractionRepo,
-				memoryinfra.NewModelExtractor(settingsService, promptService),
-				rt.Scope,
-				memoryapp.ExtractionWorkerOptions{
-					Enabled:          func() bool { return cfg.Memory.Extraction.Enabled },
-					Concurrency:      cfg.Memory.Extraction.Concurrency,
-					BatchMaxMessages: cfg.Memory.Extraction.BatchMaxMessages,
-					BatchMaxRunes:    cfg.Memory.Extraction.BatchMaxRunes,
-					MaxWait:          cfg.Memory.Extraction.MaxWait.D(),
-					PollInterval:     cfg.Memory.Extraction.PollInterval.D(),
-					MaxAttempts:      cfg.Memory.Extraction.MaxAttempts,
-					RetryDelays:      extractionRetryDelays,
-					Lease:            cfg.Memory.Extraction.LeaseDuration.D(),
-					BotName:          func() string { return settingsProvider.Settings().Role.BotName },
-					PromptResolver:   memoryinfra.NewExtractionPromptResolver(promptService),
-				},
-				logger,
-			)
-			if extractionWorkerErr != nil {
-				return nil, extractionWorkerErr
-			}
-			rt.ExtractionWorker = extractionWorker
+		extractionRepo, extractionRepoErr := memoryinfra.NewRepo(pool)
+		if extractionRepoErr != nil {
+			return nil, extractionRepoErr
 		}
+		extractionWorker, extractionWorkerErr := memoryapp.NewExtractionWorker(
+			extractionRepo,
+			memoryinfra.NewModelExtractor(settingsService, promptService),
+			rt.Scope,
+			memoryapp.ExtractionWorkerOptions{
+				Runtime: func() memoryapp.ExtractionWorkerOptions {
+					snapshot := settingsProvider.Current()
+					live := snapshot.Settings
+					extraction := settingsapp.EffectiveExtraction(live, cfg.Memory.Extraction)
+					delays := make([]time.Duration, 0, len(extraction.RetryDelays))
+					for _, delay := range extraction.RetryDelays {
+						delays = append(delays, delay.D())
+					}
+					return memoryapp.ExtractionWorkerOptions{
+						SettingsRevision: snapshot.Version,
+						Enabled:          func() bool { return extraction.Enabled },
+						Concurrency:      extraction.Concurrency, BatchMaxMessages: extraction.BatchMaxMessages,
+						BatchMaxRunes: extraction.BatchMaxRunes, MaxWait: extraction.MaxWait.D(),
+						PollInterval: extraction.PollInterval.D(), MaxAttempts: extraction.MaxAttempts,
+						RetryDelays: delays, Lease: extraction.LeaseDuration.D(),
+						BotName: func() string { return live.Role.BotName },
+					}
+				},
+				PromptResolver: memoryinfra.NewExtractionPromptResolver(promptService),
+			},
+			logger,
+		)
+		if extractionWorkerErr != nil {
+			return nil, extractionWorkerErr
+		}
+		rt.ExtractionWorker = extractionWorker
 		logger.Info("tools registered",
 			"count", len(toolRegistry.Snapshot()),
 			"providers", len(toolRegistry.Manifests()))

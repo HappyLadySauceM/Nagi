@@ -3,6 +3,8 @@
 package domain
 
 var reasonText = map[string]string{
+	"direct_name_call":             "直接呼叫机器人名称",
+	"unanswered_call_followup":     "同一人追问尚未回应的呼叫",
 	"explicit_mention":             "明确 @ 或引用机器人",
 	"active_thread_continuation":   "延续机器人最近的话题",
 	"interjection":                 "适合自然插话",

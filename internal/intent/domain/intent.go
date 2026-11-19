@@ -62,7 +62,8 @@ type BotActivity struct {
 // Input is the full decision input assembled by the pipeline.
 // Input 是流水线组装的完整决策输入。
 type Input struct {
-	Task Task
+	Task    Task
+	BotName string
 	// Recent is chronological authorized history including bot replies.
 	// Recent 是按时间正序的授权历史，包含机器人回复。
 	Recent []Message
@@ -77,6 +78,29 @@ type Input struct {
 	// Prompt is the immutable prompt snapshot selected before the semantic call.
 	// Prompt 是语义调用前选定的不可变 Prompt 快照。
 	Prompt Prompt
+}
+
+// HistoryBeforeCurrent returns authorized history preceding the current message and its timestamp.
+// HistoryBeforeCurrent 返回当前消息之前的授权历史和当前消息时间。
+func (in Input) HistoryBeforeCurrent() ([]Message, time.Time) {
+	current := in.Task.Message
+	for i, message := range in.Recent {
+		if current.MessageID != 0 && message.MessageID == current.MessageID {
+			at := current.CreatedAt
+			if at.IsZero() {
+				at = message.CreatedAt
+			}
+			return in.Recent[:i], at
+		}
+	}
+	if !current.CreatedAt.IsZero() {
+		for i, message := range in.Recent {
+			if !message.CreatedAt.Before(current.CreatedAt) {
+				return in.Recent[:i], current.CreatedAt
+			}
+		}
+	}
+	return in.Recent, current.CreatedAt
 }
 
 // MentionsBot reports whether an at segment targets the bot itself.

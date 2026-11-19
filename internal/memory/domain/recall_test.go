@@ -5,11 +5,11 @@ import (
 	"time"
 )
 
-// TestRankRecallOrdersExactSubjectBeforeOtherSubject verifies that asking about
+// TestRankRecallExcludesOtherSubject verifies that asking about
 // A keeps A's exact fact ahead of B's fact even though B is the speaker.
-// TestRankRecallOrdersExactSubjectBeforeOtherSubject 验证询问 A 时，A 的精确事实
+// TestRankRecallExcludesOtherSubject 验证询问 A 时，A 的精确事实
 // 排在 B 的事实之前，即使 B 是当前发言者。
-func TestRankRecallOrdersExactSubjectBeforeOtherSubject(t *testing.T) {
+func TestRankRecallExcludesOtherSubject(t *testing.T) {
 	now := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
 	memories := []Memory{
 		{ID: "b", Visibility: VisibilityGroup, Content: "B 爱喝拿铁", SubjectType: SubjectUser, SubjectID: "200", UpdatedAt: now},
@@ -22,14 +22,11 @@ func TestRankRecallOrdersExactSubjectBeforeOtherSubject(t *testing.T) {
 	if noKeyword || reason != "" {
 		t.Fatalf("rank diagnostics = noKeyword=%v reason=%q", noKeyword, reason)
 	}
-	if len(hits) != 2 || hits[0].Memory.ID != "a" || hits[1].Memory.ID != "b" {
+	if len(hits) != 1 || hits[0].Memory.ID != "a" {
 		t.Fatalf("ranked hits = %+v", hits)
 	}
 	if hits[0].SubjectMatch != SubjectMatchExact || hits[0].SelectionReason != SelectionReasonSubjectExact || hits[0].Score != 3 {
 		t.Fatalf("exact hit = %+v", hits[0])
-	}
-	if hits[1].SubjectMatch != SubjectMatchOther || hits[1].SelectionReason != SelectionReasonKeywordMatch || hits[1].Score != 1 {
-		t.Fatalf("other hit = %+v", hits[1])
 	}
 }
 
@@ -43,7 +40,7 @@ func TestRankRecallSharedFallbackAndUnknownRequest(t *testing.T) {
 		{ID: "group", Visibility: VisibilityGroup, Content: "群友爱喝茶", SubjectType: SubjectGroup, SubjectID: "700"},
 	}
 	hits, noKeyword, _ := RankRecall(memories, RecallQuery{
-		Kind: "group", TargetID: 700, Query: "爱喝", SubjectType: SubjectUser, SubjectID: "1001", Limit: 5,
+		Kind: "group", TargetID: 700, Query: "爱喝", SubjectType: SubjectUnknown, Limit: 5,
 	})
 	if noKeyword || len(hits) != 2 {
 		t.Fatalf("ranked hits = %+v noKeyword=%v", hits, noKeyword)
@@ -58,7 +55,7 @@ func TestRankRecallSharedFallbackAndUnknownRequest(t *testing.T) {
 	unknownHits, noKeyword, _ := RankRecall([]Memory{{ID: "known", Visibility: VisibilityGroup, Content: "爱喝茶", SubjectType: SubjectUser, SubjectID: "200"}}, RecallQuery{
 		Kind: "group", TargetID: 700, Query: "爱喝", SubjectType: SubjectUnknown,
 	})
-	if noKeyword || len(unknownHits) != 1 || unknownHits[0].SubjectMatch != SubjectMatchNone || unknownHits[0].SelectionReason != SelectionReasonUnknownSubjectKeyword {
+	if !noKeyword || len(unknownHits) != 0 {
 		t.Fatalf("unknown subject hit = %+v noKeyword=%v", unknownHits, noKeyword)
 	}
 }
@@ -106,10 +103,10 @@ func TestRankRecallKeepsSameTextPreferencesSeparate(t *testing.T) {
 	hits, noKeyword, _ := RankRecall(memories, RecallQuery{
 		Kind: "group", TargetID: 700, Query: "喜欢", SubjectType: SubjectUser, SubjectID: "1001", Limit: 3,
 	})
-	if noKeyword || len(hits) != 2 || hits[0].Memory.ID != "a" || hits[1].Memory.ID != "b" {
+	if noKeyword || len(hits) != 1 || hits[0].Memory.ID != "a" {
 		t.Fatalf("same-text hits = %+v noKeyword=%v", hits, noKeyword)
 	}
-	if hits[0].SubjectMatch != SubjectMatchExact || hits[1].SubjectMatch != SubjectMatchOther {
+	if hits[0].SubjectMatch != SubjectMatchExact {
 		t.Fatalf("same-text subject matches = %+v", hits)
 	}
 }

@@ -290,3 +290,45 @@ func TestParticipationBaselineSimulationMatchesPolicy(t *testing.T) {
 		t.Fatalf("simulation steps = %d, recorded = %d, executed = %d", len(steps), len(recorder.decisions), len(executor.tasks))
 	}
 }
+
+func TestClusterGroupCalls(t *testing.T) {
+	base := baselineGroupInput("", nil)
+	base.BotName = "Nagi"
+	base.Policy.AllowHistoryRead = true
+	base.Recent = nil
+	base.Activity.Known = true
+
+	first := domain.Message{MessageID: 21, SenderID: 1, Text: "Nagi在吗？", CreatedAt: baselineNow}
+	second := domain.Message{MessageID: 22, SenderID: 1, Text: "有人嘛", CreatedAt: baselineNow.Add(20 * time.Second)}
+	third := domain.Message{MessageID: 23, SenderID: 1, Text: "大家好", CreatedAt: baselineNow.Add(29 * time.Second)}
+	answer := func(directed, continuation, other, join float64) domain.SemanticAnswer {
+		return domain.SemanticAnswer{Available: true, DirectedToBot: directed, ContinuesBotThread: continuation, AddressedToOther: other, AppropriateToJoin: join, Scores: map[string]float64{"intent": 0.02}}
+	}
+	for _, tc := range []struct {
+		name     string
+		msg      domain.Message
+		history  []domain.Message
+		semantic domain.SemanticAnswer
+		want     string
+	}{
+		{"cluster 21", first, []domain.Message{first, second}, answer(.07, .34, .24, .15), "direct_name_call"},
+		{"cluster 22", second, []domain.Message{first, second, third}, answer(.04, .28, .27, .18), "unanswered_call_followup"},
+		{"cluster 23", third, []domain.Message{first, second, third}, answer(.02, .11, .19, .21), "ambiguous"},
+		{"answered", second, []domain.Message{first, {SenderID: 2, IsBot: true, Text: "在", CreatedAt: first.CreatedAt.Add(time.Second)}}, answer(.04, .28, .27, .18), "ambiguous"},
+		{"interrupted", second, []domain.Message{first, {SenderID: 2, Text: "有人", CreatedAt: first.CreatedAt.Add(time.Second)}}, answer(.04, .28, .27, .18), "ambiguous"},
+		{"late", domain.Message{SenderID: 1, Text: "有人吗", CreatedAt: first.CreatedAt.Add(31 * time.Second)}, []domain.Message{first}, answer(.04, .28, .27, .18), "ambiguous"},
+		{"name at start of a statement", domain.Message{SenderID: 1, Text: "Nagi：一个开源项目"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
+		{"ASCII name prefix", domain.Message{SenderID: 1, Text: "NagiHi"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
+		{"mention in prose", domain.Message{SenderID: 1, Text: "我刚部署了 Nagi"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := base
+			in.Task.Message, in.Recent = tc.msg, tc.history
+			rule := EvaluateRules(in)
+			got := EvaluateReplyPolicy(in, rule, tc.semantic)
+			if got.ReasonCode != tc.want || (tc.want != "ambiguous" && rule.NeedSemantic) {
+				t.Fatalf("decision=%+v rule=%+v want reason %s", got, rule, tc.want)
+			}
+		})
+	}
+}

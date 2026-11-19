@@ -215,7 +215,7 @@ func TestRecallPreviewExampleReturnsAudit(t *testing.T) {
 		t.Fatalf("preview = %+v", envelope.Data)
 	}
 	item := envelope.Data.Items[0]
-	if item["SubjectMatch"] != "none" || item["SelectionReason"] != "unknown_subject_keyword" {
+	if item["SubjectMatch"] != "shared" || item["SelectionReason"] != "shared_fallback" {
 		t.Fatalf("item audit = %#v", item)
 	}
 	keywords, _ := item["HitKeywords"].([]any)

@@ -39,6 +39,9 @@ export interface KnowledgePreviewInput {
   targetId?: number
   conversationId?: string
   query?: string
+  subjectType?: 'unknown' | 'user' | 'group'
+  subjectId?: string
+  allowRewrite?: boolean
 }
 
 /** One explicit read-only preview request; skipped layers remain visible to the caller.
@@ -56,6 +59,10 @@ export function useKnowledgePreview() {
           target_id: input.targetId ?? 0,
           conversation_id: input.conversationId ?? '',
           query: input.query ?? '',
+          allow_rewrite: input.allowRewrite ?? false,
+          subject_type: input.subjectType ?? 'unknown',
+          subject_id: input.subjectId ?? '',
+          subject_source: input.subjectId ? 'admin_explicit' : 'unknown',
         },
       }).then(toKnowledgePreview),
   })
@@ -66,6 +73,33 @@ export function useExtractionSettings() {
     queryKey: ['knowledge', 'extraction', 'settings'] as const,
     queryFn: ({ signal }): Promise<ExtractionSettings> =>
       apiRequest('/api/v1/memory-extraction/settings', { signal }).then(toExtractionSettings),
+  })
+}
+
+export function useSaveExtractionSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ExtractionSettings): Promise<ExtractionSettings> =>
+      apiRequest('/api/v1/memory-extraction/settings', {
+        method: 'PUT',
+        body: {
+          Version: input.version,
+          Enabled: input.enabled,
+          Concurrency: input.concurrency,
+          BatchMaxMessages: input.batchMaxMessages,
+          BatchMaxRunes: input.batchMaxRunes,
+          MaxWaitMS: input.maxWaitMs,
+          PollIntervalMS: input.pollIntervalMs,
+          LeaseDurationMS: input.leaseDurationMs,
+          MaxAttempts: input.maxAttempts,
+          RetryDelaysMS: input.retryDelaysMs,
+        },
+      }).then(toExtractionSettings),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['knowledge', 'extraction', 'settings'], updated)
+      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'extraction', 'jobs'] })
+      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'summary'] })
+    },
   })
 }
 

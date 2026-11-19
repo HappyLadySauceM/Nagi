@@ -313,6 +313,9 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 			ScopeType: scopedomain.ScopeType(body.ScopeType), ScopeID: body.ScopeID,
 		},
 	}
+	if h.svcCtx.SettingsProvider != nil {
+		in.BotName = h.svcCtx.SettingsProvider.Settings().Role.BotName
+	}
 	if !in.Policy.ReplyMode.Valid() {
 		common.WriteFailure(w, 400, "invalid reply mode")
 		return

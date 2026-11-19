@@ -91,7 +91,7 @@ func (r *Repo) ListAuthorizedScopes(ctx context.Context, limit int) ([]domain.Ex
 // nearby messages can be coalesced into one model call.
 // CreateExtractionJobs 在当前授权代际下为每条消息建立持久任务。任务等待
 // MaxWait 后才可认领，使相邻消息能合并为一次模型调用。
-func (r *Repo) CreateExtractionJobs(ctx context.Context, scope domain.ExtractionScope, messages []domain.ExtractionSourceMessage, maxWait time.Duration) (int, error) {
+func (r *Repo) CreateExtractionJobs(ctx context.Context, scope domain.ExtractionScope, messages []domain.ExtractionSourceMessage, maxWait time.Duration, revision ...int64) (int, error) {
 	if len(messages) == 0 {
 		return 0, nil
 	}
@@ -103,6 +103,9 @@ func (r *Repo) CreateExtractionJobs(ctx context.Context, scope domain.Extraction
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
+	if allowed, err := lockExtractionSettings(ctx, tx, revision...); err != nil || !allowed {
+		return 0, err
+	}
 	// Lock the conversation row before the authorization lock. Ingest upserts
 	// the conversation and then stamps authorization in the same transaction, so
 	// both paths must use conversation -> authorization order to avoid a
@@ -181,16 +184,7 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 	if options.MaxMessages <= 0 || options.MaxRunes <= 0 || options.Lease <= 0 {
 		return domain.ExtractionBatch{}, false, fmt.Errorf("memory: invalid extraction claim options")
 	}
-	// A source message can disappear through retention after the job was
-	// created. Mark such jobs failed here so they cannot hold the head of the
-	// claim queue or block other conversations in the same worker loop.
-	// 来源消息可能在任务创建后被留存清理；这里先把无来源任务置为失败，
-	// 避免它占住认领队首并阻塞同一轮其它会话。
-	if _, err := r.pool.Exec(ctx, `
-		UPDATE memory_extraction_jobs
-		SET status='failed', claim_token=NULL, lease_expires_at=NULL,
-			last_error_code='source_missing', updated_at=clock_timestamp()
-		WHERE status='pending' AND message_id IS NULL`); err != nil {
+	if allowed, err := r.prepareExtractionClaim(ctx, options); err != nil || !allowed {
 		return domain.ExtractionBatch{}, false, err
 	}
 	var conversationID string
@@ -203,13 +197,14 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 			SELECT 1 FROM memory_extraction_jobs j
 			JOIN messages m ON m.id=j.message_id
 			WHERE j.conversation_id=c.id AND j.status='pending' AND j.next_run_at<=clock_timestamp()
+				AND ($1<=0 OR j.attempts<$1 OR (j.manual_retries>0 AND j.round_attempts=0))
 		)
 		AND NOT EXISTS (
 			SELECT 1 FROM memory_extraction_jobs busy
 			WHERE busy.conversation_id=c.id AND busy.status='processing'
 		)
 		ORDER BY c.last_message_at NULLS LAST, c.id
-		LIMIT 1`).Scan(&conversationID, &botID, &scopeType, &targetID)
+		LIMIT 1`, options.MaxAttempts).Scan(&conversationID, &botID, &scopeType, &targetID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ExtractionBatch{}, false, nil
 	}
@@ -222,6 +217,9 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 		return domain.ExtractionBatch{}, false, err
 	}
 	defer tx.Rollback(ctx)
+	if allowed, err := lockExtractionSettings(ctx, tx, options.SettingsRevision); err != nil || !allowed {
+		return domain.ExtractionBatch{}, false, err
+	}
 	// Lock the conversation row before the authorization lock. Ingest upserts
 	// the conversation and then stamps authorization in the same transaction, so
 	// both paths must use conversation -> authorization order to avoid a
@@ -290,6 +288,7 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 		WHERE j.conversation_id=$1::uuid
 			AND j.authorization_event_id=$2
 			AND j.status='pending' AND j.next_run_at<=clock_timestamp()
+			AND ($4<=0 OR j.attempts<$4 OR (j.manual_retries>0 AND j.round_attempts=0))
 			AND m.memory_authorization_event_id=$2
 			AND j.extraction_payload IS NOT DISTINCT FROM (
 				SELECT j2.extraction_payload
@@ -297,12 +296,13 @@ func (r *Repo) ClaimReadyExtractionBatch(ctx context.Context, options domain.Ext
 				WHERE j2.conversation_id=$1::uuid
 					AND j2.authorization_event_id=$2
 					AND j2.status='pending' AND j2.next_run_at<=clock_timestamp()
+					AND ($4<=0 OR j2.attempts<$4 OR (j2.manual_retries>0 AND j2.round_attempts=0))
 				ORDER BY j2.next_run_at, j2.id
 				LIMIT 1
 			)
 		ORDER BY j.next_run_at, j.id
 		LIMIT $3
-		FOR UPDATE OF j`, conversationID, currentEventID, options.MaxMessages)
+		FOR UPDATE OF j`, conversationID, currentEventID, options.MaxMessages, options.MaxAttempts)
 	if err != nil {
 		return domain.ExtractionBatch{}, false, err
 	}
@@ -575,7 +575,7 @@ func (r *Repo) CancelExtractionBatch(ctx context.Context, batch domain.Extractio
 // RecoverStaleExtractionJobs returns expired processing jobs to pending or
 // fails them once their cumulative attempts are exhausted.
 // RecoverStaleExtractionJobs 让过期 processing 任务回到 pending；累计尝试耗尽时置失败。
-func (r *Repo) RecoverStaleExtractionJobs(ctx context.Context, maxAttempts int, retryDelays []time.Duration) error {
+func (r *Repo) RecoverStaleExtractionJobs(ctx context.Context, maxAttempts int, retryDelays []time.Duration, revision ...int64) error {
 	if maxAttempts <= 0 {
 		return fmt.Errorf("memory: extraction recovery max attempts must be positive")
 	}
@@ -584,6 +584,9 @@ func (r *Repo) RecoverStaleExtractionJobs(ctx context.Context, maxAttempts int, 
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if allowed, err := lockExtractionSettings(ctx, tx, revision...); err != nil || !allowed {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE memory_extraction_jobs
 		SET status='failed', claim_token=NULL, lease_expires_at=NULL,
@@ -624,6 +627,57 @@ func (r *Repo) RecoverStaleExtractionJobs(ctx context.Context, maxAttempts int, 
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func (r *Repo) prepareExtractionClaim(ctx context.Context, options domain.ExtractionClaimOptions) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	if allowed, err := lockExtractionSettings(ctx, tx, options.SettingsRevision); err != nil || !allowed {
+		return false, err
+	}
+	// A source message can disappear through retention after the job was
+	// created. Mark such jobs failed here so they cannot hold the head of the
+	// claim queue or block other conversations in the same worker loop.
+	// 来源消息可能在任务创建后被留存清理；这里先把无来源任务置为失败，
+	// 避免它占住认领队首并阻塞同一轮其它会话。
+	if _, err := tx.Exec(ctx, `
+		UPDATE memory_extraction_jobs
+		SET status='failed', claim_token=NULL, lease_expires_at=NULL,
+			last_error_code='source_missing', updated_at=clock_timestamp()
+		WHERE status='pending' AND message_id IS NULL`); err != nil {
+		return false, err
+	}
+	if options.MaxAttempts > 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE memory_extraction_jobs
+			SET status='failed', last_error_code='attempts_exhausted', updated_at=clock_timestamp()
+			WHERE status='pending' AND attempts >= $1 AND (manual_retries=0 OR round_attempts>0)`, options.MaxAttempts); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// lockExtractionSettings orders scheduling transactions with console saves.
+// lockExtractionSettings 使调度事务与控制台保存按版本顺序生效。
+func lockExtractionSettings(ctx context.Context, tx *db.Tx, revision ...int64) (bool, error) {
+	if len(revision) == 0 || revision[0] == 0 {
+		return true, nil
+	}
+	var enabled bool
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE((payload->'Extraction'->>'Enabled')::boolean, true)
+		FROM system_settings WHERE id=1 AND version=$1 FOR SHARE`, revision[0]).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
 }
 
 func retryDelayForAttempt(delays []time.Duration, attempt int) time.Duration {
