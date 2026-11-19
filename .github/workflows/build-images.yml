@@ -209,6 +209,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: image=${{ env.ZOT }}/infrastructure/buildkit:buildx-stable-1@sha256:98cc6a3fc46220d00f8224ae483f3274fc874e9be8d7dd1e2e2c5481209228b5
+          buildkitd-config-inline: |
+            [registry."${{ env.ZOT }}"]
+              insecure = true
+
       - name: 打包、推送暂存镜像并签名
         env:
           IMAGES: ${{ join(fromJSON(needs.changes.outputs.images), ' ') }}

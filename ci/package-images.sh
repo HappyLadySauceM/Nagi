@@ -14,15 +14,6 @@ stage_images() {
   printf '%s' "${COSIGN_KEY:?}" > "$cosign_key"
   export COSIGN_PASSWORD
 
-  cat > "$RELEASE_DIR/buildkitd.toml" <<CONFIG
-[registry."$ZOT"]
-  insecure = true
-CONFIG
-  docker buildx create --name nagi-release --use --driver docker-container \
-    --driver-opt "image=$ZOT/infrastructure/buildkit:buildx-stable-1@sha256:98cc6a3fc46220d00f8224ae483f3274fc874e9be8d7dd1e2e2c5481209228b5" \
-    --buildkitd-config "$RELEASE_DIR/buildkitd.toml"
-  docker buildx inspect --bootstrap
-
   for image in "${images[@]}"; do
     local context args started signed digest cache_digest
     args=()
