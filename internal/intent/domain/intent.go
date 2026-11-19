@@ -66,7 +66,9 @@ type Input struct {
 	BotName string
 	// Recent is chronological authorized history including bot replies.
 	// Recent 是按时间正序的授权历史，包含机器人回复。
-	Recent []Message
+	Recent               []Message
+	AwaitedRequest       *Message
+	HistoryWindowSkipped bool
 	// Activity holds DB-derived bot reply metadata; it takes precedence over
 	// Recent so cooldown and hourly limits cannot be bypassed by disabling
 	// history reads.
@@ -218,12 +220,13 @@ type RuleEvaluation struct {
 }
 
 type RuleResult struct {
-	Evaluations  []RuleEvaluation
-	Matched      bool
-	BuiltinRules map[string]bool
-	Blocked      bool
-	ReasonCode   string
-	NeedSemantic bool
+	Evaluations    []RuleEvaluation
+	Matched        bool
+	BuiltinRules   map[string]bool
+	Blocked        bool
+	ReasonCode     string
+	NeedSemantic   bool
+	WaitForContent bool
 	// Explicit is true when the message directly @-mentions or replies to the bot.
 	// Explicit 为 true 表示消息直接 @ 或引用了机器人。
 	Explicit bool

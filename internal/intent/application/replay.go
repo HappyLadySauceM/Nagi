@@ -499,13 +499,15 @@ func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnaps
 		return domain.Input{}, err
 	}
 	return domain.Input{
-		Task:     snapshot.Input.Task,
-		BotName:  d.currentBotName(),
-		Recent:   snapshot.Input.Recent,
-		Activity: snapshot.Input.Activity,
-		Policy:   policy,
-		Now:      snapshot.Input.Now,
-		Prompt:   snapshot.Prompt,
+		Task:                 snapshot.Input.Task,
+		BotName:              d.currentBotName(),
+		Recent:               snapshot.Input.Recent,
+		AwaitedRequest:       snapshot.Input.AwaitedRequest,
+		HistoryWindowSkipped: snapshot.Input.HistoryWindowSkipped,
+		Activity:             snapshot.Input.Activity,
+		Policy:               policy,
+		Now:                  snapshot.Input.Now,
+		Prompt:               snapshot.Prompt,
 	}, nil
 }
 

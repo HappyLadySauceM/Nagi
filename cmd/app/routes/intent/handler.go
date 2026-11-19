@@ -207,6 +207,18 @@ func snapshotContextMessages(in intentdomain.SnapshotInput) []map[string]any {
 		}
 		out = append(out, contextMessageView(message, current))
 	}
+	if in.AwaitedRequest != nil {
+		seen := false
+		for _, message := range in.Recent {
+			if message.MessageID == in.AwaitedRequest.MessageID {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out = append([]map[string]any{contextMessageView(*in.AwaitedRequest, false)}, out...)
+		}
+	}
 	if !seenCurrent {
 		out = append(out, contextMessageView(in.Task.Message, true))
 	}
