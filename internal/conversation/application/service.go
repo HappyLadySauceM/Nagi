@@ -92,6 +92,18 @@ func (s *Service) RecentMessages(ctx context.Context, conversationID string, lim
 	return s.repo.RecentMessages(ctx, conversationID, limit)
 }
 
+// JobIngress returns the stored inbound message and receipt trace for one account's job.
+// JobIngress 返回指定账号任务的已存入站消息及接收跟踪。
+func (s *Service) JobIngress(ctx context.Context, botID, jobID int64) (*domain.JobIngress, error) {
+	repo, ok := s.repo.(interface {
+		JobIngress(context.Context, int64, int64) (*domain.JobIngress, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	return repo.JobIngress(ctx, botID, jobID)
+}
+
 // MessageSourceRepository is an optional narrow capability for source-message
 // reads; repositories that do not implement it simply cannot support source
 // lookup.

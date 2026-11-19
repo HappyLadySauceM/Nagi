@@ -353,17 +353,18 @@ func TestReplierWritesDeliveryAuditBeforeTransport(t *testing.T) {
 	if err := r.ExecuteReply(ctx, groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if len(sender.group) != 1 || len(audit.events) != 2 {
+	if len(sender.group) != 1 || len(audit.events) != 3 {
 		t.Fatalf("sends=%v events=%+v", sender.group, audit.events)
 	}
-	if audit.events[0].Stage != "agent.generation" || audit.events[1].Stage != "outbound.deliver" || audit.events[1].Sequence != 2 {
+	if audit.events[0].Stage != "agent.context" || audit.events[1].Stage != "agent.generation" ||
+		audit.events[2].Stage != "outbound.deliver" || audit.events[2].Sequence != 3 {
 		t.Fatalf("events = %+v", audit.events)
 	}
-	if len(audit.finished) != 2 || audit.finished[1].Status != "succeeded" {
+	if len(audit.finished) != 3 || audit.finished[2].Status != "succeeded" {
 		t.Fatalf("finished = %+v", audit.finished)
 	}
 	var output map[string]any
-	if err := json.Unmarshal(audit.finished[1].Output, &output); err != nil {
+	if err := json.Unmarshal(audit.finished[2].Output, &output); err != nil {
 		t.Fatalf("decode delivery output: %v", err)
 	}
 	if output["status"] != string(outbounddomain.StatusSent) || output["platform_message_id"] != float64(1) {

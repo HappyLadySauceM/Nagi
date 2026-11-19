@@ -200,6 +200,12 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if !policy.AllowHistoryRead {
 		history = nil
 	}
+	contextEvent, auditErr := auditcontracts.StartEvent(ctx, "agent.context", map[string]any{
+		"job_id": task.JobID, "history_allowed": policy.AllowHistoryRead,
+	})
+	if auditErr != nil {
+		return auditErr
+	}
 	memories := r.recallMemories(ctx, task, policy, history)
 	messages := r.buildMessages(ctx, task, history, memories)
 	runtimeMessages := toRuntimeMessages(messages)
@@ -221,6 +227,9 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		}
 		parts, prepareErr := prepare(task.Segments, messages[len(messages)-1].Content)
 		if prepareErr != nil {
+			if err := auditcontracts.FinishEvent(ctx, contextEvent, "failed", "current_media_failed", nil); err != nil {
+				return err
+			}
 			return fmt.Errorf("agent: prepare current media: %w", prepareErr)
 		}
 		runtimeMessages[len(messages)-1].Parts = parts
@@ -233,12 +242,27 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			if !m.IsBot {
 				parts, prepareErr := prepare(m.Segments, messages[index].Content)
 				if prepareErr != nil {
+					if err := auditcontracts.FinishEvent(ctx, contextEvent, "failed", "history_media_failed", nil); err != nil {
+						return err
+					}
 					return fmt.Errorf("agent: prepare history media: %w", prepareErr)
 				}
 				runtimeMessages[index].Parts = parts
 			}
 			index--
 		}
+	}
+
+	historyIDs := make([]int64, 0, len(history))
+	for _, message := range history {
+		if task.Message.MessageID == 0 || message.MessageID != task.Message.MessageID {
+			historyIDs = append(historyIDs, message.MessageID)
+		}
+	}
+	if err := auditcontracts.FinishEvent(ctx, contextEvent, "succeeded", "", map[string]any{
+		"history_message_ids": historyIDs, "memory_hits": memoryHitMetadata(memories),
+	}); err != nil {
+		return err
 	}
 
 	tracer := otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/agent")
