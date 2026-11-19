@@ -50,8 +50,18 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
       -X github.com/HappyLadySauceM/Nagi/pkg/version.BuildDate=${BUILD_DATE}" \
     -o /out/nagi ./cmd
 
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS runtime
 RUN apk add --no-cache ffmpeg
-COPY --from=build /out/nagi /usr/local/bin/nagi
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/nagi"]
+
+FROM runtime AS package-only
+ARG VERSION
+ARG COMMIT
+COPY --from=nagi_artifacts /nagi /usr/local/bin/nagi
+RUN version=$(/usr/local/bin/nagi -version) \
+    && echo "$version" \
+    && echo "$version" | grep -qF "nagi ${VERSION} (commit ${COMMIT},"
+
+FROM runtime AS standalone
+COPY --from=build /out/nagi /usr/local/bin/nagi

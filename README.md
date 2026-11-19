@@ -323,13 +323,13 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
 
 ## 构建
 
-- 两个镜像各自在所属 Dockerfile 内多阶段构建：api 用 `infrastructure/golang:1.27` 编译，只把二进制放进
+- 两个 Dockerfile 的默认目标支持从源码构建：api 用 `infrastructure/golang:1.27` 编译，只把二进制放进
   `infrastructure/alpine:3.22`；web 用 `infrastructure/node:24-alpine` 跑 pnpm 构建，只把 `dist`
   放进 `infrastructure/nginx:alpine`。基础镜像默认走集群内 Zot
   （`zot.infra-registry.svc.cluster.local:5000/infrastructure/{alpine,nginx,node,golang}`，
   同一命名空间下还有 CI 用的 `postgres:17` 与 `buildkit`），由 `gitops-infra` 的
   `sync-base-images` 工作流同步。
-- 本地复现同一条构建（需要 BuildKit；本机不信任 Zot 自签证书，用 Docker Hub 上的对应镜像覆盖集群内
+- 本地从源码构建（需要 BuildKit；本机不信任 Zot 自签证书时，用 Docker Hub 上的对应镜像覆盖集群内
   基础镜像）：
   ```bash
   sha=$(git rev-parse HEAD | cut -c1-7)
@@ -344,16 +344,18 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   本地按上面的命令构建后可用 `docker run --rm nagi-api -version` 自查。
   注意本地示例用 Docker Hub 的对应镜像替代 Zot 基础镜像（如 `golang:1.27-alpine` 对应
   `infrastructure/golang:1.27`），产物不保证与 CI 逐字节一致。
-- 构建作业依赖 runner 的 docker daemon 信任 Zot（自签证书 + 已登录）：基础镜像由 buildkit 拉取，
-  构建后的版本校验由 daemon 拉取该镜像完成，runner 换机时需要同步这份配置。
-- 检查环境由 `ci/check/Dockerfile` 定义，通过 `.github/workflows/check-environment.yml` 构建、推送并签名到 Zot。
-  `verify` 直接使用该镜像内的 Go、Node、pnpm、just 和媒体工具，工具版本调整时重新发布环境镜像。
-- 构建依赖层通过 Zot 的 `buildcache/nagi-api:main`、`buildcache/nagi-web:main` 跨运行复用。
-  `GOCACHE` 与 pnpm store 的 BuildKit cache mount 不随 registry 缓存导出，常驻 builder 才能持续复用挂载内容。
-  检查容器另将本机 `/cache/nagi` 挂到 `/cache`，复用 Go 模块、编译缓存及 pnpm store。
+- CI 在 Zot 的 Ubuntu 24.04 底镜中运行，从 ARC 节点的 `/opt/arc-runner/nagi/toolchains/v1` 只读挂载工具。
+  节点工具链包含 Go 1.27.3、Node 24.22.1、pnpm 12.14.0、just 1.59.0、Git、FFmpeg、CA 和发布命令。
+  在新节点加入 builder 池前准备同版本的目录和缓存。升级时先在各节点安装由 root 管理的新版本目录，
+  用相同 Ubuntu 底镜以 UID 1001 验证，再更新 ARC 和 workflow 的挂载路径。
+- PR 校验复用宿主机 `/opt/arc-runner/nagi/cache/verify` 的 Go 模块、Go 编译缓存和 pnpm store。
+  正式发布使用作业内临时缓存。发布作业把该作业生成的 `web/dist` 和 API 二进制分别交给
+  Dockerfile 的 `package-only` 目标。BuildKit 在打包时检查 API 版本和 nginx 配置。
+- 打包层写入 Zot 的 `buildcache/nagi-api:package`、`buildcache/nagi-web:package`，同时可读原来的
+  `:main` 缓存。Zot 和 GHCR 上的暂存镜像摘要必须一致，Zot 签名成功后再发布正式 SHA tag。
 - `verify` 是 `main` 的必需检查：所有 PR（包括文档和 workflow 改动）都执行完整的 Go 与前端校验，
   变更检测失败也会使 `verify` 失败。PR 不构建、签名或推送镜像；main 推送按变更路径构建，
-  手动 `workflow_dispatch` 执行全量检查和构建。
+  在 main 手动触发 `workflow_dispatch` 执行全量检查和构建。
 - 签名只打在 Zot 的镜像引用上（`cosign sign .../zot...@digest`），ghcr 上的同 digest 副本没有签名，
   验签要从 Zot 拉。
 - 镜像 tag 是 7 位短 SHA，由 gitops 仓库的 Image Updater 自动开 PR；本仓库不再推送 digest 事件。

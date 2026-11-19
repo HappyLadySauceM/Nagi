@@ -23,7 +23,13 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 COPY . .
 RUN pnpm build
 
-FROM ${BASE_IMAGE}
-COPY --from=build /app/dist /usr/share/nginx/html
+FROM ${BASE_IMAGE} AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
+
+FROM runtime AS package-only
+COPY --from=nagi_artifacts / /usr/share/nginx/html
+RUN nginx -t && test -s /usr/share/nginx/html/index.html
+
+FROM runtime AS standalone
+COPY --from=build /app/dist /usr/share/nginx/html
