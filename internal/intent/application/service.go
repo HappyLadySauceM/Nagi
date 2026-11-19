@@ -360,7 +360,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 			}
 		}
 		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task) ||
-			directNameCall(task.Message.Text, task.Segments, botName) || requestsFollowingContent(early)) {
+			directNameCall(task.Message.Text, task.Segments, botName) && !refersToEarlierDiscussion(task) || requestsFollowingContent(early)) {
 			readHistory = false
 		}
 	}
@@ -586,14 +586,15 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		ReasonCode:  rule.ReasonCode,
 		Summary:     "决策问题求值完成",
 		Detail: map[string]any{
-			"Questions":    decisionQuestionDetails(rule.Questions, in.Task.Kind),
-			"Evaluations":  rule.Evaluations,
-			"evaluations":  rule.Evaluations,
-			"Matched":      rule.Matched,
-			"Blocked":      rule.Blocked,
-			"Explicit":     rule.Explicit,
-			"NeedSemantic": rule.NeedSemantic,
-			"AlwaysReply":  rule.AlwaysReply,
+			"Questions":        decisionQuestionDetails(rule.Questions, in.Task.Kind),
+			"BotNameMentioned": in.Task.Kind == "group" && mentionsBotName(in.Task, in.BotName),
+			"Evaluations":      rule.Evaluations,
+			"evaluations":      rule.Evaluations,
+			"Matched":          rule.Matched,
+			"Blocked":          rule.Blocked,
+			"Explicit":         rule.Explicit,
+			"NeedSemantic":     rule.NeedSemantic,
+			"AlwaysReply":      rule.AlwaysReply,
 		},
 		Evidence: []domain.Evidence{{Kind: "rules", Text: "need_semantic=" + boolText(rule.NeedSemantic)}},
 	}}

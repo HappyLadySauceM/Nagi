@@ -314,6 +314,21 @@ func TestClusterGroupCalls(t *testing.T) {
 		{"cluster 21", first, []domain.Message{first, second}, answer(.07, .34, .24, .15), "direct_name_call"},
 		{"cluster 22", second, []domain.Message{first, second, third}, answer(.04, .28, .27, .18), "unanswered_call_followup"},
 		{"cluster 23", third, []domain.Message{first, second, third}, answer(.02, .11, .19, .21), "ambiguous"},
+		{"cluster 30", domain.Message{Text: "Nagi 是谁？"}, nil, answer(.41, .34, .23, .39), "direct_name_call"},
+		{"cluster 33", domain.Message{Text: "nagi告诉我几点了"}, nil, answer(.71, .51, .18, .69), "direct_name_call"},
+		{"mixed case identity", domain.Message{Text: "NaGi，你是谁？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"bare lowercase name", domain.Message{Text: "nagi"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"polite lowercase request", domain.Message{Text: "nagi，请告诉我现在几点了？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"named request", domain.Message{Text: "Nagi，你觉得哪个方案更好？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"explanation request", domain.Message{Text: "Nagi，请解释一下这个报错"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"question particle without punctuation", domain.Message{Text: "Nagi，你能解释一下这个报错吗"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"question without punctuation", domain.Message{Text: "Nagi，你怎么看这个报错"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"question with a possessive", domain.Message{Text: "Nagi，你怎么看我的方案？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
+		{"statement with question words", domain.Message{Text: "Nagi，你怎么看都比它强。"}, nil, domain.SemanticAnswer{Available: true}, "ambiguous"},
+		{"statement about visibility", domain.Message{Text: "Nagi，你怎么看也看不清这张图。"}, nil, domain.SemanticAnswer{Available: true}, "ambiguous"},
+		{"advice to another person", domain.Message{Text: "Nagi 你可以从 GitHub 下载，小王"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
+		{"question addressed to the group", domain.Message{Text: "你们知道 Nagi 是谁吗？"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
+		{"reports speech", domain.Message{Text: "Nagi告诉我昨天停电了"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
 		{"answered", second, []domain.Message{first, {SenderID: 2, IsBot: true, Text: "在", CreatedAt: first.CreatedAt.Add(time.Second)}}, answer(.04, .28, .27, .18), "ambiguous"},
 		{"interrupted", second, []domain.Message{first, {SenderID: 2, Text: "有人", CreatedAt: first.CreatedAt.Add(time.Second)}}, answer(.04, .28, .27, .18), "ambiguous"},
 		{"late", domain.Message{SenderID: 1, Text: "有人吗", CreatedAt: first.CreatedAt.Add(31 * time.Second)}, []domain.Message{first}, answer(.04, .28, .27, .18), "ambiguous"},
@@ -330,6 +345,52 @@ func TestClusterGroupCalls(t *testing.T) {
 				t.Fatalf("decision=%+v rule=%+v want reason %s", got, rule, tc.want)
 			}
 		})
+	}
+}
+
+func TestNameWakeWithImage(t *testing.T) {
+	task := domain.Task{Segments: []obdomain.Segment{obdomain.Text("Nagi"), obdomain.Image("sample"), obdomain.Text("OK")}}
+	if !mentionsBotName(task, "Nagi") {
+		t.Fatal("image hid the name")
+	}
+	task.Segments = []obdomain.Segment{obdomain.Text("Na"), obdomain.Image("sample"), obdomain.Text("gi")}
+	if mentionsBotName(task, "Nagi") {
+		t.Fatal("image joined parts of a name")
+	}
+	task.Segments = []obdomain.Segment{obdomain.Text("Nagi"), obdomain.Image("sample"), obdomain.Text("Bot")}
+	if mentionsBotName(task, "Nagi Bot") || directNameCall("", task.Segments, "Nagi Bot") {
+		t.Fatal("image joined parts of a name containing a space")
+	}
+	for _, segments := range [][]obdomain.Segment{
+		{obdomain.Text("Nagi，帮我看看这张图"), obdomain.Image("sample")},
+		{obdomain.Text("Nagi，"), obdomain.Image("sample"), obdomain.Text("帮我看看这张图")},
+		{obdomain.Text("Nagi，你"), obdomain.Image("sample"), obdomain.Text("能帮我看看这张图吗？")},
+		{obdomain.Text("Nagi，你能解释这个吗"), obdomain.Image("sample"), obdomain.Text("！")},
+	} {
+		if !directNameCall("", segments, "Nagi") {
+			t.Fatal("image prevented a direct request")
+		}
+	}
+}
+
+func TestNameWakeDoesNotRequireReply(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want bool
+	}{
+		{"你昨天部署的nagi怎么样？", true},
+		{"大家好", false},
+		{"我昨天部署了 Nagios", false},
+	} {
+		in := baselineGroupInput(tc.text, nil)
+		in.BotName = "Nagi"
+		rule := EvaluateRules(in)
+		semantic := domain.SemanticAnswer{Available: true, AddressedToOther: .99}
+		decision := EvaluateReplyPolicy(in, rule, semantic)
+		steps := decisionSteps(in, rule, semantic, decision, 1, true, false)
+		if decision.Decision != domain.DecisionSilent || steps[2].Detail["BotNameMentioned"] != tc.want {
+			t.Fatalf("%q: decision=%+v detail=%+v", tc.text, decision, steps[2].Detail)
+		}
 	}
 }
 
