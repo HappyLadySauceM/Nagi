@@ -36,7 +36,8 @@ func (r *ModelRecallRewriter) Rewrite(ctx context.Context, botID int64, kind str
 	tokens := 100
 	model, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		BaseURL: resolved.Profile.BaseURL, APIKey: resolved.APIKey, Model: resolved.Profile.Model,
-		MaxTokens: &tokens, HTTPClient: modelhttp.Client(http.DefaultClient, resolved.Profile.HTTPHeaders),
+		ReasoningEffort: openai.ReasoningEffortLevel("none"),
+		MaxTokens:       &tokens, HTTPClient: modelhttp.Client(http.DefaultClient, resolved.Profile.HTTPHeaders),
 	})
 	if err != nil {
 		return nil, err

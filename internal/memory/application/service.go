@@ -517,7 +517,7 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contr
 	} else if in.AllowRewrite && s.rewriter != nil && ctx.Err() == nil && recallCanRewrite(in.Query) {
 		rewriteCtx, span := otel.Tracer("nagi.memory").Start(ctx, "nagi.memory.rewrite")
 		defer span.End()
-		bounded, cancel := context.WithTimeout(rewriteCtx, 2*time.Second)
+		bounded, cancel := context.WithTimeout(rewriteCtx, 4*time.Second)
 		rewritten, rewriteErr := s.rewriter.Rewrite(bounded, in.BotID, in.Kind, in.TargetID, in.Query)
 		rewriteDone := bounded.Err() == nil
 		cancel()
