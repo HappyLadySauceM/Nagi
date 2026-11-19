@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
@@ -60,7 +61,7 @@ func TestRejectablePermissionsAllowsStoredKeys(t *testing.T) {
 // new allow_memory_read field keeps long-term memory disabled.
 // TestPolicyUpdateMemoryReadDefaultsOff 验证旧客户端省略 allow_memory_read 时保持长期记忆关闭。
 func TestPolicyUpdateMemoryReadDefaultsOff(t *testing.T) {
-	var body policyUpdate
+	var body v1.PolicyUpdate
 	if err := json.Unmarshal([]byte(`{"enabled":true,"reply_mode":"mention_only"}`), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}

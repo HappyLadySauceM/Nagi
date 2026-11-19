@@ -13,6 +13,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
@@ -53,45 +54,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.RegisterPrompts(mux)
 }
 
-// decisionInfo is the list representation of one decision.
-// decisionInfo 是决策的列表表示。
-type decisionInfo struct {
-	ID             int64
-	JobID          int64
-	BotID          int64
-	ConversationID string
-	Decision       string
-	ReasonCode     string
-	Provider       string
-	Model          string
-	RulesetVersion string
-	RunID          string
-	FlowVersion    string
-	SnapshotStatus string
-	MissingFields  []string
-	LatencyMS      int
-	CreatedAt      time.Time
-}
-
-// decisionDetail adds the explainable steps to the list representation.
-// decisionDetail 在列表表示之上附带可解释步骤。
-type decisionDetail struct {
-	decisionInfo
-	Scores map[string]float64
-	Steps  []stepInfo
-	Run    intentcontracts.Run
-}
-
-// stepInfo is one explainable stage of a decision.
-// stepInfo 是决策中的一个可解释阶段。
-type stepInfo struct {
-	Index      int
-	Phase      string
-	ReasonCode string
-	Detail     map[string]any
-	CreatedAt  time.Time
-}
-
 // List returns the newest decisions of one account.
 // List 返回某账号最新的决策记录。
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +91,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取决策记录失败")
 		return
 	}
-	items := make([]decisionInfo, 0, len(records))
+	items := make([]v1.DecisionInfo, 0, len(records))
 	for _, record := range records {
 		items = append(items, toInfo(record))
 	}
@@ -155,9 +117,9 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	record = attachSnapshotContext(r.Context(), h.svcCtx.Decisions, record)
 	delivery := h.deliveryFor(r.Context(), record.BotID, record.JobID)
-	detail := decisionDetail{decisionInfo: toInfo(record), Scores: record.Scores, Run: intentapp.BuildRunFromRecord(record, delivery)}
+	detail := v1.DecisionDetail{DecisionInfo: toInfo(record), Scores: record.Scores, Run: intentapp.BuildRunFromRecord(record, delivery)}
 	for _, step := range record.Steps {
-		detail.Steps = append(detail.Steps, stepInfo{
+		detail.Steps = append(detail.Steps, v1.StepInfo{
 			Index: step.Index, Phase: step.Phase, ReasonCode: step.ReasonCode, Detail: step.Detail, CreatedAt: step.CreatedAt,
 		})
 	}
@@ -238,8 +200,8 @@ func boundContextText(text string) string {
 	return string(runes[:limit-1]) + "…"
 }
 
-func toInfo(record intentcontracts.DecisionRecord) decisionInfo {
-	return decisionInfo{
+func toInfo(record intentcontracts.DecisionRecord) v1.DecisionInfo {
+	return v1.DecisionInfo{
 		ID:             record.ID,
 		JobID:          record.JobID,
 		BotID:          record.BotID,

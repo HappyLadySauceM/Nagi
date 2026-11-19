@@ -5,10 +5,10 @@ package agent
 import (
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 )
 
 // Handler serves the outbound ledger endpoint.
@@ -26,23 +26,6 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler { return &Handler{svcCtx: s
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/agent/outbound", h.ListOutbound)
 	h.RegisterPolicy(mux)
-}
-
-// outboundInfo is one delivery record.
-// outboundInfo 是一条投递记录。
-type outboundInfo struct {
-	RunID             string
-	ToolCallID        string
-	ID                string
-	JobID             int64
-	ConversationID    string
-	Sequence          int
-	Text              string
-	Status            string
-	PlatformMessageID int64
-	ErrorCode         string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
 }
 
 // ListOutbound returns the records of one job in sequence order.
@@ -75,9 +58,9 @@ func (h *Handler) ListOutbound(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取投递记录失败")
 		return
 	}
-	items := make([]outboundInfo, 0, len(records))
+	items := make([]v1.OutboundInfo, 0, len(records))
 	for _, record := range records {
-		items = append(items, outboundInfo{
+		items = append(items, v1.OutboundInfo{
 			RunID: record.RunID, ToolCallID: record.ToolCallID, ID: record.ID, JobID: record.JobID, ConversationID: record.ConversationID,
 			Sequence: record.Sequence, Text: record.Text, Status: string(record.Status),
 			PlatformMessageID: record.PlatformMessageID, ErrorCode: record.ErrorCode,

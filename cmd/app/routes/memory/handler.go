@@ -15,6 +15,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
@@ -101,32 +102,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, map[string]any{"items": items, "total": total, "page": f.Page, "limit": f.Limit})
 }
 
-// recallPreviewRequest is the read-only recall diagnostic input.
-// recallPreviewRequest 是只读召回诊断输入。
-type recallPreviewRequest struct {
-	BotID            int64  `json:"bot_id"`
-	PreviewMode      string `json:"preview_mode"`
-	Kind             string `json:"kind"`
-	TargetType       string `json:"target_type"`
-	TargetID         int64  `json:"target_id"`
-	ConversationID   string `json:"conversation_id"`
-	Query            string `json:"query"`
-	Limit            int    `json:"limit"`
-	SpeakerType      string `json:"speaker_type"`
-	SpeakerID        string `json:"speaker_id"`
-	SubjectType      string `json:"subject_type"`
-	SubjectID        string `json:"subject_id"`
-	SubjectSource    string `json:"subject_source"`
-	SubjectEvidence  string `json:"subject_evidence"`
-	SubjectAmbiguous bool   `json:"subject_ambiguous"`
-}
-
 // RecallPreview runs the bounded recall ranker without writing memory or
 // sending a message. Example mode uses synthetic records only.
 // RecallPreview 在不写记忆、不发消息的前提下运行有界召回排序；
 // example 模式只使用合成记录。
 func (h *Handler) RecallPreview(w http.ResponseWriter, r *http.Request) {
-	var body recallPreviewRequest
+	var body v1.RecallPreviewRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -224,7 +205,7 @@ func normalizedRecallLimit(limit int) int {
 	return limit
 }
 
-func exampleRecallPreview(body recallPreviewRequest) memorycontracts.RecallResult {
+func exampleRecallPreview(body v1.RecallPreviewRequest) memorycontracts.RecallResult {
 	kind := body.Kind
 	if kind != "group" && kind != "private" {
 		kind = "group"
@@ -298,14 +279,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, item)
 }
 
-// supersedeRequest is the explicit memory supersede input.
-// supersedeRequest 是显式记忆替代输入。
-type supersedeRequest struct {
-	OldMemoryID    string `json:"old_memory_id"`
-	Reason         string `json:"reason"`
-	IdempotencyKey string `json:"idempotency_key"`
-}
-
 // Supersede explicitly replaces one active memory with a candidate. It never
 // infers an old memory from content similarity.
 // Supersede 显式用一个候选替代一条 active 记忆，绝不按正文相似度推断旧记忆。
@@ -318,7 +291,7 @@ func (h *Handler) Supersede(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid candidate memory id")
 		return
 	}
-	var body supersedeRequest
+	var body v1.SupersedeRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusUnprocessableEntity, "replacement_invalid")
 		return
@@ -367,33 +340,8 @@ func (h *Handler) Management(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, map[string]any{"Memory": managementMemoryViewOf(memory), "Replacements": replacements})
 }
 
-// managementMemoryView is the stable administrator detail shape. It keeps the
-// internal dedupe/confidence/review fields out of the response and renders an
-// absent expiry as null.
-// managementMemoryView 是稳定的管理员详情结构：不暴露内部去重/置信度/审核字段，
-// 无过期时间时输出 null。
-type managementMemoryView struct {
-	ID              string
-	BotID           int64
-	Status          memorydomain.Status
-	Visibility      memorydomain.Visibility
-	OwnerKey        string
-	Content         string
-	Source          string
-	SourceMessageID int64
-	SourceSenderID  int64
-	Confidence      float64
-	SubjectType     memorydomain.SubjectType
-	SubjectID       string
-	Origin          memorydomain.Origin
-	ApprovedBy      string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	ExpiresAt       *time.Time
-}
-
-func managementMemoryViewOf(memory memorydomain.Memory) managementMemoryView {
-	view := managementMemoryView{
+func managementMemoryViewOf(memory memorydomain.Memory) v1.ManagementMemoryView {
+	view := v1.ManagementMemoryView{
 		ID: memory.ID, BotID: memory.BotID, Status: memory.Status, Visibility: memory.Visibility,
 		OwnerKey: memory.OwnerKey, Content: memory.Content, Source: memory.Source,
 		SourceMessageID: memory.SourceMessageID, SourceSenderID: memory.SourceSenderID, Confidence: memory.Confidence,
@@ -428,29 +376,13 @@ func writeMemoryMutationError(w http.ResponseWriter, err error) {
 	}
 }
 
-// createRequest is the POST body; approve=true activates the memory immediately.
-// createRequest 是 POST 请求体；approve=true 时立即激活记忆。
-type createRequest struct {
-	BotID          int64   `json:"bot_id"`
-	Visibility     string  `json:"visibility"`
-	OwnerKey       string  `json:"owner_key"`
-	Content        string  `json:"content"`
-	Source         string  `json:"source"`
-	SourceSenderID int64   `json:"source_sender_id"`
-	SubjectType    string  `json:"subject_type"`
-	SubjectID      string  `json:"subject_id"`
-	ReviewReason   string  `json:"review_reason"`
-	Confidence     float64 `json:"confidence"`
-	Approve        bool    `json:"approve"`
-}
-
 // Create stores a new memory, optionally approved by the acting administrator.
 // Create 存储新记忆，可由当前操作的管理员直接批准。
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
 	}
-	var body createRequest
+	var body v1.CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -479,15 +411,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	common.WriteSuccess(w, map[string]any{"id": id, "duplicate": duplicate})
-}
-
-// patchRequest is the PATCH body; empty fields keep current values.
-// patchRequest 是 PATCH 请求体；空字段保持当前值。
-type patchRequest struct {
-	Content    *string `json:"content"`
-	Visibility string  `json:"visibility"`
-	OwnerKey   *string `json:"owner_key"`
-	Status     string  `json:"status"`
 }
 
 // statusAction is the effect of the PATCH status field on one memory.
@@ -533,7 +456,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
 		return
 	}
-	var body patchRequest
+	var body v1.PatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
 		return

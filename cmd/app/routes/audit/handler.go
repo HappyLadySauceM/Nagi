@@ -10,6 +10,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	"github.com/google/uuid"
 )
@@ -19,14 +20,6 @@ const maxRunPageSize = 100
 // Handler serves durable worker-run audit records.
 // Handler 提供持久化的 worker 运行审计记录。
 type Handler struct{ svcCtx *svc.ServiceContext }
-
-// artifactResponse keeps the original top-level artifact fields and adds an
-// optional short-lived replay URL.
-// artifactResponse 保留原有顶层工件字段并附加可选的短时回放 URL。
-type artifactResponse struct {
-	auditdomain.AIArtifact
-	URL string `json:"url,omitempty"`
-}
 
 // NewHandler builds the local audit handler.
 // NewHandler 构建本地审计处理器。
@@ -129,7 +122,7 @@ func (h *Handler) GetArtifact(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取媒体工件失败")
 		return
 	}
-	response := artifactResponse{AIArtifact: artifact}
+	response := v1.ArtifactResponse{AIArtifact: artifact}
 	if h.svcCtx.MediaArchive != nil {
 		url, signErr := h.svcCtx.MediaArchive.Presign(r.Context(), artifact)
 		if signErr != nil {

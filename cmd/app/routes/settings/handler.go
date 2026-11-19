@@ -10,6 +10,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 )
@@ -40,15 +41,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/settings/reset", h.Reset)
 }
 
-// updateRequest is the PUT body: the full model plus the revision the client
-// edited, so a concurrent save is detected instead of silently overwritten.
-// updateRequest 是 PUT 请求体：完整模型加上客户端编辑时的修订号，
-// 并发保存会被发现而不是被静默覆盖。
-type updateRequest struct {
-	Settings settingsdomain.Settings `json:"Settings"`
-	Version  int64                   `json:"Version"`
-}
-
 // Get returns the current revision, the baseline and the credential state.
 // Get 返回当前修订、默认基线与凭据状态。
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +56,7 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 	if !h.requireService(w) {
 		return
 	}
-	var body updateRequest
+	var body v1.UpdateRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBytes))
 	if err := decoder.Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "请求体不是合法的 JSON")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 )
 
 // Handler serves /livez, /readyz, /api/v1/status and /api/v1/accounts.
@@ -56,21 +57,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, h.svcCtx.StatusSnapshot())
 }
 
-// accountView is one entry of the account list.
-// accountView 是账号列表中的一项。
-type accountView struct {
-	BotID           int64  `json:"bot_id,omitempty"`
-	Nickname        string `json:"nickname"`
-	Endpoint        string `json:"endpoint"`
-	ExpectedQQ      int64  `json:"expected_qq,omitempty"`
-	Connected       bool   `json:"connected"`
-	SelfIDKnown     bool   `json:"self_id_known"`
-	Rejected        string `json:"rejected,omitempty"`
-	HeartbeatSeen   bool   `json:"heartbeat_seen"`
-	LastHeartbeatAt string `json:"last_heartbeat,omitempty"`
-	SyncedAt        string `json:"synced_at,omitempty"`
-}
-
 // Accounts reports every configured account and its connection state. It only
 // reads the runtime and, when available, stored nicknames, so it stays usable
 // without a database.
@@ -79,9 +65,9 @@ type accountView struct {
 func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 	nicknames, syncedAt := h.storedAccounts(r)
 	list := h.svcCtx.Accounts.Snapshot()
-	items := make([]accountView, 0, len(list))
+	items := make([]v1.AccountView, 0, len(list))
 	for _, item := range list {
-		view := accountView{
+		view := v1.AccountView{
 			BotID:         item.BotID,
 			Nickname:      nicknames[item.BotID],
 			Endpoint:      item.Endpoint,
@@ -119,7 +105,7 @@ func (h *Handler) Account(w http.ResponseWriter, r *http.Request) {
 		if item.BotID != botID {
 			continue
 		}
-		view := accountView{
+		view := v1.AccountView{
 			BotID:         item.BotID,
 			Nickname:      nicknames[item.BotID],
 			Endpoint:      item.Endpoint,

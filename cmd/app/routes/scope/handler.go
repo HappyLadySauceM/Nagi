@@ -12,6 +12,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
@@ -122,29 +123,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, policy)
 }
 
-// policyUpdate is the accepted JSON body of PUT /api/v1/scopes/{type}/{id}.
-// policyUpdate 是 PUT /api/v1/scopes/{type}/{id} 接受的 JSON 请求体。
-type policyUpdate struct {
-	MaxMessagesPerRun       int    `json:"max_messages_per_run"`
-	MaxCharsPerMessage      int    `json:"max_chars_per_message"`
-	MaxTotalCharsPerRun     int    `json:"max_total_chars_per_run"`
-	MessageIntervalMS       *int   `json:"message_interval_ms"`
-	ExpectedTemplateVersion *int64 `json:"expected_template_version"`
-	Enabled                 bool   `json:"enabled"`
-	ReplyMode               string `json:"reply_mode"`
-	// StoreMessages is optional: storage is a product baseline, so an absent
-	// field keeps it on while an explicit false still works for scripts.
-	// StoreMessages 可选：消息存储是产品基线，字段缺省时保持开启；
-	// 显式 false 仍可用于脚本。
-	StoreMessages      *bool           `json:"store_messages"`
-	AllowMemoryWrite   bool            `json:"allow_memory_write"`
-	AllowMemoryRead    bool            `json:"allow_memory_read"`
-	AllowHistoryRead   bool            `json:"allow_history_read"`
-	MinReplyIntervalMS int             `json:"min_reply_interval_ms"`
-	MaxRepliesPerHour  int             `json:"max_replies_per_hour"`
-	ToolPermissions    map[string]bool `json:"tool_permissions"`
-}
-
 // Put creates or updates one scope policy; changes take effect immediately.
 // The account must be explicit: writing under a guessed id would create a
 // policy the runtime can never resolve.
@@ -163,7 +141,7 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid scope type or id")
 		return
 	}
-	var body policyUpdate
+	var body v1.PolicyUpdate
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
 		return

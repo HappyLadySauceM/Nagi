@@ -7,34 +7,10 @@ import (
 	"net/http"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
-
-// builtinRuleCatalogEntry is one read-only built-in rule definition.
-// builtinRuleCatalogEntry 是一条只读内置规则定义。
-type builtinRuleCatalogEntry struct {
-	RuleID    string
-	Order     int
-	Title     string
-	Condition string
-	Action    string
-	Editable  bool
-	Source    string
-}
-
-// fixedConstraintCatalogEntry is one read-only server constraint definition.
-// fixedConstraintCatalogEntry 是一条只读服务端约束定义。
-type fixedConstraintCatalogEntry struct {
-	ConstraintID string
-	Order        int
-	Title        string
-	Condition    string
-	Action       string
-	ReasonCode   string
-	Editable     bool
-	Source       string
-}
 
 // BuiltinRules returns the complete built-in rule catalog. It is static and
 // works without a database, Langfuse or any external credentials.
@@ -155,11 +131,11 @@ func (h *Handler) EffectiveRules(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, response)
 }
 
-func builtinRuleCatalog() []builtinRuleCatalogEntry {
+func builtinRuleCatalog() []v1.BuiltinRuleCatalogEntry {
 	definitions := intentdomain.BuiltinRules()
-	out := make([]builtinRuleCatalogEntry, 0, len(definitions))
+	out := make([]v1.BuiltinRuleCatalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
-		out = append(out, builtinRuleCatalogEntry{
+		out = append(out, v1.BuiltinRuleCatalogEntry{
 			RuleID: definition.RuleID, Order: definition.Order, Title: definition.Title,
 			Condition: definition.Condition, Action: string(definition.Action),
 			Editable: definition.Editable, Source: definition.Source,
@@ -168,11 +144,11 @@ func builtinRuleCatalog() []builtinRuleCatalogEntry {
 	return out
 }
 
-func fixedConstraintCatalog() []fixedConstraintCatalogEntry {
+func fixedConstraintCatalog() []v1.FixedConstraintCatalogEntry {
 	definitions := intentdomain.FixedConstraints()
-	out := make([]fixedConstraintCatalogEntry, 0, len(definitions))
+	out := make([]v1.FixedConstraintCatalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
-		out = append(out, fixedConstraintCatalogEntry{
+		out = append(out, v1.FixedConstraintCatalogEntry{
 			ConstraintID: definition.ConstraintID, Order: definition.Order, Title: definition.Title,
 			Condition: definition.Condition, Action: definition.Action, ReasonCode: definition.ReasonCode,
 			Editable: definition.Editable, Source: definition.Source,
