@@ -42,7 +42,7 @@ func (InboundAttachment) Fields() []ent.Field {
 func (InboundAttachment) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("message_id", "segment_index").Unique(),
-		index.Fields("next_run_at", "id").Annotations(entsql.IndexWhere("status IN ('pending', 'processing', 'purging')")),
+		index.Fields("status", "next_run_at", "id"),
 		index.Fields("expires_at", "id"),
 	}
 }

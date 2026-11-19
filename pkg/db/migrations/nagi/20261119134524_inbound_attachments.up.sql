@@ -24,7 +24,7 @@ CREATE TABLE "inbound_attachments" (
 CREATE INDEX "inboundattachment_expires_at_id" ON "inbound_attachments" ("expires_at", "id");
 -- create index "inboundattachment_message_id_segment_index" to table: "inbound_attachments"
 CREATE UNIQUE INDEX "inboundattachment_message_id_segment_index" ON "inbound_attachments" ("message_id", "segment_index");
--- create index "inboundattachment_next_run_at_id" to table: "inbound_attachments"
-CREATE INDEX "inboundattachment_next_run_at_id" ON "inbound_attachments" ("next_run_at", "id") WHERE ((status)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'purging'::character varying])::text[]));
+-- create index "inboundattachment_status_next_run_at_id" to table: "inbound_attachments"
+CREATE INDEX "inboundattachment_status_next_run_at_id" ON "inbound_attachments" ("status", "next_run_at", "id");
 
 INSERT INTO schema_migrations(version,name) VALUES (20261119134524,'inbound_attachments');

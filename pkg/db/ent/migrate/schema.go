@@ -387,12 +387,9 @@ var (
 				Columns: []*schema.Column{InboundAttachmentsColumns[1], InboundAttachmentsColumns[2]},
 			},
 			{
-				Name:    "inboundattachment_next_run_at_id",
+				Name:    "inboundattachment_status_next_run_at_id",
 				Unique:  false,
-				Columns: []*schema.Column{InboundAttachmentsColumns[16], InboundAttachmentsColumns[0]},
-				Annotation: &entsql.IndexAnnotation{
-					Where: "status IN ('pending', 'processing', 'purging')",
-				},
+				Columns: []*schema.Column{InboundAttachmentsColumns[5], InboundAttachmentsColumns[16], InboundAttachmentsColumns[0]},
 			},
 			{
 				Name:    "inboundattachment_expires_at_id",
