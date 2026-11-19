@@ -153,6 +153,41 @@ type Extraction struct {
 	RetryDelays []Duration `yaml:"retry-delays"`
 }
 
+// Validate checks the limits shared by file and runtime extraction settings.
+// Validate 校验文件与在线抽取配置共用的参数范围。
+func (e Extraction) Validate() error {
+	if e.Concurrency < 1 || e.Concurrency > 16 {
+		return fmt.Errorf("config: memory.extraction.concurrency 必须在 1-16 之间")
+	}
+	if e.BatchMaxMessages < 1 || e.BatchMaxMessages > 1000 {
+		return fmt.Errorf("config: memory.extraction.batch-max-messages 必须在 1-1000 之间")
+	}
+	if e.BatchMaxRunes < 1 || e.BatchMaxRunes > 1000000 {
+		return fmt.Errorf("config: memory.extraction.batch-max-runes 必须在 1-1000000 之间")
+	}
+	if e.MaxWait.D() < 0 || e.MaxWait.D() > 10*time.Minute {
+		return fmt.Errorf("config: memory.extraction.max-wait 必须在 0-10m 之间")
+	}
+	if e.PollInterval.D() <= 0 || e.PollInterval.D() > time.Minute {
+		return fmt.Errorf("config: memory.extraction.poll-interval 必须在 (0,1m] 之间")
+	}
+	if e.LeaseDuration.D() <= 0 || e.LeaseDuration.D() > 30*time.Minute {
+		return fmt.Errorf("config: memory.extraction.lease-duration 必须在 (0,30m] 之间")
+	}
+	if e.MaxAttempts < 1 || e.MaxAttempts > 10 {
+		return fmt.Errorf("config: memory.extraction.max-attempts 必须在 1-10 之间")
+	}
+	if len(e.RetryDelays) == 0 {
+		return fmt.Errorf("config: memory.extraction.retry-delays 至少需要一项")
+	}
+	for _, delay := range e.RetryDelays {
+		if delay.D() <= 0 {
+			return fmt.Errorf("config: memory.extraction.retry-delays 必须为正数")
+		}
+	}
+	return nil
+}
+
 // Memory is the long-term memory configuration section.
 // Memory 是长期记忆配置分区。
 type Memory struct {
@@ -585,34 +620,8 @@ func (c *Config) Validate() error {
 	if c.Worker.PollInterval.D() <= 0 {
 		return fmt.Errorf("config: worker.poll-interval 必须为正数")
 	}
-	if c.Memory.Extraction.Concurrency < 1 || c.Memory.Extraction.Concurrency > 16 {
-		return fmt.Errorf("config: memory.extraction.concurrency 必须在 1-16 之间")
-	}
-	if c.Memory.Extraction.BatchMaxMessages < 1 || c.Memory.Extraction.BatchMaxMessages > 1000 {
-		return fmt.Errorf("config: memory.extraction.batch-max-messages 必须在 1-1000 之间")
-	}
-	if c.Memory.Extraction.BatchMaxRunes < 1 || c.Memory.Extraction.BatchMaxRunes > 1000000 {
-		return fmt.Errorf("config: memory.extraction.batch-max-runes 必须在 1-1000000 之间")
-	}
-	if c.Memory.Extraction.MaxWait.D() < 0 || c.Memory.Extraction.MaxWait.D() > 10*time.Minute {
-		return fmt.Errorf("config: memory.extraction.max-wait 必须在 0-10m 之间")
-	}
-	if c.Memory.Extraction.PollInterval.D() <= 0 || c.Memory.Extraction.PollInterval.D() > time.Minute {
-		return fmt.Errorf("config: memory.extraction.poll-interval 必须在 (0,1m] 之间")
-	}
-	if c.Memory.Extraction.LeaseDuration.D() <= 0 || c.Memory.Extraction.LeaseDuration.D() > 30*time.Minute {
-		return fmt.Errorf("config: memory.extraction.lease-duration 必须在 (0,30m] 之间")
-	}
-	if c.Memory.Extraction.MaxAttempts < 1 || c.Memory.Extraction.MaxAttempts > 10 {
-		return fmt.Errorf("config: memory.extraction.max-attempts 必须在 1-10 之间")
-	}
-	if len(c.Memory.Extraction.RetryDelays) == 0 {
-		return fmt.Errorf("config: memory.extraction.retry-delays 至少需要一项")
-	}
-	for _, delay := range c.Memory.Extraction.RetryDelays {
-		if delay.D() <= 0 {
-			return fmt.Errorf("config: memory.extraction.retry-delays 必须为正数")
-		}
+	if err := c.Memory.Extraction.Validate(); err != nil {
+		return err
 	}
 	if c.AI.Enabled {
 		// AI replies are dispatched by the intent worker, so generation alone

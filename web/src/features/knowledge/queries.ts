@@ -76,6 +76,33 @@ export function useExtractionSettings() {
   })
 }
 
+export function useSaveExtractionSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ExtractionSettings): Promise<ExtractionSettings> =>
+      apiRequest('/api/v1/memory-extraction/settings', {
+        method: 'PUT',
+        body: {
+          Version: input.version,
+          Enabled: input.enabled,
+          Concurrency: input.concurrency,
+          BatchMaxMessages: input.batchMaxMessages,
+          BatchMaxRunes: input.batchMaxRunes,
+          MaxWaitMS: input.maxWaitMs,
+          PollIntervalMS: input.pollIntervalMs,
+          LeaseDurationMS: input.leaseDurationMs,
+          MaxAttempts: input.maxAttempts,
+          RetryDelaysMS: input.retryDelaysMs,
+        },
+      }).then(toExtractionSettings),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['knowledge', 'extraction', 'settings'], updated)
+      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'extraction', 'jobs'] })
+      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'summary'] })
+    },
+  })
+}
+
 export function useExtractionJobs(botId: number | undefined, params: ExtractionJobParams) {
   return useQuery({
     queryKey: ['knowledge', 'extraction', 'jobs', botId ?? null, params] as const,

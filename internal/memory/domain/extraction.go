@@ -87,9 +87,11 @@ type ExtractionBatch struct {
 // ExtractionClaimOptions bounds one claimed batch.
 // ExtractionClaimOptions 限定一次认领批次的大小与租约。
 type ExtractionClaimOptions struct {
-	MaxMessages int
-	MaxRunes    int
-	Lease       time.Duration
+	SettingsRevision int64
+	MaxAttempts      int
+	MaxMessages      int
+	MaxRunes         int
+	Lease            time.Duration
 }
 
 // ExtractionCandidate is one candidate returned by the extractor. Subject is

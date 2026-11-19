@@ -163,6 +163,12 @@ func (s *Service) View() View {
 func (s *Service) Update(ctx context.Context, incoming settingsdomain.Settings, expected int64, actor string) (View, error) {
 	s.modelMu.Lock()
 	defer s.modelMu.Unlock()
+	current := s.provider.Settings()
+	incoming.Extraction = current.Extraction
+	return s.updateLocked(ctx, incoming, expected, actor)
+}
+
+func (s *Service) updateLocked(ctx context.Context, incoming settingsdomain.Settings, expected int64, actor string) (View, error) {
 	incoming.Models = s.provider.Settings().Models.Clone()
 	applyModelConnections(&incoming)
 	incoming.Normalize()

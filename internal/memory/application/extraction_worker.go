@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
@@ -26,12 +27,12 @@ var ErrExtractionLeaseLost = errors.New("memory: extraction lease lost")
 type ExtractionRepository interface {
 	ListAuthorizedScopes(ctx context.Context, limit int) ([]domain.ExtractionScope, error)
 	ListUnregisteredMessages(ctx context.Context, botID int64, conversationID string, authorizationEventID int64, limit int) ([]domain.ExtractionSourceMessage, error)
-	CreateExtractionJobs(ctx context.Context, scope domain.ExtractionScope, messages []domain.ExtractionSourceMessage, maxWait time.Duration) (int, error)
+	CreateExtractionJobs(ctx context.Context, scope domain.ExtractionScope, messages []domain.ExtractionSourceMessage, maxWait time.Duration, revision ...int64) (int, error)
 	ClaimReadyExtractionBatch(ctx context.Context, options domain.ExtractionClaimOptions) (domain.ExtractionBatch, bool, error)
 	FinalizeExtractionBatch(ctx context.Context, batch domain.ExtractionBatch, candidates []domain.Memory) (domain.FinalizeResult, error)
 	FailExtractionBatch(ctx context.Context, batch domain.ExtractionBatch, code string, retryDelays []time.Duration, maxAttempts int) error
 	CancelExtractionBatch(ctx context.Context, batch domain.ExtractionBatch, code string) error
-	RecoverStaleExtractionJobs(ctx context.Context, maxAttempts int, retryDelays []time.Duration) error
+	RecoverStaleExtractionJobs(ctx context.Context, maxAttempts int, retryDelays []time.Duration, revision ...int64) error
 }
 
 // Extractor turns one bounded batch into candidate proposals.
@@ -57,6 +58,11 @@ type ExtractionPromptSnapshotRepository interface {
 // ExtractionWorkerOptions bounds scanning, coalescing and retry behavior.
 // ExtractionWorkerOptions 限定扫描、合批与重试行为。
 type ExtractionWorkerOptions struct {
+	// Runtime supplies an immutable scheduling snapshot for each claim.
+	// Runtime 为每次领取提供一份不可变的调度配置。
+	Runtime          func() ExtractionWorkerOptions
+	SettingsRevision int64
+
 	// Enabled is checked before scanning, before the model call and before
 	// finalization; nil means the worker's construction-time gate is enough.
 	// Enabled 在扫描前、模型调用前和终态提交前复核；nil 表示仅依赖构造时的门控。
@@ -139,69 +145,89 @@ func NewExtractionWorker(repo ExtractionRepository, extractor Extractor, authori
 // in-flight batches to settle their terminal state.
 // Run 持续扫描与处理直到上下文取消，然后等待在途批次完成终态写入。
 func (w *ExtractionWorker) Run(ctx context.Context) error {
-	if !w.enabled() {
+	if w.opts.Runtime == nil && !w.enabled() {
 		return nil
 	}
-	if err := w.repo.RecoverStaleExtractionJobs(ctx, w.opts.MaxAttempts, w.opts.RetryDelays); err != nil {
-		w.logger.Warn("recover stale memory extraction jobs failed", "error", err)
-	}
-	ticker := time.NewTicker(w.opts.PollInterval)
-	defer ticker.Stop()
-	sem := make(chan struct{}, w.opts.Concurrency)
+	var active atomic.Int32
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			if err := w.repo.RecoverStaleExtractionJobs(ctx, w.opts.MaxAttempts, w.opts.RetryDelays); err != nil {
+	var lastPoll time.Duration
+	var nextSweep time.Time
+	for ctx.Err() == nil {
+		opts := w.runtimeOptions()
+		if !opts.Enabled() {
+			nextSweep = time.Time{}
+		} else if time.Now().After(nextSweep) || opts.PollInterval != lastPoll {
+			lastPoll = opts.PollInterval
+			nextSweep = time.Now().Add(lastPoll)
+			if err := w.repo.RecoverStaleExtractionJobs(ctx, opts.MaxAttempts, opts.RetryDelays, opts.SettingsRevision); err != nil {
 				w.logger.Warn("recover stale memory extraction jobs failed", "error", err)
 			}
 			if err := w.Sweep(ctx); err != nil {
 				w.logger.Warn("memory extraction sweep failed", "error", err)
 			}
-		}
-	claimLoop:
-		for {
-			select {
-			case sem <- struct{}{}:
-			default:
-				break claimLoop
-			}
-			batch, found, err := w.repo.ClaimReadyExtractionBatch(ctx, domain.ExtractionClaimOptions{
-				MaxMessages: w.opts.BatchMaxMessages,
-				MaxRunes:    w.opts.BatchMaxRunes,
-				Lease:       w.opts.Lease,
-			})
-			if err != nil {
-				<-sem
-				w.logger.Warn("claim memory extraction batch failed", "error", err)
-				break claimLoop
-			}
-			if !found {
-				<-sem
-				break claimLoop
-			}
-			wg.Add(1)
-			go func(batch domain.ExtractionBatch) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				defer func() {
-					if recovered := recover(); recovered != nil {
-						w.logger.Error("memory extraction worker panic", "panic", recovered)
-					}
+			for claimed := 0; ctx.Err() == nil; claimed++ {
+				claimOpts := w.runtimeOptions()
+				if !claimOpts.Enabled() || claimed >= claimOpts.Concurrency || int(active.Load()) >= claimOpts.Concurrency {
+					break
+				}
+				batch, found, err := w.repo.ClaimReadyExtractionBatch(ctx, domain.ExtractionClaimOptions{
+					MaxMessages: claimOpts.BatchMaxMessages, MaxRunes: claimOpts.BatchMaxRunes, Lease: claimOpts.Lease,
+					SettingsRevision: claimOpts.SettingsRevision, MaxAttempts: claimOpts.MaxAttempts,
+				})
+				if err != nil {
+					w.logger.Warn("claim memory extraction batch failed", "error", err)
+					break
+				}
+				if !found {
+					break
+				}
+				active.Add(1)
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer active.Add(-1)
+					defer func() {
+						if recovered := recover(); recovered != nil {
+							w.logger.Error("memory extraction worker panic", "panic", recovered)
+						}
+					}()
+					worker := *w
+					worker.opts = claimOpts
+					worker.processBatch(ctx, batch)
 				}()
-				w.processBatch(ctx, batch)
-			}(batch)
+			}
+		}
+		delay := opts.PollInterval
+		if opts.Enabled() {
+			delay = max(time.Until(nextSweep), time.Millisecond)
+		}
+		if w.opts.Runtime != nil {
+			delay = min(delay, 250*time.Millisecond)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
 		}
 	}
+	return nil
+}
+
+func (w *ExtractionWorker) runtimeOptions() ExtractionWorkerOptions {
+	if w.opts.Runtime == nil {
+		return w.opts
+	}
+	current := w.opts.Runtime()
+	current.PromptResolver = w.opts.PromptResolver
+	return current
 }
 
 // Sweep creates jobs for currently authorized, not-yet-registered messages.
 // Sweep 为当前已授权且尚未登记任务的入站消息创建提取任务。
 func (w *ExtractionWorker) Sweep(ctx context.Context) error {
-	if !w.enabled() {
+	if !w.runtimeOptions().Enabled() {
 		return nil
 	}
 	scopes, err := w.repo.ListAuthorizedScopes(ctx, 100)
@@ -209,14 +235,18 @@ func (w *ExtractionWorker) Sweep(ctx context.Context) error {
 		return err
 	}
 	for _, scope := range scopes {
-		messages, err := w.repo.ListUnregisteredMessages(ctx, scope.BotID, scope.ConversationID, scope.AuthorizationEventID, w.opts.BatchMaxMessages)
+		opts := w.runtimeOptions()
+		if !opts.Enabled() {
+			break
+		}
+		messages, err := w.repo.ListUnregisteredMessages(ctx, scope.BotID, scope.ConversationID, scope.AuthorizationEventID, opts.BatchMaxMessages)
 		if err != nil {
 			return err
 		}
-		if len(messages) == 0 {
+		if len(messages) == 0 || !w.runtimeOptions().Enabled() {
 			continue
 		}
-		created, err := w.repo.CreateExtractionJobs(ctx, scope, messages, w.opts.MaxWait)
+		created, err := w.repo.CreateExtractionJobs(ctx, scope, messages, opts.MaxWait, opts.SettingsRevision)
 		if err != nil {
 			return err
 		}

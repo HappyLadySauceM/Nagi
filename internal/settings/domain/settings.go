@@ -28,15 +28,28 @@ type Revision struct {
 // Public management views remove all ciphertext before serialization.
 // Settings 保存运行时可编辑配置和加密模型凭证；
 // 公开管理视图在序列化前移除全部密文。
+type Extraction struct {
+	Enabled          bool
+	Concurrency      int
+	BatchMaxMessages int
+	BatchMaxRunes    int
+	MaxWaitMS        int64
+	PollIntervalMS   int64
+	LeaseDurationMS  int64
+	MaxAttempts      int
+	RetryDelaysMS    []int64
+}
+
 type Settings struct {
-	Models   models.Catalog `json:"Models"`
-	Role     Role           `json:"Role"`
-	Context  Context        `json:"Context"`
-	AI       AI             `json:"AI"`
-	Intent   Intent         `json:"Intent"`
-	Agent    Agent          `json:"Agent"`
-	Messages Messages       `json:"Messages"`
-	Tools    Tools          `json:"Tools"`
+	Extraction *Extraction    `json:"Extraction,omitempty"`
+	Models     models.Catalog `json:"Models"`
+	Role       Role           `json:"Role"`
+	Context    Context        `json:"Context"`
+	AI         AI             `json:"AI"`
+	Intent     Intent         `json:"Intent"`
+	Agent      Agent          `json:"Agent"`
+	Messages   Messages       `json:"Messages"`
+	Tools      Tools          `json:"Tools"`
 }
 
 // PromptVariable is one user-defined prompt variable substituted at runtime.
@@ -275,6 +288,11 @@ func (s *Settings) Normalize() {
 func (s Settings) Clone() Settings {
 	clone := s
 	clone.Models = s.Models.Clone()
+	if s.Extraction != nil {
+		extraction := *s.Extraction
+		extraction.RetryDelaysMS = append([]int64(nil), extraction.RetryDelaysMS...)
+		clone.Extraction = &extraction
+	}
 	if s.Role.Variables != nil {
 		clone.Role.Variables = make([]PromptVariable, len(s.Role.Variables))
 		copy(clone.Role.Variables, s.Role.Variables)

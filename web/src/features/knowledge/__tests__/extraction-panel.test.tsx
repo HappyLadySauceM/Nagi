@@ -122,8 +122,8 @@ describe('ExtractionPanel', () => {
     expect(await screen.findByText('未开启（默认关闭）')).toBeVisible()
     expect(screen.getByText('全局只读')).toBeVisible()
     expect(screen.getByText(/作用域为/)).toBeVisible()
-    expect(screen.getByText(/仅新增消息/)).toBeVisible()
-    expect(screen.getByText('人工审批：抽取结果先进入候选，审批后才进入生效记忆。')).toBeVisible()
+    expect(screen.getByText(/重新开启后继续处理积压/)).toBeVisible()
+    expect(screen.getByText(/人工审批：抽取结果先进入候选/)).toBeVisible()
     expect(screen.getByText('model_timeout')).toBeVisible()
   })
 

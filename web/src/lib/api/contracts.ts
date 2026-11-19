@@ -507,6 +507,7 @@ export interface ExtractionJob {
 
 export interface ExtractionSettings {
   scope: 'global'
+  version: number
   enabled: boolean
   concurrency: number
   batchMaxMessages: number

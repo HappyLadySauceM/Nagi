@@ -317,8 +317,8 @@ export function toKnowledgePreview(raw: unknown): KnowledgePreview {
   }
 }
 
-/** Parses the global read-only extraction settings.
- * 解析全局只读的抽取设置。
+/** Parses the effective global extraction settings.
+ * 解析全局生效的抽取设置。
  */
 export function toExtractionSettings(raw: unknown): ExtractionSettings {
   const endpoint = `${EXTRACTION_ENDPOINT}/settings`
@@ -329,6 +329,7 @@ export function toExtractionSettings(raw: unknown): ExtractionSettings {
   }
   return {
     scope,
+    version: readNumber(record, 'Version', endpoint, 0),
     enabled: readBoolean(record, 'Enabled', endpoint),
     concurrency: readNumber(record, 'Concurrency', endpoint, 0),
     batchMaxMessages: readNumber(record, 'BatchMaxMessages', endpoint, 0),

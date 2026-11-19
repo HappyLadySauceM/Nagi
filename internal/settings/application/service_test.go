@@ -228,3 +228,41 @@ func TestReloadIfChangedPicksUpForeignRevision(t *testing.T) {
 		t.Fatalf("snapshot = %+v", provider.Current())
 	}
 }
+
+func TestUpdateExtractionPersistsIndependentVersionedSettings(t *testing.T) {
+	ctx := context.Background()
+	repo := &fakeRepo{}
+	svc, provider := newService(t, repo, testSettings())
+	if err := svc.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if provider.Settings().Extraction != nil {
+		t.Fatal("legacy settings should keep using file configuration")
+	}
+	edit := settingsdomain.Extraction{
+		Enabled: true, Concurrency: 2, BatchMaxMessages: 5, BatchMaxRunes: 1000,
+		MaxWaitMS: 0, PollIntervalMS: 100, LeaseDurationMS: 30000, MaxAttempts: 2, RetryDelaysMS: []int64{10, 100},
+	}
+	saved, err := svc.UpdateExtraction(ctx, edit, 1, "admin")
+	if err != nil || saved.Version != 2 || !provider.Settings().Extraction.Enabled {
+		t.Fatalf("save extraction = %+v err=%v", saved.Settings.Extraction, err)
+	}
+	edit.RetryDelaysMS[0] = 0
+	if _, err := svc.UpdateExtraction(ctx, edit, 2, "admin"); err == nil || provider.Settings().Extraction.RetryDelaysMS[0] != 10 {
+		t.Fatalf("invalid retry schedule modified live configuration: %v", err)
+	}
+	edit.RetryDelaysMS = []int64{20}
+	if _, err := svc.UpdateExtraction(ctx, edit, 1, "admin"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale update: %v", err)
+	}
+	if _, err := svc.Update(ctx, testSettings(), 2, "other-admin"); err != nil {
+		t.Fatal(err)
+	}
+	restarted, reloaded := newService(t, repo, testSettings())
+	if err := restarted.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if saved := reloaded.Settings().Extraction; saved == nil || !saved.Enabled || saved.Concurrency != 2 || saved.RetryDelaysMS[1] != 100 {
+		t.Fatalf("configured extraction did not survive unrelated edit and restart: %+v", saved)
+	}
+}

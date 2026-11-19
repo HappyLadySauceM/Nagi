@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -21,6 +20,8 @@ import (
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 )
 
 // middlewareActor reads the authenticated actor for approval records.
@@ -53,6 +54,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/memories/{id}", h.Delete)
 	mux.HandleFunc("POST /api/v1/memories/recall-preview", h.RecallPreview)
 	mux.HandleFunc("GET /api/v1/memory-extraction/settings", h.GetExtractionSettings)
+	mux.HandleFunc("PUT /api/v1/memory-extraction/settings", h.PutExtractionSettings)
 	mux.HandleFunc("GET /api/v1/memory-extraction/jobs", h.ListExtractionJobs)
 	mux.HandleFunc("POST /api/v1/memory-extraction/jobs/{id}/retry", h.RetryExtractionJob)
 }
@@ -495,35 +497,64 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, map[string]any{"id": id})
 }
 
-// GetExtractionSettings returns the process-wide extraction configuration.
-// It is read-only: the M2 contract does not allow online edits or per-bot
-// parameter overrides, so bot_id is not part of this endpoint.
-// GetExtractionSettings 返回进程级抽取配置；M2 契约不允许在线编辑或按 bot 覆盖参数，
-// 因此该接口不接收 bot_id。
+// GetExtractionSettings returns the effective process-wide settings.
+// GetExtractionSettings 返回进程级生效抽取配置。
 func (h *Handler) GetExtractionSettings(w http.ResponseWriter, r *http.Request) {
 	if h.svcCtx.Config == nil {
 		common.WriteFailure(w, http.StatusServiceUnavailable, "config unavailable")
 		return
 	}
-	cfg := h.svcCtx.Config.Memory.Extraction
-	retryDelays := make([]int64, 0, len(cfg.RetryDelays))
-	for _, delay := range cfg.RetryDelays {
-		retryDelays = append(retryDelays, int64(delay.D()/time.Millisecond))
+	var view settingsapp.View
+	if h.svcCtx.Settings != nil {
+		view = h.svcCtx.Settings.View()
 	}
-	common.WriteSuccess(w, map[string]any{
-		"Scope":            "global",
-		"Enabled":          cfg.Enabled,
-		"Concurrency":      cfg.Concurrency,
-		"BatchMaxMessages": cfg.BatchMaxMessages,
-		"BatchMaxRunes":    cfg.BatchMaxRunes,
-		"MaxWaitMS":        int64(cfg.MaxWait.D() / time.Millisecond),
-		"PollIntervalMS":   int64(cfg.PollInterval.D() / time.Millisecond),
-		"LeaseDurationMS":  int64(cfg.LeaseDuration.D() / time.Millisecond),
-		"MaxAttempts":      cfg.MaxAttempts,
-		"RetryDelaysMS":    retryDelays,
-		"Source":           "config",
-		"Editable":         false,
-	})
+	h.writeExtractionSettings(w, view)
+}
+
+func (h *Handler) PutExtractionSettings(w http.ResponseWriter, r *http.Request) {
+	if h.svcCtx.Settings == nil || h.svcCtx.Config == nil || !h.svcCtx.Settings.View().Persisted {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "persistent settings unavailable")
+		return
+	}
+	var body struct {
+		settingsdomain.Extraction
+		Version *int64
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil || body.Version == nil || *body.Version < 0 {
+		common.WriteFailure(w, http.StatusBadRequest, "invalid extraction settings request")
+		return
+	}
+	view, err := h.svcCtx.Settings.UpdateExtraction(r.Context(), body.Extraction, *body.Version, middlewareActor(r))
+	var invalid *settingsdomain.ValidationError
+	switch {
+	case err == nil:
+		h.writeExtractionSettings(w, view)
+	case errors.Is(err, settingsapp.ErrConflict):
+		common.WriteFailure(w, http.StatusConflict, "settings changed; reload before saving")
+	case errors.As(err, &invalid):
+		common.WriteJSON(w, http.StatusBadRequest, common.Envelope{Code: 400, Message: "抽取设置校验未通过", Data: map[string]any{"errors": invalid.Fields}})
+	default:
+		common.WriteFailure(w, http.StatusInternalServerError, "save extraction settings failed")
+	}
+}
+
+func (h *Handler) writeExtractionSettings(w http.ResponseWriter, view settingsapp.View) {
+	settings := view.Settings.Extraction
+	source := "database"
+	if settings == nil {
+		fallback := settingsapp.ExtractionFromConfig(h.svcCtx.Config.Memory.Extraction)
+		settings = &fallback
+		source = "config"
+	}
+	common.WriteSuccess(w, struct {
+		settingsdomain.Extraction
+		Scope    string
+		Source   string
+		Editable bool
+		Version  int64
+	}{*settings, "global", source, view.Persisted, view.Version})
 }
 
 // ListExtractionJobs returns a management page of memory extraction jobs.

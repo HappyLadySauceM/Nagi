@@ -88,10 +88,48 @@ func TestExtractionRepositoryClaimAndFinalize(t *testing.T) {
 	if err != nil || len(messages) != 2 {
 		t.Fatalf("unregistered messages = %d err=%v", len(messages), err)
 	}
-	if created, err := repo.CreateExtractionJobs(ctx, scope, messages, 0); err != nil || created != 2 {
+	if _, err := pool.Exec(ctx, `INSERT INTO system_settings (id,payload,version) VALUES (1,'{"Extraction":{"Enabled":false}}',100)`); err != nil {
+		t.Fatalf("seed extraction settings: %v", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM system_settings WHERE id=1 AND version BETWEEN 100 AND 103`)
+	}()
+	if created, err := repo.CreateExtractionJobs(ctx, scope, messages, 0, 100); err != nil || created != 0 {
+		t.Fatalf("paused settings allowed job creation: %d err=%v", created, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE system_settings SET payload='{"Extraction":{"Enabled":true}}',version=101 WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	if created, err := repo.CreateExtractionJobs(ctx, scope, messages, 0, 101); err != nil || created != 2 {
 		t.Fatalf("create jobs = %d err=%v", created, err)
 	}
-	batch, found, err := repo.ClaimReadyExtractionBatch(ctx, domain.ExtractionClaimOptions{MaxMessages: 10, MaxRunes: 4000, Lease: time.Minute})
+	if _, err := pool.Exec(ctx, `UPDATE system_settings SET payload='{"Extraction":{"Enabled":false}}',version=102 WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	options := domain.ExtractionClaimOptions{SettingsRevision: 101, MaxMessages: 10, MaxRunes: 4000, Lease: time.Minute, MaxAttempts: 1}
+	if _, found, err := repo.ClaimReadyExtractionBatch(ctx, options); err != nil || found {
+		t.Fatalf("stale enabled replica claimed after pause: found=%v err=%v", found, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE system_settings SET payload='{"Extraction":{"Enabled":true}}',version=103 WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE memory_extraction_jobs SET attempts=2,round_attempts=2 WHERE bot_id=$1`, botID); err != nil {
+		t.Fatal(err)
+	}
+	options.SettingsRevision = 103
+	if _, found, err := repo.ClaimReadyExtractionBatch(ctx, options); err != nil || found {
+		t.Fatalf("exhausted automatic retries were claimed: found=%v err=%v", found, err)
+	}
+	for _, messageID := range messageIDs {
+		var jobID, status, reason string
+		if err := pool.QueryRow(ctx, `SELECT id::text,status,last_error_code FROM memory_extraction_jobs WHERE message_id=$1`, messageID).Scan(&jobID, &status, &reason); err != nil || status != "failed" || reason != "attempts_exhausted" {
+			t.Fatalf("exhausted retry = %s/%s err=%v", status, reason, err)
+		}
+		if retried, err := repo.RetryExtractionJob(ctx, jobID, 1); err != nil || !retried {
+			t.Fatalf("manual retry = %v err=%v", retried, err)
+		}
+	}
+	batch, found, err := repo.ClaimReadyExtractionBatch(ctx, options)
 	if err != nil || !found {
 		t.Fatalf("claim batch found=%v err=%v", found, err)
 	}

@@ -21,6 +21,8 @@ import (
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 )
 
 // Handler serves knowledge aggregates and read-only context previews.
@@ -77,6 +79,14 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 		}
 		views[item.PromptID] = map[string]any{"ActiveVersion": prompt.Version, "Source": prompt.Source}
 	}
+	var extractionEnabled bool
+	if h.svcCtx.Config != nil {
+		var settings settingsdomain.Settings
+		if h.svcCtx.SettingsProvider != nil {
+			settings = h.svcCtx.SettingsProvider.Settings()
+		}
+		extractionEnabled = settingsapp.EffectiveExtraction(settings, h.svcCtx.Config.Memory.Extraction).Enabled
+	}
 	common.WriteSuccess(w, map[string]any{
 		"Memories": map[string]any{
 			"Total":        summary.Memories.Total,
@@ -86,7 +96,7 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 			"ByVisibility": visibilityCounts(summary.Memories.ByVisibility),
 		},
 		"Extraction": map[string]any{
-			"Enabled":        h.svcCtx.Config != nil && h.svcCtx.Config.Memory.Extraction.Enabled,
+			"Enabled":        extractionEnabled,
 			"PendingJobs":    summary.Extraction.PendingJobs,
 			"ProcessingJobs": summary.Extraction.ProcessingJobs,
 			"FailedJobs":     summary.Extraction.FailedJobs,

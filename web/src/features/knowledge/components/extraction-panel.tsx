@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { RefreshCw, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '../../../components/confirm-dialog'
@@ -23,11 +23,13 @@ import {
   EXTRACTION_JOB_STATUS_LABELS,
   type ExtractionJob,
   type ExtractionJobStatus,
+  type ExtractionSettings,
 } from '../../../lib/api/contracts'
+import { ApiError } from '../../../lib/api/client'
 import { describeError } from '../../../lib/errors'
-import { formatCount, formatDateTime, formatRelativeTime } from '../../../lib/format'
+import { formatDateTime, formatRelativeTime } from '../../../lib/format'
 import { useAccountContext } from '../../accounts/account-context'
-import { useExtractionJobs, useExtractionSettings, useRetryExtractionJob } from '../queries'
+import { useExtractionJobs, useExtractionSettings, useRetryExtractionJob, useSaveExtractionSettings } from '../queries'
 
 const JOB_STATUS_VARIANTS: Record<
   ExtractionJobStatus,
@@ -66,22 +68,72 @@ function scopeLabel(job: ExtractionJob): string {
   return kind ? `${kind} ${job.scopeId}` : '—'
 }
 
-function delayLabel(values: number[]): string {
-  if (values.length === 0) {
-    return '—'
+const EXTRACTION_FIELDS = [
+  ['concurrency', '并发数', 1, 16],
+  ['batchMaxMessages', '单批消息上限', 1, 1000],
+  ['batchMaxRunes', '单批字符上限', 1, 1000000],
+  ['maxWaitMs', '最长等待（毫秒）', 0, 600000],
+  ['pollIntervalMs', '轮询间隔（毫秒）', 1, 60000],
+  ['leaseDurationMs', '租约时长（毫秒）', 1, 1800000],
+  ['maxAttempts', '最大尝试次数', 1, 10],
+] as const
+
+function ExtractionSettingsForm({ settings }: { settings: ExtractionSettings }) {
+  const save = useSaveExtractionSettings()
+  const [error, setError] = useState('')
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    const fields = new FormData(event.currentTarget)
+    const delays = String(fields.get('retryDelaysMs')).split(/[,，]/).map((value) => value.trim())
+    const retryDelaysMs = delays.map(Number)
+    if (delays.some((value) => !/^[0-9]+$/.test(value)) ||
+        retryDelaysMs.some((value) => !Number.isSafeInteger(value) || value < 1)) {
+      setError('请输入逗号分隔的正整数重试延迟。')
+      return
+    }
+    const next = { ...settings, enabled: fields.has('enabled'), retryDelaysMs }
+    for (const [field] of EXTRACTION_FIELDS) {
+      next[field] = Number(fields.get(field))
+    }
+    save.mutate(next, {
+      onSuccess: () => toast.success('抽取设置已保存'),
+      onError: (cause) => {
+        if (cause instanceof ApiError && cause.status === 409) {
+          setError('抽取设置已被其他页面修改，请刷新后重新编辑。')
+          return
+        }
+        setError(describeError(cause).description)
+      },
+    })
   }
-  return values
-    .map((value) => (value >= 1000 ? `${Math.round(value / 1000)}s` : `${value}ms`))
-    .join(' / ')
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <fieldset disabled={!settings.editable || save.isPending} className="space-y-3">
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" role="switch" name="enabled" defaultChecked={settings.enabled} />
+          自动抽取
+        </label>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {EXTRACTION_FIELDS.map(([field, label, min, max]) => (
+            <label key={field} className="space-y-1 text-xs text-muted-foreground">
+              <span>{label}</span>
+              <Input type="number" name={field} min={min} max={max} step={1} defaultValue={settings[field]} required />
+            </label>
+          ))}
+          <label className="space-y-1 text-xs text-muted-foreground">
+            <span>重试延迟（毫秒，逗号分隔）</span>
+            <Input name="retryDelaysMs" defaultValue={settings.retryDelaysMs.join(', ')} required />
+          </label>
+        </div>
+        {settings.editable ? <Button type="submit" size="sm">{save.isPending ? '保存中…' : '保存抽取设置'}</Button> : null}
+      </fieldset>
+      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+    </form>
+  )
 }
 
-/**
- * Read-only extraction settings and the existing job list. Retry is limited by
- * the backend to one manual round and is offered only for failed jobs whose
- * source message is still available.
- * 只读展示抽取设置与既有任务列表；重试仅对失败且来源仍可用的任务开放，
- * 后端限制最多一次手动重试。
- */
 export function ExtractionPanel() {
   const { selectedBotId, selectedAccount } = useAccountContext()
   const [status, setStatus] = useState<ExtractionJobStatus | ''>('')
@@ -127,7 +179,7 @@ export function ExtractionPanel() {
     <div className="space-y-4">
       <PageHeader
         title="抽取设置与任务"
-        description={`抽取默认关闭，仅处理新增消息，并按同一授权代际的小批次执行；抽取结果先进入候选，需人工审批后才生效。当前账号：${selectedAccount?.nickname || selectedBotId || '未识别'}。`}
+        description={`抽取按同一授权代际分批执行。关闭后暂停新任务，重新开启后继续处理积压。当前账号：${selectedAccount?.nickname || selectedBotId || '未识别'}。`}
         actions={
           <Button
             variant="outline"
@@ -149,9 +201,9 @@ export function ExtractionPanel() {
       <Card className="space-y-4 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold">抽取设置</h2>
-          <Badge variant="outline">全局只读</Badge>
+          <Badge variant="outline">{data?.editable ? "全局配置" : "全局只读"}</Badge>
           <Badge variant={data?.enabled ? 'success' : 'warning'}>
-            {settings.isLoading ? '读取中' : data?.enabled ? '已开启' : '未开启（默认关闭）'}
+            {settings.isLoading ? '读取中' : data?.enabled ? '已开启' : data?.source === 'database' ? '已暂停' : '未开启（默认关闭）'}
           </Badge>
         </div>
         {settings.isLoading ? <Skeleton className="h-24 w-full" /> : null}
@@ -165,34 +217,13 @@ export function ExtractionPanel() {
         ) : null}
         {data ? (
           <>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              作用域为 <code className="text-foreground">global</code>：参数来自进程配置{' '}
-              <code className="text-foreground">{data.source || 'config'}</code>，所有账号共用；本页只读，
-              不支持在线开关、写入或按账号覆盖。{data.enabled ? '当前已开启。' : '当前未开启，不会自动开始抽取。'}
+            <p className="text-xs text-muted-foreground">
+              作用域为全局，所有账号共用。来源 {data.source === 'database' ? '控制台配置' : '部署配置'} · 版本 {data.version}
             </p>
-            <dl className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                ['并发数', formatCount(data.concurrency)],
-                ['单批消息上限', formatCount(data.batchMaxMessages)],
-                ['单批字符上限', formatCount(data.batchMaxRunes)],
-                ['最长等待', `${formatCount(data.maxWaitMs)} ms`],
-                ['轮询间隔', `${formatCount(data.pollIntervalMs)} ms`],
-                ['租约时长', `${formatCount(data.leaseDurationMs)} ms`],
-                ['最大尝试', formatCount(data.maxAttempts)],
-                ['自动重试延迟', delayLabel(data.retryDelaysMs)],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-lg border border-border/70 bg-secondary/20 px-3 py-2">
-                  <dt className="text-muted-foreground">{label}</dt>
-                  <dd className="mt-1 font-mono tabular-nums text-foreground">{value}</dd>
-                </div>
-              ))}
-            </dl>
-            <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
-              <p>默认关闭：打开需修改进程配置，不在页面在线切换。</p>
-              <p>仅新增消息：不回扫历史消息，来源被留存清理后不可重试。</p>
-              <p>同代小批次：同一授权代际内的新增消息合并为一次抽取。</p>
-              <p>人工审批：抽取结果先进入候选，审批后才进入生效记忆。</p>
-            </div>
+            <ExtractionSettingsForm key={data.version} settings={data} />
+            <p className="text-xs text-muted-foreground">
+              仅处理具有有效记忆写入授权的消息。人工审批：抽取结果先进入候选，审批后才进入生效记忆。
+            </p>
           </>
         ) : null}
       </Card>
