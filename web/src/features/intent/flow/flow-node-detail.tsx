@@ -248,6 +248,7 @@ function ruleOutcome(detail: Record<string, unknown>, reasonCode: string) {
   }
   if (detail.Explicit === true) return '消息明确 @ 或引用了机器人，不再做语义判定'
   if (detail.AlwaysReply === true) return '回复模式要求每条都回复，不再做语义判定'
+  if (detail.NeedSemantic === true && detail.BotNameMentioned === true) return '已由名称唤醒，交给语义判定是否发言'
   if (detail.NeedSemantic === true) return '没有明确指向，交给语义判定决定要不要插话'
   if (detail.Matched === true) return '版本化规则已经给出结论'
   return '内置规则没有拦截，也没有要求语义判定'
@@ -325,6 +326,7 @@ function RuleDetail({ detail, reasonCode }: { detail: Record<string, unknown>; r
   return (
     <Section title="规则求值">
       <p className="text-sm leading-relaxed">{ruleOutcome(detail, reasonCode)}</p>
+      <FieldGrid rows={[[ '正文命中机器人名称', detail.BotNameMentioned ]]} />
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-muted-foreground">内置硬规则</h4>
         <ul className="space-y-1.5">

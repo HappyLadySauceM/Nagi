@@ -5,11 +5,55 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
+
+func mentionsBotName(task domain.Task, name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return false
+	}
+	text := task.Message.Text
+	if len(task.Segments) > 0 {
+		text = nameCallText(task.Segments)
+	}
+	text = strings.ToLower(text)
+	for start := 0; start < len(text); {
+		offset := strings.Index(text[start:], name)
+		if offset < 0 {
+			return false
+		}
+		start += offset
+		end := start + len(name)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if !nameWordRune(before) && !nameWordRune(after) {
+			return true
+		}
+		start = end
+	}
+	return false
+}
+
+func nameCallText(segments []ob.Segment) string {
+	var text strings.Builder
+	for _, segment := range segments {
+		if segment.Type == ob.SegText {
+			text.WriteString(segment.Data["text"])
+		} else {
+			text.WriteByte(0)
+		}
+	}
+	return strings.Trim(text.String(), "\x00 \t\r\n")
+}
+
+func nameWordRune(r rune) bool {
+	return r == '_' || unicode.IsNumber(r) || unicode.IsLetter(r) && !unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
+}
 
 func groupCallReason(in domain.Input) string {
 	if directNameCall(in.Task.Message.Text, in.Task.Segments, in.BotName) {
@@ -32,7 +76,7 @@ func groupCallReason(in domain.Input) string {
 	if !in.Activity.LastReplyAt.IsZero() && !in.Activity.LastReplyAt.Before(previous.CreatedAt) {
 		return ""
 	}
-	if directNameCall(previous.Text, previous.Segments, in.BotName) {
+	if directNameCall(callText(previous.Text, previous.Segments), nil, in.BotName) {
 		return "unanswered_call_followup"
 	}
 	return ""
@@ -51,17 +95,54 @@ func callText(text string, segments []ob.Segment) string {
 }
 
 func directNameCall(text string, segments []ob.Segment, name string) bool {
+	for _, segment := range segments {
+		if segment.Type != ob.SegText && segment.Type != ob.SegImage {
+			return false
+		}
+	}
+	if len(segments) > 0 {
+		text = nameCallText(segments)
+	}
 	name = strings.ToLower(strings.TrimSpace(name))
-	text = strings.ToLower(callText(text, segments))
+	text = strings.ToLower(strings.TrimSpace(text))
 	if name == "" || text == "" {
 		return false
 	}
 	const punctuation = " \t，,：:！!？?。."
-	text = strings.TrimRight(text, punctuation)
-	if rest, ok := strings.CutPrefix(text, name); ok && (rest == "" || shortCall(rest)) {
-		return true
+	if rest, ok := strings.CutPrefix(text, name); ok {
+		rest = strings.TrimSpace(strings.ReplaceAll(rest, "\x00", ""))
+		question := strings.HasSuffix(rest, "?") || strings.HasSuffix(rest, "？")
+		rest = strings.Trim(rest, punctuation)
+		question = question || strings.HasSuffix(rest, "吗") || strings.HasSuffix(rest, "嘛")
+		if rest == "" || shortCall(rest) {
+			return true
+		}
+		if rest == "是谁" || rest == "你是谁" {
+			return true
+		}
+		switch strings.TrimPrefix(rest, "请") {
+		case "告诉我几点了", "告诉我现在几点了":
+			return true
+		}
+		if tail, ok := strings.CutPrefix(rest, "你怎么看"); ok &&
+			!strings.HasPrefix(tail, "都") && !strings.HasPrefix(tail, "也") &&
+			(question || tail == "" || strings.HasPrefix(tail, "这") || strings.HasPrefix(tail, "那")) {
+			return true
+		}
+		for _, request := range []string{"请帮", "请解释", "请分析", "帮我", "能帮", "可以帮"} {
+			if strings.HasPrefix(rest, request) {
+				return true
+			}
+		}
+		if question {
+			for _, request := range []string{"你能", "你可以", "你觉得"} {
+				if strings.HasPrefix(rest, request) {
+					return true
+				}
+			}
+		}
 	}
-	if rest, ok := strings.CutSuffix(text, name); ok {
+	if rest, ok := strings.CutSuffix(strings.TrimRight(text, punctuation), name); ok {
 		return shortCall(rest)
 	}
 	return false
@@ -195,7 +276,7 @@ func replyHistory(in domain.Input, reason string) []domain.Message {
 			}
 		}
 	}
-	if len(quoted) != 0 || reason == "direct_name_call" {
+	if len(quoted) != 0 || reason == "direct_name_call" && !refersToEarlierDiscussion(in.Task) {
 		return quoted
 	}
 	if reason == "unanswered_call_followup" && len(history) != 0 {
