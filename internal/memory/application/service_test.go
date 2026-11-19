@@ -615,7 +615,7 @@ func TestRecallRewriteImprovesParaphrasesWithoutCrossingSubjects(t *testing.T) {
 			svc.SetRecallRewriter(recallRewriteFunc(func(ctx context.Context, botID int64, kind string, targetID int64, query string) ([]string, error) {
 				calls++
 				deadline, ok := ctx.Deadline()
-				if !ok || time.Until(deadline) > 2*time.Second || botID != 1 || kind != "group" || targetID != 700 || query != tc.query {
+				if !ok || time.Until(deadline) <= 2*time.Second || time.Until(deadline) > 4*time.Second || botID != 1 || kind != "group" || targetID != 700 || query != tc.query {
 					t.Fatalf("unexpected rewrite context or request")
 				}
 				return tc.terms, nil
