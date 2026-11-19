@@ -1,0 +1,58 @@
+name: 校验 Nagi
+description: 校验后端和前端，并生成可发布的前端产物
+inputs:
+  api:
+    description: 校验后端
+    required: true
+  web:
+    description: 校验并构建前端
+    required: true
+  cache:
+    description: 该作业使用的缓存目录
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: 配置缓存与检查工具版本
+      shell: bash
+      env:
+        NAGI_CACHE: ${{ inputs.cache }}
+      run: |
+        mkdir -p "$NAGI_CACHE/go/mod" "$NAGI_CACHE/go/build" "$NAGI_CACHE/pnpm/store" "$NAGI_CACHE/npm"
+        {
+          echo "GOMODCACHE=$NAGI_CACHE/go/mod"
+          echo "GOCACHE=$NAGI_CACHE/go/build"
+          echo "NPM_CONFIG_CACHE=$NAGI_CACHE/npm"
+        } >> "$GITHUB_ENV"
+        git --version
+        go version
+        node --version
+        pnpm --version
+        just --version
+        ffmpeg -version
+        ffprobe -version
+
+    - name: Go 校验
+      if: inputs.api == 'true'
+      shell: bash
+      run: |
+        just verify
+        git diff --exit-code
+
+    - name: 前端依赖与测试
+      if: inputs.web == 'true'
+      shell: bash
+      working-directory: web
+      env:
+        NAGI_CACHE: ${{ inputs.cache }}
+      run: |
+        pnpm install --frozen-lockfile --store-dir "$NAGI_CACHE/pnpm/store"
+        pnpm lint
+        pnpm typecheck
+        pnpm test
+
+    - name: 构建 Web 发布产物
+      if: inputs.web == 'true'
+      shell: bash
+      working-directory: web
+      run: pnpm build

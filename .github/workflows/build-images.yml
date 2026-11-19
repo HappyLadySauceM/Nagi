@@ -27,13 +27,9 @@ concurrency:
 
 env:
   ZOT: zot.infra-registry.svc.cluster.local:5000
-  PROJECT: nagi
   CGO_ENABLED: "0"
   # 前端依赖走国内镜像，冷启动也快；不改仓库 .npmrc，避免影响本地开发。
   NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
-  # docker/build-push-action 默认每个矩阵任务上传一个 build record artifact，
-  # 这里关掉：编译已在镜像多阶段内完成，本工作流不再上传任何 artifact。
-  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
   # 按镜像维度判定变更来源：只有对应代码变化时才重建该镜像，
@@ -47,8 +43,6 @@ jobs:
       # PR 事件下 paths-filter 走 GitHub API 取变更文件列表，需要读 pull request。
       pull-requests: read
     outputs:
-      api: ${{ steps.filter.outputs.api }}
-      web: ${{ steps.filter.outputs.web }}
       images: ${{ steps.matrix.outputs.images }}
     steps:
       # push 到主分支时 paths-filter 用 git diff 对比 push 前的提交，需要完整历史。
@@ -91,48 +85,41 @@ jobs:
 
   verify:
     needs: changes
-    if: always()
+    if: always() && github.event_name == 'pull_request'
     runs-on: hls-builder
     timeout-minutes: 30
     permissions:
       contents: read
-    env:
-      # 库名自带 _test：dbtest 会原样使用，而跨连接池用例会用该变量再开一个池，
-      # 两个池必须指向同一个库，否则 TestClaimsSerializeConversationAcrossPools 会失败。
+    env: &verify-env
       NAGI_TEST_DSN: postgres://nagi:nagi-local@postgres:5432/nagi_test?sslmode=disable
+      GOTOOLCHAIN: local
+      GOPROXY: https://goproxy.cn,direct
     container:
-      image: zot.infra-registry.svc.cluster.local:5000/infrastructure/nagi-check:go1.27.3-v1
-      credentials:
+      image: &ubuntu zot.infra-registry.svc.cluster.local:5000/infrastructure/ubuntu:24.04@sha256:77eb101c607d6e3d4f5ad0c8a02c2136c689b98aba1f359e6502ba517e5c57ec
+      credentials: &zot-pull
         username: ${{ secrets.ZOT_USERNAME }}
         password: ${{ secrets.ZOT_PASSWORD }}
+      options: --user 1001:1001
       volumes:
-        - /cache/nagi:/cache
-      env:
-        GOMODCACHE: /cache/go/mod
-        GOCACHE: /cache/go/build
-        GOTOOLCHAIN: local
-    defaults:
+        - &toolchain /opt/arc-runner/nagi/toolchains/v1:/opt/nagi-tools:ro
+        - &passwd /opt/arc-runner/nagi/toolchains/v1/etc/passwd:/etc/passwd:ro
+        - &group /opt/arc-runner/nagi/toolchains/v1/etc/group:/etc/group:ro
+        - /opt/arc-runner/nagi/cache/verify:/cache
+      env: &tool-env
+        PATH: /opt/nagi-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        SSL_CERT_FILE: /opt/nagi-tools/etc/ca-certificates.crt
+        NODE_EXTRA_CA_CERTS: /opt/nagi-tools/etc/ca-certificates.crt
+    defaults: &bash
       run:
         shell: bash
-    # 集成测试要求 PostgreSQL 17（pkg/db.Connect 的版本闸门）；runner 上直接用服务容器，
-    # Job and database containers communicate through the postgres service name.
-    # 检查容器通过 postgres 服务名连接数据库。
-    # job 级 services 无法按路径条件化：只改 web 的 PR 也会拉起它（几秒容器启动），
-    # 要彻底省掉只能把 Go 校验拆成独立作业，代价是多一个必需检查。
-    services:
+    services: &services
       postgres:
-        # runner 的 dind 拉不到 Docker Hub（EOF），镜像统一走集群内 Zot，
-        # infrastructure/postgres:17 由官方 postgres:17 同步而来。
         image: zot.infra-registry.svc.cluster.local:5000/infrastructure/postgres:17
-        credentials:
-          username: ${{ secrets.ZOT_USERNAME }}
-          password: ${{ secrets.ZOT_PASSWORD }}
+        credentials: *zot-pull
         env:
           POSTGRES_USER: nagi
           POSTGRES_PASSWORD: nagi-local
           POSTGRES_DB: nagi_test
-        # Keep disposable database writes off the runner disk and probe the final TCP server.
-        # 临时测试库写入内存，TCP 探测只检查正式启动的数据库进程。
         options: >-
           --tmpfs /var/lib/postgresql/data:rw,size=512m
           --health-cmd "pg_isready -h 127.0.0.1 -U nagi -d nagi_test -t 3"
@@ -145,94 +132,76 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: test "$CHANGES_RESULT" = success
+
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-      - name: 检查工具版本
-        run: |
-          set -euo pipefail
-          go version
-          node --version
-          pnpm --version
-          just --version
-          ffmpeg -version
-          ffprobe -version
+      - uses: ./.github/actions/nagi-verify
+        with:
+          api: 'true'
+          web: 'true'
+          cache: /cache
 
-      # GOPROXY 用步骤级环境变量：go env -w 会写进自托管 runner 的全局配置，跨作业残留。
-      - name: Go 校验
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
-        env:
-          GOPROXY: https://goproxy.cn,direct
-        run: |
-          set -euo pipefail
-          just verify
-          git diff --exit-code
-
-      - name: 前端依赖与测试
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
-        working-directory: web
-        run: |
-          set -euo pipefail
-          pnpm install --frozen-lockfile --store-dir /cache/pnpm/store
-          pnpm lint
-          pnpm typecheck
-          pnpm test
-          pnpm build
-
-      # PRs and manual runs always verify both components; only main pushes may skip unchanged components.
-      # PR 和手动运行始终校验前后端；仅 main 推送可跳过未变化的组件。
-      # Emit the skip summary only when both change filters explicitly return false.
-      # 仅在两个变更过滤结果均明确为 false 时输出跳过说明。
-      - name: 无相关改动
-        if: github.event_name == 'push' && needs.changes.outputs.api == 'false' && needs.changes.outputs.web == 'false'
-        run: |
-          set -euo pipefail
-          echo "本次运行（${GITHUB_EVENT_NAME}）没有改动 Go 或前端代码，verify 未执行实际校验（仅路径过滤后的空过）。" >> "$GITHUB_STEP_SUMMARY"
-
-  build:
-    name: Build Nagi-${{ matrix.name }}
-    needs: [changes, verify]
-    # 只跑变更过的镜像；images 为空时整体跳过（job 级 if 不认 matrix，故用动态矩阵）。
-    # PR 只校验不构建：镜像构建、签名与推送只在 main 的 push 与手动触发时执行。
-    if: github.event_name != 'pull_request' && needs.changes.outputs.images != '[]'
+  release:
+    needs: changes
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.changes.outputs.images != '[]'
     runs-on: hls-builder
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        name: ${{ fromJSON(needs.changes.outputs.images) }}
+    env: *verify-env
+    container:
+      image: *ubuntu
+      credentials: *zot-pull
+      options: --user 1001:1001 --group-add 123
+      volumes: [*toolchain, *passwd, *group]
+      env: *tool-env
+    defaults: *bash
+    services: *services
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-      # tag 用 7 位提交前缀，与 Argo CD Image Updater 的 allowTags 正则一致。
-      # BuildDate 取提交时间而不是当前时间：同一提交重复构建仍能命中编译缓存。
-      - name: 计算镜像 tag
+      - name: 准备发布目录
         run: |
-          set -euo pipefail
-          # 严格取 7 位：--short 在对象库有歧义时会自动加长，与 Image Updater 的 allowTags 口径不一致。
+          release_dir=$(mktemp -d "$RUNNER_TEMP/nagi-release.XXXXXX")
           short=$(git rev-parse HEAD | cut -c1-7)
           {
+            echo "RELEASE_DIR=$release_dir"
+            echo "DOCKER_CONFIG=$release_dir/docker"
             echo "SHORT_SHA=$short"
             echo "IMAGE_VERSION=0.1.0-dev+$short"
             echo "COMMIT_DATE=$(git log -1 --format=%cI)"
           } >> "$GITHUB_ENV"
+          mkdir -p "$release_dir/docker/cli-plugins"
+          ln -s /opt/nagi-tools/libexec/docker-buildx "$release_dir/docker/cli-plugins/docker-buildx"
 
-      # dind 拉不到 Docker Hub（EOF），buildkit 镜像必须用 Zot 里的那份；
-      # 登录必须早于 setup-buildx，否则 buildx 创建 builder 时拉不到镜像。
+      - uses: ./.github/actions/nagi-verify
+        with:
+          api: ${{ contains(fromJSON(needs.changes.outputs.images), 'api') }}
+          web: ${{ contains(fromJSON(needs.changes.outputs.images), 'web') }}
+          cache: ${{ env.RELEASE_DIR }}/cache
+
+      - name: 编译 API 发布产物
+        if: contains(fromJSON(needs.changes.outputs.images), 'api')
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p "$RELEASE_DIR/api"
+          version_pkg=github.com/HappyLadySauceM/Nagi/pkg/version
+          go build -trimpath \
+            -ldflags="-s -w -X ${version_pkg}.Version=$IMAGE_VERSION -X ${version_pkg}.Commit=$SHORT_SHA -X ${version_pkg}.BuildDate=$COMMIT_DATE" \
+            -o "$RELEASE_DIR/api/nagi" ./cmd
+
       - uses: docker/login-action@v4
         with:
           registry: ${{ env.ZOT }}
           username: ${{ secrets.ZOT_USERNAME }}
           password: ${{ secrets.ZOT_PASSWORD }}
-
-      - uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: image=${{ env.ZOT }}/infrastructure/buildkit:buildx-stable-1
-          buildkitd-config-inline: |
-            [registry."${{ env.ZOT }}"]
-              insecure = true
 
       - uses: docker/login-action@v4
         with:
@@ -240,133 +209,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Nagi-${{ matrix.name }}
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: ${{ matrix.name == 'api' && '.' || 'web' }}
-          file: ${{ matrix.name == 'api' && 'Dockerfile' || 'web/Dockerfile' }}
-          push: true
-          # 不生成 provenance 证明：没有消费方，而且关掉后推送的 digest 就是镜像 manifest 本身，
-          # 签名与构建摘要都指向同一个对象，统计层大小也不用再解析多平台索引。
-          provenance: false
-          cache-from: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-${{ matrix.name }}:main
-          cache-to: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-${{ matrix.name }}:main,mode=max,image-manifest=true,oci-mediatypes=true
-          # 版本注入只对 api 的 Dockerfile 生效；web 没声明这些 ARG，构建日志里会有一条
-          # 「were not consumed」警告，不影响构建。
-          build-args: |
-            VERSION=${{ env.IMAGE_VERSION }}
-            COMMIT=${{ env.SHORT_SHA }}
-            BUILD_DATE=${{ env.COMMIT_DATE }}
-          # labels 只写镜像 config，不新增层，不影响层缓存命中。
-          labels: |
-            org.opencontainers.image.title=Nagi-${{ matrix.name }}
-            org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          tags: |
-            ghcr.io/happyladysaucem/${{ env.PROJECT }}-${{ matrix.name }}:${{ env.SHORT_SHA }}
-            ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:${{ env.SHORT_SHA }}
-
-      # -X 指向不存在的符号是静默 no-op：从刚推上去的镜像里断言版本真的注入成功，
-      # 否则线上 /api/v1/status 会一直是 0.1.0-dev 而 CI 全绿。
-      # 注意本步骤在 push 之后：断言失败时镜像已进 registry，需要人工回收该 tag（不能让 Image Updater 滚上去）。
-      # 先 pull 再用本地这份跑：既保证校验的是刚推上去的产物，也把「拉不到」和「起不来」分开报错。
-      - name: 校验版本注入
-        if: matrix.name == 'api'
-        run: |
-          set -euo pipefail
-          : "${SHORT_SHA:?}" "${IMAGE_VERSION:?}"
-          ref="${{ env.ZOT }}/${{ env.PROJECT }}/api:${SHORT_SHA}"
-          if ! docker pull "$ref"; then
-            echo "::error::无法拉取 ${ref}：检查 runner 的 docker daemon 是否信任 Zot 与登录是否生效"
-            exit 1
-          fi
-          if ! version=$(docker run --rm "$ref" -version 2>&1); then
-            echo "::error::镜像 ${ref} 能拉取但跑不起来，检查运行阶段的 ENTRYPOINT 与架构；输出：${version}"
-            exit 1
-          fi
-          echo "$version"
-          grep -qF -- "nagi ${IMAGE_VERSION} (commit ${SHORT_SHA}" <<<"$version" || {
-            echo "::error::期望 'nagi ${IMAGE_VERSION} (commit ${SHORT_SHA})'，实际：${version}；检查 Dockerfile 的 -X 符号路径。镜像已推送，需回收 ${ref}"
-            exit 1
-          }
-
-      # 构建摘要直接进 run 页面：digest、压缩后大小、推送地址。纯观测，失败不影响发布。
-      - name: 记录构建摘要
-        continue-on-error: true
+      - name: 打包、推送暂存镜像并签名
         env:
-          REF: ${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}:${{ env.SHORT_SHA }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-          ZOT_USER: ${{ secrets.ZOT_USERNAME }}
-          ZOT_PASS: ${{ secrets.ZOT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          repo="${REF%:*}"
-          host="${repo%%/*}"
-          path="${repo#*/}"
-          accept="application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json"
-          # provenance 已关掉：digest 就是镜像 manifest 本身，层大小可直接累加。
-          # 观测步骤不能因为 registry 抖动整段消失：取不到就回落成「未知」。
-          manifest=$(curl -fsSk -u "$ZOT_USER:$ZOT_PASS" -H "Accept: $accept" \
-            "https://$host/v2/$path/manifests/${IMAGE_DIGEST}" || true)
-          layers=$(echo "$manifest" | sed -n 's/.*"layers":\(\[[^]]*\]\).*/\1/p' || true)
-          # awk 对空输入也输出 0，兜底用 || true：否则 grep 找不到 size 时会被 pipefail + set -e 直接中断，
-          # 摘要整段消失；写成 || echo 0 又会拼出 "0\n0"。
-          size=$(echo "$layers" | grep -o '"size":[0-9]*' | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}' || true)
-          # 极端情况下 $size 可能不是数字，先归一化，避免整数比较报错让摘要整段消失。
-          case "$size" in ''|*[!0-9]*) size=0 ;; esac
-          if [ "$size" -gt 0 ]; then size_text="$((size/1024/1024)) MiB"; else size_text="未知（取不到 layers）"; fi
-
-          {
-            echo "### ${PROJECT}-${{ matrix.name }} ${SHORT_SHA}"
-            echo
-            echo "| 项 | 值 |"
-            echo "| --- | --- |"
-            echo "| digest | \`${IMAGE_DIGEST}\` |"
-            echo "| 压缩后大小 | ${size_text} |"
-            echo "| Zot | \`${REF}\` |"
-            echo "| ghcr | \`ghcr.io/happyladysaucem/${PROJECT}-${{ matrix.name }}:${SHORT_SHA}\` |"
-            echo "| 缓存仓库 | \`${ZOT}/buildcache/nagi-${{ matrix.name }}:main\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: 准备本机 cosign
-        run: |
-          set -euo pipefail
-          mkdir -p /cache/nagi-tools
-          (
-            flock 9
-            if [ ! -x /cache/nagi-tools/cosign-2.4.1 ]; then
-              binary=$(mktemp /cache/nagi-tools/cosign.XXXXXX)
-              trap 'rm -f "$binary"' EXIT
-              curl -fsSL -o "$binary" https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
-              chmod 755 "$binary"
-              mv "$binary" /cache/nagi-tools/cosign-2.4.1
-            fi
-          ) 9>/cache/nagi-tools/cosign.lock
-
-      - name: Sign image
-        env:
+          IMAGES: ${{ join(fromJSON(needs.changes.outputs.images), ' ') }}
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-          ZOT_USER: ${{ secrets.ZOT_USERNAME }}
-          ZOT_PASS: ${{ secrets.ZOT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          # 自托管 runner 是持久化的：私钥放临时目录，正常退出、失败、取消、超时都清掉。
-          # SIGKILL 兜不住，但那已经超出脚本能处理的范围。
-          umask 077
-          keydir=$(mktemp -d)
-          trap 'rc=$?; rm -rf -- "$keydir" || true; exit $rc' EXIT
-          trap 'exit 130' INT TERM
-          printf '%s' "$COSIGN_KEY" > "$keydir/cosign.key"
-          /cache/nagi-tools/cosign-2.4.1 sign --key "$keydir/cosign.key" --yes --tlog-upload=false \
-            --allow-insecure-registry \
-            --registry-username "$ZOT_USER" \
-            --registry-password "$ZOT_PASS" \
-            "${{ env.ZOT }}/${{ env.PROJECT }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
-          /cache/nagi-tools/cosign-2.4.1 sign --key "$keydir/cosign.key" --yes --tlog-upload=false \
-            --allow-insecure-registry \
-            --registry-username "$ZOT_USER" \
-            --registry-password "$ZOT_PASS" \
-            "${{ env.ZOT }}/buildcache/nagi-${{ matrix.name }}:main"
+        run: bash ci/package-images.sh stage
+
+      - name: 发布正式镜像 tag
+        env:
+          IMAGES: ${{ join(fromJSON(needs.changes.outputs.images), ' ') }}
+        run: bash ci/package-images.sh promote
