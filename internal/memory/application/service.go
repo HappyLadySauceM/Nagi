@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
@@ -110,9 +113,14 @@ type SummaryRepository interface {
 	ExtractionSummary(ctx context.Context, botID int64) (domain.ExtractionSummary, error)
 }
 
+type RecallRewriter interface {
+	Rewrite(ctx context.Context, botID int64, kind string, targetID int64, query string) ([]string, error)
+}
+
 // Service implements the candidate → dedupe → approve/merge → active workflow.
 // Service 实现 候选 → 去重 → 审核/合并 → 激活 流程。
 type Service struct {
+	rewriter   RecallRewriter
 	repo       Repository
 	authorizer scopecontracts.MemoryAuthorizer
 }
@@ -130,6 +138,12 @@ func NewService(repo Repository) (*Service, error) {
 // SetMemoryAuthorizer 绑定当前作用域授权解析器。
 func (s *Service) SetMemoryAuthorizer(authorizer scopecontracts.MemoryAuthorizer) {
 	s.authorizer = authorizer
+}
+
+// SetRecallRewriter injects the optional model used after an empty literal recall.
+// SetRecallRewriter 注入原文召回为空时使用的改写模型。
+func (s *Service) SetRecallRewriter(rewriter RecallRewriter) {
+	s.rewriter = rewriter
 }
 
 // CandidateInput is one proposed memory with its provenance.
@@ -475,30 +489,63 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contr
 	if !validRecallSubjectSource(source) {
 		return result, fmt.Errorf("memory: invalid subject source %q", source)
 	}
-	if !domain.HasRecallKeyword(in.Query) {
-		result.NoKeyword = true
-		result.Reason = "no_keyword"
-		return result, nil
+	search := domain.SearchRequest{
+		BotID: in.BotID, Kind: in.Kind, TargetID: in.TargetID, ConversationID: in.ConversationID, Query: in.Query,
 	}
-	items, err := s.repo.SearchVisible(ctx, domain.SearchRequest{
-		BotID:          in.BotID,
-		Kind:           in.Kind,
-		TargetID:       in.TargetID,
-		ConversationID: in.ConversationID,
-		Query:          in.Query,
-		Limit:          0,
-	})
-	if err != nil {
-		return result, err
+	query := domain.RecallQuery{
+		Kind: in.Kind, TargetID: in.TargetID, Query: in.Query, SubjectType: subjectType, SubjectID: subjectID, Limit: limit,
 	}
-	hits, noKeyword, reason := domain.RankRecall(items, domain.RecallQuery{
-		Kind:        in.Kind,
-		TargetID:    in.TargetID,
-		Query:       in.Query,
-		SubjectType: subjectType,
-		SubjectID:   subjectID,
-		Limit:       limit,
-	})
+	lookup := func(ctx context.Context) ([]domain.RecallHit, bool, string, error) {
+		items, err := s.repo.SearchVisible(ctx, search)
+		if err != nil {
+			return nil, false, "", err
+		}
+		hits, empty, reason := domain.RankRecall(items, query)
+		return hits, empty, reason, nil
+	}
+	var hits []domain.RecallHit
+	noKeyword, reason := true, "no_keyword"
+	if domain.HasRecallKeyword(in.Query) {
+		var err error
+		hits, noKeyword, reason, err = lookup(ctx)
+		if err != nil {
+			return result, err
+		}
+	}
+	if len(hits) > 0 {
+		result.Source = "literal"
+	} else if in.AllowRewrite && s.rewriter != nil && ctx.Err() == nil && recallCanRewrite(in.Query) {
+		rewriteCtx, span := otel.Tracer("nagi.memory").Start(ctx, "nagi.memory.rewrite")
+		defer span.End()
+		bounded, cancel := context.WithTimeout(rewriteCtx, 2*time.Second)
+		rewritten, rewriteErr := s.rewriter.Rewrite(bounded, in.BotID, in.Kind, in.TargetID, in.Query)
+		rewriteDone := bounded.Err() == nil
+		cancel()
+		switch {
+		case rewriteErr != nil || !rewriteDone:
+			span.SetAttributes(attribute.String("nagi.memory.rewrite_status", "unavailable"))
+		case len(rewritten) == 0:
+			span.SetAttributes(attribute.String("nagi.memory.rewrite_status", "no_terms"))
+		default:
+			keywords := make([]domain.QueryTerm, 0, len(rewritten))
+			for _, term := range rewritten {
+				keywords = append(keywords, domain.QueryTerm{Term: term, Kind: "rewrite"})
+			}
+			search.Keywords, query.Keywords = keywords, keywords
+			matches, _, _, err := lookup(rewriteCtx)
+			switch {
+			case err != nil:
+				span.SetAttributes(attribute.String("nagi.memory.rewrite_status", "lookup_failed"))
+			case len(matches) == 0:
+				span.SetAttributes(attribute.String("nagi.memory.rewrite_status", "no_match"))
+			default:
+				hits, noKeyword, reason = matches, false, ""
+				result.Source = "rewrite"
+				span.SetAttributes(attribute.String("nagi.memory.rewrite_status", "matched"))
+			}
+		}
+	}
+
 	if noKeyword {
 		result.NoKeyword = true
 		result.Reason = reason
@@ -524,6 +571,17 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contr
 		})
 	}
 	return result, nil
+}
+
+func recallCanRewrite(text string) bool {
+	text = strings.ToLower(strings.TrimFunc(text, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsPunct(r)
+	}))
+	switch text {
+	case "", "hi", "hello", "你好", "大家好", "你们好", "嗨", "谢谢", "在吗", "有人吗", "有人嘛":
+		return false
+	}
+	return strings.ContainsFunc(text, unicode.IsLetter)
 }
 
 // recallSubjectType normalizes an API subject type. Speaker values cannot be

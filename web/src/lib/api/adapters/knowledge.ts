@@ -306,6 +306,7 @@ export function toKnowledgePreview(raw: unknown): KnowledgePreview {
     memory: {
       skipped: readBoolean(memoryRecord, 'Skipped', endpoint, false),
       reason: readString(memoryRecord, 'Reason', endpoint, ''),
+      source: readString(memoryRecord, 'Source', endpoint, ''),
       items: asArray(memoryRecord.Items, endpoint, 'Memory.Items').map(toPreviewMemory),
     },
     history: {

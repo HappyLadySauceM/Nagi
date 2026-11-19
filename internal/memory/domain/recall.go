@@ -32,6 +32,7 @@ type RecallQuery struct {
 	Kind        string
 	TargetID    int64
 	Query       string
+	Keywords    []QueryTerm
 	SubjectType SubjectType
 	SubjectID   string
 	Limit       int
@@ -52,7 +53,10 @@ type RecallHit struct {
 // RankRecall 按非通用关键词命中过滤，应用主体感知排序，并返回可区分
 // 「无有效关键词」与「有关键词但无命中」的诊断信息。
 func RankRecall(memories []Memory, query RecallQuery) ([]RecallHit, bool, string) {
-	terms := QueryKeywords(query.Query)
+	terms := query.Keywords
+	if terms == nil {
+		terms = QueryKeywords(query.Query)
+	}
 	validTerms := 0
 	for _, term := range terms {
 		if !term.Common {

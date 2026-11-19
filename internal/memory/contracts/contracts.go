@@ -33,6 +33,7 @@ type RecallRequest struct {
 	TargetID       int64
 	ConversationID string
 	Query          string
+	AllowRewrite   bool
 	Limit          int
 	// SpeakerType/SpeakerID identify the current message sender. They are
 	// separate from the subject being asked about and never imply the subject.
@@ -81,6 +82,7 @@ type RecallItem struct {
 type RecallResult struct {
 	Items     []RecallItem
 	NoKeyword bool
+	Source    string
 	Limit     int
 	// Reason distinguishes no_keyword from no_match for diagnostics.
 	// Reason 用于区分 no_keyword 与 no_match，便于调试。

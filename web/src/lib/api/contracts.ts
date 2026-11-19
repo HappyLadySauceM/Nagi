@@ -589,6 +589,7 @@ export interface KnowledgePreview {
   memory: {
     skipped: boolean
     reason: string
+    source?: string
     items: KnowledgePreviewMemory[]
   }
   history: {

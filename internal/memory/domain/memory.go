@@ -210,6 +210,7 @@ type SearchRequest struct {
 	TargetID       int64
 	ConversationID string
 	Query          string
+	Keywords       []QueryTerm
 	Limit          int
 }
 

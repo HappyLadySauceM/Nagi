@@ -581,3 +581,53 @@ func TestRecallLimitDefaultsAndCaps(t *testing.T) {
 		t.Fatalf("capped limit = %d err=%v", got.Limit, err)
 	}
 }
+
+type recallRewriteFunc func(context.Context, int64, string, int64, string) ([]string, error)
+
+func (f recallRewriteFunc) Rewrite(ctx context.Context, botID int64, kind string, targetID int64, query string) ([]string, error) {
+	return f(ctx, botID, kind, targetID, query)
+}
+
+func TestRecallRewriteImprovesParaphrasesWithoutCrossingSubjects(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	repo.items["a"] = domain.Memory{ID: "a", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Status: domain.StatusActive, SubjectType: domain.SubjectUser, SubjectID: "1001", Content: "常喝冰美式"}
+	repo.items["b"] = domain.Memory{ID: "b", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Status: domain.StatusActive, SubjectType: domain.SubjectUser, SubjectID: "200", Content: "常喝冰美式"}
+	svc, _ := NewService(repo)
+	for _, tc := range []struct {
+		query, wantSource string
+		terms             []string
+		wantCalls         int
+	}{
+		{"我平时点什么饮料？", "rewrite", []string{"最近喜欢的饮料种类", "美式"}, 1},
+		{"想问你一个之前聊过的问题，我通常点哪杯？", "rewrite", []string{"冰美式"}, 1},
+		{"冰美式", "literal", nil, 0},
+		{"hi", "", nil, 0},
+		{"茶？", "rewrite", []string{"美式"}, 1},
+		{"我喜欢什么点心？", "", nil, 1},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			req := contracts.RecallRequest{BotID: 1, Kind: "group", TargetID: 700, SubjectType: "user", SubjectID: "1001", Query: tc.query}
+			baseline, err := svc.Recall(context.Background(), req)
+			if err != nil || tc.wantSource == "rewrite" && len(baseline.Items) != 0 {
+				t.Fatalf("baseline = %+v, err = %v", baseline, err)
+			}
+			calls := 0
+			svc.SetRecallRewriter(recallRewriteFunc(func(ctx context.Context, botID int64, kind string, targetID int64, query string) ([]string, error) {
+				calls++
+				deadline, ok := ctx.Deadline()
+				if !ok || time.Until(deadline) > 2*time.Second || botID != 1 || kind != "group" || targetID != 700 || query != tc.query {
+					t.Fatalf("unexpected rewrite context or request")
+				}
+				return tc.terms, nil
+			}))
+			req.AllowRewrite = true
+			got, err := svc.Recall(context.Background(), req)
+			if err != nil || got.Source != tc.wantSource || calls != tc.wantCalls {
+				t.Fatalf("recall = %+v, calls = %d, err = %v", got, calls, err)
+			}
+			if tc.wantSource != "" && (len(got.Items) != 1 || got.Items[0].MemoryID != "a") || tc.wantSource == "" && len(got.Items) != 0 {
+				t.Fatalf("recall items = %+v", got.Items)
+			}
+		})
+	}
+}

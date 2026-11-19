@@ -295,7 +295,7 @@ func (h *Handler) realContext(r *http.Request, body v1.PreviewRequest, botID int
 		if policy.AllowMemoryRead && active {
 			result, err := h.svcCtx.Memory.Recall(r.Context(), memorycontracts.RecallRequest{
 				BotID: botID, Kind: targetType, TargetID: targetID, ConversationID: conversationID,
-				Query: body.Query, Limit: 3,
+				Query: body.Query, AllowRewrite: body.AllowRewrite, Limit: 3,
 				SpeakerType: body.SpeakerType, SpeakerID: body.SpeakerID,
 				SubjectType: body.SubjectType, SubjectID: body.SubjectID,
 				SubjectSource: body.SubjectSource, SubjectEvidence: body.SubjectEvidence,
@@ -314,7 +314,7 @@ func (h *Handler) realContext(r *http.Request, body v1.PreviewRequest, botID int
 					SelectionReason: item.SelectionReason,
 				})
 			}
-			view["Memory"] = map[string]any{"Skipped": false, "Reason": result.Reason, "NoKeyword": result.NoKeyword, "Limit": result.Limit, "Items": items}
+			view["Memory"] = map[string]any{"Skipped": false, "Reason": result.Reason, "Source": result.Source, "NoKeyword": result.NoKeyword, "Limit": result.Limit, "Items": items}
 		} else {
 			reason := "memory_not_authorized"
 			if !active {

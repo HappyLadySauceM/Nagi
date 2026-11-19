@@ -20,6 +20,7 @@ type PreviewRequest struct {
 	TargetType       string `json:"target_type"`
 	TargetID         int64  `json:"target_id"`
 	ConversationID   string `json:"conversation_id"`
+	AllowRewrite     bool   `json:"allow_rewrite"`
 	Query            string `json:"query"`
 	SpeakerType      string `json:"speaker_type"`
 	SpeakerID        string `json:"speaker_id"`

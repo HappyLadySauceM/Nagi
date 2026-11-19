@@ -381,6 +381,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil, settingsErr
 		}
 		rt.Scope.SetModels(settingsService)
+		rt.Memory.SetRecallRewriter(memoryinfra.NewModelRecallRewriter(settingsService))
 		rt.Scope.SetPermissionResolver(func(overrides map[string]bool) scopeapp.PermissionState {
 			live := settingsProvider.Settings()
 			visible := toolRegistry.Snapshot()

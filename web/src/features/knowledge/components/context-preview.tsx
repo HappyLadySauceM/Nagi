@@ -76,7 +76,7 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
   const [validation, setValidation] = useState('')
   const preview = useKnowledgePreview()
 
-  const run = (mode: 'example' | 'real') => {
+  const run = (mode: 'example' | 'real', allowRewrite = false) => {
     setValidation('')
     if (botId === undefined) {
       setValidation('机器人账号尚未识别，无法发起预览。')
@@ -100,6 +100,7 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
       targetId: mode === 'real' ? numericTargetId : undefined,
       conversationId: mode === 'real' ? conversationId.trim() : '',
       query: query.trim(),
+      allowRewrite,
       subjectType: selectedSubject,
       subjectId: selectedSubject === 'unknown' ? undefined : selectedId,
     })
@@ -112,7 +113,7 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
       <div className="flex flex-wrap items-center gap-2">
         <Eye className="size-4 text-muted-foreground" aria-hidden />
         <h2 className="text-sm font-semibold">知识上下文预览</h2>
-        <Badge variant="outline">只读 · 不调用模型 · 不发送</Badge>
+        <Badge variant="outline">只读 · 不发送</Badge>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
         示例预览只使用合成消息与记忆，不读取真实内容；真实上下文预览按当前账号、目标作用域与授权读取。
@@ -191,6 +192,9 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
         <Button size="sm" onClick={() => run('real')} disabled={preview.isPending}>
           <Eye className="size-3.5" aria-hidden />
           真实上下文预览
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => run('real', true)} disabled={preview.isPending} title="原文无命中时调用当前回复模型">
+          同义召回预览
         </Button>
         {preview.isPending ? <span className="text-xs text-muted-foreground">读取中…</span> : null}
       </div>
@@ -355,6 +359,9 @@ function PreviewResult({ data }: { data: KnowledgePreview }) {
 
       <section className="space-y-2">
         <h3 className="text-xs font-semibold text-foreground">授权记忆</h3>
+        {data.memory.source ? (
+          <Badge variant="outline">{data.memory.source === 'rewrite' ? '改写命中' : '原文命中'}</Badge>
+        ) : null}
         {data.memory.skipped ? (
           <SkippedLayer label="记忆" reason={data.memory.reason} />
         ) : data.memory.items.length === 0 ? (

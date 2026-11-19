@@ -716,6 +716,7 @@ func (r *Replier) recallMemories(ctx context.Context, task intentdomain.Task, po
 		return nil
 	}
 	req := recallRequest(task, history)
+	req.AllowRewrite = true
 	result, err := r.memory.Recall(ctx, req)
 	if err != nil {
 		r.logger.Warn("memory recall failed; replying without long-term memory", "error", err, "job_id", task.JobID)
