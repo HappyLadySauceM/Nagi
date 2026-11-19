@@ -28,6 +28,11 @@
     "enabled": true,
     "prefix": "/echo"
   },
+  "history-search": {
+    "api-key": "",
+    "ca-file": "",
+    "endpoint": ""
+  },
   "intent": {
     "addressed-other-max": 0.6,
     "api-key": "",

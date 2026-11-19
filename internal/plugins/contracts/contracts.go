@@ -54,6 +54,10 @@ const (
 	MemorySourceToolID = "memory.source"
 )
 
+// HistorySearchToolID is the read-only tool for authorized chat history.
+// HistorySearchToolID 是授权会话历史的只读工具。
+const HistorySearchToolID = "history.search"
+
 // PermissionPrerequisites lists capabilities needed whenever a permission is used.
 // Conditional grants such as cross-conversation access are not prerequisites.
 // PermissionPrerequisites 列出使用某项权限时必需的能力；跨会话等条件授权不属于前置能力。

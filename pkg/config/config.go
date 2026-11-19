@@ -344,6 +344,14 @@ type MediaArchive struct {
 	RetentionDays  int    `yaml:"retention-days"`
 }
 
+// HistorySearch configures the optional Elasticsearch index for chat history.
+// HistorySearch 配置可选的 Elasticsearch 聊天历史索引。
+type HistorySearch struct {
+	Endpoint string `yaml:"endpoint"`
+	APIKey   string `yaml:"api-key"`
+	CAFile   string `yaml:"ca-file"`
+}
+
 // Config 是解析完成的运行时配置模型。
 type Config struct {
 	Onebot        Onebot        `yaml:"onebot"`
@@ -361,6 +369,7 @@ type Config struct {
 	Tools         Tools         `yaml:"tools"`
 	Intent        Intent        `yaml:"intent"`
 	Observability Observability `yaml:"observability"`
+	HistorySearch HistorySearch `yaml:"history-search"`
 }
 
 // defaults 返回内置默认值。
@@ -545,6 +554,15 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) {
 		if enabled, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
 			cfg.Memory.Extraction.Enabled = enabled
 		}
+	}
+	if value, ok := lookup("NAGI_HISTORY_SEARCH_ENDPOINT"); ok {
+		cfg.HistorySearch.Endpoint = strings.TrimSpace(value)
+	}
+	if value, ok := lookup("NAGI_HISTORY_SEARCH_API_KEY"); ok {
+		cfg.HistorySearch.APIKey = strings.TrimSpace(value)
+	}
+	if value, ok := lookup("NAGI_HISTORY_SEARCH_CA_FILE"); ok {
+		cfg.HistorySearch.CAFile = strings.TrimSpace(value)
 	}
 	if v, ok := lookup("NAGI_MEDIA_ARCHIVE_ENDPOINT"); ok && strings.TrimSpace(v) != "" {
 		cfg.Observability.MediaArchive.Endpoint = strings.TrimSpace(v)

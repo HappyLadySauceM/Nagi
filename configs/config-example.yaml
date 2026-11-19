@@ -195,3 +195,8 @@ observability:
     bucket: "nagi-audit"
     prefix: "nagi/"
     retention-days: 30
+
+# 聊天历史全文检索。部署时优先通过 NAGI_HISTORY_SEARCH_API_KEY 注入 Elasticsearch API key。
+history-search:
+  endpoint: ""
+  ca-file: ""
