@@ -638,3 +638,75 @@ func TestAwaitedRequestUsesLatestDecisionOfSameSender(t *testing.T) {
 		}
 	}
 }
+
+func TestTopicsProjectIndependentTransitions(t *testing.T) {
+	pool := dbtest.Open(t)
+	conversations, _ := conversationinfra.NewRepo(pool)
+	decisions, _ := NewDecisionsRepo(pool)
+	ctx := context.Background()
+	const botID = 992002
+	base := time.Now().UnixNano()
+	group := base % 1_000_000_000
+	ingest := func(group, offset int64, text string) domain.Task {
+		t.Helper()
+		row, err := conversations.Ingest(ctx, conversationdomain.IngestInput{
+			BotID: botID, Kind: conversationdomain.KindGroup, TargetID: group,
+			PlatformMessageID: base + offset, SenderID: 995001 + offset, Text: text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return domain.Task{JobID: row.JobID, BotID: botID, ConversationID: row.ConversationID}
+	}
+	save := func(task domain.Task, id int64, action string, expiry time.Time) {
+		t.Helper()
+		claim := dbtest.Claim(t, pool, task.JobID)
+		decision := domain.FinalDecision{
+			Decision: domain.DecisionReply, ReasonCode: "direct_name_call",
+			Snapshot: &domain.DecisionSnapshot{Input: domain.SnapshotInput{
+				TopicChange: &domain.TopicChange{ID: id, Action: action, ExpiresAt: expiry},
+			}},
+		}
+		if err := decisions.Record(ctx, task.JobID, decision, claim); err != nil {
+			t.Fatal(err)
+		}
+		if err := conversations.CompleteJob(ctx, task.JobID, claim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expiry := time.Now().Add(5 * time.Minute)
+	a := ingest(group, 0, "数据库超时")
+	save(a, a.JobID, "opened", expiry)
+	b := ingest(group, 1, "晚饭去哪里吃")
+	save(b, b.JobID, "opened", expiry)
+	expired := ingest(group, 2, "已过期内容")
+	save(expired, expired.JobID, "opened", time.Now().Add(-time.Second))
+	foreign := ingest(group+1, 3, "别的群的话题")
+	save(foreign, foreign.JobID, "opened", expiry)
+	leave := ingest(group, 4, "我先走了")
+	save(leave, a.JobID, domain.TopicLeave, expiry)
+
+	closeA := ingest(group, 5, "数据库处理完毕")
+	first, err := decisions.Topics(ctx, closeA, base, 300)
+	if err != nil || first.QuotedID != a.JobID || first.Reference == nil || first.Reference.Text != "数据库超时" || len(first.Candidates) != 2 ||
+		first.Candidates[0].ID != a.JobID || !first.Candidates[0].Active ||
+		len(first.Candidates[0].History) != 2 || first.Candidates[0].History[0].Text != "数据库超时" {
+		t.Fatalf("topics before close = %+v, err=%v", first, err)
+	}
+	save(closeA, a.JobID, domain.TopicClose, expiry)
+	query := ingest(group, 6, "继续晚饭")
+	second, err := decisions.Topics(ctx, query, base+3, 300)
+	if err != nil || second.QuotedID != 0 || len(second.Candidates) != 1 || second.Candidates[0].ID != b.JobID {
+		t.Fatalf("topics after close = %+v, err=%v", second, err)
+	}
+	reopened, err := decisions.Topics(ctx, query, base+2, 300)
+	if err != nil || reopened.QuotedID != expired.JobID || len(reopened.Candidates) != 2 || reopened.Candidates[0].Active {
+		t.Fatalf("expired quote = %+v, err=%v", reopened, err)
+	}
+	unassociated := ingest(group, 7, "原始错误日志")
+	unassociatedQuote := ingest(group, 8, "Nagi，请解释引用的日志")
+	ref, err := decisions.Topics(ctx, unassociatedQuote, base+7, 300)
+	if err != nil || ref.QuotedID != 0 || ref.Reference == nil || ref.Reference.Text != "原始错误日志" || unassociated.JobID == 0 {
+		t.Fatalf("unassociated reference = %+v, err=%v", ref, err)
+	}
+}

@@ -89,12 +89,13 @@ type RulesProvider interface {
 // RuntimeConfig 是可编辑配置的单次调用视图。决策器在每个任务上读取它，
 // 保存后的改动因此对下一次决策生效，无需重启进程。
 type RuntimeConfig struct {
-	Enabled      bool
-	AIEnabled    bool
-	HistoryLimit int
-	Provider     string
-	Model        string
-	Thresholds   domain.Thresholds
+	Enabled          bool
+	AIEnabled        bool
+	HistoryLimit     int
+	Provider         string
+	Model            string
+	Thresholds       domain.Thresholds
+	TopicIdleSeconds int
 }
 
 // RuntimeConfigProvider reports the current runtime configuration; nil means
@@ -350,6 +351,10 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	}
 	botName := d.currentBotName()
 	early := domain.Input{Task: task, BotName: botName, Policy: policy, AwaitedRequest: awaited}
+	topics, err := d.loadTopics(ctx, early, runtime)
+	if err != nil {
+		return fmt.Errorf("intent: load topics: %w", err)
+	}
 	readHistory := true
 	if task.Kind == "group" {
 		quoted := false
@@ -361,6 +366,9 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		}
 		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task) ||
 			directNameCall(task.Message.Text, task.Segments, botName) && !refersToEarlierDiscussion(task) || requestsFollowingContent(early)) {
+			readHistory = false
+		}
+		if topics != nil && len(topics.Candidates) != 0 {
 			readHistory = false
 		}
 	}
@@ -387,7 +395,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	prompt = scorePrompt(prompt)
 	prompt.ConversationID = task.ConversationID
 	runID := uuid.NewString()
-	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
+	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
 
 	rule, rulesetVersion := d.applyRules(ctx, in)
 	var semantic domain.SemanticAnswer
@@ -403,7 +411,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
 		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
 	}
 
@@ -446,6 +454,9 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		"RunID":          decision.RunID,
 		"FlowVersion":    decision.FlowVersion,
 	}
+	if decision.Topic != nil {
+		auditDecision["Topic"] = decision.Topic
+	}
 	if err := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", map[string]any{"decision": auditDecision}); err != nil {
 		return err
 	}
@@ -457,7 +468,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	// console explains that replies need both switches on.
 	// 关闭生成模型时仍记录决策但不发送；控制台的说明是回复需要两个开关同时开启。
 	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled {
-		return d.executor.ExecuteReply(ctx, task, replyHistory(in, decision.ReasonCode))
+		return d.executor.ExecuteReply(ctx, task, topicReplyHistory(in, decision))
 	}
 	return nil
 }
@@ -676,6 +687,19 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		},
 		Evidence: []domain.Evidence{{Kind: "decision", Text: "decision=" + string(decision.Decision)}},
 	})
+	if in.Topics != nil {
+		ids := make([]int64, 0, len(in.Topics.Candidates))
+		for _, candidate := range in.Topics.Candidates {
+			ids = append(ids, candidate.ID)
+		}
+		steps[1].Detail["TopicCandidates"] = ids
+		if len(ids) != 0 && in.HistoryWindowSkipped {
+			steps[1].Status = domain.NodeStatusExecuted
+			steps[1].Branch = "topic_candidates"
+			steps[1].Summary = "已加载活跃话题候选"
+		}
+		steps[4].Detail["Topic"] = decision.Topic
+	}
 	return steps
 }
 
@@ -836,6 +860,7 @@ func semanticSkipReason(rule domain.RuleResult) string {
 func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleResult, string) {
 	_, span := tracer().Start(ctx, "nagi.intent.rules")
 	defer span.End()
+	in, _ = topicRuleInput(in)
 	rule := EvaluateRules(in)
 	version := ""
 	if d.rules != nil {
@@ -854,6 +879,7 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 			rule, version = EvaluateRuleChain(in, specificSet, globalSet)
 		}
 	}
+	rule.NeedSemantic = rule.NeedSemantic || needsTopicSemantic(in, rule)
 	span.SetAttributes(
 		attribute.Bool("nagi.rule_blocked", rule.Blocked),
 		attribute.Bool("nagi.rule_explicit", rule.Explicit),
@@ -933,7 +959,10 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 ) domain.FinalDecision {
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
-	decision := EvaluateReplyPolicy(in, rule, semantic)
+	decision := evaluateTopicDecision(in, rule, semantic)
+	if decision.Topic != nil {
+		decision.Topic.ParticipantID = in.Task.Message.SenderID
+	}
 	decision.Provider = runtime.Provider
 	decision.Model = runtime.Model
 	decision.LatencyMS = latency
@@ -950,6 +979,7 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 		"rule_blocked":       rule.Blocked,
 		"rule_explicit":      rule.Explicit,
 		"semantic_available": semantic.Available,
+		"topic":              decision.Topic,
 	})
 	return decision
 }

@@ -30,8 +30,10 @@ const (
 type SnapshotInput struct {
 	Task                 Task
 	Recent               []Message
-	AwaitedRequest       *Message `json:",omitempty"`
-	HistoryWindowSkipped bool     `json:",omitempty"`
+	AwaitedRequest       *Message      `json:",omitempty"`
+	Topics               *TopicContext `json:",omitempty"`
+	TopicChange          *TopicChange  `json:",omitempty"`
+	HistoryWindowSkipped bool          `json:",omitempty"`
 	Activity             BotActivity
 	Policy               scopedomain.Policy
 	Now                  time.Time

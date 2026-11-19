@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -103,8 +104,11 @@ func (s *ReplayService) Recalculate(ctx context.Context, decisionID int64) (cont
 	if err != nil {
 		return contracts.Run{}, contracts.Run{}, false, err
 	}
-	rule, version := s.decider.applyRules(ctx, in)
 	runtime := s.decider.runtimeFor(ctx)
+	if !runtime.AIEnabled || runtime.TopicIdleSeconds <= 0 {
+		in.Topics = nil
+	}
+	rule, version := s.decider.applyRules(ctx, in)
 	decision := s.decider.applyPolicy(ctx, in, rule, snapshot.Semantic, 0, runtime)
 	decision.RulesetVersion = version
 	decision.RunID = "recalc-" + uuid.NewString()
@@ -125,6 +129,10 @@ func (s *ReplayService) Recalculate(ctx context.Context, decisionID int64) (cont
 // the stored rule state. It never writes or sends anything.
 // ReplayModel 使用固定保存的输入与规则状态调用当前语义模型；不写入、不发送。
 func (s *ReplayService) ReplayModel(ctx context.Context, decisionID int64) (contracts.Run, error) {
+	return s.replayModel(ctx, decisionID, nil)
+}
+
+func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confirmed *contracts.ReplayParameters) (contracts.Run, error) {
 	if s == nil || s.decider == nil || s.snapshots == nil {
 		return contracts.Run{}, fmt.Errorf("intent: replay unavailable")
 	}
@@ -147,6 +155,10 @@ func (s *ReplayService) ReplayModel(ctx context.Context, decisionID int64) (cont
 	semantic := domain.SemanticAnswer{Available: false, FailureCode: "semantic_unavailable"}
 	latency := int64(0)
 	asked := rule.NeedSemantic && !rule.Blocked && s.decider.semantic != nil
+	if confirmed != nil && (runtime.Provider != confirmed.Provider || runtime.Model != confirmed.Model ||
+		replayRequestCount(runtime.Provider, asked, in.Topics) != confirmed.EstimatedExternalRequests) {
+		return contracts.Run{}, ErrReplayConfirmationStale
+	}
 	if asked {
 		semantic, latency = s.decider.decideSemantic(ctx, in, runtime)
 	}
@@ -217,7 +229,7 @@ func (s *ReplayService) ReplayModelConfirmed(ctx context.Context, decisionID int
 	if err != nil {
 		return contracts.ReplayEvaluation{}, err
 	}
-	run, err := s.ReplayModel(ctx, decisionID)
+	run, err := s.replayModel(ctx, decisionID, &params)
 	if err != nil {
 		return contracts.ReplayEvaluation{}, err
 	}
@@ -342,7 +354,11 @@ func (s *ReplayService) modelReplayParameters(ctx context.Context, decisionID in
 	runtime := s.decider.runtimeFor(ctx)
 	requests := 0
 	if snapshot.Rule.NeedSemantic && !snapshot.Rule.Blocked && s.decider.semantic != nil {
-		requests = replayExternalRequests(runtime.Provider)
+		in, err := s.decider.replayInput(ctx, snapshot)
+		if err != nil {
+			return contracts.ReplayParameters{}, err
+		}
+		requests = replayRequestCount(runtime.Provider, true, in.Topics)
 	}
 	return contracts.ReplayParameters{
 		Provider: runtime.Provider, Model: runtime.Model,
@@ -378,8 +394,14 @@ func (s *ReplayService) consumeConfirmation(ctx context.Context, decisionID int6
 	return params, nil
 }
 
-func replayExternalRequests(provider string) int {
+func replayRequestCount(provider string, asked bool, topics *domain.TopicContext) int {
+	if !asked {
+		return 0
+	}
 	if provider == domain.PromptProviderOpenAI {
+		if topics != nil && len(topics.Candidates) > 0 {
+			return 6
+		}
 		return 5
 	}
 	return 1
@@ -463,7 +485,21 @@ func reproductionFrom(run contracts.Run, snapshot domain.DecisionSnapshot) contr
 }
 
 func runsDiffer(before, after contracts.Run) bool {
-	return before.Summary.Decision != after.Summary.Decision || before.Summary.ReasonCode != after.Summary.ReasonCode
+	oldTopic, newTopic := replayTopic(before), replayTopic(after)
+	return before.Summary.Decision != after.Summary.Decision || before.Summary.ReasonCode != after.Summary.ReasonCode ||
+		oldTopic.ID != newTopic.ID || oldTopic.Action != newTopic.Action || oldTopic.CooldownBypassed != newTopic.CooldownBypassed
+}
+
+func replayTopic(run contracts.Run) domain.TopicChange {
+	for _, node := range run.Nodes {
+		if node.NodeID == domain.NodeDecision {
+			raw, _ := json.Marshal(node.Detail["Topic"])
+			var result domain.TopicChange
+			_ = json.Unmarshal(raw, &result)
+			return result
+		}
+	}
+	return domain.TopicChange{}
 }
 
 func diffRuns(before, after contracts.Run) []contracts.ReplayDifference {
@@ -480,6 +516,10 @@ func diffRuns(before, after contracts.Run) []contracts.ReplayDifference {
 	add("RulesetVersion", before.RulesetVersion, after.RulesetVersion)
 	add("Prompt", promptLabel(before.Prompt), promptLabel(after.Prompt))
 	add("PromptHash", before.Prompt.Hash, after.Prompt.Hash)
+	oldTopic, newTopic := replayTopic(before), replayTopic(after)
+	add("TopicID", strconv.FormatInt(oldTopic.ID, 10), strconv.FormatInt(newTopic.ID, 10))
+	add("TopicAction", oldTopic.Action, newTopic.Action)
+	add("TopicCooldownBypassed", strconv.FormatBool(oldTopic.CooldownBypassed), strconv.FormatBool(newTopic.CooldownBypassed))
 	return out
 }
 
@@ -498,17 +538,22 @@ func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnaps
 	if err != nil {
 		return domain.Input{}, err
 	}
-	return domain.Input{
+	in := domain.Input{
 		Task:                 snapshot.Input.Task,
 		BotName:              d.currentBotName(),
 		Recent:               snapshot.Input.Recent,
 		AwaitedRequest:       snapshot.Input.AwaitedRequest,
+		Topics:               snapshot.Input.Topics,
 		HistoryWindowSkipped: snapshot.Input.HistoryWindowSkipped,
 		Activity:             snapshot.Input.Activity,
 		Policy:               policy,
 		Now:                  snapshot.Input.Now,
 		Prompt:               snapshot.Prompt,
-	}, nil
+	}
+	if !allowsTopicContinuation(in) {
+		in.Topics = nil
+	}
+	return in, nil
 }
 
 func snapshotMissingField(fields []string, name string) bool {
@@ -521,5 +566,5 @@ func snapshotMissingField(fields []string, name string) bool {
 }
 
 func changed(before, after contracts.Run) bool {
-	return before.Summary.Decision != after.Summary.Decision || before.Summary.ReasonCode != after.Summary.ReasonCode
+	return runsDiffer(before, after)
 }

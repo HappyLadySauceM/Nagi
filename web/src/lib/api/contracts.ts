@@ -246,6 +246,8 @@ export interface SettingsIntent {
   continuationThreshold: number
   interjectionThreshold: number
   addressedOtherMax: number
+  topicContinuationEnabled: boolean
+  topicIdleSeconds: number
 }
 
 /** Outbound budget of one agent run; zero means unlimited. */

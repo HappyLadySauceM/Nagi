@@ -68,6 +68,7 @@ type Input struct {
 	// Recent 是按时间正序的授权历史，包含机器人回复。
 	Recent               []Message
 	AwaitedRequest       *Message
+	Topics               *TopicContext
 	HistoryWindowSkipped bool
 	// Activity holds DB-derived bot reply metadata; it takes precedence over
 	// Recent so cooldown and hourly limits cannot be bypassed by disabling
@@ -120,6 +121,9 @@ func (in Input) MentionsBot() bool {
 // RepliesToBot reports whether the reply segment references one of the bot's messages.
 // RepliesToBot 报告引用段是否指向机器人发送的消息。
 func (in Input) RepliesToBot() bool {
+	if in.Topics != nil && in.Topics.QuotedBot {
+		return true
+	}
 	var replyID string
 	for _, s := range in.Task.Segments {
 		if s.Type == obdomain.SegReply {
@@ -195,6 +199,7 @@ type SemanticAnswer struct {
 	RolePresent        map[string]bool
 	ParticipationScore float64
 	HasParticipation   bool
+	TopicJudgments     []TopicJudgment
 }
 
 // Thresholds holds the calibrated decision thresholds.
@@ -297,6 +302,7 @@ type FinalDecision struct {
 	Model      string
 	Scores     map[string]float64
 	LatencyMS  int64
+	Topic      *TopicChange
 	// RulesetVersion identifies the rules that produced the decision; empty
 	// means the built-in ruleset.
 	// RulesetVersion 标识产生该决策的规则版本；空值表示内置规则。
