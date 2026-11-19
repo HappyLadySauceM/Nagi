@@ -329,3 +329,56 @@ it('shows the blocking hard gate and does not call a closing private chat a non-
   expect(screen.queryByText(/不是告别/)).toBeNull()
   client.clear()
 })
+
+it.each([
+  { text: 'Nagi在吗？', segmentTypes: [], reply: true },
+  { text: 'Nagi你能看看我下面发的这个内容嘛？', segmentTypes: [], reply: false },
+  { text: '', segmentTypes: ['image'], reply: false },
+  { text: '你看看这个呢', segmentTypes: ['at', 'image'], reply: true },
+])('follows the group message from QQ ingress to its recorded result ($text)', async ({ text, segmentTypes, reply }) => {
+  const receipt = reply ? [{ ID: 'out-1', Sequence: 1, Status: 'sent', Text: '看到啦', PlatformMessageID: -1832829040, ErrorCode: '' }] : []
+  const events = [
+    { ID: 'e1', Stage: 'worker.process', Status: 'succeeded' },
+    { ID: 'e2', Stage: 'intent.decision', Status: 'succeeded' },
+    ...(reply ? [
+      { ID: 'e3', Stage: 'agent.generation', Status: 'succeeded', Output: btoa(JSON.stringify({ model: 'reply-model', input_usage: 2291, output_usage: 36 })) },
+      { ID: 'e4', Stage: 'outbound.deliver', Status: 'succeeded' },
+    ] : []),
+  ]
+  vi.stubGlobal('fetch', vi.fn((input: string) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname === '/api/v1/intent/decisions/42') return Promise.resolve(response({
+      ...detail,
+      Ingress: { MessageID: 7, PlatformMessageID: -400, SenderID: 8, Text: text, SegmentTypes: segmentTypes, JobStatus: 'done' },
+      Run: {
+        ...run,
+        Summary: { ...run.Summary, Decision: reply ? 'reply' : 'silent' },
+        Delivery: { ...run.Delivery, Outcome: reply ? 'completed' : '', Items: receipt },
+      },
+    }))
+    if (url.pathname === '/api/v1/intent/flow') return Promise.resolve(response(flow))
+    if (url.pathname === '/api/v1/intent/replay-evaluations') return Promise.resolve(response({ Items: [], Limit: 20 }))
+    if (url.pathname === '/api/v1/audit/runs') return Promise.resolve(response({ items: [{ ID: 'run-1' }] }))
+    if (url.pathname === '/api/v1/audit/runs/run-1') return Promise.resolve(response({ Status: 'done', Events: events }))
+    throw new Error(`Unexpected request ${url.pathname}`)
+  }))
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>)
+  const ingress = await screen.findByRole('heading', { name: 'QQ 入站消息' })
+  const audit = await screen.findByRole('region', { name: '回复执行记录' })
+  const delivery = await screen.findByRole('heading', { name: '实际发送' })
+  expect(ingress.compareDocumentPosition(audit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(audit.compareDocumentPosition(delivery) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByText(/已入库 · 消息 7/)).toBeVisible()
+  if (text) expect(screen.getByText(text)).toBeVisible()
+  if (segmentTypes.includes('image')) expect(screen.getByText(/图片$/)).toBeVisible()
+  if (reply) {
+    expect(within(audit).getByText(/输入 2291 token/)).toBeVisible()
+    expect(screen.getByText('回执 -1832829040')).toBeVisible()
+  } else {
+    expect(within(audit).queryByText(/生成回复/)).toBeNull()
+    expect(screen.getByText('未发送', { exact: true })).toBeVisible()
+  }
+  client.clear()
+})

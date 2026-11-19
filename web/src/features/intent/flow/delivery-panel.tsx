@@ -34,12 +34,12 @@ export function DeliveryPanel({ run }: { run?: IntentRun }) {
         <div>
           <h3 className="text-sm font-semibold">实际发送</h3>
           <p className="mt-1 text-meta text-muted-foreground">
-            发送结果独立记录，不代表或改变上方判定结论。
+            这里汇总这条入站消息在各次执行中的 QQ 投递结果。
           </p>
         </div>
         <Badge variant={isReply && delivery.items.length === 0 ? 'warning' : delivery.outcome === 'completed' ? 'success' : 'secondary'}>
           {isReply && delivery.items.length === 0
-            ? '已决定回复，尚无实际发送记录'
+            ? '任务尚无实际发送记录'
             : OUTCOME_LABELS[delivery.outcome] ?? (delivery.items.length ? '有发送记录' : '未发送')}
         </Badge>
       </div>
@@ -47,8 +47,8 @@ export function DeliveryPanel({ run }: { run?: IntentRun }) {
         {delivery.items.length > 0
           ? `共 ${delivery.items.length} 条记录，${sent} 条确认送达${delivery.denied ? `，拒绝 ${delivery.denied} 次` : ''}`
           : isReply
-            ? '判定为回复，但当前没有出现投递记录；不等同于发送成功。'
-            : '判定不是回复，本任务没有实际发送。'}
+            ? '投递台账暂未记录本任务的发送。'
+            : '任务没有实际发送。'}
         {delivery.reason ? ` · 终止原因：${delivery.reason}` : ''}
       </p>
       {delivery.items.length > 0 ? (

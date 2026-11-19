@@ -12,10 +12,12 @@ export function FlowRunView({
   run,
   compact = false,
   showDelivery = true,
+  showReplay = true,
 }: {
   run?: IntentRun
   compact?: boolean
   showDelivery?: boolean
+  showReplay?: boolean
 }) {
   const flow = useIntentFlow()
   if (flow.isError) {
@@ -30,7 +32,7 @@ export function FlowRunView({
       <DecisionConclusion run={run} showSnapshotStatus={showSnapshotStatus} />
       <FlowCanvas flow={flow.data} run={run} compact={compact} showSnapshotStatus={showSnapshotStatus} />
       {showDelivery ? <DeliveryPanel run={run} /> : null}
-      {run && run.decisionId > 0 ? <ReplayControls decisionId={run.decisionId} /> : null}
+      {showReplay && run && run.decisionId > 0 ? <ReplayControls decisionId={run.decisionId} /> : null}
     </div>
   )
 }

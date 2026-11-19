@@ -10,6 +10,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	ec "github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	em "github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
+	ej "github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 
 	"fmt"
 	"time"
@@ -151,6 +152,32 @@ func (r *Repo) RecentMessages(ctx context.Context, conversationID string, limit 
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// JobIngress reads the inbound evidence for an account-scoped job.
+// JobIngress 读取限于指定账号的任务入站证据。
+func (r *Repo) JobIngress(ctx context.Context, botID, jobID int64) (*domain.JobIngress, error) {
+	job, err := r.pool.Client.MessageJob.Query().
+		Where(ej.ID(jobID), ej.HasIncomingMessageIDRefWith(em.BotID(botID), em.DirectionEQ(string(domain.Incoming)))).
+		WithIncomingMessageIDRef().Only(ctx)
+	if ent.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	row, err := job.Edges.IncomingMessageIDRefOrErr()
+	if ent.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	message, err := messageModel(row)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.JobIngress{Message: message, TraceParent: job.Traceparent, Status: job.Status}, nil
 }
 
 // MessageByID returns one stored message scoped to its bot account. A missing

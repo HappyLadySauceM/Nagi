@@ -18,6 +18,9 @@ import (
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // maxDecisionPageSize bounds one page of decisions.
@@ -118,6 +121,35 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	record = attachSnapshotContext(r.Context(), h.svcCtx.Decisions, record)
 	delivery := h.deliveryFor(r.Context(), record.BotID, record.JobID)
 	detail := v1.DecisionDetail{DecisionInfo: toInfo(record), Scores: record.Scores, Run: intentapp.BuildRunFromRecord(record, delivery)}
+	if h.svcCtx.Conversation != nil {
+		ingress, err := h.svcCtx.Conversation.JobIngress(r.Context(), record.BotID, record.JobID)
+		if err != nil {
+			common.WriteFailure(w, http.StatusInternalServerError, "读取入站消息失败")
+			return
+		}
+		if ingress != nil {
+			msg := ingress.Message
+			text := msg.Text
+			var segmentTypes []string
+			if len(msg.Segments) > 0 {
+				text = ob.PlainText(msg.Segments)
+				for _, segment := range msg.Segments {
+					if segment.Type != ob.SegText {
+						segmentTypes = append(segmentTypes, string(segment.Type))
+					}
+				}
+			}
+			detail.Ingress = &v1.MessageIngress{
+				MessageID: msg.ID, PlatformMessageID: msg.PlatformMessageID,
+				SenderID: msg.SenderID, Text: boundContextText(text), SegmentTypes: segmentTypes,
+				ReceivedAt: msg.CreatedAt, JobStatus: ingress.Status,
+			}
+			traceContext := observability.TraceContext{TraceParent: ingress.TraceParent}
+			if traceContext.Valid() {
+				detail.Ingress.TraceID = trace.SpanContextFromContext(traceContext.Restore(r.Context())).TraceID().String()
+			}
+		}
+	}
 	for _, step := range record.Steps {
 		detail.Steps = append(detail.Steps, v1.StepInfo{
 			Index: step.Index, Phase: step.Phase, ReasonCode: step.ReasonCode, Detail: step.Detail, CreatedAt: step.CreatedAt,

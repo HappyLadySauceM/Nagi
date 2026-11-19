@@ -97,6 +97,14 @@ type IngestResult struct {
 	Duplicate      bool
 }
 
+// JobIngress links a stored inbound message to the job that processes it.
+// JobIngress 关联已存入站消息和处理它的任务。
+type JobIngress struct {
+	Message     Message
+	TraceParent string
+	Status      string
+}
+
 // Job is one pending decision task derived from an inbound message.
 // Job 是从入站消息派生的一个待处理决策任务。
 type Job struct {

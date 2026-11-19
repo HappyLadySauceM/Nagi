@@ -627,6 +627,16 @@ export interface DecisionEntry {
 export interface DecisionDetailEntry extends DecisionEntry {
   scores: Record<string, number>
   steps: DecisionStepEntry[]
+  ingress?: {
+    messageId: number
+    platformMessageId: number
+    senderId: number
+    text: string
+    segmentTypes: string[]
+    receivedAt?: string
+    traceId: string
+    jobStatus: string
+  }
   run?: IntentRun
 }
 

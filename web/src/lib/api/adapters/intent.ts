@@ -53,8 +53,19 @@ function toDecisionEntry(raw: unknown): DecisionEntry {
  */
 export function toDecisionDetail(raw: unknown): DecisionDetailEntry {
   const record = asRecord(raw, DECISIONS_ENDPOINT, 'detail')
+  const ingress = record.Ingress == null ? undefined : asRecord(record.Ingress, DECISIONS_ENDPOINT, 'Ingress')
   return {
     ...toDecisionEntry(record),
+    ingress: ingress && {
+      messageId: readNumber(ingress, 'MessageID', DECISIONS_ENDPOINT),
+      platformMessageId: readNumber(ingress, 'PlatformMessageID', DECISIONS_ENDPOINT),
+      senderId: readNumber(ingress, 'SenderID', DECISIONS_ENDPOINT),
+      text: readString(ingress, 'Text', DECISIONS_ENDPOINT, ''),
+      segmentTypes: asArray(ingress.SegmentTypes ?? [], DECISIONS_ENDPOINT, 'SegmentTypes').filter((value): value is string => typeof value === 'string'),
+      receivedAt: readOptionalTime(ingress, 'ReceivedAt', DECISIONS_ENDPOINT),
+      traceId: readString(ingress, 'TraceID', DECISIONS_ENDPOINT, ''),
+      jobStatus: readString(ingress, 'JobStatus', DECISIONS_ENDPOINT, ''),
+    },
     scores: toScores(record.Scores),
     steps: asArray(record.Steps ?? [], DECISIONS_ENDPOINT, 'Steps').map(toStep),
     run: record.Run == null ? undefined : toIntentRun(record.Run),

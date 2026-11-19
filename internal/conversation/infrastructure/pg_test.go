@@ -86,6 +86,16 @@ func TestConversationIngestDedupAndJobCycle(t *testing.T) {
 		t.Fatalf("first ingest result = %+v", first)
 	}
 
+	ingress, err := repo.JobIngress(ctx, botID, first.JobID)
+	if err != nil || ingress == nil || ingress.Message.ID != first.MessageID ||
+		ingress.Message.SenderID != senderID || ingress.Message.PlatformMessageID != platformMessageID ||
+		ingress.TraceParent != input.TraceParent || ingress.Status != "pending" {
+		t.Fatalf("job ingress = %+v, err = %v", ingress, err)
+	}
+	if other, err := repo.JobIngress(ctx, botID+1, first.JobID); err != nil || other != nil {
+		t.Fatalf("other account ingress = %+v, err = %v", other, err)
+	}
+
 	second, err := repo.Ingest(ctx, input)
 	if err != nil {
 		t.Fatalf("duplicate ingest: %v", err)

@@ -84,9 +84,23 @@ type DecisionInfo struct {
 // DecisionDetail 在列表表示之上附带可解释步骤。
 type DecisionDetail struct {
 	DecisionInfo
-	Scores map[string]float64
-	Steps  []StepInfo
-	Run    intentcontracts.Run
+	Scores  map[string]float64
+	Steps   []StepInfo
+	Run     intentcontracts.Run
+	Ingress *MessageIngress `json:",omitempty"`
+}
+
+// MessageIngress describes the stored message that created a decision job.
+// MessageIngress 描述创建决策任务的已存入站消息。
+type MessageIngress struct {
+	MessageID         int64
+	PlatformMessageID int64
+	SenderID          int64
+	Text              string
+	SegmentTypes      []string
+	ReceivedAt        time.Time
+	TraceID           string
+	JobStatus         string
 }
 
 // StepInfo is one explainable stage of a decision.
