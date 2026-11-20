@@ -298,7 +298,8 @@ func (r *DecisionsRepo) Stats(ctx context.Context, botID int64, since time.Time)
 	err := r.pool.QueryRow(ctx, `
  WITH decisions AS (
  SELECT d.decision,d.latency_ms,
- EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic') AS called,
+ EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic'
+   AND COALESCE(s.detail->>'Called', s.detail->>'called', 'true')='true') AS called,
  EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic' AND COALESCE(s.detail->>'Available', s.detail->>'available')='true') AS success
  FROM intent_decisions d
  JOIN message_jobs j ON j.id=d.job_id

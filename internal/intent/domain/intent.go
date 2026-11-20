@@ -296,6 +296,7 @@ type Step struct {
 // FinalDecision is the pipeline outcome recorded for evaluation.
 // FinalDecision 是流水线输出，记录用于评估。
 type FinalDecision struct {
+	Attention  *AttentionChoice
 	Decision   Decision
 	ReasonCode string
 	Provider   string

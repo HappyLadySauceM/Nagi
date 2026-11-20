@@ -3,6 +3,10 @@
 package domain
 
 var reasonText = map[string]string{
+	"attention_reply":              "Agent 选择参与活跃群聊",
+	"attention_wait":               "Agent 选择旁听",
+	"attention_invalid":            "Agent 没有选择可用的话题动作",
+	"attention_unavailable":        "当前模型或会话授权无法执行注意判断",
 	"awaiting_content":             "等待同一位发送人补充内容",
 	"awaited_content_received":     "已收到同一位发送人补充的内容",
 	"direct_name_call":             "直接呼叫机器人名称",

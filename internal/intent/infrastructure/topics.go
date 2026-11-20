@@ -43,26 +43,45 @@ WITH current AS (
 		SELECT d.id FROM intent_decisions d WHERE d.job_id = x.job_id ORDER BY id DESC LIMIT 1
 	) d ON true
 	LEFT JOIN intent_decision_snapshots s ON s.decision_id = d.id
-), events AS MATERIALIZED (
-	SELECT j.id AS job_id, p.id AS message_id, p.created_at,
-		(s.input->'TopicChange'->>'ID')::bigint AS topic_id, s.input->'TopicChange' AS change
+), recent_jobs AS (
+	SELECT j.id
 	FROM current c
 	JOIN messages p ON p.conversation_id = c.conversation_id AND p.bot_id = c.bot_id
 		AND p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id)
-		AND p.created_at >= c.created_at - interval '1 hour'
 	JOIN message_jobs j ON j.incoming_message_id = p.id
+	WHERE p.created_at >= c.created_at - interval '1 hour'
+		OR j.status = 'done' AND j.updated_at >= c.created_at - interval '1 hour'
+	UNION
+	SELECT o.job_id
+	FROM current c
+	JOIN agent_outbound_messages o ON o.bot_id = c.bot_id AND o.conversation_id = c.conversation_id
+		AND o.target_kind = 'group' AND o.target_id = $6 AND o.status = 'sent'
+		AND o.updated_at >= c.created_at - interval '1 hour'
+), events AS MATERIALIZED (
+	SELECT j.id AS job_id, p.id AS message_id, p.created_at,
+		(s.input->'TopicChange'->>'ID')::bigint AS topic_id, s.input->'TopicChange' AS change,
+		(s.input->'TopicChange'->>'ExpiresAt')::timestamptz +
+			GREATEST(ack.sent_at - p.created_at, interval '0') AS expiry
+	FROM current c
+	CROSS JOIN recent_jobs r
+	JOIN message_jobs j ON j.id = r.id
+	JOIN messages p ON p.id = j.incoming_message_id AND p.conversation_id = c.conversation_id
+		AND p.bot_id = c.bot_id AND p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id)
 	JOIN LATERAL (SELECT id FROM intent_decisions WHERE job_id = j.id ORDER BY id DESC LIMIT 1) d ON true
 	JOIN intent_decision_snapshots s ON s.decision_id = d.id AND s.input ? 'TopicChange'
-	WHERE j.status = 'done' OR EXISTS (
-		SELECT 1 FROM agent_outbound_messages o WHERE o.job_id = j.id AND o.status = 'sent'
-	)
+	LEFT JOIN LATERAL (
+		SELECT max(o.updated_at) AS sent_at FROM agent_outbound_messages o
+		WHERE o.job_id = j.id AND o.status = 'sent'
+			AND o.target_kind = 'group' AND o.target_id = $6
+	) ack ON true
+	WHERE j.status = 'done' OR ack.sent_at IS NOT NULL
 ), latest AS (
-	SELECT DISTINCT ON (topic_id) topic_id, created_at, change
+	SELECT DISTINCT ON (topic_id) topic_id, created_at, change, expiry
 	FROM events ORDER BY topic_id, created_at DESC, message_id DESC
 ), candidates AS (
-	SELECT l.topic_id, l.created_at, (l.change->>'ExpiresAt')::timestamptz AS expiry,
+	SELECT l.topic_id, l.created_at, l.expiry,
 		COALESCE((l.change->>'Waiting')::boolean, false) AS waiting,
-		l.change->>'Action' <> 'close' AND (l.change->>'ExpiresAt')::timestamptz > c.created_at AS active
+		l.change->>'Action' <> 'close' AND l.expiry > c.created_at AS active
 	FROM latest l CROSS JOIN current c
 	UNION ALL
 	SELECT q.topic_id, NULL, NULL, false, false FROM quoted q
@@ -110,7 +129,7 @@ LEFT JOIN LATERAL (
 	) p
 ) h ON s.topic_id IS NOT NULL
 ORDER BY COALESCE(s.topic_id = (SELECT topic_id FROM quoted), false) DESC,
-	s.created_at DESC NULLS LAST, s.topic_id DESC`, task.JobID, task.BotID, task.ConversationID, reference, domain.TopicMaxCandidates)
+	s.created_at DESC NULLS LAST, s.topic_id DESC`, task.JobID, task.BotID, task.ConversationID, reference, domain.TopicMaxCandidates, task.TargetID)
 	if err != nil {
 		return nil, err
 	}

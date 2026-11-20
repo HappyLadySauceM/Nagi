@@ -15,6 +15,9 @@ import (
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
+	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
+	outboundinfra "github.com/HappyLadySauceM/Nagi/internal/outbound/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
@@ -656,9 +659,9 @@ func TestTopicsProjectIndependentTransitions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return domain.Task{JobID: row.JobID, BotID: botID, ConversationID: row.ConversationID}
+		return domain.Task{JobID: row.JobID, BotID: botID, TargetID: group, ConversationID: row.ConversationID}
 	}
-	save := func(task domain.Task, id int64, action string, expiry time.Time) {
+	save := func(task domain.Task, id int64, action string, expiry time.Time, send ...bool) {
 		t.Helper()
 		claim := dbtest.Claim(t, pool, task.JobID)
 		decision := domain.FinalDecision{
@@ -669,6 +672,24 @@ func TestTopicsProjectIndependentTransitions(t *testing.T) {
 		}
 		if err := decisions.Record(ctx, task.JobID, decision, claim); err != nil {
 			t.Fatal(err)
+		}
+		if len(send) > 0 && send[0] {
+			ledger, err := outboundinfra.NewRepo(pool)
+			if err != nil {
+				t.Fatal(err)
+			}
+			outbound, err := ledger.Reserve(ctx, outbounddomain.ReserveInput{
+				JobID: task.JobID, BotID: botID, ConversationID: task.ConversationID, ClaimToken: claim,
+				RunID: "delayed-topic", ToolCallID: "final", Text: "现在继续",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := outboundapp.Deliver(ctx, ledger, outbound.ID, func(context.Context) (int64, error) {
+				return group + 13, nil
+			}, claim); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if err := conversations.CompleteJob(ctx, task.JobID, claim); err != nil {
 			t.Fatal(err)
@@ -708,5 +729,23 @@ func TestTopicsProjectIndependentTransitions(t *testing.T) {
 	ref, err := decisions.Topics(ctx, unassociatedQuote, base+7, 300)
 	if err != nil || ref.QuotedID != 0 || ref.Reference == nil || ref.Reference.Text != "原始错误日志" || unassociated.JobID == 0 {
 		t.Fatalf("unassociated reference = %+v, err=%v", ref, err)
+	}
+
+	delayed := ingest(group+2, 9, "迟到的开题")
+	delayedClose := ingest(group+2, 10, "该话题不再跟进")
+	if _, err := pool.Exec(ctx, `UPDATE messages SET created_at = created_at - interval '3 hours'
+		WHERE id IN (SELECT incoming_message_id FROM message_jobs WHERE id IN ($1, $2))`, delayed.JobID, delayedClose.JobID); err != nil {
+		t.Fatal(err)
+	}
+	save(delayed, delayed.JobID, "opened", time.Now().Add(-3*time.Hour+5*time.Minute), true)
+	delayedQuery := ingest(group+2, 11, "确认回执后继续")
+	beforeClose, err := decisions.Topics(ctx, delayedQuery, 0, 300)
+	if err != nil || len(beforeClose.Candidates) != 1 || beforeClose.Candidates[0].ID != delayed.JobID {
+		t.Fatalf("delayed opening did not use receipt: %+v, err=%v", beforeClose, err)
+	}
+	save(delayedClose, delayed.JobID, domain.TopicClose, time.Now())
+	afterClose, err := decisions.Topics(ctx, delayedQuery, 0, 300)
+	if err != nil || len(afterClose.Candidates) != 0 {
+		t.Fatalf("delayed closure was lost: %+v, err=%v", afterClose, err)
 	}
 }

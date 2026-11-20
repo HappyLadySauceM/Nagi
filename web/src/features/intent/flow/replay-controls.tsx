@@ -53,7 +53,7 @@ function estimateDetails(estimate: ReplayEstimate): string[] {
 }
 
 /** Recalculate (free) and replay-model (paid, never sends) stay separate actions. */
-export function ReplayControls({ decisionId }: { decisionId: number }) {
+export function ReplayControls({ decisionId, modelReplay = true }: { decisionId: number; modelReplay?: boolean }) {
   const recalc = useRecalculateDecision(decisionId)
   const replay = useReplayDecisionModel(decisionId)
   const estimate = useReplayEstimate(decisionId)
@@ -76,7 +76,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
         <div>
           <h3 className="text-sm font-semibold">结果核对</h3>
           <p className="mt-1 text-meta text-muted-foreground">
-            两个入口都不会发送消息。重算只用已保存快照；重新调用模型会先由服务端给出费用估算，确认后才执行。
+            {modelReplay ? '重算使用已保存快照。重新调用模型前会给出费用估算。' : '按保存的 Agent 动作和当前策略重算。'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -90,7 +90,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
             <Calculator className="size-3.5" aria-hidden />
             {recalc.isPending ? '重算中…' : '按当前策略重算'}
           </Button>
-          <Button
+          {modelReplay ? <Button
             type="button"
             variant="outline"
             size="sm"
@@ -100,7 +100,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
           >
             <Cpu className="size-3.5" aria-hidden />
             {estimate.isPending ? '获取费用估算…' : '重新调用模型（可能产生费用）'}
-          </Button>
+          </Button> : null}
         </div>
         {estimate.isError ? (
           <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">

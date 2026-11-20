@@ -177,6 +177,8 @@ func (h *Handler) CompareReplayEvaluation(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) replayEvaluationError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, intentapp.ErrAttentionModelReplay):
+		common.WriteFailure(w, http.StatusConflict, "注意状态记录支持按保存的 Agent 动作重算")
 	case errors.Is(err, intentapp.ErrSnapshotMissing):
 		common.WriteFailure(w, http.StatusConflict, "snapshot_missing")
 	case errors.Is(err, intentapp.ErrReplayConfirmationRequired):

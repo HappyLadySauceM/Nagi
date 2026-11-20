@@ -39,6 +39,9 @@ type Request struct {
 	// current message; the runtime must not add business context of its own.
 	// Messages 已包含系统提示、授权历史与当前消息；运行时不自行补充业务上下文。
 	Messages []Message
+	// Attention resolves a model choice before reply tools can execute.
+	// Attention 在允许执行回复工具前处理模型对话题的选择。
+	Attention func(context.Context, string, int64, string) (bool, string, error)
 	// PermissionOverrides carries the scope policy overrides of tool
 	// permissions; the tool resolver merges them with the configured baseline.
 	// PermissionOverrides 携带作用域策略中的工具权限覆盖；
@@ -68,11 +71,12 @@ type ToolRun struct {
 // Result is the generated reply plus the metadata worth persisting or tracing.
 // Result 是生成的回复以及值得持久化或追踪的元数据。
 type Result struct {
-	Text        string
-	Model       string
-	InputUsage  int64
-	OutputUsage int64
-	ToolRuns    []ToolRun
+	AttentionReply bool
+	Text           string
+	Model          string
+	InputUsage     int64
+	OutputUsage    int64
+	ToolRuns       []ToolRun
 	// ToolsExposed is how many tools the model could choose from in this run.
 	// ToolsExposed 是本次运行中模型可选择的工具数量。
 	ToolsExposed int

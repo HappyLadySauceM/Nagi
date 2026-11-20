@@ -398,6 +398,31 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
 
 	rule, rulesetVersion := d.applyRules(ctx, in)
+	if executor, ok := d.executor.(contracts.AttentionExecutor); ok && activeAttention(in) &&
+		!rule.Blocked && !rule.WaitForContent && !awaitingReply(in) {
+		rule.NeedSemantic = false
+		return executor.ExecuteAttention(ctx, task, topics, func(ctx context.Context, choice domain.AttentionChoice) (bool, []domain.Message, error) {
+			if choice.Action == "tools_unavailable" {
+				choice.Action = "unavailable"
+				if rule.Explicit || rule.ForceReply && rule.ForceReason == "direct_name_call" {
+					choice.Action = "open"
+					if topics.QuotedID != 0 {
+						choice.Action, choice.TopicID = domain.TopicFollowUp, topics.QuotedID
+					}
+				}
+			}
+			final := attentionDecision(in, choice)
+			final.RulesetVersion = rulesetVersion
+			if err := d.recordDecision(ctx, in, rule, domain.SemanticAnswer{}, final, runtime, runID, false, historyDegraded); err != nil {
+				return false, nil, err
+			}
+			allowed := final.Decision == domain.DecisionReply
+			if !allowed {
+				return false, nil, nil
+			}
+			return true, topicReplyHistory(in, final), nil
+		})
+	}
 	var semantic domain.SemanticAnswer
 	var latency int64
 	asked := rule.NeedSemantic && !rule.Blocked && d.semantic != nil
@@ -406,13 +431,30 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = rulesetVersion
+	if err := d.recordDecision(ctx, in, rule, semantic, decision, runtime, runID, asked, historyDegraded); err != nil {
+		return err
+	}
+	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled {
+		return d.executor.ExecuteReply(ctx, task, topicReplyHistory(in, decision))
+	}
+	return nil
+}
+
+func (d *Decider) recordDecision(ctx context.Context, in domain.Input, rule domain.RuleResult,
+	semantic domain.SemanticAnswer, decision domain.FinalDecision, runtime RuntimeConfig, runID string, asked, historyDegraded bool,
+) error {
+	task := in.Task
+	latency := decision.LatencyMS
 	decision.RunID = runID
 	decision.FlowVersion = domain.FlowVersion
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
-		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
+		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, Attention: decision.Attention, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Semantic: semantic, Prompt: in.Prompt, Rule: rule, RulesetVersion: decision.RulesetVersion,
+	}
+	if decision.Provider == "agent_attention" {
+		explainAttention(decision.Steps, decision.Attention)
 	}
 
 	// The durable decision record remains the source used by evaluation. Mirror
@@ -429,7 +471,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 			"history_limit": runtime.HistoryLimit,
 			"thresholds":    runtime.Thresholds,
 		},
-		"ruleset_version": rulesetVersion,
+		"ruleset_version": decision.RulesetVersion,
 	})
 	if err != nil {
 		return err
@@ -464,12 +506,6 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		"job_id", task.JobID, "decision", string(decision.Decision),
 		"reason", decision.ReasonCode, "latency_ms", latency)
 
-	// A disabled generation model records the decision but never sends: the
-	// console explains that replies need both switches on.
-	// 关闭生成模型时仍记录决策但不发送；控制台的说明是回复需要两个开关同时开启。
-	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled {
-		return d.executor.ExecuteReply(ctx, task, topicReplyHistory(in, decision))
-	}
 	return nil
 }
 

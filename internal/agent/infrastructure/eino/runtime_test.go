@@ -374,3 +374,61 @@ func TestSensitiveRuntimeFailureKeepsSafeGenerationTrace(t *testing.T) {
 		t.Fatal("generation observation missing")
 	}
 }
+
+func TestAttentionTurnControlsDelivery(t *testing.T) {
+	for _, test := range []struct {
+		name, tool, args, wantAction, wantReply string
+		wantCalls                               int
+	}{
+		{"continue", "select_group_topic", `{"action":"follow_up","topic_id":32}`, "follow_up", "看到了，是咖波。", 2},
+		{"silent", "wait", `{"action":"wait","topic_id":0}`, "wait", "", 1},
+		{"ignore unsolicited output", "", "", "invalid", "", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			first := schema.AssistantMessage("不发送这段内部文字", nil)
+			if test.tool != "" {
+				first.ToolCalls = []schema.ToolCall{{ID: "choice", Type: "function",
+					Function: schema.FunctionCall{Name: test.tool, Arguments: test.args}}}
+			}
+			chatModel := &toolCapableModel{&fakeModel{replies: []*schema.Message{
+				first, schema.AssistantMessage("看到了，是咖波。", nil),
+			}}}
+			request := testRequest()
+			var actions []string
+			request.Attention = func(_ context.Context, action string, id int64, model string) (bool, string, error) {
+				actions = append(actions, action)
+				return action == "follow_up" && id == 32 && model == "test-model", "我刚说像史莱姆。", nil
+			}
+			runtime := newRuntimeWithModel(Config{Model: "test-model", Timeout: time.Second, MaxSteps: 4}, chatModel)
+			result, err := runtime.Run(context.Background(), request)
+			if err != nil || len(actions) != 1 || actions[0] != test.wantAction ||
+				result.Text != test.wantReply || result.AttentionReply != (test.wantReply != "") || chatModel.calls != test.wantCalls {
+				t.Fatalf("attention = %+v, %v, actions=%v, model calls=%d", result, err, actions, chatModel.calls)
+			}
+		})
+	}
+}
+
+func TestAttentionRejectsSendBeforeTopicSelection(t *testing.T) {
+	sent := false
+	chatModel := &toolCapableModel{&fakeModel{replies: []*schema.Message{
+		schema.AssistantMessage("", []schema.ToolCall{{ID: "premature", Type: "function",
+			Function: schema.FunctionCall{Name: "qq_send_msg", Arguments: "{}"}}}),
+	}}}
+	cfg := Config{Model: "test-model", Timeout: time.Second, MaxSteps: 4, Tools: func(context.Context, contracts.Request) []tool.BaseTool {
+		return einoTools.ToBaseTools([]pc.RegisteredTool{{
+			Descriptor: pc.ToolDescriptor{ID: "qq.send_msg"},
+			Invoke: func(context.Context, string) (string, error) {
+				sent = true
+				return "sent", nil
+			},
+		}})
+	}}
+	request := testRequest()
+	request.Attention = func(context.Context, string, int64, string) (bool, string, error) {
+		return true, "", nil
+	}
+	if _, err := newRuntimeWithModel(cfg, chatModel).Run(context.Background(), request); err == nil || sent {
+		t.Fatalf("early tool call: err=%v, sent=%v", err, sent)
+	}
+}

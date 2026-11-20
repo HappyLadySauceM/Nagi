@@ -65,7 +65,7 @@ export function DecisionDetailSheet({
               ? <DeliveryPanel run={detail.data.run} />
               : <OutboundTimeline botId={detail.data.botId} jobId={detail.data.jobId} />}
             {detail.data.run && detail.data.run.snapshotStatus !== 'legacy'
-              ? <ReplayControls decisionId={detail.data.id} /> : null}
+              ? <ReplayControls decisionId={detail.data.id} modelReplay={detail.data.provider !== 'agent_attention'} /> : null}
           </div>
         ) : null}
       </SheetContent>

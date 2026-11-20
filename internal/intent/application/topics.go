@@ -19,6 +19,88 @@ func allowsTopicContinuation(in domain.Input) bool {
 	return in.Task.Kind == "group" && in.Policy.Enabled && in.Policy.AllowHistoryRead && in.Policy.ReplyMode == scope.ModeIntentBased
 }
 
+func activeAttention(in domain.Input) bool {
+	return in.Topics != nil && slices.ContainsFunc(in.Topics.Candidates, func(candidate domain.TopicCandidate) bool {
+		return candidate.Active && !candidate.Waiting
+	})
+}
+
+func explainAttention(steps []domain.Step, choice *domain.AttentionChoice) {
+	steps[3].Detail["SkipReason"] = "active_topic"
+	steps[3].Summary = "活跃话题由 Agent 判断"
+	steps[4].Detail["Attention"] = choice
+}
+
+func attentionDecision(in domain.Input, choice domain.AttentionChoice) domain.FinalDecision {
+	result := domain.FinalDecision{
+		Decision: domain.DecisionSilent, ReasonCode: "attention_wait",
+		Provider: "agent_attention", Model: choice.Model, Attention: &choice,
+	}
+	if in.Topics == nil || !allowsTopicContinuation(in) {
+		result.ReasonCode = "attention_unavailable"
+		return result
+	}
+	if choice.Action == "unavailable" || choice.Action == "invalid" {
+		result.ReasonCode = "attention_" + choice.Action
+		return result
+	}
+	if addressesOther(in) && !in.MentionsBot() {
+		result.ReasonCode = "addressed_to_other"
+		return result
+	}
+	var selected *domain.TopicCandidate
+	for i := range in.Topics.Candidates {
+		candidate := &in.Topics.Candidates[i]
+		if candidate.ID == choice.TopicID && (candidate.Active && !candidate.Waiting || in.Topics.QuotedID == candidate.ID) {
+			selected = candidate
+			break
+		}
+	}
+	change := &domain.TopicChange{
+		ID: in.Task.JobID, Source: "agent", ParticipantID: in.Task.Message.SenderID,
+		ExpiresAt: topicExpiry(in),
+	}
+	input := in
+	switch choice.Action {
+	case "wait":
+		return result
+	case "open":
+		if choice.TopicID != 0 || in.Topics.QuotedID != 0 {
+			result.ReasonCode = "attention_invalid"
+			return result
+		}
+		change.Action = "opened"
+	case domain.TopicFollowUp, domain.TopicClose, domain.TopicLeave:
+		if selected == nil || in.Topics.QuotedID != 0 && in.Topics.QuotedID != selected.ID {
+			result.ReasonCode = "attention_invalid"
+			return result
+		}
+		change.ID = selected.ID
+		change.Action = choice.Action
+		if choice.Action != domain.TopicFollowUp {
+			change.ExpiresAt = selected.ExpiresAt
+			result.Topic = change
+			result.ReasonCode = "topic_" + choice.Action
+			return result
+		}
+		if !selected.Active {
+			change.Action = "reopened"
+		}
+		input, change.CooldownBypassed = topicRuleInput(in)
+	default:
+		result.ReasonCode = "attention_invalid"
+		return result
+	}
+	if reason, blocked := domain.EvaluateFixedConstraints(input); blocked {
+		result.ReasonCode = reason
+		return result
+	}
+	result.Decision = domain.DecisionReply
+	result.ReasonCode = "attention_reply"
+	result.Topic = change
+	return result
+}
+
 func (d *Decider) loadTopics(ctx context.Context, in domain.Input, runtime RuntimeConfig) (*domain.TopicContext, error) {
 	reader, ok := d.recorder.(topicReader)
 	if !ok || !runtime.AIEnabled || runtime.TopicIdleSeconds <= 0 || !allowsTopicContinuation(in) {

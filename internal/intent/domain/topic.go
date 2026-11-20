@@ -45,6 +45,12 @@ type TopicJudgment struct {
 	Action   string
 }
 
+type AttentionChoice struct {
+	Action  string
+	TopicID int64
+	Model   string
+}
+
 func TopicQuestionKey(index int) string {
 	return fmt.Sprintf("nagi_topic_%d", index+1)
 }

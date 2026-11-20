@@ -209,6 +209,23 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	}
 	toolsConfig := adk.ToolsConfig{}
 	toolsConfig.ExecuteSequentially = true
+	attentionFallback := false
+	if req.Attention != nil && req.CapabilitiesKnown && !req.ModelTools {
+		reply, history, err := req.Attention(runCtx, "tools_unavailable", 0, r.cfg.Model)
+		if err != nil || !reply {
+			return contracts.Result{Model: r.cfg.Model}, err
+		}
+		req.Attention = nil
+		attentionFallback = true
+		req.Messages[0].Content += "\n已确定本轮需要回复。直接返回自然回复正文。"
+		if history != "" {
+			index := len(req.Messages) - 1
+			note := contracts.Message{Role: "user", Content: "本轮话题资料，仅供参考。\n" + history}
+			req.Messages = append(req.Messages[:index], note, req.Messages[index])
+		}
+	}
+	var attention *attentionTurn
+	var handlersForAgent []adk.ChatModelAgentMiddleware
 	exposed := 0
 	credentialTools := false
 	if r.cfg.Tools != nil && (req.ModelTools || !req.CapabilitiesKnown) {
@@ -222,6 +239,17 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 			}
 		}
 	}
+	if req.Attention != nil {
+		attention = &attentionTurn{request: req, model: r.cfg.Model}
+		control, err := attention.controlTools()
+		if err != nil {
+			return contracts.Result{}, err
+		}
+		toolsConfig.ToolsNodeConfig.Tools = append(append([]tool.BaseTool(nil), toolsConfig.ToolsNodeConfig.Tools...), control...)
+		toolsConfig.ReturnDirectly = map[string]bool{waitTool: true}
+		handlersForAgent = append(handlersForAgent, attention)
+		exposed += len(control)
+	}
 	chatModel, err := r.modelFor(runCtx, req.MaxOutputTokens)
 	if err != nil {
 		return contracts.Result{}, err
@@ -231,6 +259,7 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 		Model:         chatModel,
 		ToolsConfig:   toolsConfig,
 		MaxIterations: steps,
+		Handlers:      handlersForAgent,
 		Middlewares: []adk.AgentMiddleware{{BeforeChatModel: func(ctx context.Context, state *adk.ChatModelAgentState) error {
 			if err := normalizeToolImages(ctx, state); err != nil {
 				return err
@@ -273,7 +302,7 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	}
 	iterator := runner.Run(runCtx, toSchemaMessages(req.Messages), opts...)
 
-	result := contracts.Result{Model: r.cfg.Model, ToolsExposed: exposed}
+	result := contracts.Result{Model: r.cfg.Model, ToolsExposed: exposed, AttentionReply: attentionFallback}
 	answered := false
 	for {
 		event, ok := iterator.Next()
@@ -297,13 +326,25 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 		// Tool-calling turns carry no text; keep the last real answer instead of
 		// blanking it.
 		// 工具调用轮次没有正文；保留最后一段真实回复而不是清空。
-		if message.Content != "" {
+		if message.Content != "" && (attention == nil || len(message.ToolCalls) == 0) {
 			result.Text = message.Content
 		}
 		if usage := message.ResponseMeta; usage != nil && usage.Usage != nil {
 			result.InputUsage += int64(usage.Usage.PromptTokens)
 			result.OutputUsage += int64(usage.Usage.CompletionTokens)
 		}
+	}
+	if attention != nil {
+		if !attention.selected {
+			if _, err := attention.selectAction(runCtx, "invalid", 0); err != nil {
+				return contracts.Result{}, err
+			}
+		}
+		result.AttentionReply = attention.reply
+		if !attention.reply {
+			result.Text = ""
+		}
+		return result, nil
 	}
 	if !answered {
 		return contracts.Result{}, fmt.Errorf("agent: eino run produced no assistant message")

@@ -248,6 +248,10 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 				if !current.Enabled || current.ReplyMode == scopedomain.ModeObserveOnly {
 					return fmt.Errorf("scope authorization revoked")
 				}
+				if req.Attention != nil && (!current.StoreMessages || !current.AllowHistoryRead ||
+					current.ReplyMode != scopedomain.ModeIntentBased) {
+					return fmt.Errorf("attention scope authorization revoked")
+				}
 				grants := pluginsapp.ResolvePermissions(visible, latest.Tools.PermissionDefaults, current.ToolPermissions)
 				if descriptor.ID == pluginscontracts.MemoryDetailToolID && !current.AllowMemoryRead {
 					return fmt.Errorf("memory read authorization revoked")

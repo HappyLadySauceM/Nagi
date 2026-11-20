@@ -21,6 +21,12 @@ type ReplyExecutor interface {
 	ExecuteReply(ctx context.Context, task domain.Task, history []domain.Message) error
 }
 
+// AttentionExecutor lets the model select a topic before any outgoing action.
+// AttentionExecutor 让模型在执行出站动作之前选择话题。
+type AttentionExecutor interface {
+	ExecuteAttention(context.Context, domain.Task, *domain.TopicContext, func(context.Context, domain.AttentionChoice) (bool, []domain.Message, error)) error
+}
+
 // DecisionQuery filters the recorded decisions of one account.
 // DecisionQuery 过滤某个账号的决策记录。
 type DecisionQuery struct {

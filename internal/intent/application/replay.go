@@ -22,7 +22,8 @@ import (
 )
 
 var (
-	ErrSnapshotMissing = errors.New("intent: snapshot_missing")
+	ErrSnapshotMissing      = errors.New("intent: snapshot_missing")
+	ErrAttentionModelReplay = errors.New("intent: use policy recalculation for an attention decision")
 	// ErrReplayConfirmationRequired rejects a model replay without a fresh
 	// server-issued confirmation token.
 	// ErrReplayConfirmationRequired 拒绝没有新鲜服务端确认令牌的模型回放。
@@ -114,7 +115,18 @@ func (s *ReplayService) Recalculate(ctx context.Context, decisionID int64) (cont
 	decision.RunID = "recalc-" + uuid.NewString()
 	decision.FlowVersion = domain.FlowVersion
 	asked := rule.NeedSemantic && !rule.Blocked
+	if snapshot.Input.Attention != nil {
+		if !rule.Blocked {
+			runID := decision.RunID
+			decision = attentionDecision(in, *snapshot.Input.Attention)
+			decision.RunID, decision.FlowVersion, decision.RulesetVersion = runID, domain.FlowVersion, version
+		}
+		asked = false
+	}
 	decision.Steps = decisionSteps(in, rule, snapshot.Semantic, decision, 0, asked, false)
+	if decision.Attention != nil {
+		explainAttention(decision.Steps, decision.Attention)
+	}
 	before := BuildRunFromRecord(beforeRecord, contracts.Delivery{})
 	before.Prompt = promptInfoFromDomain(snapshot.Prompt)
 	after := BuildRunFromDecision(decision, contracts.Delivery{})
@@ -145,6 +157,9 @@ func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confi
 	}
 	if snapshotMissingField(snapshot.MissingFields, "rule") {
 		return contracts.Run{}, ErrSnapshotMissing
+	}
+	if snapshot.Input.Attention != nil {
+		return contracts.Run{}, ErrAttentionModelReplay
 	}
 	in, err := s.decider.replayInput(ctx, snapshot)
 	if err != nil {
@@ -350,6 +365,9 @@ func (s *ReplayService) modelReplayParameters(ctx context.Context, decisionID in
 	}
 	if snapshotMissingField(snapshot.MissingFields, "rule") {
 		return contracts.ReplayParameters{}, ErrSnapshotMissing
+	}
+	if snapshot.Input.Attention != nil {
+		return contracts.ReplayParameters{}, ErrAttentionModelReplay
 	}
 	runtime := s.decider.runtimeFor(ctx)
 	requests := 0
