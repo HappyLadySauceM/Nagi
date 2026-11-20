@@ -58,7 +58,7 @@ import {
   useUpdatePromptDraft,
 } from './prompt-queries'
 
-const KINDS: ManagedPromptKind[] = ['chat_reply', 'memory_extraction']
+const KINDS: ManagedPromptKind[] = ['chat_reply', 'memory_extraction', 'memory_recall_rewrite']
 const SCOPES: ManagedPromptScope[] = ['account', 'group', 'private']
 
 function scopeSummary(
@@ -115,6 +115,7 @@ export function PromptManagementPage({
   const [effectiveTargetType, setEffectiveTargetType] = useState<'group' | 'private'>('group')
   const [effectiveTargetId, setEffectiveTargetId] = useState('')
   const [effectiveConversationId, setEffectiveConversationId] = useState('')
+  const [effectiveSenderId, setEffectiveSenderId] = useState('')
   const [effectiveRequested, setEffectiveRequested] = useState(false)
   const [confirm, setConfirm] = useState<
     { action: 'publish' | 'rollback' | 'restore' | 'delete'; version?: ManagedPromptVersion } | null
@@ -132,6 +133,7 @@ export function PromptManagementPage({
     provider,
     targetType: effectiveTargetType,
     targetId: Number(effectiveTargetId) || undefined,
+    senderId: effectiveTargetType === 'group' ? Number(effectiveSenderId) || undefined : undefined,
     conversationId: effectiveConversationId || undefined,
     enabled: effectiveRequested,
   })
@@ -498,6 +500,12 @@ export function PromptManagementPage({
               <span className="text-muted-foreground">目标 ID（群号/QQ）</span>
               <Input value={effectiveTargetId} onChange={(event) => setEffectiveTargetId(event.target.value)} inputMode="numeric" aria-label="生效目标 ID" />
             </label>
+            {effectiveTargetType === 'group' ? (
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">发言人 QQ 号（可选）</span>
+                <Input aria-label="生效发言人 QQ 号" inputMode="numeric" value={effectiveSenderId} onChange={(event) => setEffectiveSenderId(event.target.value)} />
+              </label>
+            ) : null}
             <label className="space-y-1 text-xs">
               <span className="text-muted-foreground">会话 ID（可选）</span>
               <Input value={effectiveConversationId} onChange={(event) => setEffectiveConversationId(event.target.value)} aria-label="生效会话 ID" />
@@ -518,8 +526,12 @@ export function PromptManagementPage({
             <div className="space-y-3 rounded-lg border border-border p-3">
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                 <Badge variant="secondary">{effective.data.target.type === 'group' ? '群聊' : '私聊'} {effective.data.target.id}</Badge>
-                <span className="font-mono">Hash {effective.data.hash || '—'}</span>
+                <span className="font-mono">模板哈希 {effective.data.hash || '—'}</span>
+                {effective.data.renderedHash ? <span className="font-mono">渲染哈希 {effective.data.renderedHash}</span> : null}
               </div>
+              {!effective.data.final.variables.sender_id && effective.data.final.content.openai?.systemPrompt?.includes('{{sender_id}}') ? (
+                <p className="text-xs text-warning">填写发言人 QQ 号后可对照实际渲染哈希。</p>
+              ) : null}
               <ul className="space-y-1 text-xs text-muted-foreground">
                 {effective.data.layers.map((layer) => (
                   <li key={`${layer.layer}-${layer.versionId ?? 0}`}>

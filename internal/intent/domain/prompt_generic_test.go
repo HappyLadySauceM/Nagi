@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestBuiltinPromptForThreeKinds(t *testing.T) {
+func TestBuiltinPromptForSupportedKinds(t *testing.T) {
 	cases := []struct {
 		kind     string
 		provider string
@@ -14,6 +14,7 @@ func TestBuiltinPromptForThreeKinds(t *testing.T) {
 		{PromptKindIntentParticipation, PromptProviderJev},
 		{PromptKindIntentParticipation, PromptProviderOpenAI},
 		{PromptKindMemoryExtraction, PromptProviderOpenAI},
+		{PromptKindMemoryRecall, PromptProviderOpenAI},
 	}
 	for _, tc := range cases {
 		p := BuiltinPromptFor(tc.kind, tc.provider)

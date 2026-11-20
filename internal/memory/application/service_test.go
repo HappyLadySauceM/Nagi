@@ -584,8 +584,8 @@ func TestRecallLimitDefaultsAndCaps(t *testing.T) {
 
 type recallRewriteFunc func(context.Context, int64, string, int64, string) ([]string, error)
 
-func (f recallRewriteFunc) Rewrite(ctx context.Context, botID int64, kind string, targetID int64, query string) ([]string, error) {
-	return f(ctx, botID, kind, targetID, query)
+func (f recallRewriteFunc) Rewrite(ctx context.Context, request contracts.RecallRequest) ([]string, error) {
+	return f(ctx, request.BotID, request.Kind, request.TargetID, request.Query)
 }
 
 func TestRecallRewriteImprovesParaphrasesWithoutCrossingSubjects(t *testing.T) {

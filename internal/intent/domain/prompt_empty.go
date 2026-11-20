@@ -4,7 +4,7 @@ package domain
 func EmptyPromptSupplement(kind, provider string) Prompt {
 	p := Prompt{Kind: kind, Provider: provider}
 	switch kind {
-	case PromptKindChatReply, PromptKindMemoryExtraction:
+	case PromptKindChatReply, PromptKindMemoryExtraction, PromptKindMemoryRecall:
 		p.OpenAI = &OpenAIPrompt{SystemPrompt: ""}
 	case PromptKindIntentParticipation:
 		if provider == PromptProviderJev {

@@ -409,7 +409,6 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil, settingsErr
 		}
 		rt.Scope.SetModels(settingsService)
-		rt.Memory.SetRecallRewriter(memoryinfra.NewModelRecallRewriter(settingsService))
 		rt.Scope.SetPermissionResolver(func(overrides map[string]bool) scopeapp.PermissionState {
 			live := settingsProvider.Settings()
 			visible := toolRegistry.Snapshot()
@@ -430,6 +429,9 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if promptErr != nil {
 			return nil, promptErr
 		}
+		rt.Memory.SetRecallRewriter(memoryinfra.NewModelRecallRewriter(settingsService, promptService, func() string {
+			return settingsProvider.Settings().Role.BotName
+		}))
 		extractionRepo, extractionRepoErr := memoryinfra.NewRepo(pool)
 		if extractionRepoErr != nil {
 			return nil, extractionRepoErr

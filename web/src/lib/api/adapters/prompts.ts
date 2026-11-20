@@ -37,6 +37,7 @@ const PROMPT_KINDS: ManagedPromptKind[] = [
   'chat_reply',
   'intent_participation',
   'memory_extraction',
+  'memory_recall_rewrite',
 ]
 const PROMPT_SCOPES: ManagedPromptScope[] = ['account', 'group', 'private']
 const PROMPT_PROVIDERS: ManagedPromptProvider[] = ['openai', 'jev']
@@ -315,6 +316,7 @@ export function toManagedPromptEffective(raw: unknown): ManagedPromptEffective {
     layers: asArray(record.Layers, PROMPTS_ENDPOINT, 'Layers').map(toEffectiveLayer),
     final: toFinalResult(record),
     hash: readString(record, 'Hash', PROMPTS_ENDPOINT, ''),
+    renderedHash: readOptionalString(record, 'RenderedHash', PROMPTS_ENDPOINT),
   }
 }
 
@@ -338,6 +340,7 @@ export function toManagedPromptPreview(raw: unknown): ManagedPromptPreview {
       return item
     }),
     previewHash: readString(record, 'PreviewHash', PROMPTS_ENDPOINT, ''),
+    renderedHash: readOptionalString(record, 'RenderedHash', PROMPTS_ENDPOINT),
   }
   if (targetRaw != null) {
     const target = asRecord(targetRaw, PROMPTS_ENDPOINT, 'Target')

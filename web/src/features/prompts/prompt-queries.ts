@@ -167,6 +167,7 @@ export interface PreviewInput {
   versionId?: number
   targetType?: 'group' | 'private'
   targetId?: number
+  senderId?: number
   conversationId?: string
 }
 
@@ -186,6 +187,7 @@ export function usePromptPreview() {
                 context: {
                   target_type: input.targetType,
                   target_id: input.targetId,
+                  ...(input.senderId ? { sender_id: input.senderId } : {}),
                   conversation_id: input.conversationId ?? '',
                 },
               }
@@ -201,6 +203,7 @@ export function usePromptEffective(params: {
   provider: ManagedPromptProvider
   targetType: 'group' | 'private'
   targetId: number | undefined
+  senderId?: number
   conversationId?: string
   enabled: boolean
 }) {
@@ -213,6 +216,7 @@ export function usePromptEffective(params: {
       params.provider,
       params.targetType,
       params.targetId ?? 0,
+      params.senderId ?? 0,
       params.conversationId ?? '',
     ],
     enabled:
@@ -224,6 +228,7 @@ export function usePromptEffective(params: {
         target_type: params.targetType,
         target_id: String(params.targetId),
       })
+      if (params.senderId) query.set('sender_id', String(params.senderId))
       if (params.conversationId) query.set('conversation_id', params.conversationId)
       return apiRequest(
         `${PROMPTS_ENDPOINT}/${encodeURIComponent(params.promptId)}/effective?${query.toString()}`,

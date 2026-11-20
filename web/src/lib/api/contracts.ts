@@ -1050,7 +1050,7 @@ export const RULESET_STATUS_LABELS: Record<Ruleset['status'], string> = {
   archived: '已归档',
 }
 
-export type ManagedPromptKind = 'chat_reply' | 'intent_participation' | 'memory_extraction'
+export type ManagedPromptKind = 'chat_reply' | 'intent_participation' | 'memory_extraction' | 'memory_recall_rewrite'
 export type ManagedPromptScope = 'account' | 'group' | 'private'
 export type ManagedPromptProvider = 'openai' | 'jev'
 export type ManagedPromptStatus = 'draft' | 'published' | 'archived'
@@ -1198,6 +1198,7 @@ export interface ManagedPromptPreview {
   final: { content: ManagedPromptContent; variables: Record<string, string> }
   warnings: string[]
   previewHash: string
+  renderedHash?: string
 }
 
 export interface ManagedPromptEffective {
@@ -1209,6 +1210,7 @@ export interface ManagedPromptEffective {
   layers: ManagedPromptEffectiveLayer[]
   final: { content: ManagedPromptContent; variables: Record<string, string> }
   hash: string
+  renderedHash?: string
 }
 
 export interface ManagedPromptPublishResult {

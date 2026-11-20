@@ -39,6 +39,16 @@ func (s *PromptService) layered() (LayeredPromptRepository, bool) {
 // ResolveFor resolves account default + group/private type supplement + server
 // constraints. It never consults Langfuse and always returns a usable prompt.
 func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider string, botID int64, targetType string, targetID int64, variables map[string]string) domain.Prompt {
+	return s.resolveFor(ctx, promptID, kind, provider, botID, targetType, targetID, variables, nil)
+}
+
+// PreviewForVersion substitutes one saved layer without changing its publication status.
+// PreviewForVersion 以指定版本替换一层来生成预览，不改变发布状态。
+func (s *PromptService) PreviewForVersion(ctx context.Context, version domain.PromptRecord, targetType string, targetID int64, variables map[string]string) domain.Prompt {
+	return s.resolveFor(ctx, version.PromptID, version.Kind, version.Provider, version.BotID, targetType, targetID, variables, &version)
+}
+
+func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider string, botID int64, targetType string, targetID int64, variables map[string]string, override *domain.PromptRecord) domain.Prompt {
 	// Custom variables are the baseline; dynamic caller values win on conflicts.
 	// 自定义变量作为基线；同名时调用方传入的动态值优先。
 	variables = mergePromptVariables(s.customVariableMap(), variables)
@@ -62,7 +72,14 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 	}
 
 	accountKey := domain.PromptKey{PromptID: promptID, Kind: kind, Provider: provider, BotID: botID, ScopeType: domain.PromptScopeAccount}
-	account, found, err := repo.ActiveLayer(ctx, accountKey)
+	var account domain.PromptRecord
+	var found bool
+	var err error
+	if override != nil && override.ScopeType == domain.PromptScopeAccount {
+		account, found = *override, true
+	} else {
+		account, found, err = repo.ActiveLayer(ctx, accountKey)
+	}
 	if err != nil {
 		s.logger.Warn("load account prompt failed; using builtin", "error", err, "prompt_id", promptID)
 		builtin.FallbackReason = "prompt_store_error"
@@ -110,7 +127,12 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 		layers = parsed.Layers
 	}
 	if targetType == domain.PromptScopeGroup || targetType == domain.PromptScopePrivate {
-		supplement, found, err := repo.ActiveLayer(ctx, domain.PromptKey{PromptID: promptID, Kind: kind, Provider: provider, BotID: botID, ScopeType: targetType})
+		var supplement domain.PromptRecord
+		if override != nil && override.ScopeType == targetType {
+			supplement, found, err = *override, true, nil
+		} else {
+			supplement, found, err = repo.ActiveLayer(ctx, domain.PromptKey{PromptID: promptID, Kind: kind, Provider: provider, BotID: botID, ScopeType: targetType})
+		}
 		if err != nil {
 			s.logger.Warn("load scope supplement failed; continuing without supplement", "error", err, "prompt_id", promptID, "scope_type", targetType)
 			builtin.FallbackReason = "scope_supplement_error"
@@ -122,9 +144,11 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 			mergeExtra := withContentVariables(withContentVariables(extra, account.Content), supplement.Content)
 			// ParsePromptContentFor validates full content, so supplements are
 			// parsed leniently through their own schema first.
+			applied := false
 			if parseErr == nil {
 				if merged, mergeErr := domain.MergePromptContentWithVariables(kind, provider, final, supplementPrompt, mergeExtra); mergeErr == nil {
 					final = merged
+					applied = true
 				} else {
 					s.logger.Warn("invalid scope supplement; ignoring", "error", mergeErr, "prompt_id", promptID)
 				}
@@ -134,11 +158,16 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 					s.logger.Warn("invalid scope supplement; ignoring", "error", lenientErr, "prompt_id", promptID)
 				} else if merged, mergeErr := domain.MergePromptContentWithVariables(kind, provider, final, lenient, mergeExtra); mergeErr == nil {
 					final = merged
+					applied = true
 				} else {
 					s.logger.Warn("invalid scope supplement; ignoring", "error", mergeErr, "prompt_id", promptID)
 				}
 			}
-			layers = append(layers, domain.PromptLayer{Layer: domain.PromptLayerScopeSupplement, VersionID: supplement.ID, Version: supplement.Version, Source: supplement.Source, Hash: supplement.Hash, Editable: true, Content: supplement.Content})
+			if !applied {
+				final.FallbackReason = "invalid_scope_supplement"
+			} else {
+				layers = append(layers, domain.PromptLayer{Layer: domain.PromptLayerScopeSupplement, VersionID: supplement.ID, Version: supplement.Version, Source: supplement.Source, Hash: supplement.Hash, Editable: true, Content: supplement.Content})
+			}
 		}
 	}
 	final.BotID = botID
@@ -463,7 +492,7 @@ func parseStoredPrompt(kind, provider string, content json.RawMessage, extra []s
 func emptySupplement(kind, provider string) domain.Prompt {
 	p := domain.Prompt{Provider: provider, Kind: kind}
 	switch kind {
-	case domain.PromptKindChatReply, domain.PromptKindMemoryExtraction:
+	case domain.PromptKindChatReply, domain.PromptKindMemoryExtraction, domain.PromptKindMemoryRecall:
 		p.OpenAI = &domain.OpenAIPrompt{SystemPrompt: ""}
 	case domain.PromptKindIntentParticipation:
 		if provider == domain.PromptProviderJev {

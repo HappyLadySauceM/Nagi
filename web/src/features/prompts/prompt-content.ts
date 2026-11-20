@@ -13,18 +13,21 @@ export const PROMPT_KIND_LABELS: Record<ManagedPromptKind, string> = {
   chat_reply: '聊天回复',
   intent_participation: '意图判断',
   memory_extraction: '记忆抽取',
+  memory_recall_rewrite: '同义检索改写',
 }
 
 export const PROMPT_KIND_IDS: Record<ManagedPromptKind, string> = {
   chat_reply: 'chat.reply',
   intent_participation: 'intent.participation',
   memory_extraction: 'memory.extraction',
+  memory_recall_rewrite: 'memory.recall_rewrite',
 }
 
 export const PROMPT_KIND_FROM_ID: Record<string, ManagedPromptKind> = {
   'chat.reply': 'chat_reply',
   'intent.participation': 'intent_participation',
   'memory.extraction': 'memory_extraction',
+  'memory.recall_rewrite': 'memory_recall_rewrite',
 }
 
 export const PROMPT_SCOPE_LABELS: Record<ManagedPromptScope, string> = {
@@ -319,7 +322,7 @@ export function validatePromptContent(
   const errors: string[] = []
   const account = scope === 'account'
   const systemPromptAllowed = ['bot_name', 'scope_type', 'target_id', 'sender_id', 'bot_id', ...extraVariables]
-  if (kind === 'chat_reply' || (kind === 'intent_participation' && provider === 'openai') || kind === 'memory_extraction') {
+  if (kind === 'chat_reply' || (kind === 'intent_participation' && provider === 'openai') || kind === 'memory_extraction' || kind === 'memory_recall_rewrite') {
     const systemPrompt = content.openai?.systemPrompt ?? ''
     errors.push(...checkAllowedVariables(systemPrompt, systemPromptAllowed, 'System Prompt '))
     if (kind === 'intent_participation' && provider === 'openai' && account) {
