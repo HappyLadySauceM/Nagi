@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	ipv "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 )
 
 // ActiveLayer returns the current published version for one editable layer.
@@ -87,11 +89,31 @@ func (r *PromptsRepo) CreateDraftVersion(ctx context.Context, input domain.Promp
 	if _, err := c.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
 		return domain.PromptRecord{}, err
 	}
-	var latest int
-	if row, err := c.IntentPromptVersion.Query().Where(
+	filters := []predicate.IntentPromptVersion{
 		ipv.PromptID(input.PromptID), ipv.PromptKind(input.Kind), ipv.Provider(input.Provider),
 		ipv.BotID(input.BotID), ipv.ScopeType(input.ScopeType), ipv.ScopeID(0),
-	).Order(ent.Desc(ipv.FieldVersion)).First(ctx); err == nil {
+	}
+	hash := domain.PromptHash(input.Content)
+	if input.Source == domain.PromptSourceLangfuse && strings.HasPrefix(input.SourceRef, domain.PromptVerifiedSourcePrefix) {
+		rows, err := c.IntentPromptVersion.Query().Where(filters...).Where(ipv.SourceRef(input.SourceRef)).All(ctx)
+		if err != nil {
+			return domain.PromptRecord{}, err
+		}
+		var draft *ent.IntentPromptVersion
+		for _, row := range rows {
+			if row.Hash != hash {
+				return domain.PromptRecord{}, domain.ErrPromptRemoteVersionConflict
+			}
+			if row.Status == domain.PromptStatusDraft && row.DeletedAt == nil {
+				draft = row
+			}
+		}
+		if draft != nil {
+			return promptRecord(draft), nil
+		}
+	}
+	var latest int
+	if row, err := c.IntentPromptVersion.Query().Where(filters...).Order(ent.Desc(ipv.FieldVersion)).First(ctx); err == nil {
 		latest = row.Version
 	} else if !ent.IsNotFound(err) {
 		return domain.PromptRecord{}, err
@@ -104,7 +126,7 @@ func (r *PromptsRepo) CreateDraftVersion(ctx context.Context, input domain.Promp
 		SetPromptID(input.PromptID).SetPromptKind(input.Kind).SetName(input.Name).SetProvider(input.Provider).
 		SetBotID(input.BotID).SetScopeType(input.ScopeType).SetScopeID(0).SetVersion(latest + 1).
 		SetStatus(domain.PromptStatusDraft).SetSource(input.Source).SetSourceRef(input.SourceRef).
-		SetHash(domain.PromptHash(input.Content)).SetNote(input.Note).SetContent(raw).Save(ctx)
+		SetHash(hash).SetNote(input.Note).SetContent(raw).Save(ctx)
 	if err != nil {
 		return domain.PromptRecord{}, err
 	}

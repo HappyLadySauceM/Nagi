@@ -121,6 +121,8 @@ export function toManagedPromptContent(raw: unknown): ManagedPromptContent {
     const openai = asRecord(record.OpenAI, PROMPTS_ENDPOINT, 'OpenAI')
     content.openai = {}
     const systemPrompt = readOptionalString(openai, 'SystemPrompt', PROMPTS_ENDPOINT)
+    const replyStyle = readOptionalString(openai, 'ReplyStyle', PROMPTS_ENDPOINT)
+    if (replyStyle !== undefined) content.openai.replyStyle = replyStyle
     if (systemPrompt !== undefined) {
       content.openai.systemPrompt = systemPrompt
     }
@@ -274,6 +276,8 @@ function toEffectiveLayer(raw: unknown): ManagedPromptEffectiveLayer {
   if (version !== undefined) layer.version = version
   const source = readOptionalString(record, 'Source', PROMPTS_ENDPOINT)
   if (source !== undefined) layer.source = source
+  const sourceRef = readOptionalString(record, 'SourceRef', PROMPTS_ENDPOINT)
+  if (sourceRef !== undefined) layer.sourceRef = sourceRef
   const hash = readOptionalString(record, 'Hash', PROMPTS_ENDPOINT)
   if (hash !== undefined) layer.hash = hash
   if (record.Content != null) layer.content = toManagedPromptContent(record.Content)

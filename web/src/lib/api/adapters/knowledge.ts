@@ -169,6 +169,8 @@ function toPreviewLayer(raw: unknown): ManagedPromptEffectiveLayer {
   if (version !== undefined) layer.version = version
   const source = readOptionalString(record, 'Source', endpoint)
   if (source !== undefined) layer.source = source
+  const sourceRef = readOptionalString(record, 'SourceRef', endpoint)
+  if (sourceRef !== undefined) layer.sourceRef = sourceRef
   const hash = readOptionalString(record, 'Hash', endpoint)
   if (hash !== undefined) layer.hash = hash
   if (record.Content != null) layer.content = toManagedPromptContent(record.Content)

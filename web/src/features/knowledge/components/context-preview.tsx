@@ -305,9 +305,9 @@ function PreviewResult({ data }: { data: KnowledgePreview }) {
                   <li key={`${layer.layer}-${layer.versionId ?? index}`}>
                     <span className="font-mono text-foreground">{layer.layer}</span>
                     {layer.version !== undefined ? ` · v${layer.version}` : ''}
-                    {layer.source ? ` · ${layer.source}` : ''}
-                    {layer.editable === false ? ' · 服务端固定' : ''}
-                    {layer.summary ? ` · ${layer.summary}` : ''}
+                    {layer.sourceRef ? ` · ${layer.sourceRef}` : layer.source ? ` · ${sourceLabel(layer.source)}` : ''}
+                    {layer.layer === 'server_constraints' ? ' · 服务端固定' : ''}
+                    {layer.summary && layer.layer !== 'server_constraints' ? ` · ${layer.summary}` : ''}
                   </li>
                 ))}
               </ul>
@@ -322,6 +322,21 @@ function PreviewResult({ data }: { data: KnowledgePreview }) {
                     <p className="mt-1 break-all font-mono text-meta text-muted-foreground">渲染哈希 {prompt.renderedHash}</p>
                   ) : null}
                   {!prompt.variables.sender_id && Object.values(prompt.content.systemOne?.questions ?? {}).some((question) => question.instructions.includes('{{sender_id}}')) ? (
+                    <p className="mt-1 text-meta text-warning">填写发言人 QQ 号后可对照实际渲染哈希。</p>
+                  ) : null}
+                </details>
+              ) : null}
+              {prompt.kind === 'chat_reply' && prompt.content.openai ? (
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer">渲染后的系统提示词</summary>
+                  <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border p-3 font-mono text-muted-foreground">
+                    {prompt.content.openai.systemPrompt}
+                  </pre>
+                  <p className="mt-1 break-all font-mono text-meta text-muted-foreground">
+                    预览哈希 {prompt.renderedHash || '—'}
+                  </p>
+                  <p className="mt-1 text-meta text-muted-foreground">实际回复还会附加本轮召回的记忆。</p>
+                  {!prompt.variables.sender_id && prompt.content.openai.systemPrompt?.includes('{{sender_id}}') ? (
                     <p className="mt-1 text-meta text-warning">填写发言人 QQ 号后可对照实际渲染哈希。</p>
                   ) : null}
                 </details>

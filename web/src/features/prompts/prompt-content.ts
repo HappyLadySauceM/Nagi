@@ -51,7 +51,7 @@ export const PROMPT_STATUS_LABELS: Record<ManagedPromptStatus, string> = {
 export const PROMPT_SOURCE_LABELS: Record<ManagedPromptSource | 'builtin', string> = {
   builtin: '内置',
   local: '本地',
-  langfuse: 'Langfuse（仅来源标签）',
+  langfuse: 'Langfuse',
 }
 
 export const PROMPT_PROVIDER_LABELS: Record<ManagedPromptProvider, string> = {
@@ -196,6 +196,7 @@ export function promptContentToWire(content: ManagedPromptContent, scope: Manage
   if (content.openai) {
     const openai: Record<string, unknown> = {}
     if (content.openai.systemPrompt !== undefined) openai.SystemPrompt = content.openai.systemPrompt
+    if (content.openai.replyStyle !== undefined) openai.ReplyStyle = content.openai.replyStyle
     if (content.openai.userTemplate !== undefined) openai.UserTemplate = content.openai.userTemplate
     if (content.openai.responseShape !== undefined) openai.ResponseShape = content.openai.responseShape
     wire.OpenAI = openai
@@ -325,6 +326,9 @@ export function validatePromptContent(
   if (kind === 'chat_reply' || (kind === 'intent_participation' && provider === 'openai') || kind === 'memory_extraction' || kind === 'memory_recall_rewrite') {
     const systemPrompt = content.openai?.systemPrompt ?? ''
     errors.push(...checkAllowedVariables(systemPrompt, systemPromptAllowed, 'System Prompt '))
+    if (kind === 'chat_reply') {
+      errors.push(...checkAllowedVariables(content.openai?.replyStyle ?? '', systemPromptAllowed, '回复风格 '))
+    }
     if (kind === 'intent_participation' && provider === 'openai' && account) {
       const template = content.openai?.userTemplate ?? ''
       if (occurrences(template, 'state') !== 1) errors.push('UserTemplate 必须且只能包含一次 {{state}}')

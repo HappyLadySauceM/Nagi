@@ -49,6 +49,7 @@ import { CreateDraftDialog, PromptPreviewDialog } from './prompt-dialogs'
 import {
   useCreatePromptDraft,
   useDeletePromptVersion,
+  useImportLangfusePrompt,
   usePromptCatalog,
   usePromptDetail,
   usePromptEffective,
@@ -98,12 +99,14 @@ export function PromptManagementPage({
   const extraVariables = settingsQuery.data?.settings.role.variables.map((variable) => variable.name) ?? []
 
   const activeVersion = detail.data?.active ?? null
+  const [selectedDraftId, setSelectedDraftId] = useState<number>()
   const draft = useMemo(() => {
     const versions = (detail.data?.versions ?? []).filter((version) => version.status === 'draft')
-    return versions.sort((left, right) => right.version - left.version)[0] ?? null
-  }, [detail.data?.versions])
+    return versions.find((version) => version.id === selectedDraftId) ?? versions.sort((left, right) => right.version - left.version)[0] ?? null
+  }, [detail.data?.versions, selectedDraftId])
 
-  const [draftContent, setDraftContent] = useState<ManagedPromptContent | null>(null)
+  const [draftEdit, setDraftEdit] = useState<{ id: number; content: ManagedPromptContent } | null>(null)
+  const draftContent = draftEdit && draftEdit.id === draft?.id ? draftEdit.content : null
   const [errors, setErrors] = useState<string[]>([])
   const insertRef = useRef<InsertToken | null>(null)
 
@@ -116,12 +119,16 @@ export function PromptManagementPage({
   const [effectiveTargetId, setEffectiveTargetId] = useState('')
   const [effectiveConversationId, setEffectiveConversationId] = useState('')
   const [effectiveSenderId, setEffectiveSenderId] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [remoteName, setRemoteName] = useState('')
+  const [remoteVersion, setRemoteVersion] = useState('')
   const [effectiveRequested, setEffectiveRequested] = useState(false)
   const [confirm, setConfirm] = useState<
     { action: 'publish' | 'rollback' | 'restore' | 'delete'; version?: ManagedPromptVersion } | null
   >(null)
 
   const create = useCreatePromptDraft()
+  const importPrompt = useImportLangfusePrompt()
   const update = useUpdatePromptDraft()
   const publish = usePublishPromptDraft()
   const rollback = useRollbackPromptVersion()
@@ -138,17 +145,31 @@ export function PromptManagementPage({
     enabled: effectiveRequested,
   })
 
+  const importVersion = () => {
+    if (selectedBotId === undefined) return
+    importPrompt.mutate({
+      botId: selectedBotId, promptId, provider, scope,
+      name: remoteName.trim(), version: Number(remoteVersion),
+    }, {
+      onSuccess: (record) => {
+        setSelectedDraftId(record.id)
+        toast.success(`已取得本地版本 v${record.version}`)
+        setImportOpen(false)
+      },
+    })
+  }
+
   useEffect(() => {
     setEffectiveRequested(false)
   }, [promptId, provider, scope])
 
   useEffect(() => {
     if (!draft) {
-      setDraftContent(null)
+      setDraftEdit(null)
       setErrors([])
       return
     }
-    setDraftContent(normaliseContentForScope(kind, provider, scope, draft.content))
+    setDraftEdit({ id: draft.id, content: normaliseContentForScope(kind, provider, scope, draft.content) })
     setErrors([])
     // Load a fresh draft only when its id, layer or kind changes.
     // 仅在草稿 id、作用域或 kind 变化时重新载入。
@@ -198,7 +219,10 @@ export function PromptManagementPage({
         note: '',
       },
       {
-        onSuccess: () => toast.success('已创建 Prompt 草稿'),
+        onSuccess: (record) => {
+          setSelectedDraftId(record.id)
+          toast.success('已创建 Prompt 草稿')
+        },
         onError: (error) => toast.error('创建草稿失败', { description: describeError(error).description }),
       },
     )
@@ -354,12 +378,41 @@ export function PromptManagementPage({
                 <Layers className="size-3.5" aria-hidden />
                 分层结果
               </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => {
+                importPrompt.reset()
+                setRemoteName(promptId)
+                setRemoteVersion('')
+                setImportOpen((open) => !open)
+              }}>
+                从 Langfuse 同步
+              </Button>
               {intentOnly ? null : (
                 <Button type="button" variant="outline" size="sm" onClick={() => setKnowledgeOpen(true)}>
                   知识上下文预览
                 </Button>
               )}
             </div>
+
+            {importOpen ? (
+              <form className="space-y-2 rounded-lg border border-border p-3" onSubmit={(event) => {
+                event.preventDefault()
+                importVersion()
+              }}>
+                <p className="text-xs text-muted-foreground">同步到当前层级的草稿。发布后对话才会生效。</p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="space-y-1 text-xs">
+                    <span>Langfuse 提示词名称</span>
+                    <Input aria-label="Langfuse 提示词名称" value={remoteName} onChange={(event) => setRemoteName(event.target.value)} required />
+                  </label>
+                  <label className="space-y-1 text-xs">
+                    <span>版本</span>
+                    <Input aria-label="Langfuse 版本" type="number" min={1} step={1} value={remoteVersion} onChange={(event) => setRemoteVersion(event.target.value)} required />
+                  </label>
+                  <Button type="submit" size="sm" disabled={importPrompt.isPending || selectedBotId === undefined}>同步为草稿</Button>
+                </div>
+                {importPrompt.isError ? <p role="alert" className="text-xs text-destructive">{describeError(importPrompt.error).description}</p> : null}
+              </form>
+            ) : null}
 
             <PromptVariablesPanel
               kind={kind}
@@ -382,7 +435,7 @@ export function PromptManagementPage({
                     provider={provider}
                     scope={scope}
                     content={draftContent}
-                    onChange={setDraftContent}
+                    onChange={(content) => setDraftEdit({ id: draft.id, content })}
                     insertRef={insertRef}
                   />
                   {errors.length > 0 ? (
@@ -537,7 +590,7 @@ export function PromptManagementPage({
                   <li key={`${layer.layer}-${layer.versionId ?? 0}`}>
                     {layer.layer}
                     {layer.version !== undefined ? ` · v${layer.version}` : ''}
-                    {layer.source ? ` · ${layer.source}` : ''}
+                    {layer.sourceRef ? ` · ${layer.sourceRef.replace('langfuse-verified:', 'Langfuse ')}` : layer.source ? ` · ${layer.source}` : ''}
                     {layer.editable === false ? ' · 服务端固定' : ''}
                     {layer.summary ? ` · ${layer.summary}` : ''}
                   </li>
@@ -576,7 +629,10 @@ export function PromptManagementPage({
         name={`${PROMPT_KIND_LABELS[kind]} · ${PROMPT_SCOPE_LABELS[scope]}`}
         hasActive={!!activeVersion}
         versions={detail.data?.versions ?? []}
-        onCreated={() => setCreateOpen(false)}
+        onCreated={(record) => {
+          setSelectedDraftId(record.id)
+          setCreateOpen(false)
+        }}
       />
 
       <PromptPreviewDialog

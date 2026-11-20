@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { apiRequest } from '../../lib/api/client'
 import {
   toManagedPromptDetail,
@@ -73,6 +73,21 @@ export interface CreateDraftInput {
   note?: string
 }
 
+async function cacheDraftVersion(
+  client: QueryClient,
+  { botId, promptId, scope, provider }: Pick<CreateDraftInput, 'botId' | 'promptId' | 'scope' | 'provider'>,
+  record: ManagedPromptVersion,
+) {
+  const queryKey = promptDetailKey(botId, promptId, scope, provider)
+  await client.cancelQueries({ queryKey })
+  client.setQueryData<ManagedPromptDetail>(queryKey, (detail) => detail && ({
+    ...detail,
+    versions: [record, ...detail.versions.filter((version) => version.id !== record.id)],
+  }))
+  void client.invalidateQueries({ queryKey: promptCatalogKey(botId) })
+  void client.invalidateQueries({ queryKey })
+}
+
 export function useCreatePromptDraft() {
   const client = useQueryClient()
   return useMutation({
@@ -92,10 +107,7 @@ export function useCreatePromptDraft() {
           source_ref: '',
         },
       }).then(toManagedPromptVersion),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['prompts', 'catalog'] })
-      void client.invalidateQueries({ queryKey: ['prompts', 'detail'] })
-    },
+    onSuccess: (record, input) => cacheDraftVersion(client, input, record),
   })
 }
 
@@ -156,6 +168,31 @@ export function usePromptDiff(params: PromptDiffParams | null) {
         { signal },
       ).then(toManagedPromptDiff)
     },
+  })
+}
+
+export function useImportLangfusePrompt() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: {
+      botId: number
+      promptId: string
+      scope: ManagedPromptScope
+      provider: ManagedPromptProvider
+      name: string
+      version: number
+    }): Promise<ManagedPromptVersion> =>
+      apiRequest(`${PROMPTS_ENDPOINT}/${encodeURIComponent(input.promptId)}/sync`, {
+        method: 'POST',
+        body: {
+          bot_id: input.botId,
+          scope_type: input.scope,
+          provider: input.provider,
+          name: input.name,
+          version: input.version,
+        },
+      }).then(toManagedPromptVersion),
+    onSuccess: (record, input) => cacheDraftVersion(client, input, record),
   })
 }
 

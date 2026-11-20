@@ -116,6 +116,12 @@ export function PromptContentView({
           {openai?.systemPrompt || '未记录'}
         </pre>
       </div>
+      {openai?.replyStyle ? (
+        <div>
+          <div className="text-xs text-muted-foreground">回复风格</div>
+          <p className="mt-1 whitespace-pre-wrap break-words text-xs">{openai.replyStyle}</p>
+        </div>
+      ) : null}
       {openai?.userTemplate !== undefined ? (
         <div>
           <div className="text-xs text-muted-foreground">UserTemplate</div>
@@ -440,6 +446,19 @@ export function PromptEditor({ kind, provider, scope, content, onChange, insertR
           <span className="block text-xs text-muted-foreground">补充层只追加文本，不覆盖账号默认内容。</span>
         ) : null}
       </label>
+      {kind === 'chat_reply' && account ? (
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">回复风格</span>
+          <Textarea
+            aria-label="回复风格"
+            rows={2}
+            placeholder="用简体中文、自然口语、简洁回复"
+            value={openai.replyStyle ?? ''}
+            {...fieldProps('replyStyle')}
+            onChange={(event) => onChange(updateOpenAI(content, { replyStyle: event.target.value }))}
+          />
+        </label>
+      ) : null}
       {kind === 'intent_participation' && provider === 'openai' && account ? (
         <label className="block space-y-1">
           <span className="text-sm font-medium">UserTemplate</span>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
@@ -119,7 +120,7 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 		parsed.TargetType = targetType
 		parsed.TargetID = targetID
 		parsed.Variables = copyPromptVariables(variables)
-		parsed.Layers = []domain.PromptLayer{{Layer: domain.PromptLayerAccountDefault, VersionID: account.ID, Version: account.Version, Source: account.Source, Hash: account.Hash, Editable: true, Content: account.Content}}
+		parsed.Layers = []domain.PromptLayer{{Layer: domain.PromptLayerAccountDefault, VersionID: account.ID, Version: account.Version, Source: account.Source, SourceRef: account.SourceRef, Hash: account.Hash, Editable: true, Content: account.Content}}
 		if legacyFallback {
 			parsed.FallbackReason = "legacy_global_prompt"
 		}
@@ -167,7 +168,7 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 			if !applied {
 				final.FallbackReason = "invalid_scope_supplement"
 			} else {
-				layers = append(layers, domain.PromptLayer{Layer: domain.PromptLayerScopeSupplement, VersionID: supplement.ID, Version: supplement.Version, Source: supplement.Source, Hash: supplement.Hash, Editable: true, Content: supplement.Content})
+				layers = append(layers, domain.PromptLayer{Layer: domain.PromptLayerScopeSupplement, VersionID: supplement.ID, Version: supplement.Version, Source: supplement.Source, SourceRef: supplement.SourceRef, Hash: supplement.Hash, Editable: true, Content: supplement.Content})
 			}
 		}
 	}
@@ -578,7 +579,56 @@ func (s *PromptService) VersionPrompt(ctx context.Context, id int64, kind, provi
 	if rec.ScopeType == domain.PromptScopeGroup || rec.ScopeType == domain.PromptScopePrivate {
 		layer = domain.PromptLayerScopeSupplement
 	}
-	p.Layers = []domain.PromptLayer{{Layer: layer, VersionID: rec.ID, Version: rec.Version, Source: rec.Source, Hash: rec.Hash, Editable: true, Content: rec.Content}}
+	p.Layers = []domain.PromptLayer{{Layer: layer, VersionID: rec.ID, Version: rec.Version, Source: rec.Source, SourceRef: rec.SourceRef, Hash: rec.Hash, Editable: true, Content: rec.Content}}
 	p.FinalHash = domain.PromptFinalHash(p)
 	return p, nil
+}
+
+// ImportRemoteVersion fetches an exact Langfuse version and stores it as a local draft.
+// ImportRemoteVersion 获取指定 Langfuse 版本，并将其保存为本地草稿。
+func (s *PromptService) ImportRemoteVersion(ctx context.Context, key domain.PromptKey, name string, version int) (domain.PromptRecord, error) {
+	if s.remote == nil || !s.remote.Configured() {
+		return domain.PromptRecord{}, domain.ErrPromptRemoteNotConfigured
+	}
+	if strings.TrimSpace(name) != name || name == "" || len(name) > 160 || strings.ContainsAny(name, "@\r\n\t") || version <= 0 {
+		return domain.PromptRecord{}, domain.ErrPromptRemoteInvalid
+	}
+	remote, err := s.remote.Fetch(ctx, name, version, "")
+	if err != nil {
+		return domain.PromptRecord{}, err
+	}
+	if remote.Name != name || remote.Version != version {
+		return domain.PromptRecord{}, domain.ErrPromptRemoteInvalid
+	}
+	extra := s.customVariableNames()
+	raw := remote.Prompt
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		raw = json.RawMessage(text)
+		if key.Kind == domain.PromptKindChatReply {
+			var wrapped struct {
+				OpenAI *struct {
+					SystemPrompt *json.RawMessage
+					ReplyStyle   *json.RawMessage
+				}
+			}
+			if json.Unmarshal(raw, &wrapped) != nil || wrapped.OpenAI == nil ||
+				(wrapped.OpenAI.SystemPrompt == nil && wrapped.OpenAI.ReplyStyle == nil) {
+				p := domain.Prompt{Kind: key.Kind, Provider: key.Provider, OpenAI: &domain.OpenAIPrompt{SystemPrompt: text}}
+				raw = domain.PromptContentJSON(p)
+			}
+		}
+	}
+	var prompt domain.Prompt
+	if key.ScopeType == domain.PromptScopeAccount {
+		prompt, err = domain.ParsePromptContentForWithVariables(key.Kind, key.Provider, raw, extra)
+	} else {
+		prompt, err = decodePromptSupplement(key.Kind, key.Provider, raw, extra)
+	}
+	if err != nil {
+		return domain.PromptRecord{}, fmt.Errorf("%w: invalid managed prompt content", domain.ErrPromptRemoteInvalid)
+	}
+	sourceRef := fmt.Sprintf("%s%s@%d", domain.PromptVerifiedSourcePrefix, remote.Name, remote.Version)
+	return s.CreateDraftFor(ctx, key.PromptID, key.Kind, key.Provider, key.BotID, key.ScopeType, &prompt, "", 0,
+		remote.Name, "", domain.PromptSourceLangfuse, sourceRef)
 }

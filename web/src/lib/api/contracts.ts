@@ -575,7 +575,7 @@ export interface KnowledgePreviewPrompt {
   source: string
   hash: string
   finalHash: string
-  renderedHash?: string
+  renderedHash: string
   layers: ManagedPromptEffectiveLayer[]
   content: ManagedPromptContent
   variables: Record<string, string>
@@ -1088,6 +1088,7 @@ export interface ManagedPromptContent {
   provider: ManagedPromptProvider
   openai?: {
     systemPrompt?: string
+    replyStyle?: string
     userTemplate?: string
     responseShape?: string
   }
@@ -1182,6 +1183,7 @@ export interface ManagedPromptEffectiveLayer {
   versionId?: number
   version?: number
   source?: string
+  sourceRef?: string
   hash?: string
   content?: ManagedPromptContent
   editable?: boolean

@@ -169,13 +169,18 @@ func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	botName := settingsBotName(h.svcCtx)
-	variables := map[string]string{"bot_name": botName, "scope_type": targetType}
-	if body.PreviewMode == "real" && body.SpeakerType == "user" {
-		if sender, err := strconv.ParseInt(body.SpeakerID, 10, 64); err == nil && sender > 0 {
-			variables["sender_id"] = strconv.FormatInt(sender, 10)
-		}
+	if botName == "" {
+		botName = "助手"
 	}
-	if variables["sender_id"] == "" && targetType == "private" {
+	variables := map[string]string{
+		"bot_name": botName, "scope_type": targetType, "bot_id": strconv.FormatInt(botID, 10),
+		"target_id": strconv.FormatInt(targetID, 10),
+	}
+	if body.PreviewMode == "example" {
+		variables["sender_id"] = "10001"
+	} else if speaker, err := strconv.ParseInt(body.SpeakerID, 10, 64); err == nil && speaker > 0 && body.SpeakerType == "user" {
+		variables["sender_id"] = strconv.FormatInt(speaker, 10)
+	} else if targetType == "private" {
 		variables["sender_id"] = strconv.FormatInt(targetID, 10)
 	}
 	response := map[string]any{
@@ -238,6 +243,9 @@ func (h *Handler) previewPrompts(ctx context.Context, botID int64, targetType st
 			} else if h.svcCtx.Logger != nil {
 				h.svcCtx.Logger.Warn("unable to load active rules for knowledge preview", "error", err)
 			}
+		}
+		if item.Kind == intentdomain.PromptKindChatReply {
+			prompt = intentdomain.ReplySystem(prompt, "")
 		}
 		out[item.PromptID] = promptView(prompt)
 	}
@@ -419,6 +427,9 @@ func promptLayersView(layers []intentdomain.PromptLayer) []map[string]any {
 		item := map[string]any{
 			"Layer": layer.Layer, "VersionID": layer.VersionID, "Version": layer.Version,
 			"Source": layer.Source, "Hash": layer.Hash, "Editable": layer.Editable,
+		}
+		if layer.SourceRef != "" {
+			item["SourceRef"] = layer.SourceRef
 		}
 		if layer.Summary != "" {
 			item["Summary"] = layer.Summary

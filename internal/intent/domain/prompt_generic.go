@@ -3,6 +3,7 @@ package domain
 import (
 	"bytes"
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -62,6 +63,7 @@ type PromptLayer struct {
 	VersionID int64
 	Version   int
 	Source    string
+	SourceRef string
 	Hash      string
 	Editable  bool
 	Summary   string
@@ -170,6 +172,9 @@ func ValidatePromptForKindWithVariables(kind, provider string, p *Prompt, extra 
 	if p == nil {
 		return errInvalidPrompt("prompt required")
 	}
+	if kind != PromptKindChatReply && p.OpenAI != nil && p.OpenAI.ReplyStyle != "" {
+		return errInvalidPrompt("ReplyStyle is only supported by chat.reply")
+	}
 	switch kind {
 	case PromptKindChatReply, PromptKindMemoryRecall:
 		if provider != PromptProviderOpenAI || p.OpenAI == nil || strings.TrimSpace(p.OpenAI.SystemPrompt) == "" || p.SystemOne != nil {
@@ -227,6 +232,9 @@ func ValidatePromptSupplementWithVariables(kind, provider string, p *Prompt, ext
 	if p == nil {
 		return errInvalidPrompt("prompt required")
 	}
+	if p.OpenAI != nil && p.OpenAI.ReplyStyle != "" {
+		return errInvalidPrompt("supplement cannot override ReplyStyle")
+	}
 	switch kind {
 	case PromptKindChatReply, PromptKindMemoryExtraction, PromptKindMemoryRecall:
 		if provider != PromptProviderOpenAI || p.OpenAI == nil || p.SystemOne != nil {
@@ -280,6 +288,7 @@ func validatePromptVariables(kind, provider string, p *Prompt, supplement bool, 
 		if err := validateAllowedVariables(p.OpenAI.SystemPrompt, allowed); err != nil {
 			return err
 		}
+		return validateAllowedVariables(p.OpenAI.ReplyStyle, allowed)
 	case PromptKindMemoryExtraction:
 		if p.OpenAI == nil {
 			return errInvalidPrompt("memory.extraction OpenAI prompt required")
@@ -454,7 +463,7 @@ func MergePromptContentWithVariables(kind, provider string, account, supplement 
 	switch kind {
 	case PromptKindChatReply, PromptKindMemoryExtraction, PromptKindMemoryRecall:
 		if supplement.OpenAI != nil && strings.TrimSpace(supplement.OpenAI.SystemPrompt) != "" {
-			out.OpenAI = &OpenAIPrompt{SystemPrompt: appendPromptText(account.OpenAI.SystemPrompt, supplement.OpenAI.SystemPrompt), UserTemplate: account.OpenAI.UserTemplate, ResponseShape: account.OpenAI.ResponseShape}
+			out.OpenAI = &OpenAIPrompt{SystemPrompt: appendPromptText(account.OpenAI.SystemPrompt, supplement.OpenAI.SystemPrompt), ReplyStyle: account.OpenAI.ReplyStyle, UserTemplate: account.OpenAI.UserTemplate, ResponseShape: account.OpenAI.ResponseShape}
 		}
 	case PromptKindIntentParticipation:
 		if provider == PromptProviderJev {
@@ -498,22 +507,29 @@ func appendPromptText(base, supplement string) string {
 
 // RenderPromptVariables substitutes the bounded runtime variables once.
 func RenderPromptVariables(p Prompt, vars map[string]string) Prompt {
-	if vars == nil {
+	if len(vars) == 0 {
 		return p
 	}
+	names := make([]string, 0, len(vars))
+	for name := range vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	pairs := make([]string, 0, 2*len(vars))
+	for _, name := range names {
+		pairs = append(pairs, "{{"+name+"}}", vars[name])
+	}
+	render := strings.NewReplacer(pairs...)
 	if p.OpenAI != nil {
 		openAI := *p.OpenAI
-		for key, value := range vars {
-			openAI.SystemPrompt = strings.ReplaceAll(openAI.SystemPrompt, "{{"+key+"}}", value)
-		}
+		openAI.SystemPrompt = render.Replace(openAI.SystemPrompt)
+		openAI.ReplyStyle = render.Replace(openAI.ReplyStyle)
 		p.OpenAI = &openAI
 	}
 	if p.SystemOne != nil {
 		systemOne := &SystemOnePrompt{Questions: make(map[string]PromptQuestion, len(p.SystemOne.Questions))}
 		for name, q := range p.SystemOne.Questions {
-			for key, value := range vars {
-				q.Instructions = strings.ReplaceAll(q.Instructions, "{{"+key+"}}", value)
-			}
+			q.Instructions = render.Replace(q.Instructions)
 			systemOne.Questions[name] = q
 		}
 		p.SystemOne = systemOne

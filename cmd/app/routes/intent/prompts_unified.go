@@ -60,6 +60,8 @@ func (h *Handler) DispatchUnifiedPost(w http.ResponseWriter, r *http.Request) {
 		h.PublishUnifiedPrompt(w, r)
 	case len(parts) == 2 && parts[1] == "preview":
 		h.PreviewUnifiedPrompt(w, r)
+	case len(parts) == 2 && parts[1] == "sync":
+		h.SyncUnifiedPrompt(w, r)
 	case len(parts) == 2 && parts[1] == "rollback":
 		h.RollbackUnifiedPrompt(w, r)
 	case len(parts) == 2 && parts[1] == "restore-builtin":
@@ -369,7 +371,11 @@ func (h *Handler) CreateUnifiedPromptDraft(w http.ResponseWriter, r *http.Reques
 		}
 		content = &parsed
 	}
-	rec, err := h.svcCtx.Prompts.CreateDraftFor(r.Context(), promptID, kind, provider, body.BotID, scopeType, content, body.Base, body.BaseVersionID, body.Name, body.Note, body.Source, body.SourceRef)
+	if body.Source != "" && body.Source != intentdomain.PromptSourceLocal || body.SourceRef != "" {
+		common.WriteFailure(w, http.StatusUnprocessableEntity, "远端来源由 Langfuse 同步记录")
+		return
+	}
+	rec, err := h.svcCtx.Prompts.CreateDraftFor(r.Context(), promptID, kind, provider, body.BotID, scopeType, content, body.Base, body.BaseVersionID, body.Name, body.Note, intentdomain.PromptSourceLocal, "")
 	if err != nil {
 		common.WriteFailure(w, http.StatusUnprocessableEntity, "创建 Prompt 草稿失败")
 		return
@@ -597,6 +603,46 @@ func (h *Handler) PreviewUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, previewPromptResponse(prompt, body.PreviewMode, body.VersionID, previewConversationID(body.Context), body.Sample, body.Context))
 }
 
+func (h *Handler) SyncUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
+	if h.svcCtx.Prompts == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "Prompt 存储不可用")
+		return
+	}
+	id := pathPromptID(r)
+	kind, ok := intentdomain.PromptKindForID(id)
+	if !ok {
+		common.WriteFailure(w, http.StatusNotFound, "Prompt 不存在")
+		return
+	}
+	var body struct {
+		BotID     int64  `json:"bot_id"`
+		ScopeType string `json:"scope_type"`
+		Provider  string `json:"provider"`
+		Name      string `json:"name"`
+		Version   int    `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.BotID <= 0 || body.Version <= 0 ||
+		(body.ScopeType != "account" && body.ScopeType != "group" && body.ScopeType != "private") {
+		common.WriteFailure(w, http.StatusBadRequest, "需要账号、层级和指定的 Langfuse 版本")
+		return
+	}
+	if body.Provider == "" {
+		body.Provider = defaultPromptProvider(id)
+	}
+	if err := validatePromptProvider(id, body.Provider); err != nil {
+		common.WriteFailure(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	key := intentdomain.PromptKey{PromptID: id, Kind: kind, Provider: body.Provider, BotID: body.BotID, ScopeType: body.ScopeType}
+	version, err := h.svcCtx.Prompts.ImportRemoteVersion(r.Context(), key, body.Name, body.Version)
+	if err != nil {
+		_, message := intentapp.PromptSyncError(err)
+		common.WriteFailure(w, http.StatusUnprocessableEntity, message)
+		return
+	}
+	common.WriteSuccess(w, toUnifiedPromptVersion(version))
+}
+
 func (h *Handler) PublishUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
 	if h.svcCtx.Prompts == nil {
 		common.WriteFailure(w, http.StatusServiceUnavailable, "Prompt 存储不可用")
@@ -777,6 +823,9 @@ func (h *Handler) composeEffectiveQuestionPrompt(r *http.Request, prompt intentd
 }
 
 func effectivePromptResponse(p intentdomain.Prompt, conversationID string) map[string]any {
+	if p.Kind == intentdomain.PromptKindChatReply {
+		p = intentdomain.ReplySystem(p, "")
+	}
 	target := map[string]any{"Type": p.TargetType, "ID": p.TargetID}
 	if conversationID != "" {
 		target["ConversationID"] = conversationID
@@ -795,6 +844,9 @@ func effectivePromptResponse(p intentdomain.Prompt, conversationID string) map[s
 }
 
 func previewPromptResponse(p intentdomain.Prompt, mode string, versionID int64, conversationID string, sample, context map[string]any) map[string]any {
+	if p.Kind == intentdomain.PromptKindChatReply {
+		p = intentdomain.ReplySystem(p, "")
+	}
 	warnings := []string{}
 	if mode == "real" && p.TargetType == "group" && p.Variables["sender_id"] == "" &&
 		p.OpenAI != nil && strings.Contains(p.OpenAI.SystemPrompt, "{{sender_id}}") {
@@ -884,6 +936,9 @@ func promptLayersResponse(layers []intentdomain.PromptLayer) []map[string]any {
 	out := make([]map[string]any, 0, len(layers))
 	for _, layer := range layers {
 		item := map[string]any{"Layer": layer.Layer, "VersionID": layer.VersionID, "Version": layer.Version, "Source": layer.Source, "Hash": layer.Hash, "Editable": layer.Editable}
+		if layer.SourceRef != "" {
+			item["SourceRef"] = layer.SourceRef
+		}
 		if layer.Summary != "" {
 			item["Summary"] = layer.Summary
 		}
