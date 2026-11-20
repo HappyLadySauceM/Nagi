@@ -280,6 +280,7 @@ jobs:
           ln -s /opt/nagi-tools/libexec/docker-buildx "$config/cli-plugins/docker-buildx"
           {
             echo "DOCKER_CONFIG=$config"
+            echo "NAGI_ARTIFACTS=$RUNNER_TEMP"
             echo "SHORT_SHA=$(git rev-parse HEAD | cut -c1-7)"
             echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
           } >> "$GITHUB_ENV"
@@ -334,7 +335,7 @@ jobs:
           provenance: false
           push: true
           tags: ghcr.io/happyladysaucem/nagi-api:${{ env.SHORT_SHA }}
-          build-contexts: nagi_artifacts=${{ runner.temp }}/nagi-api
+          build-contexts: nagi_artifacts=${{ env.NAGI_ARTIFACTS }}/nagi-api
           cache-from: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-api:package
           build-args: |
             VERSION=0.1.0-dev+${{ env.SHORT_SHA }}
@@ -354,7 +355,7 @@ jobs:
           provenance: false
           push: true
           tags: ghcr.io/happyladysaucem/nagi-web:${{ env.SHORT_SHA }}
-          build-contexts: nagi_artifacts=${{ runner.temp }}/nagi-web
+          build-contexts: nagi_artifacts=${{ env.NAGI_ARTIFACTS }}/nagi-web
           cache-from: type=registry,ref=${{ env.ZOT }}/buildcache/nagi-web:package
           labels: *labels
       - name: 确认 GitHub Packages 新版本
