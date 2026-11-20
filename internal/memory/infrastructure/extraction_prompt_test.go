@@ -21,11 +21,11 @@ func TestModelExtractorResolvesEditablePrompt(t *testing.T) {
 		SystemPrompt: "自定义抽取 System",
 		UserTemplate: "消息：{{messages_json}}",
 	}}})
-	system, user := extractor.resolvePrompt(context.Background(), domain.ExtractionRequest{
+	prompt := extractor.resolvePrompt(context.Background(), domain.ExtractionRequest{
 		Scope:   domain.ExtractionScope{BotID: 1, ScopeType: "group", ScopeID: 700},
 		BotName: "Nagi",
 	})
-	if system != "自定义抽取 System" || user != "消息：{{messages_json}}" {
-		t.Fatalf("resolved prompt = %q / %q", system, user)
+	if prompt.SystemPrompt != "自定义抽取 System" || prompt.UserTemplate != "消息：{{messages_json}}" {
+		t.Fatalf("resolved prompt = %q / %q", prompt.SystemPrompt, prompt.UserTemplate)
 	}
 }

@@ -11,6 +11,10 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	einoschema "github.com/cloudwego/eino/schema"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
@@ -149,11 +153,10 @@ func (e *ModelExtractor) Extract(ctx context.Context, request domain.ExtractionR
 	if err != nil {
 		return nil, fmt.Errorf("memory extraction: build model: %w", err)
 	}
-	var systemPrompt, userTemplate string
+	var prompt domain.ExtractionPrompt
 	switch {
 	case request.Prompt != nil:
-		systemPrompt = request.Prompt.SystemPrompt
-		userTemplate = request.Prompt.UserTemplate
+		prompt = *request.Prompt
 	case request.PromptSnapshot != nil:
 		if e.promptResolver == nil {
 			return nil, fmt.Errorf("memory extraction: prompt snapshot resolver unavailable")
@@ -162,41 +165,57 @@ func (e *ModelExtractor) Extract(ctx context.Context, request domain.ExtractionR
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
-		systemPrompt = resolved.SystemPrompt
-		userTemplate = resolved.UserTemplate
+		prompt = resolved
 	default:
-		systemPrompt, userTemplate = e.resolvePrompt(ctx, request)
+		prompt = e.resolvePrompt(ctx, request)
 	}
+
+	userMessage := strings.ReplaceAll(prompt.UserTemplate, "{{messages_json}}", string(payload))
+	layers, _ := json.Marshal(prompt.Snapshot.Layers)
+	ctx, modelSpan := otel.Tracer("github.com/HappyLadySauceM/Nagi/internal/memory").Start(ctx, "nagi.memory.extract.model", trace.WithAttributes(
+		attribute.String("langfuse.observation.type", "generation"),
+		attribute.String("langfuse.observation.model.name", cfg.Model),
+		attribute.String("langfuse.observation.metadata.prompt_template_hash", prompt.Snapshot.FinalHash),
+		attribute.String("langfuse.observation.metadata.prompt_rendered_hash", prompt.Snapshot.RenderedHash),
+		attribute.String("langfuse.observation.metadata.prompt_layers", string(layers)),
+		attribute.String("langfuse.observation.metadata.prompt_system_hash", intentdomain.PromptTextHash(prompt.SystemPrompt)),
+	))
+	defer modelSpan.End()
 	response, err := chatModel.Generate(ctx, []*einoschema.Message{
-		einoschema.SystemMessage(systemPrompt),
-		einoschema.UserMessage(strings.ReplaceAll(userTemplate, "{{messages_json}}", string(payload))),
+		einoschema.SystemMessage(prompt.SystemPrompt),
+		einoschema.UserMessage(userMessage),
 	})
 	if err != nil {
+		modelSpan.SetStatus(codes.Error, "model call failed")
 		return nil, fmt.Errorf("memory extraction: model call: %w", err)
 	}
 	if response == nil {
+		modelSpan.SetStatus(codes.Error, "empty model response")
 		return nil, fmt.Errorf("memory extraction: empty model response")
 	}
-	return parseExtractionCandidates(response.Content)
+	candidates, err := parseExtractionCandidates(response.Content)
+	if err != nil {
+		modelSpan.SetStatus(codes.Error, "invalid extraction result")
+	}
+	return candidates, err
 }
 
-func (e *ModelExtractor) resolvePrompt(ctx context.Context, request domain.ExtractionRequest) (string, string) {
+func (e *ModelExtractor) resolvePrompt(ctx context.Context, request domain.ExtractionRequest) domain.ExtractionPrompt {
 	systemPrompt := extractionSystemPrompt
 	userTemplate := "聊天消息：\n{{messages_json}}"
-	if e.prompts == nil {
-		return systemPrompt, userTemplate
+	prompt := intentdomain.BuiltinPromptFor(intentdomain.PromptKindMemoryExtraction, intentdomain.PromptProviderOpenAI)
+	if e.prompts != nil {
+		prompt = e.prompts.ResolveFor(ctx, intentdomain.PromptIDMemoryExtraction, intentdomain.PromptKindMemoryExtraction, intentdomain.PromptProviderOpenAI, request.Scope.BotID, request.Scope.ScopeType, request.Scope.ScopeID, extractionVariables(request))
 	}
-	prompt := e.prompts.ResolveFor(ctx, intentdomain.PromptIDMemoryExtraction, intentdomain.PromptKindMemoryExtraction, intentdomain.PromptProviderOpenAI, request.Scope.BotID, request.Scope.ScopeType, request.Scope.ScopeID, map[string]string{"bot_name": request.BotName, "scope_type": request.Scope.ScopeType})
-	if prompt.OpenAI == nil {
-		return systemPrompt, userTemplate
+	if prompt.OpenAI != nil {
+		if strings.TrimSpace(prompt.OpenAI.SystemPrompt) != "" {
+			systemPrompt = prompt.OpenAI.SystemPrompt
+		}
+		if strings.Contains(prompt.OpenAI.UserTemplate, "{{messages_json}}") {
+			userTemplate = prompt.OpenAI.UserTemplate
+		}
 	}
-	if strings.TrimSpace(prompt.OpenAI.SystemPrompt) != "" {
-		systemPrompt = prompt.OpenAI.SystemPrompt
-	}
-	if strings.Contains(prompt.OpenAI.UserTemplate, "{{messages_json}}") {
-		userTemplate = prompt.OpenAI.UserTemplate
-	}
-	return systemPrompt, userTemplate
+	return domain.ExtractionPrompt{SystemPrompt: systemPrompt, UserTemplate: userTemplate, Snapshot: snapshotFromPrompt(prompt, request.Scope)}
 }
 
 func parseExtractionCandidates(raw string) ([]domain.ExtractionCandidate, error) {
