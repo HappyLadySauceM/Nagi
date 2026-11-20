@@ -349,13 +349,12 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   在新节点加入 builder 池前准备同版本的目录和缓存。升级时先在各节点安装由 root 管理的新版本目录，
   用相同 Ubuntu 底镜以 UID 1001 验证，再更新 ARC 和 workflow 的挂载路径。
 - PR 校验复用宿主机 `/opt/arc-runner/nagi/cache/verify` 的 Go 模块、Go 编译缓存和 pnpm store。
-  正式发布使用作业内临时缓存。发布作业把该作业生成的 `web/dist` 和 API 二进制分别交给
+  `main` 校验使用作业内临时缓存，按改动生成 `web/dist` 或 API 二进制。发布作业从当前运行下载这些产物并交给
   Dockerfile 的 `package-only` 目标。BuildKit 在打包时检查 API 版本和 nginx 配置。
-- 打包层写入 Zot 的 `buildcache/nagi-api:package`、`buildcache/nagi-web:package`，同时可读原来的
-  `:main` 缓存。Zot 和 GHCR 上的暂存镜像摘要必须一致，Zot 签名成功后再发布正式 SHA tag。
-- `verify` 是 `main` 的必需检查：所有 PR（包括文档和 workflow 改动）都执行完整的 Go 与前端校验，
-  变更检测失败也会使 `verify` 失败。PR 不构建、签名或推送镜像；main 推送按变更路径构建，
-  在 main 手动触发 `workflow_dispatch` 执行全量检查和构建。
+- `verify` 是 `main` 的必需检查。PR 和 `main` 都按改动校验，测试文件仅触发校验。
+  仓库内 PR 改动镜像或流水线配置时会试打包。仅流水线改动的 `main` 推送运行校验，手动运行可发布两端。
+- 镜像先发布到 GHCR 的公开容器包。流水线核对包的仓库关联、标签、摘要和匿名访问，并在运行摘要列出版本链接。
+  待发布的镜像按摘要同步到 Zot 后签名，再发布供 Image Updater 使用的标签。
 - 签名只打在 Zot 的镜像引用上（`cosign sign .../zot...@digest`），ghcr 上的同 digest 副本没有签名，
   验签要从 Zot 拉。
 - 镜像 tag 是 7 位短 SHA，由 gitops 仓库的 Image Updater 自动开 PR；本仓库不再推送 digest 事件。
