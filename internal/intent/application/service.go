@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -402,7 +403,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	var latency int64
 	asked := rule.NeedSemantic && !rule.Blocked && d.semantic != nil
 	if asked {
-		semantic, latency = d.decideSemantic(ctx, in, runtime)
+		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = rulesetVersion
@@ -903,17 +904,27 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 // unusable answer; it is never turned into a guessed decision.
 // decideSemantic 在独立 span 内调用 Jev，使网络耗时、返回分数与降级可归因。
 // 失败时返回不可用回答，绝不臆测决策。
-func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime RuntimeConfig) (domain.SemanticAnswer, int64) {
+func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime RuntimeConfig, rule domain.RuleResult) (domain.SemanticAnswer, int64) {
 	ctx, span := tracer().Start(ctx, "nagi.intent.jev")
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("nagi.provider", runtime.Provider),
 		attribute.String("nagi.model", runtime.Model),
 	)
+	if runtime.Provider == domain.PromptProviderJev {
+		questions := domain.ApplicableQuestions(decisionQuestions(rule), in.Task.Kind)
+		priority := make([]map[string]any, 0, len(questions))
+		for _, key := range domain.SortedDecisionQuestions(questions) {
+			question := questions[key]
+			priority = append(priority, map[string]any{"key": key, "order": question.Order, "threshold": question.Threshold, "action": question.Action})
+		}
+		payload, _ := json.Marshal(priority)
+		span.SetAttributes(attribute.String("langfuse.observation.metadata.systemone_decision_order", string(payload)))
+	}
 	// The classified message is the semantic decider's input; body export obeys
 	// the content gate.
 	// 被分类的消息是语义判定的输入；正文导出遵循内容开关。
-	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+	observability.RecordObservationSecure(ctx, span, "langfuse.observation.input", map[string]any{
 		"provider": runtime.Provider,
 		"model":    runtime.Model,
 		"text":     in.Task.Message.Text,
@@ -998,7 +1009,7 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 	var latency int64
 	called := full && rule.NeedSemantic && d.semantic != nil && !rule.Blocked
 	if called {
-		semantic, latency = d.decideSemantic(ctx, in, runtime)
+		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	return decision, decisionSteps(in, rule, semantic, decision, latency, called, false)

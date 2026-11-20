@@ -160,7 +160,7 @@ func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confi
 		return contracts.Run{}, ErrReplayConfirmationStale
 	}
 	if asked {
-		semantic, latency = s.decider.decideSemantic(ctx, in, runtime)
+		semantic, latency = s.decider.decideSemantic(ctx, in, runtime, rule)
 	}
 	decision := s.decider.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = snapshot.RulesetVersion
