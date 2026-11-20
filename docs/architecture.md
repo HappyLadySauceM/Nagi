@@ -181,8 +181,8 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
   `export-raw-content`（默认 true）控制；关闭时写入 `{"redacted":true}`，结构与指标照常导出。
   会话维度用 conversation id，用户维度默认是 HMAC 假名（无可用密钥则不写），
   `raw-identifiers=true` 时改为原始 QQ 号。入站消息的 W3C traceparent 随 `message_jobs` 落库，
-  工作器恢复父上下文，因此一条消息的 ingress、意图、生成与发送共享一条 trace；Eino 回调始终启用
-  并共享同一 `TracerProvider`，内部 `Init`/`Lambda`/`ReAct` 包装已收敛。
+  工作器为每次处理建立独立 trace。入站 trace 上下文有效时，工作器通过 OpenTelemetry span link 关联两者。
+  意图、生成和发送记录在处理链路，Eino 回调复用同一 `TracerProvider`。
 
 ### 管理 API（全部经 `{code,message,data}` 信封）
 

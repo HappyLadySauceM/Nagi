@@ -29,7 +29,7 @@ go test ./internal/intent/application -run TestDefaultIntentThresholdsMatchParti
    go test ./internal/intent/domain -run TestFixedFlowContractSnapshot -update
    ```
    逐行审查 golden diff，确认没有顺带改变无关配置项。
-4. **阈值变化**：默认阈值与参与判断基线（`0.80 / 0.95 / 0.60`）绑定。确认调整时，同步更新 `pkg/config` 快照、`internal/intent/application/participation_baseline_test.go` 中的 `baselineThresholds` 和 `docs/reviews/2026-11-10-participation-baseline.md` 的报告，并重新评审基线样本的预期结果；不得只改其中一处。
+4. **阈值变化**：默认阈值与参与判断基线（`0.80 / 0.95 / 0.60`）绑定。确认调整时，同步更新 `pkg/config` 快照和[离线参与判断基线](../internal/intent/application/participation_baseline_test.go)中的 `baselineThresholds`，复核样本预期，并在 PR 中记录对照结果。
 5. **流程版本变化**：`FlowVersion` 或节点/边结构变化要同步前端契约；`SnapshotVersion` 变化要评估历史决策快照的兼容与回放策略，不能只改常量。
 6. **验证**：执行 `just verify`；涉及前端展示时按仓库 review 技能做页面联调。
 
@@ -37,4 +37,4 @@ go test ./internal/intent/application -run TestDefaultIntentThresholdsMatchParti
 
 - 失败信息会列出 `want` 与 `got`，并提示对应快照文件或阈值基线。
 - 如果变化不是本次需求有意引入的，请还原代码或配置，不要更新快照来掩盖漂移。
-- 如果确认是有意变更，按上面的流程更新快照、报告与回归，并在 PR 中记录产品确认依据。
+- 如果确认是有意变更，按上面的流程更新快照、对照结果与回归，并在 PR 中记录产品确认依据。
