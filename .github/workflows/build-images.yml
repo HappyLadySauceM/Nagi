@@ -184,17 +184,18 @@ jobs:
         run: |
           just verify
           git diff --exit-code
-      - name: Web 静态检查与测试
+      - name: Web 校验
         if: needs.changes.outputs.verify_web == 'true'
         working-directory: web
+        env:
+          BUILD_WEB: ${{ needs.changes.outputs.build_web }}
         run: |
           pnpm install --frozen-lockfile --store-dir "$PNPM_STORE"
           pnpm lint
           pnpm test
-      - name: Web 类型检查
-        if: needs.changes.outputs.verify_web == 'true' && needs.changes.outputs.build_web != 'true'
-        working-directory: web
-        run: pnpm typecheck
+          if [[ "$BUILD_WEB" != true ]]; then
+            pnpm typecheck
+          fi
       - name: 构建 Web 产物
         if: needs.changes.outputs.build_web == 'true'
         working-directory: web
