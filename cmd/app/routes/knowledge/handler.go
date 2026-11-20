@@ -11,12 +11,14 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
@@ -168,6 +170,14 @@ func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 	}
 	botName := settingsBotName(h.svcCtx)
 	variables := map[string]string{"bot_name": botName, "scope_type": targetType}
+	if body.PreviewMode == "real" && body.SpeakerType == "user" {
+		if sender, err := strconv.ParseInt(body.SpeakerID, 10, 64); err == nil && sender > 0 {
+			variables["sender_id"] = strconv.FormatInt(sender, 10)
+		}
+	}
+	if variables["sender_id"] == "" && targetType == "private" {
+		variables["sender_id"] = strconv.FormatInt(targetID, 10)
+	}
 	response := map[string]any{
 		"PreviewMode": body.PreviewMode,
 		"Target":      map[string]any{"Type": targetType, "ID": targetID, "ConversationID": responseConversationID},
@@ -220,6 +230,14 @@ func (h *Handler) previewPrompts(ctx context.Context, botID int64, targetType st
 			}
 			prompt.FinalHash = intentdomain.PromptFinalHash(prompt)
 			prompt.RenderedHash = intentdomain.PromptHash(prompt)
+		}
+		if h.svcCtx.Rulesets != nil {
+			composed, err := intentapp.ApplyActiveQuestionRuleset(ctx, h.svcCtx.Rulesets, prompt)
+			if err == nil {
+				prompt = composed
+			} else if h.svcCtx.Logger != nil {
+				h.svcCtx.Logger.Warn("unable to load active rules for knowledge preview", "error", err)
+			}
 		}
 		out[item.PromptID] = promptView(prompt)
 	}
@@ -388,7 +406,7 @@ func promptView(prompt intentdomain.Prompt) map[string]any {
 	return map[string]any{
 		"PromptID": prompt.ID, "Name": prompt.Name, "Kind": prompt.Kind, "Provider": prompt.Provider,
 		"Version": prompt.Version, "Source": prompt.Source,
-		"Hash": prompt.Hash, "FinalHash": prompt.FinalHash,
+		"Hash": prompt.Hash, "FinalHash": prompt.FinalHash, "RenderedHash": prompt.RenderedHash,
 		"Layers":    promptLayersView(prompt.Layers),
 		"Content":   json.RawMessage(intentdomain.PromptContentJSON(prompt)),
 		"Variables": copyVariables(prompt.Variables),

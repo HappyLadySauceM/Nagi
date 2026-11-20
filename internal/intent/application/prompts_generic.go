@@ -126,6 +126,7 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 		final = parsed
 		layers = parsed.Layers
 	}
+	final = ScoreParticipationPrompt(final)
 	if targetType == domain.PromptScopeGroup || targetType == domain.PromptScopePrivate {
 		var supplement domain.PromptRecord
 		if override != nil && override.ScopeType == targetType {
@@ -184,6 +185,7 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 }
 
 func finalizePrompt(p domain.Prompt, variables map[string]string) domain.Prompt {
+	p = ScoreParticipationPrompt(p)
 	if len(p.Layers) == 0 {
 		p.Layers = []domain.PromptLayer{
 			{Layer: domain.PromptLayerAccountDefault, VersionID: 0, Version: 1, Source: domain.PromptSourceBuiltin, Hash: p.Hash, Editable: false, Content: domain.PromptContentJSON(p)},

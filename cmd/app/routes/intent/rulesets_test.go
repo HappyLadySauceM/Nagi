@@ -36,7 +36,7 @@ func TestSimulationPromptUsesEffectiveQuestionSet(t *testing.T) {
 	prompt, ok := simulationPrompt(
 		&intentdomain.Ruleset{Version: 7, Questions: specificQuestions},
 		&intentdomain.Ruleset{Version: 3, Questions: globalQuestions},
-		42, "private", 99, "Nagi",
+		42, "private", 99, "Nagi", intentdomain.Prompt{},
 	)
 	if !ok {
 		t.Fatal("expected a prompt when the specific set has questions")
@@ -65,10 +65,10 @@ func TestSimulationPromptUsesEffectiveQuestionSet(t *testing.T) {
 	}
 
 	// An empty specific set is authoritative and does not fall back to global questions.
-	if _, ok := simulationPrompt(&intentdomain.Ruleset{Version: 5}, &intentdomain.Ruleset{Version: 3, Questions: globalQuestions}, 42, "group", 0, ""); ok {
+	if _, ok := simulationPrompt(&intentdomain.Ruleset{Version: 5}, &intentdomain.Ruleset{Version: 3, Questions: globalQuestions}, 42, "group", 0, "", intentdomain.Prompt{}); ok {
 		t.Fatal("empty specific set fell back to global questions")
 	}
-	fallback, ok := simulationPrompt(nil, &intentdomain.Ruleset{Version: 3, Questions: globalQuestions}, 42, "group", 0, "")
+	fallback, ok := simulationPrompt(nil, &intentdomain.Ruleset{Version: 3, Questions: globalQuestions}, 42, "group", 0, "", intentdomain.Prompt{})
 	if !ok || fallback.Version != 3 || len(fallback.SystemOne.Questions) != 1 {
 		t.Fatalf("global questions = %+v ok=%v", fallback, ok)
 	}
@@ -77,7 +77,7 @@ func TestSimulationPromptUsesEffectiveQuestionSet(t *testing.T) {
 	}
 
 	// No questions anywhere leaves the caller's default prompt untouched.
-	if _, ok := simulationPrompt(nil, &intentdomain.Ruleset{Version: 3}, 42, "group", 0, ""); ok {
+	if _, ok := simulationPrompt(nil, &intentdomain.Ruleset{Version: 3}, 42, "group", 0, "", intentdomain.Prompt{}); ok {
 		t.Fatal("expected no prompt without questions")
 	}
 }

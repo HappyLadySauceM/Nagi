@@ -10,6 +10,7 @@ import type { KnowledgePreview } from '../../../lib/api/contracts'
 import { describeError } from '../../../lib/errors'
 import { formatDateTime } from '../../../lib/format'
 import { cn } from '../../../lib/utils'
+import { PromptContentView } from '../../prompts/prompt-content-editor'
 import { useKnowledgePreview } from '../queries'
 
 const PROMPT_NAMES: Record<string, string> = {
@@ -69,6 +70,7 @@ function SkippedLayer({ label, reason }: { label: string; reason: string }) {
 export function KnowledgePreviewCard({ botId }: { botId?: number }) {
   const [targetType, setTargetType] = useState<'group' | 'private'>('group')
   const [targetId, setTargetId] = useState('')
+  const [speakerId, setSpeakerId] = useState('')
   const [conversationId, setConversationId] = useState('')
   const [query, setQuery] = useState('喜欢喝什么')
   const [subjectType, setSubjectType] = useState<'unknown' | 'user' | 'group'>('unknown')
@@ -100,6 +102,7 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
       targetId: mode === 'real' ? numericTargetId : undefined,
       conversationId: mode === 'real' ? conversationId.trim() : '',
       query: query.trim(),
+      speakerId: mode === 'real' && targetType === 'group' ? speakerId.trim() : undefined,
       allowRewrite,
       subjectType: selectedSubject,
       subjectId: selectedSubject === 'unknown' ? undefined : selectedId,
@@ -168,6 +171,12 @@ export function KnowledgePreviewCard({ botId }: { botId?: number }) {
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
+        {targetType === 'group' ? (
+          <label className="space-y-1 text-xs">
+            <span className="text-muted-foreground">发言人 QQ 号（可选）</span>
+            <Input aria-label="发言人 QQ 号" inputMode="numeric" value={speakerId} onChange={(event) => setSpeakerId(event.target.value)} />
+          </label>
+        ) : null}
         <label className="space-y-1 text-xs">
           <span className="text-muted-foreground">记忆主体</span>
           <Select aria-label="记忆主体" value={subjectType} onChange={(event) => setSubjectType(event.target.value as typeof subjectType)}>
@@ -303,8 +312,20 @@ function PreviewResult({ data }: { data: KnowledgePreview }) {
                 ))}
               </ul>
               <p className="mt-1 break-all font-mono text-meta text-muted-foreground">
-                Hash {prompt.finalHash || prompt.hash || '—'}
+                模板哈希 {prompt.finalHash || prompt.hash || '—'}
               </p>
+              {prompt.kind === 'intent_participation' && prompt.provider === 'jev' ? (
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer">渲染后的 SystemOne 问题</summary>
+                  <PromptContentView kind={prompt.kind} provider={prompt.provider} content={prompt.content} />
+                  {prompt.renderedHash ? (
+                    <p className="mt-1 break-all font-mono text-meta text-muted-foreground">渲染哈希 {prompt.renderedHash}</p>
+                  ) : null}
+                  {!prompt.variables.sender_id && Object.values(prompt.content.systemOne?.questions ?? {}).some((question) => question.instructions.includes('{{sender_id}}')) ? (
+                    <p className="mt-1 text-meta text-warning">填写发言人 QQ 号后可对照实际渲染哈希。</p>
+                  ) : null}
+                </details>
+              ) : null}
             </div>
           ))}
         </div>

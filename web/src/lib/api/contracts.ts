@@ -575,6 +575,7 @@ export interface KnowledgePreviewPrompt {
   source: string
   hash: string
   finalHash: string
+  renderedHash?: string
   layers: ManagedPromptEffectiveLayer[]
   content: ManagedPromptContent
   variables: Record<string, string>

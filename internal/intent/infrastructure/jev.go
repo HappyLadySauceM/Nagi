@@ -80,7 +80,7 @@ type jevQuestion struct {
 // questionSpecsFor 解析一次调用生效的问题配置。选定 Prompt 快照优先；
 // 内置 Prompt 是本地兜底，并带有文档定义的角色与权重。
 func questionSpecsFor(in domain.Input) map[string]domain.PromptQuestion {
-	if in.Prompt.SystemOne != nil && len(in.Prompt.SystemOne.Questions) > 0 {
+	if in.Prompt.SystemOne != nil {
 		return in.Prompt.SystemOne.Questions
 	}
 	return domain.BuiltinPrompt(domain.PromptProviderJev).SystemOne.Questions
@@ -125,14 +125,21 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	wireQuestions := questionsFromSpecs(specs)
 	if span := trace.SpanFromContext(ctx); span.IsRecording() {
 		prompt := in.Prompt
-		if prompt.SystemOne == nil || len(prompt.SystemOne.Questions) == 0 {
+		if prompt.SystemOne == nil {
 			prompt = domain.BuiltinPrompt(domain.PromptProviderJev)
 		}
 		templateHash := prompt.FinalHash
 		if templateHash == "" {
 			templateHash = domain.PromptFinalHash(prompt)
 		}
+		layers := make([]map[string]any, 0, len(prompt.Layers))
+		for _, layer := range prompt.Layers {
+			layers = append(layers, map[string]any{"layer": layer.Layer, "version_id": layer.VersionID, "version": layer.Version, "source": layer.Source, "hash": layer.Hash})
+		}
+		layerJSON, _ := json.Marshal(layers)
 		span.SetAttributes(
+			attribute.String("langfuse.observation.metadata.prompt_rendered_hash", prompt.RenderedHash),
+			attribute.String("langfuse.observation.metadata.prompt_layers", string(layerJSON)),
 			attribute.String("langfuse.observation.type", "generation"),
 			attribute.String("langfuse.observation.model.name", c.cfg.Model),
 			attribute.String("langfuse.observation.metadata.prompt_source", prompt.Source),

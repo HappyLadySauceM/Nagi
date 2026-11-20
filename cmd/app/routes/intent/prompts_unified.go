@@ -587,6 +587,11 @@ func (h *Handler) PreviewUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	prompt, err := h.composeEffectiveQuestionPrompt(r, prompt)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "读取生效参与规则失败")
+		return
+	}
 	prompt = renderPreviewSample(prompt, body.Sample)
 	prompt.RenderedHash = intentdomain.PromptHash(prompt)
 	common.WriteSuccess(w, previewPromptResponse(prompt, body.PreviewMode, body.VersionID, previewConversationID(body.Context), body.Sample, body.Context))
@@ -756,7 +761,19 @@ func (h *Handler) resolveUnifiedRuntimePrompt(w http.ResponseWriter, r *http.Req
 		vars["sender_id"] = strconv.FormatInt(targetID, 10)
 	}
 	prompt := h.svcCtx.Prompts.ResolveFor(r.Context(), promptID, kind, provider, botID, targetType, targetID, vars)
+	prompt, err = h.composeEffectiveQuestionPrompt(r, prompt)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "读取生效参与规则失败")
+		return intentdomain.Prompt{}, "", err
+	}
 	return prompt, r.URL.Query().Get("conversation_id"), nil
+}
+
+func (h *Handler) composeEffectiveQuestionPrompt(r *http.Request, prompt intentdomain.Prompt) (intentdomain.Prompt, error) {
+	if h.svcCtx.Rulesets == nil {
+		return prompt, nil
+	}
+	return intentapp.ApplyActiveQuestionRuleset(r.Context(), h.svcCtx.Rulesets, prompt)
 }
 
 func effectivePromptResponse(p intentdomain.Prompt, conversationID string) map[string]any {

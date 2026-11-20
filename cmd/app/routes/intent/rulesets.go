@@ -255,6 +255,7 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		Kind              string                                 `json:"kind"`
 		ReplyMode         string                                 `json:"reply_mode"`
 		Explicit          bool                                   `json:"explicit"`
+		SenderID          int64                                  `json:"sender_id"`
 		Text              string                                 `json:"text"`
 		SecondsSinceReply int64                                  `json:"seconds_since_reply"`
 		Entries           *[]intentdomain.RuleEntry              `json:"entries"`
@@ -276,7 +277,7 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	activeSpecific, hasActiveSpecific := set, ok
-	if body.SecondsSinceReply < 0 || body.SecondsSinceReply > 315360000 || body.ScopeType != body.Kind {
+	if body.SenderID < 0 || body.SecondsSinceReply < 0 || body.SecondsSinceReply > 315360000 || body.ScopeType != body.Kind {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid simulation input")
 		return
 	}
@@ -302,12 +303,16 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sort.SliceStable(set.Entries, func(i, j int) bool { return set.Entries[i].Priority < set.Entries[j].Priority })
+	senderID := body.SenderID
+	if body.Kind == "private" {
+		senderID = body.ScopeID
+	}
 	now := time.Now()
 	in := intentdomain.Input{
 		Now:      now,
 		Activity: intentdomain.BotActivity{Known: true, LastReplyAt: now.Add(-time.Duration(body.SecondsSinceReply) * time.Second)},
 		Task: intentdomain.Task{Kind: body.Kind, BotID: body.BotID, TargetID: body.ScopeID,
-			Message: intentdomain.Message{Text: body.Text}},
+			Message: intentdomain.Message{Text: body.Text, SenderID: senderID}},
 		Policy: scopedomain.Policy{
 			Enabled: true, ReplyMode: scopedomain.ReplyMode(body.ReplyMode),
 			ScopeType: scopedomain.ScopeType(body.ScopeType), ScopeID: body.ScopeID,
@@ -369,8 +374,25 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		if h.svcCtx.SettingsProvider != nil {
 			botName = h.svcCtx.SettingsProvider.Settings().Role.BotName
 		}
-		if prompt, hasPrompt := simulationPrompt(specificSet, globalSet, body.BotID, body.Kind, body.ScopeID, botName); hasPrompt {
+		variables := map[string]string{"bot_name": botName}
+		if senderID > 0 {
+			variables["sender_id"] = strconv.FormatInt(senderID, 10)
+		}
+		wording := intentdomain.Prompt{Variables: variables}
+		if h.svcCtx.Prompts != nil {
+			wording = h.svcCtx.Prompts.ResolveFor(r.Context(), intentdomain.PromptIDIntentParticipation, intentdomain.PromptKindIntentParticipation, intentdomain.PromptProviderJev, body.BotID, body.Kind, body.ScopeID, variables)
+		}
+		effective := specificSet
+		if effective == nil {
+			effective = globalSet
+		}
+		if effective != nil && (effective.Status == "draft" || effective == &set && body.Questions != nil) {
+			wording.Layers = nil
+		}
+		if prompt, hasPrompt := simulationPrompt(specificSet, globalSet, body.BotID, body.Kind, body.ScopeID, botName, wording); hasPrompt {
 			in.Prompt = prompt
+		} else if specificSet == nil && globalSet == nil {
+			in.Prompt = wording
 		}
 	}
 	rule, version := intentapp.EvaluateRuleChain(in, specificSet, globalSet)
@@ -425,47 +447,19 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 // neither set carries questions, leaving the caller's default prompt untouched.
 // simulationPrompt 按有效问题集构建语义 Prompt，优先具体集、其次全局集；
 // 两者都没有问题时返回 false，保持调用方的默认 Prompt 不变。
-func simulationPrompt(specificSet, globalSet *intentdomain.Ruleset, botID int64, kind string, scopeID int64, botName string) (intentdomain.Prompt, bool) {
-	var questions map[string]intentdomain.PromptQuestion
-	var version int
-	switch {
-	case specificSet != nil:
-		questions, version = intentdomain.ApplicableQuestions(specificSet.Questions, kind), specificSet.Version
-	case globalSet != nil:
-		questions, version = intentdomain.ApplicableQuestions(globalSet.Questions, kind), globalSet.Version
-	default:
+func simulationPrompt(specificSet, globalSet *intentdomain.Ruleset, botID int64, kind string, scopeID int64, botName string, wording intentdomain.Prompt) (intentdomain.Prompt, bool) {
+	set := specificSet
+	if set == nil {
+		set = globalSet
+	}
+	if set == nil || !intentdomain.HasApplicableQuestion(intentdomain.WithDecisionDefaults(set.Questions), kind) {
 		return intentdomain.Prompt{}, false
 	}
-	if len(questions) == 0 {
-		return intentdomain.Prompt{}, false
-	}
-	base := intentdomain.BuiltinPromptFor(intentdomain.PromptKindIntentParticipation, intentdomain.PromptProviderJev)
-	base.SystemOne = &intentdomain.SystemOnePrompt{Questions: questions}
-	base.ID = intentdomain.PromptIDIntentParticipation
-	base.Kind = intentdomain.PromptKindIntentParticipation
-	base.Provider = intentdomain.PromptProviderJev
-	base.Version = version
-	base.Source = intentdomain.PromptSourceLocal
-	base.BotID = botID
-	base.TargetType = kind
-	base.TargetID = scopeID
-	base.Hash = intentdomain.PromptHash(base)
-
-	variables := map[string]string{"scope_type": kind}
-	if botID > 0 {
-		variables["bot_id"] = strconv.FormatInt(botID, 10)
-	}
-	if scopeID > 0 {
-		variables["target_id"] = strconv.FormatInt(scopeID, 10)
-	}
+	variables := map[string]string{}
 	if botName != "" {
 		variables["bot_name"] = botName
 	}
-	base.Variables = variables
-	base.FinalHash = intentdomain.PromptFinalHash(base)
-	base = intentdomain.RenderPromptVariables(base, variables)
-	base.RenderedHash = intentdomain.PromptHash(base)
-	return base, true
+	return intentapp.ComposeRulesetPrompt(*set, wording, botID, kind, scopeID, variables), true
 }
 
 func toRulesetInfo(set intentdomain.Ruleset) v1.RulesetInfo {

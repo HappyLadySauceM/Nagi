@@ -480,6 +480,7 @@ function RulesEditor({ embedded }: { embedded: boolean }) {
 export function SimulateCard({ scope, previewGlobal, previewTargetsText, questions, layout = 'columns' }: { previewTargetsText?: string; layout?: 'stacked' | 'columns'; scope: { botId: number; scopeType: ScopeType; scopeId: number }; previewGlobal?: boolean; questions?: Record<string, ManagedPromptQuestion> }) {
   const [simulationKind,setSimulationKind]=useState<ScopeType>(scope.scopeType)
   const [simulationTarget,setSimulationTarget]=useState(scope.scopeId>0?String(scope.scopeId):'')
+  const [simulationSender, setSimulationSender] = useState('')
   const actualScope={botId:scope.botId,scopeType:simulationKind,scopeId:Number(simulationTarget)}
   const simulate = useSimulate(actualScope)
   const [mode, setMode] = useState<'rules' | 'semantic'>('rules')
@@ -490,7 +491,9 @@ export function SimulateCard({ scope, previewGlobal, previewTargetsText, questio
   const editing = questions !== undefined
   const targets = (previewTargetsText ?? '').split(/[,，\s]+/).filter(Boolean)
   const targetAllowed = !editing || previewGlobal || (targets.length > 0 && targets.every(value => /^(private|group):[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value.split(':')[1]))) && targets.includes(`${simulationKind}:${simulationTarget}`))
-  const snapshot = JSON.stringify({ actualScope, previewGlobal, previewTargetsText, questions, mode, text, explicit, replyMode, seconds })
+  const needsSender = simulationKind === 'group' && mode === 'semantic'
+  const validSender = !needsSender || simulationSender === '' || (/^[1-9]\d*$/.test(simulationSender) && Number.isSafeInteger(Number(simulationSender)))
+  const snapshot = JSON.stringify({ actualScope, previewGlobal, previewTargetsText, questions, mode, text, explicit, replyMode, seconds, simulationSender })
   const [submitted, setSubmitted] = useState('')
 
   return (
@@ -498,6 +501,12 @@ export function SimulateCard({ scope, previewGlobal, previewTargetsText, questio
 
       <div className="min-w-0 space-y-4">
       <div className="grid gap-2 sm:grid-cols-2"><Select aria-label="模拟实际会话类型" value={simulationKind} onChange={event=>{setSimulationKind(event.target.value as ScopeType);simulate.reset()}}><option value="private">好友私聊</option><option value="group">群聊</option></Select><Input aria-label="模拟实际目标号码" placeholder="输入用于判断范围的 QQ 号或群号" value={simulationTarget} onChange={event=>{setSimulationTarget(event.target.value);simulate.reset()}}/></div>
+      {needsSender ? (
+        <label className="block space-y-1 text-xs">
+          <span className="text-muted-foreground">发言人 QQ 号（可选）</span>
+          <Input inputMode="numeric" aria-label="模拟发言人 QQ 号" value={simulationSender} onChange={(event) => setSimulationSender(event.target.value)} />
+        </label>
+      ) : null}
       <div className="text-xs text-muted-foreground">实际模拟对象：{simulationKind==='private'?'好友':'群聊'} {simulationTarget || '未选择'}</div>
       {!targetAllowed ? <p role="alert" className="text-warning">测试对象不在当前编辑的适用范围内，请调整测试对象或规则范围。</p> : null}
       <div className="text-sm font-medium">只读规则预览 · {editing ? '当前编辑内容' : '当前生效版本'}</div>
@@ -511,11 +520,11 @@ export function SimulateCard({ scope, previewGlobal, previewTargetsText, questio
           <option value="explicit">明确指向机器人</option>
         </Select>
         <Button
-          disabled={!targetAllowed || !Number.isSafeInteger(actualScope.scopeId) || actualScope.scopeId<=0 || !text || simulate.isPending || !/^\d+$/.test(seconds) || !Number.isSafeInteger(Number(seconds))}
+          disabled={!targetAllowed || !validSender || !Number.isSafeInteger(actualScope.scopeId) || actualScope.scopeId<=0 || !text || simulate.isPending || !/^\d+$/.test(seconds) || !Number.isSafeInteger(Number(seconds))}
           onClick={() => {
             setSubmitted(snapshot)
             simulate.mutate(
-              { mode, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, secondsSinceReply: Number(seconds), questions: mode === 'semantic' ? questions : undefined },
+              { mode, previewGlobal, kind: actualScope.scopeType === 'group' ? 'group' : 'private', replyMode, explicit, text, senderId: needsSender && simulationSender ? Number(simulationSender) : undefined, secondsSinceReply: Number(seconds), questions: mode === 'semantic' ? questions : undefined },
               { onError: (error) => toast.error(describeError(error).title) },
             )
           }}
