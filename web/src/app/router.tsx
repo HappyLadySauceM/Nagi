@@ -58,6 +58,12 @@ const decisionHistoryRoute = createRoute({
   component: lazyRouteComponent(() => import('../features/intent/intent-page'), 'DecisionHistoryPage'),
 })
 
+const inboundDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/decisions/inbound/$botId/$messageId',
+  component: lazyRouteComponent(() => import('../features/intent/intent-page'), 'InboundDetailPage'),
+})
+
 const rulesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/rules',
@@ -186,6 +192,7 @@ const routeTree = rootRoute.addChildren([
   accountsRoute,
   decisionsRoute,
   decisionHistoryRoute,
+  inboundDetailRoute,
   rulesRoute,
   directoryRoute,
   groupDetailRoute,

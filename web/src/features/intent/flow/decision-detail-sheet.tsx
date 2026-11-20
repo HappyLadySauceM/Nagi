@@ -1,16 +1,20 @@
+import { useState } from 'react'
 import { FeedbackState } from '../../../components/feedback-state'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../../components/ui/sheet'
 import { Skeleton } from '../../../components/ui/skeleton'
 import { AuditTimeline } from '../audit-timeline'
 import { OutboundTimeline } from '../outbound-timeline'
-import { useDecision } from '../queries'
+import { useDecision, useInboundMessage } from '../queries'
 import { DecisionConclusion } from './decision-conclusion'
 import { formatDateTime } from '../../../lib/format'
+import { Select } from '../../../components/ui/select'
 import { Card } from '../../../components/ui/card'
+import type { toInboundMessage } from '../../../lib/api/adapters/intent'
 import type { DecisionDetailEntry } from '../../../lib/api/contracts'
 import { DeliveryPanel } from './delivery-panel'
 import { ReplayControls } from './replay-controls'
 import { FlowRunView } from './flow-run-view'
+import { jobStatus, segmentLabels } from './inbound-labels'
 import { LegacyStepTimeline } from './legacy-step-timeline'
 
 /**
@@ -19,13 +23,21 @@ import { LegacyStepTimeline } from './legacy-step-timeline'
  */
 export function DecisionDetailSheet({
   decisionId,
+  inbound,
   onClose,
 }: {
-  decisionId: number | null
+  decisionId?: number | null
+  inbound?: { botId: number; messageId: number }
   onClose: () => void
 }) {
-  const detail = useDecision(decisionId)
-  const open = decisionId !== null
+  const message = useInboundMessage(inbound?.botId, inbound?.messageId ?? null)
+  const [selected, setSelected] = useState<{ messageId: number; botId: number; decisionId: number }>()
+  const choice = selected && inbound && selected.messageId === inbound.messageId && selected.botId === inbound.botId
+    ? selected.decisionId : undefined
+  const current = choice ?? message.data?.decisionId
+  const detail = useDecision(inbound ? current ?? null : decisionId ?? null)
+  const open = inbound !== undefined || decisionId != null
+  const loadError = message.error ?? detail.error
   return (
     <Sheet
       open={open}
@@ -40,18 +52,30 @@ export function DecisionDetailSheet({
             从 QQ 入站消息查看参与判定、回复生成与最终回执。
           </SheetDescription>
         </div>
-        {detail.isLoading ? (
+        {inbound && message.data && (
+          <div className="flex flex-wrap items-center gap-4 pt-3">
+            <a className="text-sm underline" href={`/decisions/inbound/${inbound.botId}/${inbound.messageId}`}>入站详情链接</a>
+            {message.data.decisionIds.length > 1 && (
+              <Select className="max-w-64" aria-label="查看哪次参与决策" value={current} onChange={event => {
+                setSelected({ ...inbound, decisionId: Number(event.target.value) })
+              }}>
+                {message.data.decisionIds.map(id => <option key={id} value={id}>决策 #{id}</option>)}
+              </Select>
+            )}
+          </div>
+        )}
+        {message.isLoading || detail.isLoading ? (
           <Skeleton className="mt-4 h-40 w-full" />
-        ) : detail.isError ? (
+        ) : loadError ? (
           <FeedbackState
             variant="error"
             title="读取决策详情失败"
-            error={detail.error}
-            onRetry={() => void detail.refetch()}
+            error={loadError}
+            onRetry={() => void (message.isError ? message.refetch() : detail.refetch())}
           />
         ) : detail.data ? (
           <div className="space-y-4">
-            <IngressPanel detail={detail.data} />
+            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} botId={inbound?.botId} />
             {detail.data.run && detail.data.run.snapshotStatus !== 'legacy' ? (
               <FlowRunView run={detail.data.run} showDelivery={false} showReplay={false} />
             ) : (
@@ -61,11 +85,22 @@ export function DecisionDetailSheet({
               </>
             )}
             <AuditTimeline botId={detail.data.botId} jobId={detail.data.jobId} decisionRunId={detail.data.run?.runId} />
-            {detail.data.run && detail.data.run.snapshotStatus !== 'legacy'
+            {!inbound && detail.data.run && detail.data.run.snapshotStatus !== 'legacy'
               ? <DeliveryPanel run={detail.data.run} />
               : <OutboundTimeline botId={detail.data.botId} jobId={detail.data.jobId} />}
             {detail.data.run && detail.data.run.snapshotStatus !== 'legacy'
               ? <ReplayControls decisionId={detail.data.id} /> : null}
+          </div>
+        ) : message.data ? (
+          <div className="space-y-4">
+            <IngressPanel ingress={message.data} jobId={message.data.jobId} botId={inbound?.botId} />
+            <Card className="p-5 text-sm">尚无参与决策记录</Card>
+            {inbound && message.data.jobId > 0 && (
+              <>
+                <AuditTimeline botId={inbound.botId} jobId={message.data.jobId} />
+                <OutboundTimeline botId={inbound.botId} jobId={message.data.jobId} />
+              </>
+            )}
           </div>
         ) : null}
       </SheetContent>
@@ -73,15 +108,16 @@ export function DecisionDetailSheet({
   )
 }
 
-const jobStatus: Record<string, string> = {
-  pending: '等待处理', processing: '处理中', done: '任务完成', failed: '任务失败', cancelled: '已取消',
-}
-const segmentLabels: Record<string, string> = {
-  image: '图片', face: '表情', at: '@', reply: '引用', record: '语音', video: '视频', file: '文件',
+const attachmentStatuses: Record<string, string> = {
+  pending: '等待归档', processing: '正在归档', uploaded: '已归档', expired: '已过期',
+  unavailable: '无法归档', failed: '归档失败', purging: '待清理',
 }
 
-function IngressPanel({ detail }: { detail: DecisionDetailEntry }) {
-  const ingress = detail.ingress
+function IngressPanel({ ingress, jobId, botId }: {
+  ingress: (NonNullable<DecisionDetailEntry['ingress']> & Partial<Pick<ReturnType<typeof toInboundMessage>, 'attachments' | 'jobError'>>) | undefined
+  jobId: number
+  botId?: number
+}) {
   return <Card className="space-y-2 p-5 text-sm">
     <h3 className="font-semibold">QQ 入站消息</h3>
     {ingress ? <>
@@ -93,9 +129,25 @@ function IngressPanel({ detail }: { detail: DecisionDetailEntry }) {
       {ingress.text && <p className="whitespace-pre-wrap break-words">{ingress.text}</p>}
       {ingress.segmentTypes.length > 0 && <p>{ingress.segmentTypes.map(type => segmentLabels[type] ?? type).join(' · ')}</p>}
       <p className="text-muted-foreground">
-        已入库 · 消息 {ingress.messageId} · 任务 {detail.jobId} · {jobStatus[ingress.jobStatus] ?? ingress.jobStatus}
+        已入库 · 消息 {ingress.messageId}
+        {jobId > 0 ? ` · 任务 ${jobId} · ${ingress.jobError === 'archive_only' ? '仅归档' : jobStatus[ingress.jobStatus] ?? ingress.jobStatus}` : ' · 无任务记录'}
+        {ingress.jobError && ingress.jobError !== 'archive_only' ? ` · ${ingress.jobError}` : ''}
       </p>
-      {ingress.traceId && <p className="break-all font-mono text-xs">入站 Trace {ingress.traceId}</p>}
-    </> : <p className="text-muted-foreground">入站记录不可用 · 任务 {detail.jobId}</p>}
+      {botId && ingress.attachments && ingress.attachments.length > 0 && (
+        <ul className="space-y-1" aria-label="已登记的附件">
+          {ingress.attachments.map(attachment => (
+            <li key={attachment.id} className="flex flex-wrap items-center gap-x-3">
+              <span>{attachment.filename || segmentLabels[attachment.kind] || attachment.kind}</span>
+              <span>{attachmentStatuses[attachment.status] ?? attachment.status}</span>
+              {attachment.failureCode && <span className="text-muted-foreground">{attachment.failureCode}</span>}
+              {attachment.status === 'uploaded' && <a className="underline" download
+                href={`/api/v1/intent/inbound/${ingress.messageId}/attachments/${encodeURIComponent(attachment.id)}?bot_id=${botId}`}
+              >下载附件</a>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="break-all font-mono text-xs">{ingress.traceId ? `入站 Trace ${ingress.traceId}` : '无入站 Trace 记录'}</p>
+    </> : <p className="text-muted-foreground">入站记录不可用 · 任务 {jobId}</p>}
   </Card>
 }

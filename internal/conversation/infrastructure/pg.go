@@ -28,6 +28,7 @@ import (
 type Repo struct {
 	pool                *db.Pool
 	memoryAuthorization MemoryAuthorizationStamper
+	attachmentRetention time.Duration
 }
 
 // MemoryAuthorizationStamper stamps the effective memory authorization event
@@ -49,6 +50,17 @@ func WithMemoryAuthorizationStamper(stamper MemoryAuthorizationStamper) RepoOpti
 			return fmt.Errorf("conversation: memory authorization stamper required")
 		}
 		r.memoryAuthorization = stamper
+		return nil
+	}
+}
+
+// WithInboundAttachments records archive work in the ingress transaction.
+func WithInboundAttachments(retention time.Duration) RepoOption {
+	return func(r *Repo) error {
+		if retention <= 0 {
+			return fmt.Errorf("conversation: attachment retention must be positive")
+		}
+		r.attachmentRetention = retention
 		return nil
 	}
 }
@@ -121,8 +133,17 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 		return domain.IngestResult{}, err
 	}
 	message := stored.ID
+	if r.attachmentRetention > 0 {
+		if err := registerInboundAttachments(ctx, c, message, stored.CreatedAt.Add(r.attachmentRetention), in.Segments); err != nil {
+			return domain.IngestResult{}, err
+		}
+	}
 
-	job, err := c.MessageJob.Create().SetIncomingMessageID(message).SetTraceparent(in.TraceParent).SetTracestate(in.TraceState).Save(ctx)
+	jobCreate := c.MessageJob.Create().SetIncomingMessageID(message).SetTraceparent(in.TraceParent).SetTracestate(in.TraceState)
+	if in.ArchiveOnly {
+		jobCreate.SetStatus("done").SetLastErrorCode("archive_only")
+	}
+	job, err := jobCreate.Save(ctx)
 	if err != nil {
 		return domain.IngestResult{}, err
 	}

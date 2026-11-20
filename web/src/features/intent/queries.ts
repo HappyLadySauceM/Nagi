@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiRequest } from '../../lib/api/client'
-import { toDecisionDetail, toDecisionList } from '../../lib/api/adapters/intent'
+import { INBOUND_ENDPOINT, toDecisionDetail, toDecisionList, toInboundList, toInboundMessage } from '../../lib/api/adapters/intent'
 import { toQueryString } from '../../lib/api/query-string'
 import { queryKeys } from '../../lib/query-keys'
 
@@ -34,5 +34,28 @@ export function useDecision(id: number | null) {
     enabled: typeof id === 'number' && id > 0,
     queryFn: ({ signal }) =>
       apiRequest(`/api/v1/intent/decisions/${id}`, { signal }).then(toDecisionDetail),
+  })
+}
+
+export function useInbound(botId: number | undefined, conversationId: string, limit: number, beforeId: number) {
+  return useQuery({
+    queryKey: ['inbound', botId, conversationId, limit, beforeId],
+    enabled: typeof botId === 'number' && botId > 0,
+    queryFn: ({ signal }) =>
+      apiRequest(`${INBOUND_ENDPOINT}${toQueryString({
+        bot_id: botId,
+        conversation_id: conversationId || undefined,
+        limit,
+        before_id: beforeId || undefined,
+      })}`, { signal }).then(toInboundList),
+  })
+}
+
+export function useInboundMessage(botId: number | undefined, messageId: number | null) {
+  return useQuery({
+    queryKey: ['inbound-message', botId, messageId],
+    enabled: typeof botId === 'number' && botId > 0 && messageId !== null,
+    queryFn: ({ signal }) =>
+      apiRequest(`${INBOUND_ENDPOINT}/${messageId}${toQueryString({ bot_id: botId })}`, { signal }).then(toInboundMessage),
   })
 }

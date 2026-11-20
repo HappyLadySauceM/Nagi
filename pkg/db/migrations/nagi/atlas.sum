@@ -1,4 +1,4 @@
-h1:jk9Ff4prys45EWtvNyRHac6xA1NG6uy8xESDIUyIzaE=
+h1:gJe2T9+S1Jf4YtCiJtFpjQS91Az2kgEsKViQgqEfBE0=
 20261031051405_initial.up.sql h1:ui1KVhKPw3ur6U4JMg6iI3Usnv8olY+uJbVrY4jjc4w=
 20261031091021_public_api_delivery.up.sql h1:9iOaOQh+SHnOzNUDp0tZNCaGMRy4/dJWUlFpB9AEZzE=
 20261104071100_ai_audit.up.sql h1:XN0rhBKsjUWhA1/uGwYIKpA2nQad6Do2ES54YqiHELw=
@@ -12,3 +12,4 @@ h1:jk9Ff4prys45EWtvNyRHac6xA1NG6uy8xESDIUyIzaE=
 20261115201828_memory_replacements.up.sql h1:Q6BekqqduUu+UXoH0VN6KC62hQW8HT/LnGkVKXbypCU=
 20261117110000_prompt_version_soft_delete.up.sql h1:b9Bk17+yNJcw5xW7OjU/uXHa6kFdJr0KO3BrY21YT3o=
 20261118090000_add_intent_ruleset_questions.up.sql h1:KAKjwY26lB/gBxZqX8BRogMU2nWI82IfqGxKwUVbN5s=
+20261119134524_inbound_attachments.up.sql h1:vHul5oUkKsj0GSxMAi8xYRR+1SPYkEQ/JZxII50udoU=

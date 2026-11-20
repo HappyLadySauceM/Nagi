@@ -2,7 +2,7 @@ import { useModels, modelReady } from '../settings/models'
 import { allowWorkspaceChange } from './edit-guard'
 import { IntentConfig } from './config'
 import { useState } from 'react'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, RefreshCw } from 'lucide-react'
 import { apiRequest } from '../../lib/api/client'
@@ -180,5 +180,16 @@ function DecisionLog({ recent = false, onViewAll }: { recent?: boolean; onViewAl
 
 export function DecisionHistoryPage() {
   const { selectedBotId } = useAccountContext()
-  return <div className="space-y-6"><PageHeader title="决策记录" actions={<Button asChild variant="outline"><Link to="/decisions">返回意图概览</Link></Button>} /><DecisionLog key={selectedBotId ?? 'none'} /></div>
+  return <div className="space-y-6"><PageHeader title="决策记录" actions={<Button asChild variant="outline"><Link to="/decisions">返回意图概览</Link></Button>} /><FlowWorkbench botId={selectedBotId} history /><DecisionLog key={selectedBotId ?? 'none'} /></div>
+}
+
+export function InboundDetailPage() {
+  const params = useParams({ from: '/decisions/inbound/$botId/$messageId' })
+  const navigate = useNavigate()
+  const botId = Number(params.botId)
+  const messageId = Number(params.messageId)
+  if (!Number.isSafeInteger(botId) || botId <= 0 || !Number.isSafeInteger(messageId) || messageId <= 0) {
+    return <FeedbackState variant="error" title="入站地址无效" />
+  }
+  return <DecisionDetailSheet inbound={{ botId, messageId }} onClose={() => void navigate({ to: '/decisions/history' })} />
 }

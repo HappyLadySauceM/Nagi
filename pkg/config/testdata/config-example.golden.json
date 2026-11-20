@@ -77,6 +77,7 @@
       "bucket": "nagi-audit",
       "enabled": false,
       "endpoint": "http://127.0.0.1:9000",
+      "inbound-max-mib": 512,
       "prefix": "nagi/",
       "public-endpoint": "http://100.100.100.4:9000",
       "retention-days": 30,

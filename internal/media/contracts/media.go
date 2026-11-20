@@ -5,6 +5,8 @@ package contracts
 import (
 	"context"
 	"errors"
+	"io"
+	"time"
 
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
@@ -60,3 +62,17 @@ type Archiver interface {
 // of being downgraded to a transcription or generation failure.
 // ErrArchiveFailed 标记必须中止运行的媒体归档失败，不能被降级为转写或生成失败。
 var ErrArchiveFailed = errors.New("media archive failed")
+
+type InboundAttachment struct {
+	ID, Kind, Status, FailureCode, Filename, ContentType, SHA256 string
+	SegmentIndex                                                 int
+	SizeBytes                                                    int64
+	ExpiresAt                                                    time.Time
+}
+
+type InboundArchiveReader interface {
+	List(context.Context, int64, int64) ([]InboundAttachment, error)
+	Open(context.Context, int64, int64, string) (io.ReadCloser, InboundAttachment, error)
+}
+
+var ErrAttachmentNotFound = errors.New("inbound attachment not found")

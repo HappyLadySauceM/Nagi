@@ -39,6 +39,9 @@ type Conversation func(*sql.Selector)
 // GroupMember is the predicate function for groupmember builders.
 type GroupMember func(*sql.Selector)
 
+// InboundAttachment is the predicate function for inboundattachment builders.
+type InboundAttachment func(*sql.Selector)
+
 // IntentDecision is the predicate function for intentdecision builders.
 type IntentDecision func(*sql.Selector)
 

@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
@@ -39,8 +41,27 @@ type Ingestor interface {
 // Service provides ingest validation and history queries.
 // Service 提供入库校验与历史查询。
 type Service struct {
-	repo   Repository
-	logger *slog.Logger
+	repo    Repository
+	logger  *slog.Logger
+	blocked sync.Map
+}
+
+// CountBlockedIngress records only the receiving account and count.
+func (s *Service) CountBlockedIngress(botID int64) {
+	if value, ok := s.blocked.Load(botID); ok {
+		value.(*atomic.Uint64).Add(1)
+		return
+	}
+	value, _ := s.blocked.LoadOrStore(botID, new(atomic.Uint64))
+	value.(*atomic.Uint64).Add(1)
+}
+
+func (s *Service) BlockedIngress(botID int64) uint64 {
+	value, ok := s.blocked.Load(botID)
+	if !ok {
+		return 0
+	}
+	return value.(*atomic.Uint64).Load()
 }
 
 // NewService validates dependencies and builds the service.
@@ -168,4 +189,15 @@ func (s *Service) RecordOutgoing(ctx context.Context, conversationID string, bot
 		return fmt.Errorf("conversation: outgoing record requires conversation and bot id")
 	}
 	return s.repo.RecordOutgoing(ctx, conversationID, botID, text, platformMessageID, sentStatus, outboundID, claim...)
+}
+
+// BackfillInboundAttachments registers late archive work for a retained message.
+func (s *Service) BackfillInboundAttachments(ctx context.Context, botID, messageID int64) error {
+	repo, ok := s.repo.(interface {
+		BackfillInboundAttachments(context.Context, int64, int64) error
+	})
+	if !ok {
+		return fmt.Errorf("conversation: attachment backfill unavailable")
+	}
+	return repo.BackfillInboundAttachments(ctx, botID, messageID)
 }

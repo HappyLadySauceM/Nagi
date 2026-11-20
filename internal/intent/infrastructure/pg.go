@@ -452,3 +452,59 @@ func (r *DecisionsRepo) AwaitedRequest(ctx context.Context, task domain.Task) (*
 	}
 	return &message, nil
 }
+
+// ListInbound returns one row per stored incoming message, including messages
+// whose jobs have not produced a decision.
+func (r *DecisionsRepo) ListInbound(ctx context.Context, q contracts.InboundQuery) ([]contracts.InboundRecord, error) {
+	rows, err := r.pool.Client.QueryContext(ctx, `
+		SELECT m.id, COALESCE(m.platform_message_id, 0), m.sender_id, m.conversation_id::text,
+		       left(m.text_content, 801), m.created_at, jsonb_path_query_array(m.segments, '$[*].type'),
+		       COALESCE(j.id, 0), COALESCE(j.traceparent, ''), COALESCE(j.status, ''),
+		       COALESCE(j.last_error_code, ''), COALESCE(d.id, 0), COALESCE(d.decision, ''),
+		       COALESCE(d.reason_code, ''), COALESCE(d.model, ''),
+		       CASE WHEN $4::bigint > 0 THEN to_jsonb(ARRAY(
+		           SELECT id FROM intent_decisions WHERE job_id=j.id ORDER BY id DESC
+		       )) ELSE '[]'::jsonb END
+		FROM messages m
+		LEFT JOIN message_jobs j ON j.incoming_message_id=m.id
+		LEFT JOIN LATERAL (
+		    SELECT id, decision, reason_code, model FROM intent_decisions
+		    WHERE job_id=j.id ORDER BY id DESC LIMIT 1
+		) d ON true
+		WHERE m.bot_id=$1 AND m.direction='incoming'
+		  AND ($2::uuid IS NULL OR m.conversation_id=$2::uuid)
+		  AND ($3::bigint=0 OR m.id<$3)
+		  AND ($4::bigint=0 OR m.id=$4)
+		ORDER BY m.id DESC LIMIT $5
+	`, q.BotID, nullableConversation(q.ConversationID), q.BeforeID, q.MessageID, q.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]contracts.InboundRecord, 0, q.Limit)
+	for rows.Next() {
+		var item contracts.InboundRecord
+		var types, decisionIDs []byte
+		if err := rows.Scan(&item.MessageID, &item.PlatformMessageID, &item.SenderID,
+			&item.ConversationID, &item.Text, &item.ReceivedAt, &types, &item.JobID,
+			&item.TraceParent, &item.JobStatus, &item.JobError, &item.DecisionID,
+			&item.Decision, &item.ReasonCode, &item.Model, &decisionIDs); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(types, &item.SegmentTypes); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(decisionIDs, &item.DecisionIDs); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func nullableConversation(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
+}

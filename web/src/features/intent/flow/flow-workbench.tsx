@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { ArrowRight, RefreshCw } from 'lucide-react'
 import { Badge } from '../../../components/ui/badge'
 import { Button } from '../../../components/ui/button'
+import { Input } from '../../../components/ui/input'
 import { Card } from '../../../components/ui/card'
 import { FeedbackState } from '../../../components/feedback-state'
 import { Skeleton } from '../../../components/ui/skeleton'
@@ -10,8 +11,9 @@ import { DECISION_KIND_LABELS, type DecisionEntry } from '../../../lib/api/contr
 import { formatRelativeTime } from '../../../lib/format'
 import { cn } from '../../../lib/utils'
 import { useAccountContext } from '../../accounts/account-context'
-import { useDecisions } from '../queries'
+import { useInbound } from '../queries'
 import { DecisionDetailSheet } from './decision-detail-sheet'
+import { jobStatus, segmentLabels } from './inbound-labels'
 
 const KIND_VARIANTS: Record<DecisionEntry['decision'], 'success' | 'secondary' | 'warning'> = {
   reply: 'success',
@@ -20,11 +22,19 @@ const KIND_VARIANTS: Record<DecisionEntry['decision'], 'success' | 'secondary' |
 }
 
 /** Flow-first overview: latest decisions open a right-side detail drawer. */
-export function FlowWorkbench({ botId, onViewAll }: { botId?: number; onViewAll?: () => void }) {
+export function FlowWorkbench(props: { botId?: number; onViewAll?: () => void; history?: boolean }) {
+  return <InboundWorkbench key={props.botId} {...props} />
+}
+
+function InboundWorkbench({ botId, onViewAll, history }: { botId?: number; onViewAll?: () => void; history?: boolean }) {
   const { dbConfigured } = useAccountContext()
-  const decisions = useDecisions(botId, '', 7, 0, '')
+  const [conversation, setConversation] = useState('')
+  const [conversationId, setConversationId] = useState('')
+  const [cursor, setCursor] = useState(0)
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const rows = useMemo(() => decisions.data?.items ?? [], [decisions.data])
+  const limit = history ? 20 : 7
+  const decisions = useInbound(botId, conversationId, limit, cursor)
+  const rows = decisions.data?.items ?? []
 
   if (botId === undefined) {
     return <FeedbackState variant="empty" title="先选择机器人账号" description="选择账号后查看它的判定流程。" />
@@ -32,31 +42,14 @@ export function FlowWorkbench({ botId, onViewAll }: { botId?: number; onViewAll?
   if (!dbConfigured) {
     return <FeedbackState variant="unconfigured" title="未配置数据库" description="配置数据库后即可查看判定流程。" />
   }
-  if (decisions.isError) {
-    return <FeedbackState variant="error" title="读取决策记录失败" error={decisions.error} onRetry={() => void decisions.refetch()} />
-  }
-  if (decisions.isLoading) {
-    return <Skeleton className="h-72 w-full" />
-  }
-  if (rows.length === 0) {
-    return (
-      <Card>
-        <FeedbackState
-          variant="empty"
-          title="还没有决策记录"
-          description="机器人完成一次意图判定后，这里会按固定流程展示“为什么回复/沉默”。"
-        />
-      </Card>
-    )
-  }
-
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div>
-            <h3 className="text-sm font-semibold">最近决策</h3>
-            <p className="mt-1 text-meta text-muted-foreground">点击任意决策行，在右侧抽屉查看完整详情；点击流程节点再开二级抽屉。</p>
+            <h3 className="text-sm font-semibold">{history ? '入站记录' : '最近决策'}</h3>
+            <p className="mt-1 text-meta text-muted-foreground">打开入站消息查看处理状态、参与判断和 QQ 回执。</p>
+            {decisions.data && <p className="mt-1 text-meta text-muted-foreground">本进程中因作用域策略未入库 {decisions.data.blocked} 条（全账号会话）</p>}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => void decisions.refetch()} disabled={decisions.isFetching}>
@@ -66,10 +59,25 @@ export function FlowWorkbench({ botId, onViewAll }: { botId?: number; onViewAll?
             {onViewAll ? <Button variant="ghost" size="sm" onClick={onViewAll}>查看全部<ArrowRight aria-hidden /></Button> : null}
           </div>
         </div>
-        <Table label="最近决策">
+        {history && (
+          <form className="flex flex-wrap gap-2 px-4 py-3" onSubmit={event => {
+            event.preventDefault()
+            setCursor(0)
+            setConversationId(conversation.trim())
+          }}>
+            <Input className="max-w-96" aria-label="会话 ID" placeholder="按会话 ID 筛选" value={conversation} onChange={event => setConversation(event.target.value)} />
+            <Button type="submit" variant="outline">筛选</Button>
+          </form>
+        )}
+        {decisions.isError ? (
+          <FeedbackState variant="error" title="读取入站记录失败" error={decisions.error} onRetry={() => void decisions.refetch()} />
+        ) : decisions.isLoading ? <Skeleton className="h-72 w-full" /> : rows.length === 0 ? (
+          <FeedbackState variant="empty" title={cursor ? '没有更早的入站记录' : '没有匹配的入站记录'} />
+        ) : <Table label={history ? '入站记录' : '最近决策'}>
           <TableHeader>
             <TableRow>
-              <TableHead>决策 / 会话</TableHead>
+              <TableHead>消息 / 会话</TableHead>
+              <TableHead>处理状态</TableHead>
               <TableHead>原因</TableHead>
               <TableHead>模型</TableHead>
               <TableHead className="text-right">时间</TableHead>
@@ -78,36 +86,48 @@ export function FlowWorkbench({ botId, onViewAll }: { botId?: number; onViewAll?
           <TableBody>
             {rows.map((row) => (
               <TableRow
-                key={row.id}
+                key={row.messageId}
                 tabIndex={0}
                 aria-haspopup="dialog"
-                aria-label={`查看决策 ${row.id}`}
-                className={cn('cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring', selectedId === row.id && 'bg-secondary/60')}
-                onClick={() => setSelectedId(row.id)}
+                aria-label={`查看入站消息 ${row.messageId}`}
+                className={cn('cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring', selectedId === row.messageId && 'bg-secondary/60')}
+                onClick={() => setSelectedId(row.messageId)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
-                    setSelectedId(row.id)
+                    setSelectedId(row.messageId)
                   }
                 }}
               >
                 <TableCell>
                   <div className="flex flex-col items-start gap-1.5 text-left">
-                    <Badge variant={KIND_VARIANTS[row.decision]}>{DECISION_KIND_LABELS[row.decision]}</Badge>
-                    <span className="max-w-56 truncate font-mono text-caption text-muted-foreground">{row.conversationId || `#${row.id}`}</span>
+                    <span className="max-w-72 truncate">{row.text || row.segmentTypes.map(type => segmentLabels[type] ?? type).join(' · ') || '无文本'}</span>
+                    <span className="max-w-56 truncate font-mono text-caption text-muted-foreground">#{row.messageId} · {row.conversationId}</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {row.decision && <Badge variant={KIND_VARIANTS[row.decision]}>{DECISION_KIND_LABELS[row.decision]}</Badge>}
+                    <span className="text-meta text-muted-foreground">{jobStatus[row.jobStatus] ?? (row.jobStatus || '无任务')}</span>
                   </div>
                 </TableCell>
                 <TableCell className="font-mono text-meta">{row.reasonCode || '—'}</TableCell>
                 <TableCell className="text-meta text-muted-foreground">{row.model || '未调用语义模型'}</TableCell>
                 <TableCell className="whitespace-nowrap text-right text-meta text-muted-foreground">
-                  {row.createdAt ? formatRelativeTime(row.createdAt) : '—'}
+                  {row.receivedAt ? formatRelativeTime(row.receivedAt) : '—'}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
-        </Table>
+        </Table>}
+        {history && (
+          <div className="flex justify-end gap-2 border-t px-4 py-3">
+            <Button variant="outline" size="sm" disabled={!cursor || decisions.isFetching} onClick={() => setCursor(0)}>最新记录</Button>
+            <Button variant="outline" size="sm" disabled={rows.length < limit || decisions.isFetching} onClick={() => setCursor(rows.at(-1)?.messageId ?? 0)}>更早记录</Button>
+          </div>
+        )}
       </Card>
-      <DecisionDetailSheet decisionId={selectedId} onClose={() => setSelectedId(null)} />
+      <DecisionDetailSheet inbound={selectedId === null ? undefined : { botId, messageId: selectedId }} onClose={() => setSelectedId(null)} />
     </div>
   )
 }

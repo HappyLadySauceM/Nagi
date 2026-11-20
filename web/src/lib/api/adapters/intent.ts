@@ -98,3 +98,52 @@ function toStep(raw: unknown): DecisionStepEntry {
     createdAt: readOptionalTime(record, 'CreatedAt', DECISIONS_ENDPOINT),
   }
 }
+
+export const INBOUND_ENDPOINT = '/api/v1/intent/inbound'
+
+export function toInboundMessage(raw: unknown) {
+  const record = asRecord(raw, INBOUND_ENDPOINT, 'message')
+  const decision = readString(record, 'Decision', INBOUND_ENDPOINT, '')
+  if (decision && !DECISION_KINDS.includes(decision as IntentDecisionKind)) {
+    throw contractError(INBOUND_ENDPOINT, `未知决策类型 ${decision}`)
+  }
+  return {
+    messageId: readNumber(record, 'MessageID', INBOUND_ENDPOINT),
+    jobId: readNumber(record, 'JobID', INBOUND_ENDPOINT),
+    decisionId: readNumber(record, 'DecisionID', INBOUND_ENDPOINT),
+    decisionIds: asArray(record.DecisionIDs ?? [], INBOUND_ENDPOINT, 'DecisionIDs')
+      .filter((value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0),
+    conversationId: readString(record, 'ConversationID', INBOUND_ENDPOINT),
+    senderId: readNumber(record, 'SenderID', INBOUND_ENDPOINT),
+    platformMessageId: readNumber(record, 'PlatformMessageID', INBOUND_ENDPOINT),
+    jobStatus: readString(record, 'JobStatus', INBOUND_ENDPOINT, ''),
+    jobError: readString(record, 'JobError', INBOUND_ENDPOINT, ''),
+    decision: decision as IntentDecisionKind | '',
+    reasonCode: readString(record, 'ReasonCode', INBOUND_ENDPOINT, ''),
+    model: readString(record, 'Model', INBOUND_ENDPOINT, ''),
+    text: readString(record, 'Text', INBOUND_ENDPOINT, ''),
+    traceId: readString(record, 'TraceID', INBOUND_ENDPOINT, ''),
+    segmentTypes: asArray(record.SegmentTypes ?? [], INBOUND_ENDPOINT, 'SegmentTypes')
+      .filter((value): value is string => typeof value === 'string' && value !== 'text'),
+    attachments: asArray(record.Attachments ?? [], INBOUND_ENDPOINT, 'Attachments').map(value => {
+      const attachment = asRecord(value, INBOUND_ENDPOINT, 'attachment')
+      return {
+        id: readString(attachment, 'ID', INBOUND_ENDPOINT),
+        kind: readString(attachment, 'Kind', INBOUND_ENDPOINT),
+        status: readString(attachment, 'Status', INBOUND_ENDPOINT),
+        filename: readString(attachment, 'Filename', INBOUND_ENDPOINT, ''),
+        failureCode: readString(attachment, 'FailureCode', INBOUND_ENDPOINT, ''),
+        size: readNumber(attachment, 'SizeBytes', INBOUND_ENDPOINT, 0),
+      }
+    }),
+    receivedAt: readOptionalTime(record, 'ReceivedAt', INBOUND_ENDPOINT),
+  }
+}
+
+export function toInboundList(raw: unknown) {
+  const record = asRecord(raw, INBOUND_ENDPOINT, 'list')
+  return {
+    items: asArray(record.Items, INBOUND_ENDPOINT, 'Items').map(toInboundMessage),
+    blocked: readNumber(record, 'BlockedSinceStart', INBOUND_ENDPOINT, 0),
+  }
+}

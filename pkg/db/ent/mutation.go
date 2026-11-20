@@ -23,6 +23,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
@@ -65,6 +66,7 @@ const (
 	TypeContact                       = "Contact"
 	TypeConversation                  = "Conversation"
 	TypeGroupMember                   = "GroupMember"
+	TypeInboundAttachment             = "InboundAttachment"
 	TypeIntentDecision                = "IntentDecision"
 	TypeIntentDecisionSnapshot        = "IntentDecisionSnapshot"
 	TypeIntentDecisionStep            = "IntentDecisionStep"
@@ -11109,6 +11111,1414 @@ func (m *GroupMemberMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown GroupMember edge %s", name)
+}
+
+// InboundAttachmentMutation represents an operation that mutates the InboundAttachment nodes in the graph.
+type InboundAttachmentMutation struct {
+	config
+	op               Op
+	typ              string
+	id               *uuid.UUID
+	message_id       *int64
+	addmessage_id    *int64
+	segment_index    *int
+	addsegment_index *int
+	kind             *string
+	source           *jsontext.Value
+	appendsource     jsontext.Value
+	status           *string
+	failure_code     *string
+	attempts         *int
+	addattempts      *int
+	filename         *string
+	content_type     *string
+	size_bytes       *int64
+	addsize_bytes    *int64
+	sha256           *string
+	bucket           *string
+	object_key       *string
+	lease_token      *uuid.UUID
+	lease_expires_at *time.Time
+	next_run_at      *time.Time
+	expires_at       *time.Time
+	clearedFields    map[string]struct{}
+	done             bool
+	oldValue         func(context.Context) (*InboundAttachment, error)
+	predicates       []predicate.InboundAttachment
+}
+
+var _ ent.Mutation = (*InboundAttachmentMutation)(nil)
+
+// inboundattachmentOption allows management of the mutation configuration using functional options.
+type inboundattachmentOption func(*InboundAttachmentMutation)
+
+// newInboundAttachmentMutation creates new mutation for the InboundAttachment entity.
+func newInboundAttachmentMutation(c config, op Op, opts ...inboundattachmentOption) *InboundAttachmentMutation {
+	m := &InboundAttachmentMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeInboundAttachment,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withInboundAttachmentID sets the ID field of the mutation.
+func withInboundAttachmentID(id uuid.UUID) inboundattachmentOption {
+	return func(m *InboundAttachmentMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *InboundAttachment
+		)
+		m.oldValue = func(ctx context.Context) (*InboundAttachment, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().InboundAttachment.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withInboundAttachment sets the old InboundAttachment of the mutation.
+func withInboundAttachment(node *InboundAttachment) inboundattachmentOption {
+	return func(m *InboundAttachmentMutation) {
+		m.oldValue = func(context.Context) (*InboundAttachment, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m InboundAttachmentMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m InboundAttachmentMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of InboundAttachment entities.
+func (m *InboundAttachmentMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *InboundAttachmentMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *InboundAttachmentMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().InboundAttachment.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetMessageID sets the "message_id" field.
+func (m *InboundAttachmentMutation) SetMessageID(i int64) {
+	m.message_id = &i
+	m.addmessage_id = nil
+}
+
+// MessageID returns the value of the "message_id" field in the mutation.
+func (m *InboundAttachmentMutation) MessageID() (r int64, exists bool) {
+	v := m.message_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMessageID returns the old "message_id" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldMessageID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMessageID: %w", err)
+	}
+	return oldValue.MessageID, nil
+}
+
+// AddMessageID adds i to the "message_id" field.
+func (m *InboundAttachmentMutation) AddMessageID(i int64) {
+	if m.addmessage_id != nil {
+		*m.addmessage_id += i
+	} else {
+		m.addmessage_id = &i
+	}
+}
+
+// AddedMessageID returns the value that was added to the "message_id" field in this mutation.
+func (m *InboundAttachmentMutation) AddedMessageID() (r int64, exists bool) {
+	v := m.addmessage_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetMessageID resets all changes to the "message_id" field.
+func (m *InboundAttachmentMutation) ResetMessageID() {
+	m.message_id = nil
+	m.addmessage_id = nil
+}
+
+// SetSegmentIndex sets the "segment_index" field.
+func (m *InboundAttachmentMutation) SetSegmentIndex(i int) {
+	m.segment_index = &i
+	m.addsegment_index = nil
+}
+
+// SegmentIndex returns the value of the "segment_index" field in the mutation.
+func (m *InboundAttachmentMutation) SegmentIndex() (r int, exists bool) {
+	v := m.segment_index
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSegmentIndex returns the old "segment_index" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldSegmentIndex(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSegmentIndex is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSegmentIndex requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSegmentIndex: %w", err)
+	}
+	return oldValue.SegmentIndex, nil
+}
+
+// AddSegmentIndex adds i to the "segment_index" field.
+func (m *InboundAttachmentMutation) AddSegmentIndex(i int) {
+	if m.addsegment_index != nil {
+		*m.addsegment_index += i
+	} else {
+		m.addsegment_index = &i
+	}
+}
+
+// AddedSegmentIndex returns the value that was added to the "segment_index" field in this mutation.
+func (m *InboundAttachmentMutation) AddedSegmentIndex() (r int, exists bool) {
+	v := m.addsegment_index
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSegmentIndex resets all changes to the "segment_index" field.
+func (m *InboundAttachmentMutation) ResetSegmentIndex() {
+	m.segment_index = nil
+	m.addsegment_index = nil
+}
+
+// SetKind sets the "kind" field.
+func (m *InboundAttachmentMutation) SetKind(s string) {
+	m.kind = &s
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *InboundAttachmentMutation) Kind() (r string, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *InboundAttachmentMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetSource sets the "source" field.
+func (m *InboundAttachmentMutation) SetSource(j jsontext.Value) {
+	m.source = &j
+	m.appendsource = nil
+}
+
+// Source returns the value of the "source" field in the mutation.
+func (m *InboundAttachmentMutation) Source() (r jsontext.Value, exists bool) {
+	v := m.source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSource returns the old "source" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldSource(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSource: %w", err)
+	}
+	return oldValue.Source, nil
+}
+
+// AppendSource adds j to the "source" field.
+func (m *InboundAttachmentMutation) AppendSource(j jsontext.Value) {
+	m.appendsource = append(m.appendsource, j...)
+}
+
+// AppendedSource returns the list of values that were appended to the "source" field in this mutation.
+func (m *InboundAttachmentMutation) AppendedSource() (jsontext.Value, bool) {
+	if len(m.appendsource) == 0 {
+		return nil, false
+	}
+	return m.appendsource, true
+}
+
+// ClearSource clears the value of the "source" field.
+func (m *InboundAttachmentMutation) ClearSource() {
+	m.source = nil
+	m.appendsource = nil
+	m.clearedFields[inboundattachment.FieldSource] = struct{}{}
+}
+
+// SourceCleared returns if the "source" field was cleared in this mutation.
+func (m *InboundAttachmentMutation) SourceCleared() bool {
+	_, ok := m.clearedFields[inboundattachment.FieldSource]
+	return ok
+}
+
+// ResetSource resets all changes to the "source" field.
+func (m *InboundAttachmentMutation) ResetSource() {
+	m.source = nil
+	m.appendsource = nil
+	delete(m.clearedFields, inboundattachment.FieldSource)
+}
+
+// SetStatus sets the "status" field.
+func (m *InboundAttachmentMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *InboundAttachmentMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *InboundAttachmentMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetFailureCode sets the "failure_code" field.
+func (m *InboundAttachmentMutation) SetFailureCode(s string) {
+	m.failure_code = &s
+}
+
+// FailureCode returns the value of the "failure_code" field in the mutation.
+func (m *InboundAttachmentMutation) FailureCode() (r string, exists bool) {
+	v := m.failure_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFailureCode returns the old "failure_code" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldFailureCode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFailureCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFailureCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFailureCode: %w", err)
+	}
+	return oldValue.FailureCode, nil
+}
+
+// ResetFailureCode resets all changes to the "failure_code" field.
+func (m *InboundAttachmentMutation) ResetFailureCode() {
+	m.failure_code = nil
+}
+
+// SetAttempts sets the "attempts" field.
+func (m *InboundAttachmentMutation) SetAttempts(i int) {
+	m.attempts = &i
+	m.addattempts = nil
+}
+
+// Attempts returns the value of the "attempts" field in the mutation.
+func (m *InboundAttachmentMutation) Attempts() (r int, exists bool) {
+	v := m.attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAttempts returns the old "attempts" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAttempts: %w", err)
+	}
+	return oldValue.Attempts, nil
+}
+
+// AddAttempts adds i to the "attempts" field.
+func (m *InboundAttachmentMutation) AddAttempts(i int) {
+	if m.addattempts != nil {
+		*m.addattempts += i
+	} else {
+		m.addattempts = &i
+	}
+}
+
+// AddedAttempts returns the value that was added to the "attempts" field in this mutation.
+func (m *InboundAttachmentMutation) AddedAttempts() (r int, exists bool) {
+	v := m.addattempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAttempts resets all changes to the "attempts" field.
+func (m *InboundAttachmentMutation) ResetAttempts() {
+	m.attempts = nil
+	m.addattempts = nil
+}
+
+// SetFilename sets the "filename" field.
+func (m *InboundAttachmentMutation) SetFilename(s string) {
+	m.filename = &s
+}
+
+// Filename returns the value of the "filename" field in the mutation.
+func (m *InboundAttachmentMutation) Filename() (r string, exists bool) {
+	v := m.filename
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFilename returns the old "filename" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldFilename(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFilename is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFilename requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFilename: %w", err)
+	}
+	return oldValue.Filename, nil
+}
+
+// ResetFilename resets all changes to the "filename" field.
+func (m *InboundAttachmentMutation) ResetFilename() {
+	m.filename = nil
+}
+
+// SetContentType sets the "content_type" field.
+func (m *InboundAttachmentMutation) SetContentType(s string) {
+	m.content_type = &s
+}
+
+// ContentType returns the value of the "content_type" field in the mutation.
+func (m *InboundAttachmentMutation) ContentType() (r string, exists bool) {
+	v := m.content_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldContentType returns the old "content_type" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldContentType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldContentType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldContentType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldContentType: %w", err)
+	}
+	return oldValue.ContentType, nil
+}
+
+// ResetContentType resets all changes to the "content_type" field.
+func (m *InboundAttachmentMutation) ResetContentType() {
+	m.content_type = nil
+}
+
+// SetSizeBytes sets the "size_bytes" field.
+func (m *InboundAttachmentMutation) SetSizeBytes(i int64) {
+	m.size_bytes = &i
+	m.addsize_bytes = nil
+}
+
+// SizeBytes returns the value of the "size_bytes" field in the mutation.
+func (m *InboundAttachmentMutation) SizeBytes() (r int64, exists bool) {
+	v := m.size_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSizeBytes returns the old "size_bytes" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldSizeBytes(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSizeBytes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSizeBytes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSizeBytes: %w", err)
+	}
+	return oldValue.SizeBytes, nil
+}
+
+// AddSizeBytes adds i to the "size_bytes" field.
+func (m *InboundAttachmentMutation) AddSizeBytes(i int64) {
+	if m.addsize_bytes != nil {
+		*m.addsize_bytes += i
+	} else {
+		m.addsize_bytes = &i
+	}
+}
+
+// AddedSizeBytes returns the value that was added to the "size_bytes" field in this mutation.
+func (m *InboundAttachmentMutation) AddedSizeBytes() (r int64, exists bool) {
+	v := m.addsize_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSizeBytes resets all changes to the "size_bytes" field.
+func (m *InboundAttachmentMutation) ResetSizeBytes() {
+	m.size_bytes = nil
+	m.addsize_bytes = nil
+}
+
+// SetSha256 sets the "sha256" field.
+func (m *InboundAttachmentMutation) SetSha256(s string) {
+	m.sha256 = &s
+}
+
+// Sha256 returns the value of the "sha256" field in the mutation.
+func (m *InboundAttachmentMutation) Sha256() (r string, exists bool) {
+	v := m.sha256
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSha256 returns the old "sha256" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldSha256(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSha256 is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSha256 requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSha256: %w", err)
+	}
+	return oldValue.Sha256, nil
+}
+
+// ResetSha256 resets all changes to the "sha256" field.
+func (m *InboundAttachmentMutation) ResetSha256() {
+	m.sha256 = nil
+}
+
+// SetBucket sets the "bucket" field.
+func (m *InboundAttachmentMutation) SetBucket(s string) {
+	m.bucket = &s
+}
+
+// Bucket returns the value of the "bucket" field in the mutation.
+func (m *InboundAttachmentMutation) Bucket() (r string, exists bool) {
+	v := m.bucket
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBucket returns the old "bucket" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldBucket(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBucket is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBucket requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBucket: %w", err)
+	}
+	return oldValue.Bucket, nil
+}
+
+// ResetBucket resets all changes to the "bucket" field.
+func (m *InboundAttachmentMutation) ResetBucket() {
+	m.bucket = nil
+}
+
+// SetObjectKey sets the "object_key" field.
+func (m *InboundAttachmentMutation) SetObjectKey(s string) {
+	m.object_key = &s
+}
+
+// ObjectKey returns the value of the "object_key" field in the mutation.
+func (m *InboundAttachmentMutation) ObjectKey() (r string, exists bool) {
+	v := m.object_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldObjectKey returns the old "object_key" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldObjectKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldObjectKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldObjectKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldObjectKey: %w", err)
+	}
+	return oldValue.ObjectKey, nil
+}
+
+// ResetObjectKey resets all changes to the "object_key" field.
+func (m *InboundAttachmentMutation) ResetObjectKey() {
+	m.object_key = nil
+}
+
+// SetLeaseToken sets the "lease_token" field.
+func (m *InboundAttachmentMutation) SetLeaseToken(u uuid.UUID) {
+	m.lease_token = &u
+}
+
+// LeaseToken returns the value of the "lease_token" field in the mutation.
+func (m *InboundAttachmentMutation) LeaseToken() (r uuid.UUID, exists bool) {
+	v := m.lease_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseToken returns the old "lease_token" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldLeaseToken(ctx context.Context) (v *uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseToken is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseToken requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseToken: %w", err)
+	}
+	return oldValue.LeaseToken, nil
+}
+
+// ClearLeaseToken clears the value of the "lease_token" field.
+func (m *InboundAttachmentMutation) ClearLeaseToken() {
+	m.lease_token = nil
+	m.clearedFields[inboundattachment.FieldLeaseToken] = struct{}{}
+}
+
+// LeaseTokenCleared returns if the "lease_token" field was cleared in this mutation.
+func (m *InboundAttachmentMutation) LeaseTokenCleared() bool {
+	_, ok := m.clearedFields[inboundattachment.FieldLeaseToken]
+	return ok
+}
+
+// ResetLeaseToken resets all changes to the "lease_token" field.
+func (m *InboundAttachmentMutation) ResetLeaseToken() {
+	m.lease_token = nil
+	delete(m.clearedFields, inboundattachment.FieldLeaseToken)
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (m *InboundAttachmentMutation) SetLeaseExpiresAt(t time.Time) {
+	m.lease_expires_at = &t
+}
+
+// LeaseExpiresAt returns the value of the "lease_expires_at" field in the mutation.
+func (m *InboundAttachmentMutation) LeaseExpiresAt() (r time.Time, exists bool) {
+	v := m.lease_expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseExpiresAt returns the old "lease_expires_at" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldLeaseExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseExpiresAt: %w", err)
+	}
+	return oldValue.LeaseExpiresAt, nil
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (m *InboundAttachmentMutation) ClearLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	m.clearedFields[inboundattachment.FieldLeaseExpiresAt] = struct{}{}
+}
+
+// LeaseExpiresAtCleared returns if the "lease_expires_at" field was cleared in this mutation.
+func (m *InboundAttachmentMutation) LeaseExpiresAtCleared() bool {
+	_, ok := m.clearedFields[inboundattachment.FieldLeaseExpiresAt]
+	return ok
+}
+
+// ResetLeaseExpiresAt resets all changes to the "lease_expires_at" field.
+func (m *InboundAttachmentMutation) ResetLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	delete(m.clearedFields, inboundattachment.FieldLeaseExpiresAt)
+}
+
+// SetNextRunAt sets the "next_run_at" field.
+func (m *InboundAttachmentMutation) SetNextRunAt(t time.Time) {
+	m.next_run_at = &t
+}
+
+// NextRunAt returns the value of the "next_run_at" field in the mutation.
+func (m *InboundAttachmentMutation) NextRunAt() (r time.Time, exists bool) {
+	v := m.next_run_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNextRunAt returns the old "next_run_at" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldNextRunAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNextRunAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNextRunAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNextRunAt: %w", err)
+	}
+	return oldValue.NextRunAt, nil
+}
+
+// ResetNextRunAt resets all changes to the "next_run_at" field.
+func (m *InboundAttachmentMutation) ResetNextRunAt() {
+	m.next_run_at = nil
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *InboundAttachmentMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *InboundAttachmentMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the InboundAttachment entity.
+// If the InboundAttachment object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InboundAttachmentMutation) OldExpiresAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *InboundAttachmentMutation) ResetExpiresAt() {
+	m.expires_at = nil
+}
+
+// Where appends a list predicates to the InboundAttachmentMutation builder.
+func (m *InboundAttachmentMutation) Where(ps ...predicate.InboundAttachment) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the InboundAttachmentMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *InboundAttachmentMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.InboundAttachment, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *InboundAttachmentMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *InboundAttachmentMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (InboundAttachment).
+func (m *InboundAttachmentMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *InboundAttachmentMutation) Fields() []string {
+	fields := make([]string, 0, 17)
+	if m.message_id != nil {
+		fields = append(fields, inboundattachment.FieldMessageID)
+	}
+	if m.segment_index != nil {
+		fields = append(fields, inboundattachment.FieldSegmentIndex)
+	}
+	if m.kind != nil {
+		fields = append(fields, inboundattachment.FieldKind)
+	}
+	if m.source != nil {
+		fields = append(fields, inboundattachment.FieldSource)
+	}
+	if m.status != nil {
+		fields = append(fields, inboundattachment.FieldStatus)
+	}
+	if m.failure_code != nil {
+		fields = append(fields, inboundattachment.FieldFailureCode)
+	}
+	if m.attempts != nil {
+		fields = append(fields, inboundattachment.FieldAttempts)
+	}
+	if m.filename != nil {
+		fields = append(fields, inboundattachment.FieldFilename)
+	}
+	if m.content_type != nil {
+		fields = append(fields, inboundattachment.FieldContentType)
+	}
+	if m.size_bytes != nil {
+		fields = append(fields, inboundattachment.FieldSizeBytes)
+	}
+	if m.sha256 != nil {
+		fields = append(fields, inboundattachment.FieldSha256)
+	}
+	if m.bucket != nil {
+		fields = append(fields, inboundattachment.FieldBucket)
+	}
+	if m.object_key != nil {
+		fields = append(fields, inboundattachment.FieldObjectKey)
+	}
+	if m.lease_token != nil {
+		fields = append(fields, inboundattachment.FieldLeaseToken)
+	}
+	if m.lease_expires_at != nil {
+		fields = append(fields, inboundattachment.FieldLeaseExpiresAt)
+	}
+	if m.next_run_at != nil {
+		fields = append(fields, inboundattachment.FieldNextRunAt)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, inboundattachment.FieldExpiresAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *InboundAttachmentMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case inboundattachment.FieldMessageID:
+		return m.MessageID()
+	case inboundattachment.FieldSegmentIndex:
+		return m.SegmentIndex()
+	case inboundattachment.FieldKind:
+		return m.Kind()
+	case inboundattachment.FieldSource:
+		return m.Source()
+	case inboundattachment.FieldStatus:
+		return m.Status()
+	case inboundattachment.FieldFailureCode:
+		return m.FailureCode()
+	case inboundattachment.FieldAttempts:
+		return m.Attempts()
+	case inboundattachment.FieldFilename:
+		return m.Filename()
+	case inboundattachment.FieldContentType:
+		return m.ContentType()
+	case inboundattachment.FieldSizeBytes:
+		return m.SizeBytes()
+	case inboundattachment.FieldSha256:
+		return m.Sha256()
+	case inboundattachment.FieldBucket:
+		return m.Bucket()
+	case inboundattachment.FieldObjectKey:
+		return m.ObjectKey()
+	case inboundattachment.FieldLeaseToken:
+		return m.LeaseToken()
+	case inboundattachment.FieldLeaseExpiresAt:
+		return m.LeaseExpiresAt()
+	case inboundattachment.FieldNextRunAt:
+		return m.NextRunAt()
+	case inboundattachment.FieldExpiresAt:
+		return m.ExpiresAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *InboundAttachmentMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case inboundattachment.FieldMessageID:
+		return m.OldMessageID(ctx)
+	case inboundattachment.FieldSegmentIndex:
+		return m.OldSegmentIndex(ctx)
+	case inboundattachment.FieldKind:
+		return m.OldKind(ctx)
+	case inboundattachment.FieldSource:
+		return m.OldSource(ctx)
+	case inboundattachment.FieldStatus:
+		return m.OldStatus(ctx)
+	case inboundattachment.FieldFailureCode:
+		return m.OldFailureCode(ctx)
+	case inboundattachment.FieldAttempts:
+		return m.OldAttempts(ctx)
+	case inboundattachment.FieldFilename:
+		return m.OldFilename(ctx)
+	case inboundattachment.FieldContentType:
+		return m.OldContentType(ctx)
+	case inboundattachment.FieldSizeBytes:
+		return m.OldSizeBytes(ctx)
+	case inboundattachment.FieldSha256:
+		return m.OldSha256(ctx)
+	case inboundattachment.FieldBucket:
+		return m.OldBucket(ctx)
+	case inboundattachment.FieldObjectKey:
+		return m.OldObjectKey(ctx)
+	case inboundattachment.FieldLeaseToken:
+		return m.OldLeaseToken(ctx)
+	case inboundattachment.FieldLeaseExpiresAt:
+		return m.OldLeaseExpiresAt(ctx)
+	case inboundattachment.FieldNextRunAt:
+		return m.OldNextRunAt(ctx)
+	case inboundattachment.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown InboundAttachment field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *InboundAttachmentMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case inboundattachment.FieldMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMessageID(v)
+		return nil
+	case inboundattachment.FieldSegmentIndex:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSegmentIndex(v)
+		return nil
+	case inboundattachment.FieldKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case inboundattachment.FieldSource:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSource(v)
+		return nil
+	case inboundattachment.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case inboundattachment.FieldFailureCode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFailureCode(v)
+		return nil
+	case inboundattachment.FieldAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAttempts(v)
+		return nil
+	case inboundattachment.FieldFilename:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFilename(v)
+		return nil
+	case inboundattachment.FieldContentType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetContentType(v)
+		return nil
+	case inboundattachment.FieldSizeBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSizeBytes(v)
+		return nil
+	case inboundattachment.FieldSha256:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSha256(v)
+		return nil
+	case inboundattachment.FieldBucket:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBucket(v)
+		return nil
+	case inboundattachment.FieldObjectKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetObjectKey(v)
+		return nil
+	case inboundattachment.FieldLeaseToken:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseToken(v)
+		return nil
+	case inboundattachment.FieldLeaseExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseExpiresAt(v)
+		return nil
+	case inboundattachment.FieldNextRunAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNextRunAt(v)
+		return nil
+	case inboundattachment.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown InboundAttachment field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *InboundAttachmentMutation) AddedFields() []string {
+	var fields []string
+	if m.addmessage_id != nil {
+		fields = append(fields, inboundattachment.FieldMessageID)
+	}
+	if m.addsegment_index != nil {
+		fields = append(fields, inboundattachment.FieldSegmentIndex)
+	}
+	if m.addattempts != nil {
+		fields = append(fields, inboundattachment.FieldAttempts)
+	}
+	if m.addsize_bytes != nil {
+		fields = append(fields, inboundattachment.FieldSizeBytes)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *InboundAttachmentMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case inboundattachment.FieldMessageID:
+		return m.AddedMessageID()
+	case inboundattachment.FieldSegmentIndex:
+		return m.AddedSegmentIndex()
+	case inboundattachment.FieldAttempts:
+		return m.AddedAttempts()
+	case inboundattachment.FieldSizeBytes:
+		return m.AddedSizeBytes()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *InboundAttachmentMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case inboundattachment.FieldMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMessageID(v)
+		return nil
+	case inboundattachment.FieldSegmentIndex:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSegmentIndex(v)
+		return nil
+	case inboundattachment.FieldAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAttempts(v)
+		return nil
+	case inboundattachment.FieldSizeBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSizeBytes(v)
+		return nil
+	}
+	return fmt.Errorf("unknown InboundAttachment numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *InboundAttachmentMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(inboundattachment.FieldSource) {
+		fields = append(fields, inboundattachment.FieldSource)
+	}
+	if m.FieldCleared(inboundattachment.FieldLeaseToken) {
+		fields = append(fields, inboundattachment.FieldLeaseToken)
+	}
+	if m.FieldCleared(inboundattachment.FieldLeaseExpiresAt) {
+		fields = append(fields, inboundattachment.FieldLeaseExpiresAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *InboundAttachmentMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *InboundAttachmentMutation) ClearField(name string) error {
+	switch name {
+	case inboundattachment.FieldSource:
+		m.ClearSource()
+		return nil
+	case inboundattachment.FieldLeaseToken:
+		m.ClearLeaseToken()
+		return nil
+	case inboundattachment.FieldLeaseExpiresAt:
+		m.ClearLeaseExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown InboundAttachment nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *InboundAttachmentMutation) ResetField(name string) error {
+	switch name {
+	case inboundattachment.FieldMessageID:
+		m.ResetMessageID()
+		return nil
+	case inboundattachment.FieldSegmentIndex:
+		m.ResetSegmentIndex()
+		return nil
+	case inboundattachment.FieldKind:
+		m.ResetKind()
+		return nil
+	case inboundattachment.FieldSource:
+		m.ResetSource()
+		return nil
+	case inboundattachment.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case inboundattachment.FieldFailureCode:
+		m.ResetFailureCode()
+		return nil
+	case inboundattachment.FieldAttempts:
+		m.ResetAttempts()
+		return nil
+	case inboundattachment.FieldFilename:
+		m.ResetFilename()
+		return nil
+	case inboundattachment.FieldContentType:
+		m.ResetContentType()
+		return nil
+	case inboundattachment.FieldSizeBytes:
+		m.ResetSizeBytes()
+		return nil
+	case inboundattachment.FieldSha256:
+		m.ResetSha256()
+		return nil
+	case inboundattachment.FieldBucket:
+		m.ResetBucket()
+		return nil
+	case inboundattachment.FieldObjectKey:
+		m.ResetObjectKey()
+		return nil
+	case inboundattachment.FieldLeaseToken:
+		m.ResetLeaseToken()
+		return nil
+	case inboundattachment.FieldLeaseExpiresAt:
+		m.ResetLeaseExpiresAt()
+		return nil
+	case inboundattachment.FieldNextRunAt:
+		m.ResetNextRunAt()
+		return nil
+	case inboundattachment.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown InboundAttachment field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *InboundAttachmentMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *InboundAttachmentMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *InboundAttachmentMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *InboundAttachmentMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *InboundAttachmentMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *InboundAttachmentMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *InboundAttachmentMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown InboundAttachment unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *InboundAttachmentMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown InboundAttachment edge %s", name)
 }
 
 // IntentDecisionMutation represents an operation that mutates the IntentDecision nodes in the graph.
