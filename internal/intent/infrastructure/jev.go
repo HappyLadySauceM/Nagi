@@ -14,8 +14,12 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
@@ -76,7 +80,7 @@ type jevQuestion struct {
 // questionSpecsFor 解析一次调用生效的问题配置。选定 Prompt 快照优先；
 // 内置 Prompt 是本地兜底，并带有文档定义的角色与权重。
 func questionSpecsFor(in domain.Input) map[string]domain.PromptQuestion {
-	if in.Prompt.SystemOne != nil && len(in.Prompt.SystemOne.Questions) > 0 {
+	if in.Prompt.SystemOne != nil {
 		return in.Prompt.SystemOne.Questions
 	}
 	return domain.BuiltinPrompt(domain.PromptProviderJev).SystemOne.Questions
@@ -84,6 +88,22 @@ func questionSpecsFor(in domain.Input) map[string]domain.PromptQuestion {
 
 // Decide builds the state payload, calls the API and parses answers defensively.
 // Decide 构建状态负载、调用 API 并防御性地解析回答。
+// recordSystemOneQuestions records the actual request order and question hash
+// without exporting rendered instructions or the state containing chat content.
+// recordSystemOneQuestions 记录实际请求顺序与问题哈希，不导出渲染后的问题文案或聊天状态。
+func recordSystemOneQuestions(span trace.Span, wireQuestions map[string]jevQuestion) {
+	keys := make([]string, 0, len(wireQuestions))
+	for key := range wireQuestions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	wire, _ := json.Marshal(wireQuestions)
+	span.SetAttributes(
+		attribute.String("langfuse.observation.metadata.systemone_question_hash", domain.PromptTextHash(string(wire))),
+		attribute.StringSlice("langfuse.observation.metadata.systemone_request_keys", keys),
+	)
+}
+
 func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error) {
 	specs := questionSpecsFor(in)
 	var topicKeys map[string]string
@@ -102,10 +122,36 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 			topicKeys[key] = requestKey
 		}
 	}
+	wireQuestions := questionsFromSpecs(specs)
+	if span := trace.SpanFromContext(ctx); span.IsRecording() {
+		prompt := in.Prompt
+		if prompt.SystemOne == nil {
+			prompt = domain.BuiltinPrompt(domain.PromptProviderJev)
+		}
+		templateHash := prompt.FinalHash
+		if templateHash == "" {
+			templateHash = domain.PromptFinalHash(prompt)
+		}
+		layers := make([]map[string]any, 0, len(prompt.Layers))
+		for _, layer := range prompt.Layers {
+			layers = append(layers, map[string]any{"layer": layer.Layer, "version_id": layer.VersionID, "version": layer.Version, "source": layer.Source, "hash": layer.Hash})
+		}
+		layerJSON, _ := json.Marshal(layers)
+		span.SetAttributes(
+			attribute.String("langfuse.observation.metadata.prompt_rendered_hash", prompt.RenderedHash),
+			attribute.String("langfuse.observation.metadata.prompt_layers", string(layerJSON)),
+			attribute.String("langfuse.observation.type", "generation"),
+			attribute.String("langfuse.observation.model.name", c.cfg.Model),
+			attribute.String("langfuse.observation.metadata.prompt_source", prompt.Source),
+			attribute.Int("langfuse.observation.metadata.prompt_version", prompt.Version),
+			attribute.String("langfuse.observation.metadata.prompt_template_hash", templateHash),
+		)
+		recordSystemOneQuestions(span, wireQuestions)
+	}
 	payload := map[string]any{
 		"model":     c.cfg.Model,
 		"state":     c.buildState(in),
-		"questions": questionsFromSpecs(specs),
+		"questions": wireQuestions,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

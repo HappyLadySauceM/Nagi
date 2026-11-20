@@ -38,6 +38,7 @@ export interface KnowledgePreviewInput {
   targetType: 'group' | 'private'
   targetId?: number
   conversationId?: string
+  speakerId?: string
   query?: string
   subjectType?: 'unknown' | 'user' | 'group'
   subjectId?: string
@@ -59,6 +60,8 @@ export function useKnowledgePreview() {
           target_id: input.targetId ?? 0,
           conversation_id: input.conversationId ?? '',
           query: input.query ?? '',
+          speaker_type: input.speakerId ? 'user' : '',
+          speaker_id: input.speakerId ?? '',
           allow_rewrite: input.allowRewrite ?? false,
           subject_type: input.subjectType ?? 'unknown',
           subject_id: input.subjectId ?? '',

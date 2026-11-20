@@ -133,7 +133,7 @@ export function useRollbackRuleset() {
 
 export function useSimulate(scope: ScopeRef) {
   return useMutation({
-    mutationFn: (variables: { mode?: 'rules' | 'semantic'; builtinRules?: Record<string, boolean>; previewGlobal?: boolean; kind: 'group' | 'private'; replyMode: string; explicit: boolean; text: string; entries?: RuleEntry[]; rulesetId?: number; secondsSinceReply?: number; questions?: Record<string, ManagedPromptQuestion> }) =>
+    mutationFn: (variables: { mode?: 'rules' | 'semantic'; builtinRules?: Record<string, boolean>; previewGlobal?: boolean; kind: 'group' | 'private'; replyMode: string; explicit: boolean; text: string; entries?: RuleEntry[]; rulesetId?: number; secondsSinceReply?: number; senderId?: number; questions?: Record<string, ManagedPromptQuestion> }) =>
       apiRequest('/api/v1/intent/simulate', {
         method: 'POST',
         body: {
@@ -150,6 +150,7 @@ export function useSimulate(scope: ScopeRef) {
           entries: variables.entries ? toRuleEntriesRequest(variables.entries) : undefined,
           ruleset_id: variables.rulesetId,
           seconds_since_reply: variables.secondsSinceReply,
+          sender_id: variables.senderId,
           questions: variables.questions ? toQuestionsRequest(variables.questions) : undefined,
         },
       }).then(toRuleSimulation),

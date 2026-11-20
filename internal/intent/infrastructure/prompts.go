@@ -163,8 +163,17 @@ func (r *PromptsRepo) UpdateDraft(ctx context.Context, id int64, note string, co
 	if err != nil {
 		return domain.PromptRecord{}, err
 	}
-	updated, err := r.pool.Client.IntentPromptVersion.UpdateOneID(id).
-		SetNote(note).SetHash(domain.PromptHash(content)).SetContent(raw).Save(ctx)
+	hash := domain.PromptHash(content)
+	update := r.pool.Client.IntentPromptVersion.UpdateOneID(id).
+		Where(ipv.StatusEQ(domain.PromptStatusDraft), ipv.DeletedAtIsNil()).
+		SetNote(note).SetHash(hash).SetContent(raw)
+	if row.Source == domain.PromptSourceLangfuse && hash != row.Hash {
+		update.SetSource(domain.PromptSourceLocal).SetSourceRef("")
+	}
+	updated, err := update.Save(ctx)
+	if ent.IsNotFound(err) {
+		return domain.PromptRecord{}, ErrPromptImmutable
+	}
 	if err != nil {
 		return domain.PromptRecord{}, err
 	}

@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
 
@@ -51,14 +54,17 @@ const validAnswers = `{
 // TestJevClientParsesValidAnswers 验证正常路径与值映射。
 func TestJevClientParsesValidAnswers(t *testing.T) {
 	var gotAuth, gotModel string
+	var questions json.RawMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		var body struct {
-			Model string         `json:"model"`
-			State map[string]any `json:"state"`
+			Model     string          `json:"model"`
+			State     map[string]any  `json:"state"`
+			Questions json.RawMessage `json:"questions"`
 		}
 		_ = readJSON(r, &body)
 		gotModel = body.Model
+		questions = body.Questions
 		if body.State == nil {
 			t.Error("state is required")
 		}
@@ -66,7 +72,20 @@ func TestJevClientParsesValidAnswers(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	answer, err := testClient(t, srv.URL).Decide(context.Background(), testInput())
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	ctx, span := provider.Tracer("test").Start(context.Background(), "systemone")
+	answer, err := testClient(t, srv.URL).Decide(ctx, testInput())
+	span.End()
+	values := make(map[string]string)
+	for _, attr := range recorder.Ended()[0].Attributes() {
+		values[string(attr.Key)] = attr.Value.Emit()
+	}
+	if values["langfuse.observation.metadata.systemone_question_hash"] != domain.PromptTextHash(string(questions)) ||
+		values["langfuse.observation.type"] != "generation" || values["langfuse.observation.model.name"] != "jev-latest" ||
+		values["langfuse.observation.metadata.prompt_source"] != "builtin" || values["langfuse.observation.metadata.prompt_version"] != "1" {
+		t.Fatalf("unexpected SystemOne evidence: %v", values)
+	}
 	if err != nil {
 		t.Fatalf("decide: %v", err)
 	}

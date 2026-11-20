@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -59,6 +60,8 @@ func (h *Handler) DispatchUnifiedPost(w http.ResponseWriter, r *http.Request) {
 		h.PublishUnifiedPrompt(w, r)
 	case len(parts) == 2 && parts[1] == "preview":
 		h.PreviewUnifiedPrompt(w, r)
+	case len(parts) == 2 && parts[1] == "sync":
+		h.SyncUnifiedPrompt(w, r)
 	case len(parts) == 2 && parts[1] == "rollback":
 		h.RollbackUnifiedPrompt(w, r)
 	case len(parts) == 2 && parts[1] == "restore-builtin":
@@ -142,7 +145,7 @@ func (h *Handler) ListUnifiedPrompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []v1.UnifiedPromptSummary{}
-	for _, promptID := range []string{intentdomain.PromptIDChatReply, intentdomain.PromptIDIntentParticipation, intentdomain.PromptIDMemoryExtraction} {
+	for _, promptID := range []string{intentdomain.PromptIDChatReply, intentdomain.PromptIDIntentParticipation, intentdomain.PromptIDMemoryExtraction, intentdomain.PromptIDMemoryRecall} {
 		kind, _ := intentdomain.PromptKindForID(promptID)
 		if kindFilter != "" && kind != kindFilter {
 			continue
@@ -368,7 +371,11 @@ func (h *Handler) CreateUnifiedPromptDraft(w http.ResponseWriter, r *http.Reques
 		}
 		content = &parsed
 	}
-	rec, err := h.svcCtx.Prompts.CreateDraftFor(r.Context(), promptID, kind, provider, body.BotID, scopeType, content, body.Base, body.BaseVersionID, body.Name, body.Note, body.Source, body.SourceRef)
+	if body.Source != "" && body.Source != intentdomain.PromptSourceLocal || body.SourceRef != "" {
+		common.WriteFailure(w, http.StatusUnprocessableEntity, "远端来源由 Langfuse 同步记录")
+		return
+	}
+	rec, err := h.svcCtx.Prompts.CreateDraftFor(r.Context(), promptID, kind, provider, body.BotID, scopeType, content, body.Base, body.BaseVersionID, body.Name, body.Note, intentdomain.PromptSourceLocal, "")
 	if err != nil {
 		common.WriteFailure(w, http.StatusUnprocessableEntity, "创建 Prompt 草稿失败")
 		return
@@ -549,43 +556,91 @@ func (h *Handler) PreviewUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "真实预览必须提供 context.target_type 与 context.target_id")
 		return
 	}
+	var version *intentdomain.PromptRecord
 	if body.VersionID > 0 {
 		rec, err := h.svcCtx.Prompts.Get(r.Context(), body.VersionID)
-		if err != nil {
+		if err != nil || rec.PromptID != promptID || rec.BotID != body.BotID || rec.Provider != body.Provider {
 			common.WriteFailure(w, http.StatusNotFound, "Prompt 版本不存在")
 			return
 		}
-		if rec.PromptID != promptID || rec.BotID != body.BotID || rec.Provider != body.Provider {
-			common.WriteFailure(w, http.StatusNotFound, "Prompt 版本不存在")
-			return
+		version = &rec
+	}
+	if targetType == "" {
+		targetType, targetID = "group", 1000
+		if version != nil && version.ScopeType == intentdomain.PromptScopePrivate {
+			targetType = "private"
 		}
-		p, err := h.svcCtx.Prompts.VersionPrompt(r.Context(), body.VersionID, kind, body.Provider)
-		if err != nil {
-			common.WriteFailure(w, http.StatusUnprocessableEntity, "Prompt 内容不合法")
-			return
-		}
-		p.TargetType, p.TargetID = targetType, targetID
-		variables := previewVariables(body.Context)
-		variables["bot_name"] = settingsBotName(h.svcCtx)
-		if variables["scope_type"] == "" && body.PreviewMode == "example" {
-			variables["scope_type"] = "group"
-		}
-		p.Variables = variables
-		p = intentdomain.RenderPromptVariables(p, variables)
-		p = renderPreviewSample(p, body.Sample)
-		p.RenderedHash = intentdomain.PromptHash(p)
-		common.WriteSuccess(w, previewPromptResponse(p, body.PreviewMode, body.VersionID, previewConversationID(body.Context), body.Sample, body.Context))
+	}
+	if version != nil && version.ScopeType != intentdomain.PromptScopeAccount && version.ScopeType != targetType {
+		common.WriteFailure(w, http.StatusUnprocessableEntity, "指定版本与预览会话类型不匹配")
 		return
 	}
-	variables := previewVariables(body.Context)
-	variables["bot_name"] = settingsBotName(h.svcCtx)
-	if variables["scope_type"] == "" && body.PreviewMode == "example" {
-		variables["scope_type"] = "group"
+	variables := map[string]string{"bot_name": settingsBotName(h.svcCtx)}
+	if senderID := intFromAny(body.Context["sender_id"]); senderID > 0 {
+		variables["sender_id"] = strconv.FormatInt(senderID, 10)
+	} else if targetType == "private" {
+		variables["sender_id"] = strconv.FormatInt(targetID, 10)
+	} else if body.PreviewMode == "example" {
+		variables["sender_id"] = "10001"
 	}
-	prompt := h.svcCtx.Prompts.ResolveFor(r.Context(), promptID, kind, body.Provider, body.BotID, targetType, targetID, variables)
+	var prompt intentdomain.Prompt
+	if version == nil {
+		prompt = h.svcCtx.Prompts.ResolveFor(r.Context(), promptID, kind, body.Provider, body.BotID, targetType, targetID, variables)
+	} else {
+		prompt = h.svcCtx.Prompts.PreviewForVersion(r.Context(), *version, targetType, targetID, variables)
+		if !slices.ContainsFunc(prompt.Layers, func(layer intentdomain.PromptLayer) bool { return layer.VersionID == version.ID }) {
+			common.WriteFailure(w, http.StatusUnprocessableEntity, "指定 Prompt 不能与当前层合并")
+			return
+		}
+	}
+	prompt, err := h.composeEffectiveQuestionPrompt(r, prompt)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "读取生效参与规则失败")
+		return
+	}
 	prompt = renderPreviewSample(prompt, body.Sample)
 	prompt.RenderedHash = intentdomain.PromptHash(prompt)
-	common.WriteSuccess(w, previewPromptResponse(prompt, body.PreviewMode, 0, previewConversationID(body.Context), body.Sample, body.Context))
+	common.WriteSuccess(w, previewPromptResponse(prompt, body.PreviewMode, body.VersionID, previewConversationID(body.Context), body.Sample, body.Context))
+}
+
+func (h *Handler) SyncUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
+	if h.svcCtx.Prompts == nil {
+		common.WriteFailure(w, http.StatusServiceUnavailable, "Prompt 存储不可用")
+		return
+	}
+	id := pathPromptID(r)
+	kind, ok := intentdomain.PromptKindForID(id)
+	if !ok {
+		common.WriteFailure(w, http.StatusNotFound, "Prompt 不存在")
+		return
+	}
+	var body struct {
+		BotID     int64  `json:"bot_id"`
+		ScopeType string `json:"scope_type"`
+		Provider  string `json:"provider"`
+		Name      string `json:"name"`
+		Version   int    `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.BotID <= 0 || body.Version <= 0 ||
+		(body.ScopeType != "account" && body.ScopeType != "group" && body.ScopeType != "private") {
+		common.WriteFailure(w, http.StatusBadRequest, "需要账号、层级和指定的 Langfuse 版本")
+		return
+	}
+	if body.Provider == "" {
+		body.Provider = defaultPromptProvider(id)
+	}
+	if err := validatePromptProvider(id, body.Provider); err != nil {
+		common.WriteFailure(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	key := intentdomain.PromptKey{PromptID: id, Kind: kind, Provider: body.Provider, BotID: body.BotID, ScopeType: body.ScopeType}
+	version, err := h.svcCtx.Prompts.ImportRemoteVersion(r.Context(), key, body.Name, body.Version)
+	if err != nil {
+		_, message := intentapp.PromptSyncError(err)
+		common.WriteFailure(w, http.StatusUnprocessableEntity, message)
+		return
+	}
+	common.WriteSuccess(w, toUnifiedPromptVersion(version))
 }
 
 func (h *Handler) PublishUnifiedPrompt(w http.ResponseWriter, r *http.Request) {
@@ -746,11 +801,31 @@ func (h *Handler) resolveUnifiedRuntimePrompt(w http.ResponseWriter, r *http.Req
 		return intentdomain.Prompt{}, "", err
 	}
 	vars := map[string]string{"bot_name": settingsBotName(h.svcCtx), "scope_type": targetType}
+	if senderID, err := strconv.ParseInt(r.URL.Query().Get("sender_id"), 10, 64); err == nil && senderID > 0 {
+		vars["sender_id"] = strconv.FormatInt(senderID, 10)
+	} else if targetType == "private" {
+		vars["sender_id"] = strconv.FormatInt(targetID, 10)
+	}
 	prompt := h.svcCtx.Prompts.ResolveFor(r.Context(), promptID, kind, provider, botID, targetType, targetID, vars)
+	prompt, err = h.composeEffectiveQuestionPrompt(r, prompt)
+	if err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "读取生效参与规则失败")
+		return intentdomain.Prompt{}, "", err
+	}
 	return prompt, r.URL.Query().Get("conversation_id"), nil
 }
 
+func (h *Handler) composeEffectiveQuestionPrompt(r *http.Request, prompt intentdomain.Prompt) (intentdomain.Prompt, error) {
+	if h.svcCtx.Rulesets == nil {
+		return prompt, nil
+	}
+	return intentapp.ApplyActiveQuestionRuleset(r.Context(), h.svcCtx.Rulesets, prompt)
+}
+
 func effectivePromptResponse(p intentdomain.Prompt, conversationID string) map[string]any {
+	if p.Kind == intentdomain.PromptKindChatReply {
+		p = intentdomain.ReplySystem(p, "")
+	}
 	target := map[string]any{"Type": p.TargetType, "ID": p.TargetID}
 	if conversationID != "" {
 		target["ConversationID"] = conversationID
@@ -764,11 +839,19 @@ func effectivePromptResponse(p intentdomain.Prompt, conversationID string) map[s
 		"Target": target,
 		"Layers": promptLayersResponse(p.Layers),
 		"Final":  map[string]any{"Content": intentdomain.PromptContentJSON(p), "Variables": promptVariablesResponse(p.Variables)},
-		"Hash":   finalHash,
+		"Hash":   finalHash, "RenderedHash": p.RenderedHash,
 	}
 }
 
 func previewPromptResponse(p intentdomain.Prompt, mode string, versionID int64, conversationID string, sample, context map[string]any) map[string]any {
+	if p.Kind == intentdomain.PromptKindChatReply {
+		p = intentdomain.ReplySystem(p, "")
+	}
+	warnings := []string{}
+	if mode == "real" && p.TargetType == "group" && p.Variables["sender_id"] == "" &&
+		p.OpenAI != nil && strings.Contains(p.OpenAI.SystemPrompt, "{{sender_id}}") {
+		warnings = append(warnings, "填写发言人 QQ 号后可计算这条消息的实际渲染哈希。")
+	}
 	target := map[string]any{"Type": p.TargetType, "ID": p.TargetID}
 	if conversationID != "" {
 		target["ConversationID"] = conversationID
@@ -778,7 +861,7 @@ func previewPromptResponse(p intentdomain.Prompt, mode string, versionID int64, 
 		"VersionID": versionID, "Target": target,
 		"Layers":   promptLayersResponse(p.Layers),
 		"Final":    map[string]any{"Content": intentdomain.PromptContentJSON(p), "Variables": promptVariablesResponse(p.Variables)},
-		"Warnings": []string{}, "PreviewHash": previewHash(p, mode, sample, context),
+		"Warnings": warnings, "PreviewHash": previewHash(p, mode, sample, context), "RenderedHash": p.RenderedHash,
 	}
 }
 
@@ -853,6 +936,9 @@ func promptLayersResponse(layers []intentdomain.PromptLayer) []map[string]any {
 	out := make([]map[string]any, 0, len(layers))
 	for _, layer := range layers {
 		item := map[string]any{"Layer": layer.Layer, "VersionID": layer.VersionID, "Version": layer.Version, "Source": layer.Source, "Hash": layer.Hash, "Editable": layer.Editable}
+		if layer.SourceRef != "" {
+			item["SourceRef"] = layer.SourceRef
+		}
 		if layer.Summary != "" {
 			item["Summary"] = layer.Summary
 		}
@@ -983,7 +1069,7 @@ func lineDiff(from, to string) []map[string]string {
 
 func validatePromptProvider(promptID, provider string) error {
 	switch promptID {
-	case intentdomain.PromptIDChatReply, intentdomain.PromptIDMemoryExtraction:
+	case intentdomain.PromptIDChatReply, intentdomain.PromptIDMemoryExtraction, intentdomain.PromptIDMemoryRecall:
 		if provider != intentdomain.PromptProviderOpenAI {
 			return errors.New("该 Prompt 仅支持 openai provider")
 		}
@@ -1050,16 +1136,6 @@ func previewTarget(context map[string]any) (string, int64, error) {
 		return "", 0, errors.New("context.target_id 必须为正整数")
 	}
 	return targetType, targetID, nil
-}
-
-func previewVariables(context map[string]any) map[string]string {
-	vars := map[string]string{}
-	if context != nil {
-		if targetType, ok := context["target_type"].(string); ok {
-			vars["scope_type"] = targetType
-		}
-	}
-	return vars
 }
 
 func previewConversationID(context map[string]any) string {

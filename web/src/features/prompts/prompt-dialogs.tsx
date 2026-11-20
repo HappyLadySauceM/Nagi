@@ -343,6 +343,7 @@ export function PromptPreviewDialog({
   const [targetType, setTargetType] = useState<'group' | 'private'>('group')
   const [targetId, setTargetId] = useState('')
   const [conversationId, setConversationId] = useState('')
+  const [senderId, setSenderId] = useState('')
 
   useEffect(() => {
     if (open) {
@@ -350,6 +351,7 @@ export function PromptPreviewDialog({
       setTargetType('group')
       setTargetId('')
       setConversationId('')
+      setSenderId('')
       preview.reset()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -366,6 +368,7 @@ export function PromptPreviewDialog({
         ? {
             targetType,
             targetId: Number(targetId),
+            senderId: targetType === 'group' ? Number(senderId) || undefined : undefined,
             conversationId: conversationId || undefined,
           }
         : {}),
@@ -417,6 +420,12 @@ export function PromptPreviewDialog({
                 <span className="text-muted-foreground">目标 ID（群号/QQ）</span>
                 <Input value={targetId} onChange={(event) => setTargetId(event.target.value)} inputMode="numeric" aria-label="目标 ID" />
               </label>
+              {targetType === 'group' ? (
+                <label className="space-y-1 text-xs">
+                  <span className="text-muted-foreground">发言人 QQ 号（可选）</span>
+                  <Input value={senderId} onChange={(event) => setSenderId(event.target.value)} inputMode="numeric" aria-label="发言人 QQ 号" />
+                </label>
+              ) : null}
               <label className="space-y-1 text-xs">
                 <span className="text-muted-foreground">会话 ID（可选）</span>
                 <Input value={conversationId} onChange={(event) => setConversationId(event.target.value)} aria-label="会话 ID" />
@@ -439,7 +448,7 @@ export function PromptPreviewDialog({
                   {preview.data.previewMode === 'real' ? '真实上下文预览' : '示例预览'}
                 </Badge>
                 <span>VersionID {preview.data.versionId}</span>
-                <span className="font-mono">PreviewHash {preview.data.previewHash || '—'}</span>
+                <span className="font-mono">预览哈希 {preview.data.renderedHash || preview.data.previewHash || '—'}</span>
               </div>
               {preview.data.warnings.length > 0 ? (
                 <ul className="list-disc space-y-1 pl-5 text-xs text-warning">

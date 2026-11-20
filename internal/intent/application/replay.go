@@ -108,7 +108,7 @@ func (s *ReplayService) Recalculate(ctx context.Context, decisionID int64) (cont
 	if !runtime.AIEnabled || runtime.TopicIdleSeconds <= 0 {
 		in.Topics = nil
 	}
-	rule, version := s.decider.applyRules(ctx, in)
+	rule, version, _ := s.decider.applyRules(ctx, in)
 	decision := s.decider.applyPolicy(ctx, in, rule, snapshot.Semantic, 0, runtime)
 	decision.RulesetVersion = version
 	decision.RunID = "recalc-" + uuid.NewString()
@@ -160,7 +160,7 @@ func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confi
 		return contracts.Run{}, ErrReplayConfirmationStale
 	}
 	if asked {
-		semantic, latency = s.decider.decideSemantic(ctx, in, runtime)
+		semantic, latency = s.decider.decideSemantic(ctx, in, runtime, rule)
 	}
 	decision := s.decider.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = snapshot.RulesetVersion

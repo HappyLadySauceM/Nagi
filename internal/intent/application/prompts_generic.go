@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
@@ -39,6 +40,16 @@ func (s *PromptService) layered() (LayeredPromptRepository, bool) {
 // ResolveFor resolves account default + group/private type supplement + server
 // constraints. It never consults Langfuse and always returns a usable prompt.
 func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider string, botID int64, targetType string, targetID int64, variables map[string]string) domain.Prompt {
+	return s.resolveFor(ctx, promptID, kind, provider, botID, targetType, targetID, variables, nil)
+}
+
+// PreviewForVersion substitutes one saved layer without changing its publication status.
+// PreviewForVersion 以指定版本替换一层来生成预览，不改变发布状态。
+func (s *PromptService) PreviewForVersion(ctx context.Context, version domain.PromptRecord, targetType string, targetID int64, variables map[string]string) domain.Prompt {
+	return s.resolveFor(ctx, version.PromptID, version.Kind, version.Provider, version.BotID, targetType, targetID, variables, &version)
+}
+
+func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider string, botID int64, targetType string, targetID int64, variables map[string]string, override *domain.PromptRecord) domain.Prompt {
 	// Custom variables are the baseline; dynamic caller values win on conflicts.
 	// 自定义变量作为基线；同名时调用方传入的动态值优先。
 	variables = mergePromptVariables(s.customVariableMap(), variables)
@@ -62,7 +73,14 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 	}
 
 	accountKey := domain.PromptKey{PromptID: promptID, Kind: kind, Provider: provider, BotID: botID, ScopeType: domain.PromptScopeAccount}
-	account, found, err := repo.ActiveLayer(ctx, accountKey)
+	var account domain.PromptRecord
+	var found bool
+	var err error
+	if override != nil && override.ScopeType == domain.PromptScopeAccount {
+		account, found = *override, true
+	} else {
+		account, found, err = repo.ActiveLayer(ctx, accountKey)
+	}
 	if err != nil {
 		s.logger.Warn("load account prompt failed; using builtin", "error", err, "prompt_id", promptID)
 		builtin.FallbackReason = "prompt_store_error"
@@ -102,15 +120,21 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 		parsed.TargetType = targetType
 		parsed.TargetID = targetID
 		parsed.Variables = copyPromptVariables(variables)
-		parsed.Layers = []domain.PromptLayer{{Layer: domain.PromptLayerAccountDefault, VersionID: account.ID, Version: account.Version, Source: account.Source, Hash: account.Hash, Editable: true, Content: account.Content}}
+		parsed.Layers = []domain.PromptLayer{{Layer: domain.PromptLayerAccountDefault, VersionID: account.ID, Version: account.Version, Source: account.Source, SourceRef: account.SourceRef, Hash: account.Hash, Editable: true, Content: account.Content}}
 		if legacyFallback {
 			parsed.FallbackReason = "legacy_global_prompt"
 		}
 		final = parsed
 		layers = parsed.Layers
 	}
+	final = ScoreParticipationPrompt(final)
 	if targetType == domain.PromptScopeGroup || targetType == domain.PromptScopePrivate {
-		supplement, found, err := repo.ActiveLayer(ctx, domain.PromptKey{PromptID: promptID, Kind: kind, Provider: provider, BotID: botID, ScopeType: targetType})
+		var supplement domain.PromptRecord
+		if override != nil && override.ScopeType == targetType {
+			supplement, found, err = *override, true, nil
+		} else {
+			supplement, found, err = repo.ActiveLayer(ctx, domain.PromptKey{PromptID: promptID, Kind: kind, Provider: provider, BotID: botID, ScopeType: targetType})
+		}
 		if err != nil {
 			s.logger.Warn("load scope supplement failed; continuing without supplement", "error", err, "prompt_id", promptID, "scope_type", targetType)
 			builtin.FallbackReason = "scope_supplement_error"
@@ -122,9 +146,11 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 			mergeExtra := withContentVariables(withContentVariables(extra, account.Content), supplement.Content)
 			// ParsePromptContentFor validates full content, so supplements are
 			// parsed leniently through their own schema first.
+			applied := false
 			if parseErr == nil {
 				if merged, mergeErr := domain.MergePromptContentWithVariables(kind, provider, final, supplementPrompt, mergeExtra); mergeErr == nil {
 					final = merged
+					applied = true
 				} else {
 					s.logger.Warn("invalid scope supplement; ignoring", "error", mergeErr, "prompt_id", promptID)
 				}
@@ -134,11 +160,16 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 					s.logger.Warn("invalid scope supplement; ignoring", "error", lenientErr, "prompt_id", promptID)
 				} else if merged, mergeErr := domain.MergePromptContentWithVariables(kind, provider, final, lenient, mergeExtra); mergeErr == nil {
 					final = merged
+					applied = true
 				} else {
 					s.logger.Warn("invalid scope supplement; ignoring", "error", mergeErr, "prompt_id", promptID)
 				}
 			}
-			layers = append(layers, domain.PromptLayer{Layer: domain.PromptLayerScopeSupplement, VersionID: supplement.ID, Version: supplement.Version, Source: supplement.Source, Hash: supplement.Hash, Editable: true, Content: supplement.Content})
+			if !applied {
+				final.FallbackReason = "invalid_scope_supplement"
+			} else {
+				layers = append(layers, domain.PromptLayer{Layer: domain.PromptLayerScopeSupplement, VersionID: supplement.ID, Version: supplement.Version, Source: supplement.Source, SourceRef: supplement.SourceRef, Hash: supplement.Hash, Editable: true, Content: supplement.Content})
+			}
 		}
 	}
 	final.BotID = botID
@@ -155,6 +186,7 @@ func (s *PromptService) ResolveFor(ctx context.Context, promptID, kind, provider
 }
 
 func finalizePrompt(p domain.Prompt, variables map[string]string) domain.Prompt {
+	p = ScoreParticipationPrompt(p)
 	if len(p.Layers) == 0 {
 		p.Layers = []domain.PromptLayer{
 			{Layer: domain.PromptLayerAccountDefault, VersionID: 0, Version: 1, Source: domain.PromptSourceBuiltin, Hash: p.Hash, Editable: false, Content: domain.PromptContentJSON(p)},
@@ -463,7 +495,7 @@ func parseStoredPrompt(kind, provider string, content json.RawMessage, extra []s
 func emptySupplement(kind, provider string) domain.Prompt {
 	p := domain.Prompt{Provider: provider, Kind: kind}
 	switch kind {
-	case domain.PromptKindChatReply, domain.PromptKindMemoryExtraction:
+	case domain.PromptKindChatReply, domain.PromptKindMemoryExtraction, domain.PromptKindMemoryRecall:
 		p.OpenAI = &domain.OpenAIPrompt{SystemPrompt: ""}
 	case domain.PromptKindIntentParticipation:
 		if provider == domain.PromptProviderJev {
@@ -547,7 +579,56 @@ func (s *PromptService) VersionPrompt(ctx context.Context, id int64, kind, provi
 	if rec.ScopeType == domain.PromptScopeGroup || rec.ScopeType == domain.PromptScopePrivate {
 		layer = domain.PromptLayerScopeSupplement
 	}
-	p.Layers = []domain.PromptLayer{{Layer: layer, VersionID: rec.ID, Version: rec.Version, Source: rec.Source, Hash: rec.Hash, Editable: true, Content: rec.Content}}
+	p.Layers = []domain.PromptLayer{{Layer: layer, VersionID: rec.ID, Version: rec.Version, Source: rec.Source, SourceRef: rec.SourceRef, Hash: rec.Hash, Editable: true, Content: rec.Content}}
 	p.FinalHash = domain.PromptFinalHash(p)
 	return p, nil
+}
+
+// ImportRemoteVersion fetches an exact Langfuse version and stores it as a local draft.
+// ImportRemoteVersion 获取指定 Langfuse 版本，并将其保存为本地草稿。
+func (s *PromptService) ImportRemoteVersion(ctx context.Context, key domain.PromptKey, name string, version int) (domain.PromptRecord, error) {
+	if s.remote == nil || !s.remote.Configured() {
+		return domain.PromptRecord{}, domain.ErrPromptRemoteNotConfigured
+	}
+	if strings.TrimSpace(name) != name || name == "" || len(name) > 160 || strings.ContainsAny(name, "@\r\n\t") || version <= 0 {
+		return domain.PromptRecord{}, domain.ErrPromptRemoteInvalid
+	}
+	remote, err := s.remote.Fetch(ctx, name, version, "")
+	if err != nil {
+		return domain.PromptRecord{}, err
+	}
+	if remote.Name != name || remote.Version != version {
+		return domain.PromptRecord{}, domain.ErrPromptRemoteInvalid
+	}
+	extra := s.customVariableNames()
+	raw := remote.Prompt
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		raw = json.RawMessage(text)
+		if key.Kind == domain.PromptKindChatReply {
+			var wrapped struct {
+				OpenAI *struct {
+					SystemPrompt *json.RawMessage
+					ReplyStyle   *json.RawMessage
+				}
+			}
+			if json.Unmarshal(raw, &wrapped) != nil || wrapped.OpenAI == nil ||
+				(wrapped.OpenAI.SystemPrompt == nil && wrapped.OpenAI.ReplyStyle == nil) {
+				p := domain.Prompt{Kind: key.Kind, Provider: key.Provider, OpenAI: &domain.OpenAIPrompt{SystemPrompt: text}}
+				raw = domain.PromptContentJSON(p)
+			}
+		}
+	}
+	var prompt domain.Prompt
+	if key.ScopeType == domain.PromptScopeAccount {
+		prompt, err = domain.ParsePromptContentForWithVariables(key.Kind, key.Provider, raw, extra)
+	} else {
+		prompt, err = decodePromptSupplement(key.Kind, key.Provider, raw, extra)
+	}
+	if err != nil {
+		return domain.PromptRecord{}, fmt.Errorf("%w: invalid managed prompt content", domain.ErrPromptRemoteInvalid)
+	}
+	sourceRef := fmt.Sprintf("%s%s@%d", domain.PromptVerifiedSourcePrefix, remote.Name, remote.Version)
+	return s.CreateDraftFor(ctx, key.PromptID, key.Kind, key.Provider, key.BotID, key.ScopeType, &prompt, "", 0,
+		remote.Name, "", domain.PromptSourceLangfuse, sourceRef)
 }

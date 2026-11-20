@@ -338,6 +338,14 @@ type identityProcessor struct{}
 // OnStart implements sdktrace.SpanProcessor.
 // OnStart 实现 sdktrace.SpanProcessor。
 func (identityProcessor) OnStart(ctx context.Context, span sdktrace.ReadWriteSpan) {
+	if prompt, ok := ctx.Value(promptTraceKey{}).(PromptTrace); ok {
+		for _, attr := range span.Attributes() {
+			if attr.Key == "langfuse.observation.type" && attr.Value.AsString() == "generation" {
+				prompt.Record(span, true)
+				break
+			}
+		}
+	}
 	bag := baggage.FromContext(ctx)
 	attrs := make([]attribute.KeyValue, 0, 7)
 	for _, key := range []string{TraceNameKey, SessionIDKey, UserIDKey, BotIDKey, BotIDHashKey, TargetIDKey, SenderIDKey} {

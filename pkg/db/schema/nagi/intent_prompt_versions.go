@@ -43,7 +43,7 @@ func (IntentPromptVersion) Annotations() []schema.Annotation {
 	return []schema.Annotation{entsql.Annotation{Table: "intent_prompt_versions", Checks: map[string]string{
 		"intent_prompt_versions_status_check":     "((status = ANY (ARRAY['draft'::text, 'published'::text, 'archived'::text])))",
 		"intent_prompt_versions_provider_check":   "((provider = ANY (ARRAY['jev'::text, 'openai'::text])))",
-		"intent_prompt_versions_kind_check":       "((prompt_kind = ANY (ARRAY['chat_reply'::text, 'intent_participation'::text, 'memory_extraction'::text])))",
+		"intent_prompt_versions_kind_check":       "((prompt_kind = ANY (ARRAY['chat_reply'::text, 'intent_participation'::text, 'memory_extraction'::text, 'memory_recall_rewrite'::text])))",
 		"intent_prompt_versions_scope_type_check": "((scope_type = ANY (ARRAY['account'::text, 'group'::text, 'private'::text])))",
 		"intent_prompt_versions_scope_id_check":   "((scope_id = 0))",
 		"intent_prompt_versions_version_check":    "((version > 0))",

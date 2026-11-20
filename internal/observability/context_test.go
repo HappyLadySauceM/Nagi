@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -325,5 +326,34 @@ func TestNewIdentitiesRejectsWeakSecret(t *testing.T) {
 	}
 	if NewIdentities("REPLACE_WITH_RANDOM_SECRET", true) == nil {
 		t.Fatal("raw mode must ignore the secret entirely")
+	}
+}
+
+func TestEffectivePromptLinksOnlyModelGenerations(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(identityProcessor{}), sdktrace.WithSpanProcessor(recorder))
+	prompt := PromptTrace{RenderedHash: "rendered", TemplateHash: "template"}
+	prompt.AddLayer("account_default", "langfuse", "langfuse-verified:chat.reply@2", 5, 31, "account-hash")
+	prompt.AddLayer("scope_supplement", "langfuse", "langfuse-verified:chat.reply.group@4", 6, 32, "group-hash")
+	ctx := WithPromptTrace(context.Background(), prompt)
+	for _, kind := range []string{"generation", "tool"} {
+		_, span := provider.Tracer("test").Start(ctx, kind, trace.WithAttributes(
+			attribute.String("langfuse.observation.type", kind),
+		))
+		span.End()
+	}
+	generation, tool := recorder.Ended()[0], recorder.Ended()[1]
+	attributes := make(map[attribute.Key]attribute.Value)
+	for _, attr := range generation.Attributes() {
+		attributes[attr.Key] = attr.Value
+	}
+	if attributes["langfuse.observation.prompt.name"].AsString() != "chat.reply" ||
+		attributes["langfuse.observation.prompt.version"].AsInt64() != 2 ||
+		attributes["langfuse.observation.metadata.prompt_rendered_hash"].AsString() != "rendered" ||
+		!strings.Contains(attributes["langfuse.observation.metadata.prompt_layers"].AsString(), "chat.reply.group") {
+		t.Fatalf("missing effective prompt data: %v", attributes)
+	}
+	if len(tool.Attributes()) != 1 {
+		t.Fatalf("non-generation span carries prompt data: %v", tool.Attributes())
 	}
 }

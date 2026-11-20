@@ -3,10 +3,17 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 )
@@ -109,4 +116,64 @@ func TestModelExtractorRejectsOverBudgetBeforeResolve(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "rune budget") {
 		t.Fatalf("error = %v, want explicit rune budget error", err)
 	}
+}
+
+func TestExtractionGenerationRecordsFrozenPrompt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []struct{ Role, Content string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if len(request.Messages) != 2 || request.Messages[0].Content != "版本 3 的抽取提示" ||
+			!strings.Contains(request.Messages[1].Content, "仅本地验收正文") {
+			t.Errorf("unexpected model input: %v", request.Messages)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"candidates\":[]}"},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+	extractor := NewModelExtractor(staticModelResolver{profile: models.Profile{BaseURL: srv.URL, Model: "fixture"}})
+	_, err := extractor.Extract(context.Background(), domain.ExtractionRequest{
+		Scope:    domain.ExtractionScope{BotID: 1, ConversationID: "conv", ScopeType: "group", ScopeID: 700},
+		Messages: []domain.ExtractionSourceMessage{{ID: 11, SenderID: 22, Text: "仅本地验收正文"}},
+		MaxRunes: 500,
+		Prompt: &domain.ExtractionPrompt{
+			SystemPrompt: "版本 3 的抽取提示", UserTemplate: "{{messages_json}}",
+			Snapshot: domain.PromptSnapshot{FinalHash: "template-v3", RenderedHash: "rendered-v3",
+				Layers: []domain.PromptSnapshotLayer{{Layer: "account_default", VersionID: 31, Version: 3, Source: "local", Hash: "layer-v3"}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, span := range recorder.Ended() {
+		if span.Name() != "nagi.memory.extract.model" {
+			continue
+		}
+		values := make(map[string]string)
+		for _, attr := range span.Attributes() {
+			values[string(attr.Key)] = attr.Value.Emit()
+			if strings.Contains(attr.Value.Emit(), "仅本地验收正文") {
+				t.Fatal("chat content leaked into prompt metadata")
+			}
+		}
+		if values["langfuse.observation.metadata.prompt_system_hash"] != intentdomain.PromptTextHash("版本 3 的抽取提示") ||
+			values["langfuse.observation.metadata.prompt_rendered_hash"] != "rendered-v3" ||
+			!strings.Contains(values["langfuse.observation.metadata.prompt_layers"], "layer-v3") {
+			t.Fatalf("unexpected extraction prompt metadata: %v", values)
+		}
+		return
+	}
+	t.Fatal("missing extraction generation")
 }

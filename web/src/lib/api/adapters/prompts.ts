@@ -37,6 +37,7 @@ const PROMPT_KINDS: ManagedPromptKind[] = [
   'chat_reply',
   'intent_participation',
   'memory_extraction',
+  'memory_recall_rewrite',
 ]
 const PROMPT_SCOPES: ManagedPromptScope[] = ['account', 'group', 'private']
 const PROMPT_PROVIDERS: ManagedPromptProvider[] = ['openai', 'jev']
@@ -120,6 +121,8 @@ export function toManagedPromptContent(raw: unknown): ManagedPromptContent {
     const openai = asRecord(record.OpenAI, PROMPTS_ENDPOINT, 'OpenAI')
     content.openai = {}
     const systemPrompt = readOptionalString(openai, 'SystemPrompt', PROMPTS_ENDPOINT)
+    const replyStyle = readOptionalString(openai, 'ReplyStyle', PROMPTS_ENDPOINT)
+    if (replyStyle !== undefined) content.openai.replyStyle = replyStyle
     if (systemPrompt !== undefined) {
       content.openai.systemPrompt = systemPrompt
     }
@@ -273,6 +276,8 @@ function toEffectiveLayer(raw: unknown): ManagedPromptEffectiveLayer {
   if (version !== undefined) layer.version = version
   const source = readOptionalString(record, 'Source', PROMPTS_ENDPOINT)
   if (source !== undefined) layer.source = source
+  const sourceRef = readOptionalString(record, 'SourceRef', PROMPTS_ENDPOINT)
+  if (sourceRef !== undefined) layer.sourceRef = sourceRef
   const hash = readOptionalString(record, 'Hash', PROMPTS_ENDPOINT)
   if (hash !== undefined) layer.hash = hash
   if (record.Content != null) layer.content = toManagedPromptContent(record.Content)
@@ -315,6 +320,7 @@ export function toManagedPromptEffective(raw: unknown): ManagedPromptEffective {
     layers: asArray(record.Layers, PROMPTS_ENDPOINT, 'Layers').map(toEffectiveLayer),
     final: toFinalResult(record),
     hash: readString(record, 'Hash', PROMPTS_ENDPOINT, ''),
+    renderedHash: readOptionalString(record, 'RenderedHash', PROMPTS_ENDPOINT),
   }
 }
 
@@ -338,6 +344,7 @@ export function toManagedPromptPreview(raw: unknown): ManagedPromptPreview {
       return item
     }),
     previewHash: readString(record, 'PreviewHash', PROMPTS_ENDPOINT, ''),
+    renderedHash: readOptionalString(record, 'RenderedHash', PROMPTS_ENDPOINT),
   }
   if (targetRaw != null) {
     const target = asRecord(targetRaw, PROMPTS_ENDPOINT, 'Target')

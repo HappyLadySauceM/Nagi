@@ -114,7 +114,7 @@ type SummaryRepository interface {
 }
 
 type RecallRewriter interface {
-	Rewrite(ctx context.Context, botID int64, kind string, targetID int64, query string) ([]string, error)
+	Rewrite(ctx context.Context, request contracts.RecallRequest) ([]string, error)
 }
 
 // Service implements the candidate → dedupe → approve/merge → active workflow.
@@ -518,7 +518,7 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contr
 		rewriteCtx, span := otel.Tracer("nagi.memory").Start(ctx, "nagi.memory.rewrite")
 		defer span.End()
 		bounded, cancel := context.WithTimeout(rewriteCtx, 4*time.Second)
-		rewritten, rewriteErr := s.rewriter.Rewrite(bounded, in.BotID, in.Kind, in.TargetID, in.Query)
+		rewritten, rewriteErr := s.rewriter.Rewrite(bounded, in)
 		rewriteDone := bounded.Err() == nil
 		cancel()
 		switch {

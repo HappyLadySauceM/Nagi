@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -127,82 +128,28 @@ func (d *Decider) currentBotName() string {
 	return d.botName
 }
 
-// scorePrompt turns stored category questions into score questions before a
-// semantic call. Ruleset prompts are already converted; a published prompt is not.
-// scorePrompt 在语义调用前把已保存的分类题转成分数题。
-// 规则版本里的问题已经转换过，已发布 Prompt 还没有。
-func scorePrompt(prompt domain.Prompt) domain.Prompt {
-	if prompt.SystemOne == nil || len(prompt.SystemOne.Questions) == 0 {
-		return prompt
-	}
-	prompt.SystemOne = &domain.SystemOnePrompt{Questions: domain.WithDecisionDefaults(prompt.SystemOne.Questions)}
-	return prompt
-}
-
-// policyPrompt builds the intent prompt from the effective ruleset's questions.
-// It returns false when no ruleset is active. An active ruleset with no
-// applicable questions returns an empty prompt and true, so callers do not
-// fall back to the standard question set.
-// policyPrompt 用生效规则版本的问题构建意图 Prompt。没有生效规则时返回 false。
-// 生效规则没有适用问题时返回空 Prompt 和 true，调用方不再回退到标准问题集。
-func (d *Decider) policyPrompt(ctx context.Context, task domain.Task, runtime RuntimeConfig) (domain.Prompt, bool) {
-	// Only the Jev provider consumes the SystemOne question set; OpenAI keeps the
-	// original PromptService path.
-	// 仅 Jev 提供方使用 SystemOne 问题集；OpenAI 仍走原 PromptService 路径。
-	if d.rules == nil || runtime.Provider != domain.PromptProviderJev {
-		return domain.Prompt{}, false
-	}
-	set, hasSet, err := d.rules.Active(ctx, task.BotID, task.Kind, task.TargetID)
-	if err != nil {
-		// A read failure must not block the decision; fall back to the standard prompt.
-		// 读取失败不得阻塞决策；回退到标准 Prompt。
-		d.logger.Warn("load participation policy failed; using standard prompt", "error", err, "job_id", task.JobID)
-		return domain.Prompt{}, false
-	}
-	if !hasSet {
-		set, hasSet, err = d.rules.Active(ctx, task.BotID, "group", 0)
-		if err != nil {
-			d.logger.Warn("load group participation policy failed; using standard prompt", "error", err, "job_id", task.JobID)
-			return domain.Prompt{}, false
-		}
-	}
-	if !hasSet {
-		return domain.Prompt{}, false
-	}
-	questions := domain.ApplicableQuestions(domain.WithDecisionDefaults(set.Questions), task.Kind)
-	// An active ruleset with nothing to ask owns the prompt slot, so the caller
-	// must not fall back to the standard question set.
-	// 生效规则集没有可问的问题时仍占住 Prompt 位置，调用方不得回退到标准问题集。
-	if len(questions) == 0 {
-		return domain.Prompt{}, true
-	}
-
-	base := domain.BuiltinPromptFor(domain.PromptKindIntentParticipation, domain.PromptProviderJev)
-	base.SystemOne = &domain.SystemOnePrompt{Questions: questions}
-	base.ID = domain.PromptIDIntentParticipation
-	base.Kind = domain.PromptKindIntentParticipation
-	base.Provider = domain.PromptProviderJev
-	base.Version = set.Version
-	// Source marks a policy-version question set rather than an editor draft.
-	// Source 标明来源是策略版本问题集，而非编辑器草稿。
-	base.Source = domain.PromptSourceLocal
-	base.BotID = task.BotID
-	base.TargetType = task.Kind
-	base.TargetID = task.TargetID
-	base.Hash = domain.PromptHash(base)
-
+// participationPrompt resolves wording with the same ruleset selected for policy.
+// participationPrompt 用参与策略已选定的规则集解析模型实际接收的措辞。
+func (d *Decider) participationPrompt(ctx context.Context, task domain.Task, runtime RuntimeConfig, set *domain.Ruleset, botName string) domain.Prompt {
 	variables := map[string]string{"scope_type": task.Kind, "sender_id": strconv.FormatInt(task.Message.SenderID, 10)}
-	if name := d.currentBotName(); name != "" {
-		variables["bot_name"] = name
+	if botName != "" {
+		variables["bot_name"] = botName
 	}
-	// bot_id/target_id are available for question text and never override existing keys.
-	// bot_id/target_id 可供问题文本引用，且不覆盖已有键。
-	variables = fillRuntimePromptVariables(variables, task.BotID, task.Kind, task.TargetID)
-	base.Variables = variables
-	base.FinalHash = domain.PromptFinalHash(base)
-	base = domain.RenderPromptVariables(base, variables)
-	base.RenderedHash = domain.PromptHash(base)
-	return base, true
+	layered, isLayered := d.prompts.(LayeredPromptProvider)
+	if set != nil && runtime.Provider == domain.PromptProviderJev {
+		var wording domain.Prompt
+		if isLayered && domain.HasApplicableQuestion(domain.WithDecisionDefaults(set.Questions), task.Kind) {
+			wording = layered.ResolveFor(ctx, domain.PromptIDIntentParticipation, domain.PromptKindIntentParticipation, runtime.Provider, task.BotID, task.Kind, task.TargetID, variables)
+		}
+		return ComposeRulesetPrompt(*set, wording, task.BotID, task.Kind, task.TargetID, variables)
+	}
+	if isLayered {
+		return layered.ResolveFor(ctx, domain.PromptIDIntentParticipation, domain.PromptKindIntentParticipation, runtime.Provider, task.BotID, task.Kind, task.TargetID, variables)
+	}
+	if d.prompts != nil {
+		return d.prompts.Resolve(ctx, runtime.Provider)
+	}
+	return domain.BuiltinPrompt(runtime.Provider)
 }
 
 type TranscriptRecorder interface {
@@ -376,33 +323,17 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	if err != nil {
 		return err
 	}
-	prompt := domain.BuiltinPrompt(runtime.Provider)
-	if p, ok := d.policyPrompt(ctx, task, runtime); ok {
-		if p.ID != "" || p.SystemOne != nil || p.OpenAI != nil {
-			prompt = p
-		}
-	} else if d.prompts != nil {
-		if layered, ok := d.prompts.(LayeredPromptProvider); ok {
-			variables := map[string]string{"scope_type": task.Kind, "sender_id": strconv.FormatInt(task.Message.SenderID, 10)}
-			if name := d.currentBotName(); name != "" {
-				variables["bot_name"] = name
-			}
-			prompt = layered.ResolveFor(ctx, domain.PromptIDIntentParticipation, domain.PromptKindIntentParticipation, runtime.Provider, task.BotID, task.Kind, task.TargetID, variables)
-		} else {
-			prompt = d.prompts.Resolve(ctx, runtime.Provider)
-		}
-	}
-	prompt = scorePrompt(prompt)
-	prompt.ConversationID = task.ConversationID
 	runID := uuid.NewString()
-	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now(), Prompt: prompt}
-
-	rule, rulesetVersion := d.applyRules(ctx, in)
+	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
+	rule, rulesetVersion, set := d.applyRules(ctx, in)
+	prompt := ScoreParticipationPrompt(d.participationPrompt(ctx, task, runtime, set, botName))
+	prompt.ConversationID = task.ConversationID
+	in.Prompt = prompt
 	var semantic domain.SemanticAnswer
 	var latency int64
 	asked := rule.NeedSemantic && !rule.Blocked && d.semantic != nil
 	if asked {
-		semantic, latency = d.decideSemantic(ctx, in, runtime)
+		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = rulesetVersion
@@ -857,12 +788,13 @@ func semanticSkipReason(rule domain.RuleResult) string {
 
 // applyRules evaluates the deterministic gate and records why it stopped.
 // applyRules 执行确定性规则闸门并记录其结论。
-func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleResult, string) {
+func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleResult, string, *domain.Ruleset) {
 	_, span := tracer().Start(ctx, "nagi.intent.rules")
 	defer span.End()
 	in, _ = topicRuleInput(in)
 	rule := EvaluateRules(in)
 	version := ""
+	var selected *domain.Ruleset
 	if d.rules != nil {
 		global, hasGlobal, globalErr := d.rules.Active(ctx, in.Task.BotID, "group", 0)
 		specific, hasSpecific, specificErr := d.rules.Active(ctx, in.Task.BotID, string(in.Policy.ScopeType), in.Policy.ScopeID)
@@ -877,6 +809,10 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 				globalSet = &global
 			}
 			rule, version = EvaluateRuleChain(in, specificSet, globalSet)
+			selected = specificSet
+			if selected == nil {
+				selected = globalSet
+			}
 		}
 	}
 	rule.NeedSemantic = rule.NeedSemantic || needsTopicSemantic(in, rule)
@@ -895,7 +831,7 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 		"reason_code":   rule.ReasonCode,
 		"ruleset":       version,
 	})
-	return rule, version
+	return rule, version, selected
 }
 
 // decideSemantic calls Jev inside its own span so the network latency, the
@@ -903,17 +839,27 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 // unusable answer; it is never turned into a guessed decision.
 // decideSemantic 在独立 span 内调用 Jev，使网络耗时、返回分数与降级可归因。
 // 失败时返回不可用回答，绝不臆测决策。
-func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime RuntimeConfig) (domain.SemanticAnswer, int64) {
+func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime RuntimeConfig, rule domain.RuleResult) (domain.SemanticAnswer, int64) {
 	ctx, span := tracer().Start(ctx, "nagi.intent.jev")
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("nagi.provider", runtime.Provider),
 		attribute.String("nagi.model", runtime.Model),
 	)
+	if runtime.Provider == domain.PromptProviderJev {
+		questions := domain.ApplicableQuestions(decisionQuestions(rule), in.Task.Kind)
+		priority := make([]map[string]any, 0, len(questions))
+		for _, key := range domain.SortedDecisionQuestions(questions) {
+			question := questions[key]
+			priority = append(priority, map[string]any{"key": key, "order": question.Order, "threshold": question.Threshold, "action": question.Action})
+		}
+		payload, _ := json.Marshal(priority)
+		span.SetAttributes(attribute.String("langfuse.observation.metadata.systemone_decision_order", string(payload)))
+	}
 	// The classified message is the semantic decider's input; body export obeys
 	// the content gate.
 	// 被分类的消息是语义判定的输入；正文导出遵循内容开关。
-	observability.RecordObservation(span, "langfuse.observation.input", map[string]any{
+	observability.RecordObservationSecure(ctx, span, "langfuse.observation.input", map[string]any{
 		"provider": runtime.Provider,
 		"model":    runtime.Model,
 		"text":     in.Task.Message.Text,
@@ -998,7 +944,8 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 	var latency int64
 	called := full && rule.NeedSemantic && d.semantic != nil && !rule.Blocked
 	if called {
-		semantic, latency = d.decideSemantic(ctx, in, runtime)
+		in.Prompt = ScoreParticipationPrompt(in.Prompt)
+		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	return decision, decisionSteps(in, rule, semantic, decision, latency, called, false)

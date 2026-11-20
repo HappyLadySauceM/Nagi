@@ -575,6 +575,7 @@ export interface KnowledgePreviewPrompt {
   source: string
   hash: string
   finalHash: string
+  renderedHash: string
   layers: ManagedPromptEffectiveLayer[]
   content: ManagedPromptContent
   variables: Record<string, string>
@@ -1050,7 +1051,7 @@ export const RULESET_STATUS_LABELS: Record<Ruleset['status'], string> = {
   archived: '已归档',
 }
 
-export type ManagedPromptKind = 'chat_reply' | 'intent_participation' | 'memory_extraction'
+export type ManagedPromptKind = 'chat_reply' | 'intent_participation' | 'memory_extraction' | 'memory_recall_rewrite'
 export type ManagedPromptScope = 'account' | 'group' | 'private'
 export type ManagedPromptProvider = 'openai' | 'jev'
 export type ManagedPromptStatus = 'draft' | 'published' | 'archived'
@@ -1087,6 +1088,7 @@ export interface ManagedPromptContent {
   provider: ManagedPromptProvider
   openai?: {
     systemPrompt?: string
+    replyStyle?: string
     userTemplate?: string
     responseShape?: string
   }
@@ -1181,6 +1183,7 @@ export interface ManagedPromptEffectiveLayer {
   versionId?: number
   version?: number
   source?: string
+  sourceRef?: string
   hash?: string
   content?: ManagedPromptContent
   editable?: boolean
@@ -1198,6 +1201,7 @@ export interface ManagedPromptPreview {
   final: { content: ManagedPromptContent; variables: Record<string, string> }
   warnings: string[]
   previewHash: string
+  renderedHash?: string
 }
 
 export interface ManagedPromptEffective {
@@ -1209,6 +1213,7 @@ export interface ManagedPromptEffective {
   layers: ManagedPromptEffectiveLayer[]
   final: { content: ManagedPromptContent; variables: Record<string, string> }
   hash: string
+  renderedHash?: string
 }
 
 export interface ManagedPromptPublishResult {

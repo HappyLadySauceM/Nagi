@@ -11,12 +11,14 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
@@ -167,7 +169,20 @@ func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	botName := settingsBotName(h.svcCtx)
-	variables := map[string]string{"bot_name": botName, "scope_type": targetType}
+	if botName == "" {
+		botName = "助手"
+	}
+	variables := map[string]string{
+		"bot_name": botName, "scope_type": targetType, "bot_id": strconv.FormatInt(botID, 10),
+		"target_id": strconv.FormatInt(targetID, 10),
+	}
+	if body.PreviewMode == "example" {
+		variables["sender_id"] = "10001"
+	} else if speaker, err := strconv.ParseInt(body.SpeakerID, 10, 64); err == nil && speaker > 0 && body.SpeakerType == "user" {
+		variables["sender_id"] = strconv.FormatInt(speaker, 10)
+	} else if targetType == "private" {
+		variables["sender_id"] = strconv.FormatInt(targetID, 10)
+	}
 	response := map[string]any{
 		"PreviewMode": body.PreviewMode,
 		"Target":      map[string]any{"Type": targetType, "ID": targetID, "ConversationID": responseConversationID},
@@ -220,6 +235,17 @@ func (h *Handler) previewPrompts(ctx context.Context, botID int64, targetType st
 			}
 			prompt.FinalHash = intentdomain.PromptFinalHash(prompt)
 			prompt.RenderedHash = intentdomain.PromptHash(prompt)
+		}
+		if h.svcCtx.Rulesets != nil {
+			composed, err := intentapp.ApplyActiveQuestionRuleset(ctx, h.svcCtx.Rulesets, prompt)
+			if err == nil {
+				prompt = composed
+			} else if h.svcCtx.Logger != nil {
+				h.svcCtx.Logger.Warn("unable to load active rules for knowledge preview", "error", err)
+			}
+		}
+		if item.Kind == intentdomain.PromptKindChatReply {
+			prompt = intentdomain.ReplySystem(prompt, "")
 		}
 		out[item.PromptID] = promptView(prompt)
 	}
@@ -388,7 +414,7 @@ func promptView(prompt intentdomain.Prompt) map[string]any {
 	return map[string]any{
 		"PromptID": prompt.ID, "Name": prompt.Name, "Kind": prompt.Kind, "Provider": prompt.Provider,
 		"Version": prompt.Version, "Source": prompt.Source,
-		"Hash": prompt.Hash, "FinalHash": prompt.FinalHash,
+		"Hash": prompt.Hash, "FinalHash": prompt.FinalHash, "RenderedHash": prompt.RenderedHash,
 		"Layers":    promptLayersView(prompt.Layers),
 		"Content":   json.RawMessage(intentdomain.PromptContentJSON(prompt)),
 		"Variables": copyVariables(prompt.Variables),
@@ -401,6 +427,9 @@ func promptLayersView(layers []intentdomain.PromptLayer) []map[string]any {
 		item := map[string]any{
 			"Layer": layer.Layer, "VersionID": layer.VersionID, "Version": layer.Version,
 			"Source": layer.Source, "Hash": layer.Hash, "Editable": layer.Editable,
+		}
+		if layer.SourceRef != "" {
+			item["SourceRef"] = layer.SourceRef
 		}
 		if layer.Summary != "" {
 			item["Summary"] = layer.Summary

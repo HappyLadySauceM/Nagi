@@ -18,9 +18,10 @@ const (
 	PromptProviderJev    = "jev"
 	PromptProviderOpenAI = "openai"
 
-	PromptSourceBuiltin  = "builtin"
-	PromptSourceLocal    = "local"
-	PromptSourceLangfuse = "langfuse"
+	PromptSourceBuiltin        = "builtin"
+	PromptSourceLocal          = "local"
+	PromptSourceLangfuse       = "langfuse"
+	PromptVerifiedSourcePrefix = "langfuse-verified:"
 
 	PromptStatusDraft     = "draft"
 	PromptStatusPublished = "published"
@@ -369,6 +370,7 @@ type SystemOnePrompt struct {
 // OpenAIPrompt 是 OpenAI 专用的结构化评估 Prompt。
 type OpenAIPrompt struct {
 	SystemPrompt  string
+	ReplyStyle    string `json:",omitempty"`
 	UserTemplate  string
 	ResponseShape string
 }

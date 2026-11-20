@@ -169,6 +169,8 @@ function toPreviewLayer(raw: unknown): ManagedPromptEffectiveLayer {
   if (version !== undefined) layer.version = version
   const source = readOptionalString(record, 'Source', endpoint)
   if (source !== undefined) layer.source = source
+  const sourceRef = readOptionalString(record, 'SourceRef', endpoint)
+  if (sourceRef !== undefined) layer.sourceRef = sourceRef
   const hash = readOptionalString(record, 'Hash', endpoint)
   if (hash !== undefined) layer.hash = hash
   if (record.Content != null) layer.content = toManagedPromptContent(record.Content)
@@ -190,6 +192,7 @@ function toPreviewPrompt(raw: unknown): KnowledgePreviewPrompt {
     source: readString(record, 'Source', endpoint, ''),
     hash: readString(record, 'Hash', endpoint, ''),
     finalHash: readString(record, 'FinalHash', endpoint, ''),
+    renderedHash: readString(record, 'RenderedHash', endpoint, ''),
     layers: asArray(record.Layers, endpoint, 'Layers').map(toPreviewLayer),
     content: toManagedPromptContent(record.Content),
     variables: readStringMap(record.Variables, endpoint, 'Variables'),
