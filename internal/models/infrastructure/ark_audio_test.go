@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +62,28 @@ func TestArkTTSChunksAndFailures(t *testing.T) {
 }
 
 func TestArkASRFramesAndUpload(t *testing.T) {
+	const (
+		audioSeconds = 65
+		sampleRate   = 8000
+		pcmSize      = audioSeconds * sampleRate * 2
+	)
+	// Generate 8 kHz mono PCM WAV in memory and let Transcribe resample it.
+	// 在内存中生成 8 kHz 单声道 PCM WAV，由 Transcribe 完成重采样。
+	audio := make([]byte, 44+pcmSize)
+	le := binary.LittleEndian
+	copy(audio[0:4], "RIFF")
+	le.PutUint32(audio[4:8], uint32(len(audio)-8))
+	copy(audio[8:16], "WAVEfmt ")
+	le.PutUint32(audio[16:20], 16)
+	le.PutUint16(audio[20:22], 1) // PCM
+	le.PutUint16(audio[22:24], 1) // Mono / 单声道
+	le.PutUint32(audio[24:28], sampleRate)
+	le.PutUint32(audio[28:32], sampleRate*2)
+	le.PutUint16(audio[32:34], 2)
+	le.PutUint16(audio[34:36], 16)
+	copy(audio[36:40], "data")
+	le.PutUint32(audio[40:44], pcmSize)
+
 	upgrade := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Api-Key") != "private" || r.Header.Get("X-Api-Resource-Id") != "volc.seedasr.sauc.duration" {
@@ -81,7 +102,7 @@ func TestArkASRFramesAndUpload(t *testing.T) {
 			t.Error("bad initialization frame")
 		}
 		_ = c.WriteMessage(websocket.BinaryMessage, arkFrame(9, 1, 1, []byte(`{"result":{}}`)))
-		for {
+		for frames := 1; ; frames++ {
 			_, frame, err = c.ReadMessage()
 			if err != nil {
 				return
@@ -93,21 +114,18 @@ func TestArkASRFramesAndUpload(t *testing.T) {
 				if int32(binary.BigEndian.Uint32(frame[4:8])) >= 0 {
 					t.Error("last sequence must be negative")
 				}
+				if frames != audioSeconds*5 {
+					t.Errorf("received %d audio frames, want %d", frames, audioSeconds*5)
+				}
 				break
 			}
 		}
 		_ = c.WriteMessage(websocket.BinaryMessage, arkFrame(9, 3, -2, []byte(`{"result":{"text":"你好。"}}`)))
 	}))
 	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-v", "error", "-i", "pipe:0", "-af", "apad", "-t", "65", "-f", "wav", "pipe:1")
-	cmd.Stdin = bytes.NewReader(probeSpeech)
-	longAudio, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := (ArkAudio{}).Transcribe(ctx, models.Resolved{APIKey: "private", Profile: models.Profile{BaseURL: "ws" + strings.TrimPrefix(server.URL, "http")}}, longAudio)
+	result, err := (ArkAudio{}).Transcribe(ctx, models.Resolved{APIKey: "private", Profile: models.Profile{BaseURL: "ws" + strings.TrimPrefix(server.URL, "http")}}, audio)
 	if err != nil || result != "你好。" {
 		t.Fatalf("recognition failed: %v", err)
 	}
