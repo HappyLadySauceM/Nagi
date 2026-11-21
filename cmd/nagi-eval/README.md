@@ -27,3 +27,23 @@ go run ./cmd/nagi-eval --config configs/config.yaml --dataset nagi-intent-baseli
 ```
 
 `participation` 可选 `must_reply`（应回）、`optional`（可回可不回）和 `must_be_silent`（应沉默）。动作使用 `continue`、`open`、`close`、`wait` 或 `silent`。对象和话题 ID 取自样本输入中的假名。先保存预期，再查看线上 Trace 的实际行为，方便复核分歧。
+
+## 离线策略对照
+
+`compare` 从标准输入读取合成 JSON 清单，输出双臂逐条结果和汇总。请用合成别名与合成消息。
+在仓库根目录运行以下命令。`-buildvcs=true` 为报告保留提交和工作区修改状态。
+
+```sh
+eval_dir=$(mktemp -d)
+go build -buildvcs=true -o "$eval_dir/nagi-eval" ./cmd/nagi-eval
+"$eval_dir/nagi-eval" compare < cmd/nagi-eval/testdata/policy-comparison.json
+```
+
+两臂固定作用域策略、规则集问题与阈值，并共享样本的到达时上下文和语义分数。示例中
+`[]` 表示明确为空的历史或当前消息附件。附件状态须与当前消息的图片、语音、视频或文件段对应。
+`missing` 用于不能重建的证据。模型配置和 Prompt 引用用于
+标识冻结输入。运行本身没有任何模型、QQ、数据库或 Langfuse 调用，且不写入记忆或画像。
+
+报告记录清单和可执行文件的 SHA-256。应回召回、误插话和话题命中只使用两臂都有结果的样本，
+分母为其中相应标签的样本数。报告同时给出每臂可评估率和缺失项。空分母、回复对象命中和
+线上 P95 使用 `null`，模型调用数与 token 为 0。送达与自然度需分别使用实际回执和盲评。
