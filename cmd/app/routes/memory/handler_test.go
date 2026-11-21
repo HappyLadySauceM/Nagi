@@ -307,6 +307,7 @@ type patchMemoryRepo struct {
 	handlerMemoryRepo
 	memory       domain.Memory
 	updateCalled bool
+	deleteCalled bool
 }
 
 func (f *patchMemoryRepo) Get(context.Context, string) (domain.Memory, bool, error) {
@@ -369,5 +370,52 @@ func TestPatchApproveRejectsNonCandidateBeforeEdit(t *testing.T) {
 	}
 	if repo.updateCalled {
 		t.Fatal("edit before approve conflict reached repository update")
+	}
+}
+
+func (f *patchMemoryRepo) Delete(ctx context.Context, id string) (bool, error) {
+	f.deleteCalled = true
+	return f.handlerMemoryRepo.Delete(ctx, id)
+}
+
+func TestPatchDeleteOnly(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		status     int
+	}{
+		{"delete_only", `{"status":"deleted"}`, http.StatusOK},
+		{"delete_with_json_whitespace", " \n { \t\"status\" : \"deleted\" } \r\n", http.StatusOK},
+		{"second_json_value", `{"status":"deleted"} {"content":"edited"}`, http.StatusBadRequest},
+		{"trailing_non_json", `{"status":"deleted"} trailing`, http.StatusBadRequest},
+		{"duplicate_status", `{"status":"deleted","status":"deleted"}`, http.StatusBadRequest},
+		{"duplicate_status_with_escape", `{"status":"active","sta\u0074us":"deleted"}`, http.StatusBadRequest},
+		{"noncanonical_status", `{"Status":"deleted"}`, http.StatusBadRequest},
+		{"invalid_mixed_edit", `{"status":"deleted","visibility":"invalid"}`, http.StatusBadRequest},
+		{"empty_owner_is_still_a_mixed_edit", `{"status":"deleted","owner_key":""}`, http.StatusBadRequest},
+		{"empty_visibility_is_still_a_mixed_edit", `{"status":"deleted","visibility":""}`, http.StatusBadRequest},
+		{"valid_mixed_content", `{"status":"deleted","content":"revised"}`, http.StatusBadRequest},
+		{"valid_mixed_scope", `{"status":"deleted","visibility":"group","owner_key":"22"}`, http.StatusBadRequest},
+		{"null_content_is_still_a_mixed_edit", `{"status":"deleted","content":null}`, http.StatusBadRequest},
+		{"null_visibility_is_still_a_mixed_edit", `{"status":"deleted","Visibility":null}`, http.StatusBadRequest},
+		{"null_owner_is_still_a_mixed_edit", `{"status":"deleted","owner_key":null}`, http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &patchMemoryRepo{handlerMemoryRepo: handlerMemoryRepo{deleteFound: true}, memory: domain.Memory{
+				ID: "11111111-1111-4111-8111-111111111111", BotID: 1, Visibility: domain.VisibilityBotShared,
+				Content: "legacy", Status: domain.StatusActive, Origin: domain.OriginManual,
+			}}
+			service, err := memoryapp.NewService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mux := http.NewServeMux()
+			NewHandler(&svc.ServiceContext{Memory: service}).Register(mux)
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/memories/"+repo.memory.ID, strings.NewReader(test.body))
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != test.status || repo.updateCalled || repo.deleteCalled != (test.status == http.StatusOK) {
+				t.Fatalf("status=%d update=%v delete=%v: %s", rec.Code, repo.updateCalled, repo.deleteCalled, rec.Body.String())
+			}
+		})
 	}
 }

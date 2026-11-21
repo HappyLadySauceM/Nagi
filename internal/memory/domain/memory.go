@@ -188,7 +188,7 @@ func ExtractionUnknownSubjectID(sourceMessageID, sourceSenderID int64) string {
 func (m Memory) VisibleTo(kind string, targetID int64, conversationID string) bool {
 	switch m.Visibility {
 	case VisibilityBotShared:
-		return true
+		return false
 	case VisibilityGroup:
 		return kind == "group" && m.OwnerKey == fmt.Sprint(targetID)
 	case VisibilityPrivateUser:

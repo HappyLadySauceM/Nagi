@@ -4,6 +4,8 @@ package contracts
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"time"
 
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
@@ -103,10 +105,70 @@ type DetailRequest struct {
 	TargetID       int64
 	ConversationID string
 	MemoryID       string
+	SenderID       int64
 }
 
 // DetailReader reads one visible memory with its stored source metadata.
 // DetailReader 读取一条可见记忆及其已存来源信息。
 type DetailReader interface {
 	RecallDetail(ctx context.Context, req DetailRequest) (Memory, bool, error)
+}
+
+// RunReads tracks memory versions and source grants already used by a reply run.
+// RunReads 记录回复运行已使用的记忆版本与来源授权。
+type RunReads struct {
+	mu     sync.Mutex
+	checks []func(context.Context) error
+}
+type runReadsKey struct{}
+
+// ErrReadChanged ends a run whose model context can no longer be sent safely.
+// ErrReadChanged 终止模型上下文已不可继续提交的运行。
+var ErrReadChanged = errors.New("memory: reply context authorization or version changed")
+
+// WithRunReads starts a fresh ledger for each reply attempt.
+// WithRunReads 为每次回复尝试建立独立的读取记录。
+func WithRunReads(ctx context.Context) context.Context {
+	return context.WithValue(ctx, runReadsKey{}, &RunReads{})
+}
+
+// TrackRead records the full persisted version and the live authority for one disclosure.
+// TrackRead 记录一次披露使用的完整持久化版本和实时授权。
+func TrackRead(ctx context.Context, reader DetailReader, req DetailRequest, version time.Time, authorize func(context.Context) error) {
+	reads, _ := ctx.Value(runReadsKey{}).(*RunReads)
+	if reads == nil {
+		return
+	}
+	reads.mu.Lock()
+	defer reads.mu.Unlock()
+	reads.checks = append(reads.checks, func(call context.Context) error {
+		if reader == nil || version.IsZero() {
+			return ErrReadChanged
+		}
+		if authorize != nil && authorize(call) != nil {
+			return ErrReadChanged
+		}
+		current, found, err := reader.RecallDetail(call, req)
+		if err != nil || !found || !current.UpdatedAt.Equal(version) {
+			return ErrReadChanged
+		}
+		return nil
+	})
+}
+
+// ValidateRunReads rechecks every memory disclosure before a generation request.
+// ValidateRunReads 在生成请求前重新核验每次记忆披露。
+func ValidateRunReads(ctx context.Context) error {
+	reads, _ := ctx.Value(runReadsKey{}).(*RunReads)
+	if reads == nil {
+		return nil
+	}
+	reads.mu.Lock()
+	defer reads.mu.Unlock()
+	for _, validate := range reads.checks {
+		if err := validate(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }

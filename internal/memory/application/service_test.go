@@ -154,7 +154,7 @@ func TestApproveActivatesAndSearchVisible(t *testing.T) {
 		t.Fatalf("propose private: %v", err)
 	}
 	sharedID, _, err := svc.Propose(ctx, CandidateInput{BotID: 1,
-		Visibility: domain.VisibilityBotShared, Content: "机器人名叫小雪"})
+		Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "群内约定"})
 	if err != nil {
 		t.Fatalf("propose shared: %v", err)
 	}
@@ -174,11 +174,11 @@ func TestApproveActivatesAndSearchVisible(t *testing.T) {
 	}
 
 	groupView, err := svc.SearchVisible(ctx, domain.SearchRequest{BotID: 1, Kind: "group", TargetID: 700, Limit: 5})
-	if err != nil || len(groupView) != 1 || groupView[0].Visibility != domain.VisibilityBotShared {
+	if err != nil || len(groupView) != 1 || groupView[0].Visibility != domain.VisibilityGroup {
 		t.Fatalf("group view = %+v err=%v", groupView, err)
 	}
 	privateView, err := svc.SearchVisible(ctx, domain.SearchRequest{BotID: 1, Kind: "private", TargetID: 200, Limit: 5})
-	if err != nil || len(privateView) != 2 {
+	if err != nil || len(privateView) != 1 {
 		t.Fatalf("private view = %+v err=%v", privateView, err)
 	}
 }
@@ -190,7 +190,7 @@ func TestDeleteRemovesFromSearch(t *testing.T) {
 	svc, _ := NewService(repo)
 	ctx := context.Background()
 	id, _, err := svc.Propose(ctx, CandidateInput{BotID: 1,
-		Visibility: domain.VisibilityBotShared, Content: "待删除"})
+		Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "待删除"})
 	if err != nil {
 		t.Fatalf("propose: %v", err)
 	}
@@ -229,8 +229,8 @@ func TestDeleteMissingReturnsNotFound(t *testing.T) {
 func TestRecallMapsVisibleMemories(t *testing.T) {
 	repo := newFakeMemoryRepo()
 	repo.items["m1"] = domain.Memory{
-		ID: "m1", BotID: 1, Visibility: domain.VisibilityBotShared,
-		Content: "群友喜欢晚上聊天", Status: domain.StatusActive,
+		ID: "m1", BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700",
+		Content: "群友喜欢晚上聊天", Status: domain.StatusActive, SubjectType: domain.SubjectGroup, SubjectID: "700",
 		UpdatedAt: time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC),
 	}
 	svc, _ := NewService(repo)
@@ -240,7 +240,7 @@ func TestRecallMapsVisibleMemories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}
-	if len(got.Items) != 1 || got.Items[0].MemoryID != "m1" || got.Items[0].Visibility != string(domain.VisibilityBotShared) || got.Items[0].UpdatedAt.IsZero() {
+	if len(got.Items) != 1 || got.Items[0].MemoryID != "m1" || got.Items[0].Visibility != string(domain.VisibilityGroup) || got.Items[0].UpdatedAt.IsZero() {
 		t.Fatalf("recall = %+v", got)
 	}
 	if repo.lastSearch.Query != "晚上聊天" || repo.lastSearch.Limit != 0 || repo.lastSearch.ConversationID != "conv-1" {
@@ -347,7 +347,7 @@ func TestRecallDetailEnforcesVisibility(t *testing.T) {
 		req  contracts.DetailRequest
 		want bool
 	}{
-		{name: "shared visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(1)}, want: true},
+		{name: "shared without provenance invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(1)}, want: false},
 		{name: "own group visible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(2)}, want: true},
 		{name: "other group invisible", req: contracts.DetailRequest{BotID: 1, Kind: "group", TargetID: 700, MemoryID: detailID(3)}, want: false},
 		{name: "private only matches same user", req: contracts.DetailRequest{BotID: 1, Kind: "private", TargetID: 200, MemoryID: detailID(4)}, want: true},
@@ -440,8 +440,8 @@ func TestMemoryVisibleToKeepsGroupsAndPrivateUsersSeparate(t *testing.T) {
 		t.Fatal("private visibility crossed a boundary")
 	}
 	shared := domain.Memory{Visibility: domain.VisibilityBotShared}
-	if !shared.VisibleTo("group", 700, "") || !shared.VisibleTo("private", 200, "") {
-		t.Fatal("bot-shared memory must be visible to every conversation")
+	if shared.VisibleTo("group", 700, "") || shared.VisibleTo("private", 200, "") {
+		t.Fatal("legacy shared memory requires verified provenance")
 	}
 }
 
@@ -629,5 +629,28 @@ func TestRecallRewriteImprovesParaphrasesWithoutCrossingSubjects(t *testing.T) {
 				t.Fatalf("recall items = %+v", got.Items)
 			}
 		})
+	}
+}
+
+func TestLegacySharedWritesRejected(t *testing.T) {
+	repo := newFakeMemoryRepo()
+	svc, _ := NewService(repo)
+	ctx := context.Background()
+	if _, _, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityBotShared, Content: "fixture"}); !errors.Is(err, ErrMemoryInvalid) {
+		t.Fatalf("propose: %v", err)
+	}
+	id, _, err := svc.Propose(ctx, CandidateInput{BotID: 1, Visibility: domain.VisibilityGroup, OwnerKey: "700", Content: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := ""
+	if err := svc.Revise(ctx, id, "", domain.VisibilityBotShared, &owner); !errors.Is(err, ErrMemoryInvalid) {
+		t.Fatalf("revise: %v", err)
+	}
+	if err := svc.ApproveWithEdit(ctx, id, "fixture", "", domain.VisibilityBotShared, &owner); !errors.Is(err, ErrMemoryInvalid) {
+		t.Fatalf("approve edit: %v", err)
+	}
+	if m, found, err := svc.Get(ctx, id); err != nil || !found || m.Status != domain.StatusCandidate || m.Visibility != domain.VisibilityGroup {
+		t.Fatalf("candidate = %+v, %v, %v", m, found, err)
 	}
 }

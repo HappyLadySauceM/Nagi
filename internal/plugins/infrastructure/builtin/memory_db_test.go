@@ -19,6 +19,9 @@ import (
 	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
@@ -57,6 +60,15 @@ func TestMemoryToolsReadStoredSourceWithRealDatabase(t *testing.T) {
 
 	const botID, groupID = 995001, 995002
 	const otherGroupID = 995003
+	scopes, err := scopeinfra.NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policies, err := scopeapp.NewService(scopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryService.SetReadPolicies(policies)
 	base := time.Now().UnixNano()
 	ingested, err := conversationService.Ingest(ctx, conversationdomain.IngestInput{
 		BotID: botID, Kind: conversationdomain.KindGroup, TargetID: groupID,
@@ -65,10 +77,17 @@ func TestMemoryToolsReadStoredSourceWithRealDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
+	for _, group := range []int64{groupID, otherGroupID} {
+		policy := scopedomain.Default(scopedomain.ScopeGroup, group)
+		policy.Enabled, policy.AllowMemoryRead = true, true
+		if err := scopes.Upsert(ctx, botID, policy); err != nil {
+			t.Fatal(err)
+		}
+	}
 	memoryID, err := memoryRepo.Insert(ctx, memorydomain.Memory{
 		BotID: botID, Visibility: memorydomain.VisibilityBotShared,
 		Content: "群友喜欢晚上聊天", Source: "群聊来源", SourceMessageID: ingested.MessageID,
-		Status: memorydomain.StatusActive, Confidence: 0.9,
+		Status: memorydomain.StatusActive, Confidence: 0.9, ApprovedBy: "fixture-admin", SourceSenderID: 995004,
 	})
 	if err != nil {
 		t.Fatalf("insert memory: %v", err)
@@ -124,7 +143,7 @@ func TestMemoryToolsReadStoredSourceWithRealDatabase(t *testing.T) {
 		BotID: botID, Kind: "group", TargetID: otherGroupID, ConversationID: "other-conversation",
 		AllowMemoryRead: true, AllowHistoryRead: true,
 	})
-	if out, err := source.Invoke(otherGroupCtx, `{"memory_id":"`+memoryID+`"}`); err != nil || !strings.Contains(out, "不在当前会话") {
+	if out, err := source.Invoke(otherGroupCtx, `{"memory_id":"`+memoryID+`"}`); err != nil || !strings.Contains(out, "记忆不可见或已失效") {
 		t.Fatalf("cross-conversation source = %q, %v", out, err)
 	}
 
@@ -141,11 +160,11 @@ func TestMemoryToolsReadStoredSourceWithRealDatabase(t *testing.T) {
 		t.Fatalf("source survived purge: found=%v err=%v", found, err)
 	}
 	afterPurge, found, err := memoryService.RecallDetail(ctx, memorycontractsDetailRequest(botID, groupID, ingested.ConversationID, memoryID))
-	if err != nil || !found || afterPurge.SourceMessageID != 0 {
+	if err != nil || found || afterPurge.SourceMessageID != 0 {
 		t.Fatalf("memory after purge = %+v found=%v err=%v", afterPurge, found, err)
 	}
 	purgedOut, err := source.Invoke(sourceCtx, `{"memory_id":"`+memoryID+`"}`)
-	if err != nil || !strings.Contains(purgedOut, "没有确切来源") || strings.Contains(purgedOut, "这是记忆的原始来源消息") {
+	if err != nil || !strings.Contains(purgedOut, "记忆不可见或已失效") || strings.Contains(purgedOut, "这是记忆的原始来源消息") {
 		t.Fatalf("source after purge = %q, %v", purgedOut, err)
 	}
 }

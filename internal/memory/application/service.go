@@ -17,6 +17,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // ErrInvalidID reports a malformed memory identifier before it reaches storage.
@@ -67,6 +68,10 @@ type Repository interface {
 	List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, int64, error)
 	FindSame(ctx context.Context, botID int64, visibility domain.Visibility, ownerKey, content string) (domain.Memory, bool, error)
 	SearchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error)
+}
+
+type visibleMemoryReader interface {
+	ReadVisible(context.Context, domain.SearchRequest, string) (domain.Memory, bool, error)
 }
 
 // AtomicMemoryRepository applies status/content changes under the shared
@@ -120,9 +125,10 @@ type RecallRewriter interface {
 // Service implements the candidate → dedupe → approve/merge → active workflow.
 // Service 实现 候选 → 去重 → 审核/合并 → 激活 流程。
 type Service struct {
-	rewriter   RecallRewriter
-	repo       Repository
-	authorizer scopecontracts.MemoryAuthorizer
+	rewriter     RecallRewriter
+	repo         Repository
+	authorizer   scopecontracts.MemoryAuthorizer
+	readPolicies scopecontracts.Authorizer
 }
 
 // NewService validates dependencies and builds the service.
@@ -138,6 +144,13 @@ func NewService(repo Repository) (*Service, error) {
 // SetMemoryAuthorizer 绑定当前作用域授权解析器。
 func (s *Service) SetMemoryAuthorizer(authorizer scopecontracts.MemoryAuthorizer) {
 	s.authorizer = authorizer
+
+}
+
+// SetReadPolicies binds the live authorization used for conversation memory reads.
+// SetReadPolicies 绑定会话读取记忆时使用的实时授权。
+func (s *Service) SetReadPolicies(policies scopecontracts.Authorizer) {
+	s.readPolicies = policies
 }
 
 // SetRecallRewriter injects the optional model used after an empty literal recall.
@@ -173,6 +186,9 @@ type CandidateInput struct {
 // 消息与发送者生成出处标识；无主体的旧人工条目保留精确内容去重。冲突必须经
 // 管理端显式合并，绝不自动覆盖。
 func (s *Service) Propose(ctx context.Context, in CandidateInput) (string, bool, error) {
+	if in.Visibility == domain.VisibilityBotShared {
+		return "", false, fmt.Errorf("%w: bot_shared writes are disabled", ErrMemoryInvalid)
+	}
 	origin := in.Origin
 	if origin == "" {
 		origin = domain.OriginManual
@@ -257,6 +273,9 @@ func (s *Service) Approve(ctx context.Context, memoryID, approvedBy string) erro
 	if m.Status != domain.StatusCandidate {
 		return ErrMemoryStatusConflict
 	}
+	if m.Visibility == domain.VisibilityBotShared {
+		return ErrMemoryInvalid
+	}
 	m.Status = domain.StatusActive
 	m.ApprovedBy = approvedBy
 	return s.repo.Update(ctx, m)
@@ -268,6 +287,9 @@ func (s *Service) Approve(ctx context.Context, memoryID, approvedBy string) erro
 // ApproveWithEdit 在同一仓储事务中校验并应用编辑与 candidate -> active，避免审批
 // 失败时编辑已落库。
 func (s *Service) ApproveWithEdit(ctx context.Context, memoryID, actor, content string, visibility domain.Visibility, ownerKey *string) error {
+	if visibility == domain.VisibilityBotShared {
+		return fmt.Errorf("%w: bot_shared writes are disabled", ErrMemoryInvalid)
+	}
 	if strings.TrimSpace(actor) == "" {
 		return fmt.Errorf("memory: approver is required")
 	}
@@ -293,12 +315,18 @@ func (s *Service) ApproveWithEdit(ctx context.Context, memoryID, actor, content 
 // Revise updates content, visibility or owner of one memory after validation.
 // Revise 在校验后更新一条记忆的内容、可见性或归属。
 func (s *Service) Revise(ctx context.Context, memoryID string, content string, visibility domain.Visibility, ownerKey *string) error {
+	if visibility == domain.VisibilityBotShared {
+		return fmt.Errorf("%w: bot_shared writes are disabled", ErrMemoryInvalid)
+	}
 	m, found, err := s.repo.Get(ctx, memoryID)
 	if err != nil {
 		return err
 	}
 	if !found {
 		return fmt.Errorf("%w: %s", ErrMemoryNotFound, memoryID)
+	}
+	if m.Visibility == domain.VisibilityBotShared {
+		return fmt.Errorf("%w: historical shared memories cannot be edited", ErrMemoryInvalid)
 	}
 	if strings.TrimSpace(content) != "" {
 		m.Content = strings.TrimSpace(content)
@@ -427,14 +455,47 @@ func (s *Service) Summary(ctx context.Context, botID int64) (domain.KnowledgeSum
 }
 
 // SearchVisible returns active, unexpired memories the conversation may read:
-// bot-shared knowledge plus the conversation's own group/private/conversation scope.
-// SearchVisible 返回会话可读取的激活且未过期的记忆：机器人共享知识，
-// 加上该会话自身的群/私聊/会话范围。
+// including legacy shared entries with a verified source in that conversation.
+// SearchVisible 返回会话可读取的激活且未过期的记忆：包括有可核验同会话来源的旧共享条目。
 func (s *Service) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error) {
+	allowed, err := s.canRead(ctx, in)
+	if err != nil || !allowed {
+		return nil, err
+	}
 	if in.Limit <= 0 {
 		in.Limit = 5
 	}
-	return s.repo.SearchVisible(ctx, in)
+	return s.searchVisible(ctx, in)
+}
+
+func (s *Service) canRead(ctx context.Context, in domain.SearchRequest) (bool, error) {
+	if s.readPolicies == nil {
+		// Production storage requires a live policy resolver; in-memory adapters provide their own scope.
+		// 生产仓储必须配有实时策略解析器；内存适配器自行提供作用域。
+		_, production := s.repo.(visibleMemoryReader)
+		return !production, nil
+	}
+	policy, err := s.readPolicies.Resolve(ctx, in.BotID, scopedomain.ScopeType(in.Kind), in.TargetID)
+	return policy.Enabled && policy.StoreMessages && policy.ReplyMode != scopedomain.ModeObserveOnly && policy.AllowMemoryRead, err
+}
+
+func (s *Service) searchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error) {
+	items, err := s.repo.SearchVisible(ctx, in)
+	if _, verified := s.repo.(visibleMemoryReader); verified || err != nil {
+		return items, err
+	}
+	visible := items[:0]
+	for _, item := range items {
+		if visibleInScope(item, in) {
+			visible = append(visible, item)
+		}
+	}
+	return visible, nil
+}
+
+func visibleInScope(item domain.Memory, in domain.SearchRequest) bool {
+	return item.BotID == in.BotID && item.Status == domain.StatusActive &&
+		(item.ExpiresAt.IsZero() || item.ExpiresAt.After(time.Now())) && item.VisibleTo(in.Kind, in.TargetID, in.ConversationID)
 }
 
 // Recall returns a bounded, visibility-scoped ranked read model for reply
@@ -492,11 +553,19 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contr
 	search := domain.SearchRequest{
 		BotID: in.BotID, Kind: in.Kind, TargetID: in.TargetID, ConversationID: in.ConversationID, Query: in.Query,
 	}
+	allowed, err := s.canRead(ctx, search)
+	if err != nil || !allowed {
+		return result, err
+	}
 	query := domain.RecallQuery{
 		Kind: in.Kind, TargetID: in.TargetID, Query: in.Query, SubjectType: subjectType, SubjectID: subjectID, Limit: limit,
 	}
 	lookup := func(ctx context.Context) ([]domain.RecallHit, bool, string, error) {
-		items, err := s.repo.SearchVisible(ctx, search)
+		allowed, err := s.canRead(ctx, search)
+		if err != nil || !allowed {
+			return nil, false, "", err
+		}
+		items, err := s.searchVisible(ctx, search)
 		if err != nil {
 			return nil, false, "", err
 		}
@@ -630,15 +699,21 @@ func (s *Service) RecallDetail(ctx context.Context, in contracts.DetailRequest) 
 	if _, err := uuid.Parse(in.MemoryID); err != nil {
 		return contracts.Memory{}, false, fmt.Errorf("%w: %q", ErrInvalidID, in.MemoryID)
 	}
-	item, found, err := s.repo.Get(ctx, in.MemoryID)
-	if err != nil || !found {
+	search := domain.SearchRequest{BotID: in.BotID, Kind: in.Kind, TargetID: in.TargetID, ConversationID: in.ConversationID}
+	allowed, err := s.canRead(ctx, search)
+	if err != nil || !allowed {
 		return contracts.Memory{}, false, err
 	}
-	if item.BotID != in.BotID || item.Status != domain.StatusActive || !item.ExpiresAt.IsZero() && !item.ExpiresAt.After(time.Now()) {
-		return contracts.Memory{}, false, nil
+	var item domain.Memory
+	var found bool
+	if reader, ok := s.repo.(visibleMemoryReader); ok {
+		item, found, err = reader.ReadVisible(ctx, search, in.MemoryID)
+	} else {
+		item, found, err = s.repo.Get(ctx, in.MemoryID)
+		found = found && visibleInScope(item, search)
 	}
-	if !item.VisibleTo(in.Kind, in.TargetID, in.ConversationID) {
-		return contracts.Memory{}, false, nil
+	if err != nil || !found {
+		return contracts.Memory{}, false, err
 	}
 	return contracts.Memory{
 		ID:              item.ID,

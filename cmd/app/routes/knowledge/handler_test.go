@@ -218,7 +218,7 @@ func TestPreviewRealSkipsUnauthorizedMemoryAndHistory(t *testing.T) {
 
 func TestPreviewRealReadsMemoryWhenAuthorized(t *testing.T) {
 	repo := &fakeMemoryRepo{memories: []memorydomain.Memory{{
-		ID: "11111111-1111-4111-8111-111111111111", Content: "喜欢美式", Visibility: memorydomain.VisibilityGroup, OwnerKey: "700",
+		ID: "11111111-1111-4111-8111-111111111111", Content: "喜欢美式", Visibility: memorydomain.VisibilityGroup, OwnerKey: "700", BotID: 7,
 		SubjectType: memorydomain.SubjectUser, SubjectID: "42", Status: memorydomain.StatusActive,
 	}}}
 	memoryService, err := memoryapp.NewService(repo)

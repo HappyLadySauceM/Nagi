@@ -48,7 +48,8 @@ func (r *Repo) ApproveMemory(ctx context.Context, memoryID, actor string) error 
 		return err
 	}
 	var status string
-	err = tx.QueryRow(ctx, `SELECT status FROM memories WHERE memory_id=$1::uuid FOR UPDATE`, memoryID).Scan(&status)
+	var visibility domain.Visibility
+	err = tx.QueryRow(ctx, `SELECT status, visibility FROM memories WHERE memory_id=$1::uuid FOR UPDATE`, memoryID).Scan(&status, &visibility)
 	if errors.Is(err, sql.ErrNoRows) {
 		return memoryapp.ErrMemoryNotFound
 	}
@@ -57,6 +58,9 @@ func (r *Repo) ApproveMemory(ctx context.Context, memoryID, actor string) error 
 	}
 	if status != string(domain.StatusCandidate) {
 		return memoryapp.ErrMemoryStatusConflict
+	}
+	if visibility == domain.VisibilityBotShared {
+		return memoryapp.ErrMemoryInvalid
 	}
 	result, err := tx.Exec(ctx, `
 		UPDATE memories
@@ -101,6 +105,9 @@ func (r *Repo) ApproveMemoryWithEdit(ctx context.Context, memoryID, actor, conte
 	}
 	if memory.Status != domain.StatusCandidate {
 		return memoryapp.ErrMemoryStatusConflict
+	}
+	if memory.Visibility == domain.VisibilityBotShared || visibility == domain.VisibilityBotShared {
+		return memoryapp.ErrMemoryInvalid
 	}
 	if trimmed := strings.TrimSpace(content); trimmed != "" {
 		memory.Content = trimmed
@@ -153,7 +160,8 @@ func (r *Repo) UpdateMemoryLocked(ctx context.Context, memory domain.Memory) err
 		return err
 	}
 	var status string
-	err = tx.QueryRow(ctx, `SELECT status FROM memories WHERE memory_id=$1::uuid FOR UPDATE`, memory.ID).Scan(&status)
+	var visibility domain.Visibility
+	err = tx.QueryRow(ctx, `SELECT status, visibility FROM memories WHERE memory_id=$1::uuid FOR UPDATE`, memory.ID).Scan(&status, &visibility)
 	if errors.Is(err, sql.ErrNoRows) {
 		return memoryapp.ErrMemoryNotFound
 	}
@@ -162,6 +170,9 @@ func (r *Repo) UpdateMemoryLocked(ctx context.Context, memory domain.Memory) err
 	}
 	if status == string(domain.StatusSuperseded) || status == string(domain.StatusDeleted) {
 		return memoryapp.ErrMemoryStatusConflict
+	}
+	if visibility == domain.VisibilityBotShared || memory.Visibility == domain.VisibilityBotShared {
+		return memoryapp.ErrMemoryInvalid
 	}
 	result, err := tx.Exec(ctx, `
 		UPDATE memories SET
@@ -333,6 +344,9 @@ func (r *Repo) Supersede(ctx context.Context, in domain.SupersedeInput) (domain.
 	}
 	newMemory := memories[in.NewMemoryID]
 	oldMemory := memories[in.OldMemoryID]
+	if newMemory.Visibility == domain.VisibilityBotShared || oldMemory.Visibility == domain.VisibilityBotShared {
+		return domain.SupersedeResult{}, memoryapp.ErrMemoryInvalid
+	}
 	if newMemory.Status != domain.StatusCandidate || oldMemory.Status != domain.StatusActive {
 		return domain.SupersedeResult{}, memoryapp.ErrMemoryStatusConflict
 	}

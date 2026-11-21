@@ -22,18 +22,10 @@ import {
   MEMORY_VISIBILITY_HINTS,
   MEMORY_VISIBILITY_LABELS,
   type MemorySubjectType,
-  type MemoryVisibility,
 } from '../../../lib/api/contracts'
 import { describeError } from '../../../lib/errors'
 import { useCreateMemory } from '../queries'
-import { memoryCreateSchema, parseConfidence, type MemoryCreateValues } from '../schema'
-
-const VISIBILITY_OPTIONS: MemoryVisibility[] = [
-  'bot_shared',
-  'group',
-  'private_user',
-  'conversation',
-]
+import { memoryCreateSchema, memoryWriteVisibilities, parseConfidence, type MemoryCreateValues } from '../schema'
 
 const SUBJECT_OPTIONS: MemorySubjectType[] = ['unknown', 'user', 'group']
 
@@ -71,14 +63,7 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
   const visibility = watch('visibility')
   const subjectType = watch('subjectType')
   const errors = formState.errors
-  const isBotShared = visibility === 'bot_shared'
   const isUnknownSubject = subjectType === 'unknown'
-
-  useEffect(() => {
-    if (isBotShared) {
-      setValue('ownerKey', '')
-    }
-  }, [isBotShared, setValue])
 
   useEffect(() => {
     if (isUnknownSubject) {
@@ -95,7 +80,7 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
       {
         botId,
         visibility: values.visibility,
-        ownerKey: values.visibility === 'bot_shared' ? '' : values.ownerKey,
+        ownerKey: values.ownerKey,
         subjectType: values.subjectType,
         subjectId: values.subjectType === 'unknown' ? '' : values.subjectId,
         content: values.content,
@@ -139,7 +124,7 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
             hint={MEMORY_VISIBILITY_HINTS[visibility]}
           >
             <Select id="create-visibility" {...register('visibility')}>
-              {VISIBILITY_OPTIONS.map((option) => (
+              {memoryWriteVisibilities.map((option) => (
                 <option key={option} value={option}>
                   {MEMORY_VISIBILITY_LABELS[option]}
                 </option>
@@ -150,14 +135,14 @@ export function MemoryCreateDialog({ open, onOpenChange, botId }: MemoryCreateDi
           <FormField
             id="create-owner"
             label="归属"
-            required={!isBotShared}
-            hint={isBotShared ? '全局共享记忆不接受归属字段。' : '群号或 QQ 号，需与可见性匹配。'}
+            required
+            hint="群号、QQ 号或会话 ID，需与可见性匹配。"
             error={errors.ownerKey?.message}
           >
             <Input
               id="create-owner"
-              disabled={isBotShared || create.isPending}
-              placeholder={isBotShared ? '不适用' : '例如 555123456'}
+              disabled={create.isPending}
+              placeholder="例如 555123456"
               aria-invalid={errors.ownerKey ? true : undefined}
               aria-describedby={errors.ownerKey ? 'create-owner-error' : 'create-owner-hint'}
               {...register('ownerKey')}

@@ -141,7 +141,7 @@ function MemoriesEntriesPage() {
     <div className="space-y-4">
       <PageHeader
         title="记忆条目"
-        description={`候选记忆需要审批后才会被会话读取。当前账号：${selectedAccount?.nickname || botId || '未识别'}；全局共享记忆对所有会话可见，审批前请确认内容适合共享。`}
+        description={`候选记忆需要审批后才会被会话读取。当前账号：${selectedAccount?.nickname || botId || '未识别'}；历史共享记忆只在可核验的原会话内可用。`}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => void memories.refetch()}>
@@ -239,7 +239,7 @@ function MemoriesEntriesPage() {
                       variant={memory.visibility === 'bot_shared' ? 'accent' : 'secondary'}
                       title={
                         memory.visibility === 'bot_shared'
-                          ? '所有会话都可检索该记忆'
+                          ? '来源可核验时仅原会话可读'
                           : undefined
                       }
                     >
@@ -265,7 +265,7 @@ function MemoriesEntriesPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
-                      {memory.status === 'candidate' ? (
+                      {memory.status === 'candidate' && memory.visibility !== 'bot_shared' ? (
                         <>
                           <Button
                             variant="ghost"
@@ -299,8 +299,8 @@ function MemoriesEntriesPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label="编辑记忆"
-                        title="编辑"
+                        aria-label={memory.visibility === 'bot_shared' ? '查看历史共享记忆' : '编辑记忆'}
+                        title={memory.visibility === 'bot_shared' ? '查看' : '编辑'}
                         onClick={() => setEditing(memory)}
                         disabled={memory.status === 'deleted'}
                       >
@@ -366,16 +366,7 @@ function MemoriesEntriesPage() {
         open={approving !== null}
         onOpenChange={(open) => !open && setApproving(null)}
         title="审批并启用该记忆？"
-        description={
-          approving?.visibility === 'bot_shared'
-            ? '这是全局共享记忆：审批后，该机器人下所有会话都可能检索到这条内容。'
-            : '审批后，符合可见性范围（群 / 个人 / 会话）的对话会读取这条记忆。'
-        }
-        details={
-          approving?.visibility === 'bot_shared'
-            ? ['共享范围：所有会话', `内容：${approving.content.slice(0, 60)}`]
-            : undefined
-        }
+        description="审批后，符合可见性范围（群 / 个人 / 会话）的对话会读取这条记忆。"
         confirmLabel="审批并启用"
         pending={approve.isPending}
         onConfirm={runApprove}

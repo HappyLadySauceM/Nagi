@@ -95,6 +95,7 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 	policy.Enabled = true
 	policy.StoreMessages = true
 	policy.AllowMemoryWrite = true
+	policy.AllowMemoryRead = true
 	if err := scopeRepo.Upsert(ctx, botID, policy); err != nil {
 		t.Fatalf("seed policy: %v", err)
 	}
@@ -164,6 +165,7 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new memory service: %v", err)
 	}
+	memoryService.SetReadPolicies(scopeService)
 	var memoryID, subjectID string
 	if err := pool.QueryRow(ctx, `SELECT memory_id::text, subject_id FROM memories WHERE bot_id=$1 AND status='candidate' ORDER BY created_at LIMIT 1`, botID).Scan(&memoryID, &subjectID); err != nil {
 		t.Fatalf("read candidate: %v", err)

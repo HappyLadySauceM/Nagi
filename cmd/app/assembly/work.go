@@ -565,6 +565,7 @@ func buildMemory(pool *db.Pool, scopeService *scopeapp.Service) (*memoryapp.Serv
 	}
 	if scopeService != nil {
 		service.SetMemoryAuthorizer(scopeService)
+		service.SetReadPolicies(scopeService)
 	}
 	return service, nil
 }
