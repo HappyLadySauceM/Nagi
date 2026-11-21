@@ -102,7 +102,7 @@ func TestTransportKeepsAliveOnHeartbeats(t *testing.T) {
 
 func TestMapEventParsesCQStringMessage(t *testing.T) {
 	// 验证字符串 message 按 CQ 规则解析为段，raw_message 保留原文。
-	event, err := mapEvent([]byte(`{"time":1,"self_id":10000,"post_type":"message","message_type":"group","group_id":456,"user_id":10001,"message":"[CQ:at,qq=10002] hello","raw_message":"[CQ:at,qq=10002] hello"}`))
+	event, err := DecodeEventFrame([]byte(`{"time":1,"self_id":10000,"post_type":"message","message_type":"group","group_id":456,"user_id":10001,"message":"[CQ:at,qq=10002] hello","raw_message":"[CQ:at,qq=10002] hello"}`))
 	if err != nil {
 		t.Fatalf("map event: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestMapEventParsesCQStringMessage(t *testing.T) {
 
 func TestMapEventParsesWireArrayMessage(t *testing.T) {
 	// 验证段数组 message 经统一解码，复杂 data 值保留 JSON 文本。
-	event, err := mapEvent([]byte(`{"post_type":"message","message":[{"type":"text","data":{"text":"hi"}},{"type":"json","data":{"data":{"a":[1,2]}}}]}`))
+	event, err := DecodeEventFrame([]byte(`{"post_type":"message","message":[{"type":"text","data":{"text":"hi"}},{"type":"json","data":{"data":{"a":[1,2]}}}]}`))
 	if err != nil {
 		t.Fatalf("map event: %v", err)
 	}

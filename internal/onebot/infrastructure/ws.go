@@ -228,7 +228,7 @@ func (t *Transport) routeFrame(data []byte) {
 	case probe.Echo != "":
 		t.responses.HandleResponse(probe.Echo, json.RawMessage(data))
 	case probe.PostType != "":
-		event, err := mapEvent(data)
+		event, err := DecodeEventFrame(data)
 		if err != nil {
 			t.logger.Warn("onebot: event parse failed", "error", err)
 			return
@@ -305,9 +305,9 @@ type wireSender struct {
 	Card     string `json:"card"`
 }
 
-// mapEvent maps the wire frame onto the pure domain event.
-// mapEvent 将线上帧映射为纯领域事件；message 兼容段数组与字符串两种形式。
-func mapEvent(data []byte) (obdomain.Event, error) {
+// DecodeEventFrame maps a wire frame onto the pure domain event.
+// DecodeEventFrame 将线上帧映射为纯领域事件，兼容消息段数组和 CQ 字符串。
+func DecodeEventFrame(data []byte) (obdomain.Event, error) {
 	var row wireEvent
 	if err := json.Unmarshal(data, &row); err != nil {
 		return obdomain.Event{}, err
