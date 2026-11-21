@@ -1,0 +1,133 @@
+{
+  "schema": "nagi-synthetic-policy-v1",
+  "dataset_version": "synthetic-v1",
+  "arms": [
+    {
+      "name": "baseline",
+      "policy_ref": "synthetic-group-v1",
+      "model_config_ref": "synthetic-model-v1",
+      "prompt_ref": "synthetic-semantic-v1",
+      "topics_enabled": true,
+      "builtin": true
+    },
+    {
+      "name": "candidate",
+      "policy_ref": "synthetic-group-v1",
+      "model_config_ref": "synthetic-model-v1",
+      "prompt_ref": "synthetic-semantic-v1",
+      "topics_enabled": true,
+      "ruleset": {"id": 1, "version": 2, "questions": {"directed_to_bot": {"Type": "noul", "Instructions": "Synthetic directedness score", "Order": 50, "Threshold": 0.6, "Action": "reply", "Scope": "group"}}}
+    }
+  ],
+  "samples": [
+    {
+      "id": "synthetic-01",
+      "participation": "must_reply",
+      "input": {
+        "task": {"Kind": "group", "BotID": 1, "TargetID": 2, "JobID": 1, "Message": {"MessageID": 1, "SenderID": 3, "CreatedAt": "2026-11-19T04:00:00Z"}},
+        "bot_name": "Nagi",
+        "now": "2026-11-19T04:00:00Z",
+        "recent": [],
+        "context_captured": true,
+        "activity": {"Known": true},
+        "attachments": []
+      },
+      "policies": {
+        "baseline": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0},
+        "candidate": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0}
+      },
+      "semantic": {"Available": true, "Scores": {"intent": 0, "addressed_to_other": 0, "continues_bot_thread": 0, "appropriate_to_join": 0, "directed_to_bot": 0.7}}
+    },
+    {
+      "id": "synthetic-02",
+      "participation": "must_be_silent",
+      "input": {
+        "task": {"Kind": "group", "BotID": 1, "TargetID": 2, "JobID": 2, "Message": {"MessageID": 2, "SenderID": 3, "CreatedAt": "2026-11-19T04:00:00Z"}},
+        "bot_name": "Nagi",
+        "now": "2026-11-19T04:00:00Z",
+        "recent": [],
+        "context_captured": true,
+        "activity": {"Known": true},
+        "attachments": []
+      },
+      "policies": {
+        "baseline": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0},
+        "candidate": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0}
+      },
+      "semantic": {"Available": true, "Scores": {"intent": 0, "addressed_to_other": 0, "continues_bot_thread": 0, "appropriate_to_join": 0, "directed_to_bot": 0.65}}
+    },
+    {
+      "id": "synthetic-03",
+      "participation": "optional",
+      "input": {
+        "task": {"Kind": "group", "BotID": 1, "TargetID": 2, "JobID": 3, "Message": {"MessageID": 3, "SenderID": 3, "CreatedAt": "2026-11-19T04:00:00Z"}},
+        "bot_name": "Nagi",
+        "now": "2026-11-19T04:00:00Z",
+        "recent": [],
+        "context_captured": true,
+        "activity": {"Known": true},
+        "attachments": []
+      },
+      "policies": {
+        "baseline": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0},
+        "candidate": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0}
+      },
+      "semantic": {"Available": true, "Scores": {"intent": 0, "addressed_to_other": 0, "continues_bot_thread": 0, "appropriate_to_join": 0, "directed_to_bot": 0.1}}
+    },
+    {
+      "id": "synthetic-04",
+      "participation": "must_reply",
+      "input": {
+        "task": {"Kind": "group", "BotID": 1, "TargetID": 2, "JobID": 4, "Message": {"MessageID": 4, "SenderID": 3, "CreatedAt": "2026-11-19T04:00:00Z"}},
+        "bot_name": "Nagi",
+        "now": "2026-11-19T04:00:00Z",
+        "recent": [],
+        "context_captured": true,
+        "activity": {"Known": true},
+        "attachments": []
+      },
+      "policies": {
+        "baseline": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0},
+        "candidate": {"enabled": true, "reply_mode": "always_reply", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0}
+      }
+    },
+    {
+      "id": "synthetic-05",
+      "participation": "must_reply",
+      "input": {
+        "task": {"Kind": "group", "BotID": 1, "TargetID": 2, "JobID": 5, "Message": {"MessageID": 5, "SenderID": 3, "CreatedAt": "2026-11-19T04:00:00Z"}, "Segments": [{"Type": "reply", "Data": {"id": "51"}}, {"Type": "image", "Data": {}}]},
+        "bot_name": "Nagi",
+        "now": "2026-11-19T04:00:00Z",
+        "recent": [],
+        "context_captured": true,
+        "activity": {"Known": true},
+        "attachments": [{"type": "image", "state": "available"}],
+        "topics": {"QuotedID": 60, "QuotedBot": true, "IdleSeconds": 300, "Candidates": [{"ID": 60, "Active": true}], "Reference": {"MessageID": 51, "SenderID": 1, "IsBot": true, "CreatedAt": "2026-11-19T03:59:59Z"}}
+      },
+      "policies": {
+        "baseline": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0},
+        "candidate": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0}
+      },
+      "acceptable_topic_ids": [60],
+      "acceptable_target_message_ids": [51]
+    },
+    {
+      "id": "synthetic-06",
+      "participation": "",
+      "input": {
+        "task": {"Kind": "group", "BotID": 1, "TargetID": 2, "JobID": 6, "Message": {"MessageID": 6, "SenderID": 3, "CreatedAt": "2026-11-19T04:00:00Z"}},
+        "bot_name": "Nagi",
+        "now": "2026-11-19T04:00:00Z",
+        "recent": [],
+        "context_captured": true,
+        "activity": {"Known": true},
+        "attachments": []
+      },
+      "policies": {
+        "baseline": {"enabled": true, "reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0},
+        "candidate": {"reply_mode": "intent_based", "allow_history_read": true, "min_reply_interval_ms": 0, "max_replies_per_hour": 0}
+      },
+      "missing": ["reference"]
+    }
+  ]
+}

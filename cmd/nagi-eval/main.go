@@ -26,6 +26,9 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "compare" {
+		return runComparison(args[1:], os.Stdin, os.Stdout)
+	}
 	flags := flag.NewFlagSet("nagi-eval", flag.ContinueOnError)
 	configFile := flags.String("config", "", "Nagi config file")
 	dataset := flags.String("dataset", "", "Langfuse dataset name")
