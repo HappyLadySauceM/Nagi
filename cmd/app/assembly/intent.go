@@ -18,6 +18,7 @@ import (
 
 	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
 
+	svc "github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	agentapp "github.com/HappyLadySauceM/Nagi/internal/agent/application"
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	einoinfra "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/eino"
@@ -440,7 +441,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	catalog *settingsapp.Service,
 	mediaService media.Transcriber,
 	promptService *intentapp.PromptService,
-	scope *scopeapp.Service, conv *conversationapp.Service, executor intentcontracts.ReplyExecutor,
+	scope *scopeapp.Service, conv *conversationapp.Service, accounts *svc.Accounts, executor intentcontracts.ReplyExecutor,
 	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder,
 ) (*conversationinfra.Worker, *intentinfra.DecisionsRepo, intentcontracts.SimulationEvaluator, *intentapp.PromptService, *intentapp.ReplayService, error) {
 	if pool == nil || scope == nil || conv == nil {
@@ -481,10 +482,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		HistoryLimit: live.Context.HistoryLimit,
 		Provider:     live.Intent.Provider,
 		Model:        live.Intent.Model,
-		BotName:      live.Role.BotName,
-		BotNameProvider: func() string {
-			return settings.Settings().Role.BotName
-		},
+		BotNickname:  accounts.BotNickname,
 		// The console changes these without a restart, so the decider reads
 		// them per task instead of freezing the startup values.
 		// 控制台可不停机修改这些值，因此决策器按任务读取，而不是固化启动值。

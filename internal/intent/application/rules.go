@@ -57,17 +57,11 @@ func EvaluateRules(in domain.Input) domain.RuleResult {
 		// always_reply 不得依赖语义判定：语义不可用曾让该模式完全沉默。
 		return domain.RuleResult{Explicit: explicit, AlwaysReply: true}
 	default: // intent_based
-		if requestsFollowingContent(in) {
-			return domain.RuleResult{WaitForContent: true, ReasonCode: "awaiting_content"}
-		}
-		if awaitingReply(in) {
-			return domain.RuleResult{ForceReply: true, ForceReason: "awaited_content_received"}
-		}
 		if explicit {
-			return domain.RuleResult{Explicit: true}
-		}
-		if reason := groupCallReason(in); reason != "" {
-			return domain.RuleResult{ForceReply: true, ForceReason: reason}
+			if in.MentionsBot() && requestsFollowingContent(in) && !hasTopicCandidates(in) {
+				return domain.RuleResult{WaitForContent: true, ReasonCode: "awaiting_content"}
+			}
+			return domain.RuleResult{Explicit: true, NeedSemantic: !in.MentionsBot()}
 		}
 		return domain.RuleResult{NeedSemantic: true}
 	}
@@ -87,6 +81,41 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 	}
 	if rule.WaitForContent {
 		return domain.FinalDecision{Decision: domain.DecisionDefer, ReasonCode: rule.ReasonCode}
+	}
+	if in.CallAddressingRequired() {
+		if addressesOther(in) && !in.MentionsBot() {
+			return withScores(domain.DecisionSilent, "addressed_to_other", decisionScores(semantic))
+		}
+		if !in.MentionsBot() {
+			switch semantic.CallAddressing {
+			case domain.CallNo:
+				return withScores(domain.DecisionSilent, "addressed_to_other", decisionScores(semantic))
+			case domain.CallUncertain, domain.CallUnknown:
+				if awaitingReply(in) && (semantic.CallAddressing == domain.CallUncertain || !hasSupplementText(in.Task)) {
+					return withScores(domain.DecisionReply, "awaited_content_received", decisionScores(semantic))
+				}
+				if semantic.FailureCode != "" && !rule.Explicit {
+					return silent("jev_unavailable")
+				}
+				if !rule.Explicit || semantic.CallAddressing != domain.CallUnknown || semantic.CallFailureCode != "name_unavailable" {
+					return withScores(domain.DecisionSilent, "call_addressing_uncertain", decisionScores(semantic))
+				}
+			case domain.CallYes:
+				if requestsFollowingContent(in) {
+					return withScores(domain.DecisionDefer, "awaiting_content", decisionScores(semantic))
+				}
+				if awaitingReply(in) {
+					return withScores(domain.DecisionReply, "awaited_content_received", decisionScores(semantic))
+				}
+				return withScores(domain.DecisionReply, "semantic_direct_call", decisionScores(semantic))
+			}
+		}
+		if in.MentionsBot() && requestsFollowingContent(in) {
+			return withScores(domain.DecisionDefer, "awaiting_content", decisionScores(semantic))
+		}
+		if awaitingReply(in) && in.MentionsBot() {
+			return withScores(domain.DecisionReply, "awaited_content_received", decisionScores(semantic))
+		}
 	}
 	// Explicit addressing passes the intent gate and is only rate-bound.
 	// 明确指向通过意图闸门，仅受频率规则约束。
@@ -283,7 +312,7 @@ func EvaluateRuleChain(in domain.Input, specific, global *domain.Ruleset) (domai
 	if !fromRuleset {
 		effective = domain.DefaultDecisionQuestions()
 	}
-	if rule.NeedSemantic && !domain.HasApplicableQuestion(effective, in.Task.Kind) {
+	if rule.NeedSemantic && !in.CallAddressingRequired() && !domain.HasApplicableQuestion(effective, in.Task.Kind) {
 		rule.NeedSemantic = false
 	}
 	return rule, version

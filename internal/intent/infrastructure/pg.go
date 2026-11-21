@@ -414,31 +414,43 @@ func decisionModel(v *ent.IntentDecision) (contracts.DecisionRecord, error) {
 	return record, err
 }
 
-// AwaitedRequest loads the same sender's previous message only when its latest
-// decision deferred a reply and the current message arrived within 30 seconds.
-// AwaitedRequest 仅在同一发送人的上一条消息最终判定为等待补充、且当前消息
-// 在 30 秒内到达时返回那条消息。
+// AwaitedRequest finds the newest unconsumed wait for this account, conversation and sender.
+// AwaitedRequest 查找该账号、会话和发送者最新且未接续的等待。
 func (r *DecisionsRepo) AwaitedRequest(ctx context.Context, task domain.Task) (*domain.Message, error) {
 	rows, err := r.pool.Query(ctx, `
 	SELECT COALESCE(previous.platform_message_id, 0), previous.sender_id, previous.text_content, previous.created_at
 	FROM message_jobs current_job
 	JOIN messages current ON current.id = current_job.incoming_message_id
-	CROSS JOIN LATERAL (
-		SELECT p.id, p.platform_message_id, p.sender_id, p.text_content, p.created_at
-		FROM messages p
-		WHERE p.conversation_id = current.conversation_id AND p.sender_id = current.sender_id
-			AND p.direction = 'incoming'
-			AND (p.created_at, p.id) < (current.created_at, current.id)
-			AND p.created_at >= current.created_at - interval '30 seconds'
-		ORDER BY p.created_at DESC, p.id DESC LIMIT 1
-	) previous
+	JOIN messages previous ON previous.conversation_id = current.conversation_id
+		AND previous.bot_id = current.bot_id AND previous.sender_id = current.sender_id
+		AND previous.direction = 'incoming'
+		AND (previous.created_at, previous.id) < (current.created_at, current.id)
+		AND previous.created_at >= current.created_at - interval '30 seconds'
 	JOIN message_jobs previous_job ON previous_job.incoming_message_id = previous.id
-	CROSS JOIN LATERAL (
+	JOIN LATERAL (
 		SELECT decision, reason_code FROM intent_decisions
 		WHERE job_id = previous_job.id ORDER BY id DESC LIMIT 1
-	) verdict
+	) verdict ON true
 	WHERE current_job.id = $1 AND current.bot_id = $2 AND previous_job.status = 'done'
-		AND verdict.decision = 'defer' AND verdict.reason_code = 'awaiting_content'`, task.JobID, task.BotID)
+		AND verdict.decision = 'defer' AND verdict.reason_code = 'awaiting_content'
+		AND NOT EXISTS (
+			SELECT 1 FROM messages picked
+			JOIN message_jobs picked_job ON picked_job.incoming_message_id = picked.id
+			JOIN LATERAL (SELECT id, reason_code FROM intent_decisions WHERE job_id = picked_job.id ORDER BY id DESC LIMIT 1) picked_decision ON true
+			JOIN intent_decision_snapshots snap ON snap.decision_id = picked_decision.id
+			WHERE picked.conversation_id = current.conversation_id AND picked.bot_id = current.bot_id
+				AND picked.sender_id = current.sender_id AND picked.direction = 'incoming'
+				AND (picked.created_at, picked.id) > (previous.created_at, previous.id)
+				AND (picked.created_at, picked.id) < (current.created_at, current.id)
+				AND ((picked_decision.reason_code = 'awaited_content_received'
+					AND snap.input->'AwaitedRequest'->>'MessageID' = previous.platform_message_id::text)
+					OR (snap.input->'TopicChange'->>'Action' IN ('close', 'personal_exit')
+						AND snap.input->'TopicChange'->>'ID' = previous_job.id::text))
+				AND (picked_job.status = 'done' OR EXISTS (
+					SELECT 1 FROM agent_outbound_messages o WHERE o.job_id = picked_job.id AND o.status IN ('sent', 'unknown')
+				))
+		)
+	ORDER BY previous.created_at DESC, previous.id DESC LIMIT 1`, task.JobID, task.BotID)
 	if err != nil {
 		return nil, err
 	}

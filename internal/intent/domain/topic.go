@@ -41,8 +41,9 @@ type TopicChange struct {
 }
 
 type TopicJudgment struct {
-	Affinity float64
-	Action   string
+	Affinity        float64
+	AffinityMissing bool `json:",omitempty"`
+	Action          string
 }
 
 func TopicQuestionKey(index int) string {

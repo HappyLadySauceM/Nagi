@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,9 +122,9 @@ func (d *Decider) runtimeFor(ctx context.Context) RuntimeConfig {
 
 // currentBotName resolves the display name used to render prompt variables.
 // currentBotName 解析用于渲染 Prompt 变量的展示名。
-func (d *Decider) currentBotName() string {
-	if d.botNameNow != nil {
-		return d.botNameNow()
+func (d *Decider) currentBotName(botID int64) string {
+	if d.botNickname != nil {
+		return strings.TrimSpace(d.botNickname(botID))
 	}
 	return d.botName
 }
@@ -176,9 +177,9 @@ type Options struct {
 	BotName      string
 	// Dynamic optionally overrides the static values above per task.
 	// Dynamic 可选地按任务覆盖上面的静态取值。
-	Dynamic         RuntimeConfigProvider
-	BotNameProvider func() string
-	Logger          *slog.Logger
+	Dynamic     RuntimeConfigProvider
+	BotNickname func(botID int64) string
+	Logger      *slog.Logger
 }
 
 // Decider orchestrates rules, optional semantic judgment, reply policy and recording.
@@ -199,7 +200,7 @@ type Decider struct {
 	provider     string
 	model        string
 	botName      string
-	botNameNow   func() string
+	botNickname  func(botID int64) string
 	dynamic      RuntimeConfigProvider
 	logger       *slog.Logger
 }
@@ -218,7 +219,7 @@ func NewDecider(opts Options) (*Decider, error) {
 		semantic: opts.Semantic, prompts: opts.Prompts,
 		rules: opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
 		th: opts.Thresholds, historyLimit: opts.HistoryLimit,
-		provider: opts.Provider, model: opts.Model, botName: opts.BotName, botNameNow: opts.BotNameProvider, dynamic: opts.Dynamic, logger: opts.Logger,
+		provider: opts.Provider, model: opts.Model, botName: opts.BotName, botNickname: opts.BotNickname, dynamic: opts.Dynamic, logger: opts.Logger,
 	}, nil
 }
 
@@ -296,7 +297,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 			}
 		}
 	}
-	botName := d.currentBotName()
+	botName := d.currentBotName(task.BotID)
 	early := domain.Input{Task: task, BotName: botName, Policy: policy, AwaitedRequest: awaited}
 	topics, err := d.loadTopics(ctx, early, runtime)
 	if err != nil {
@@ -311,8 +312,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 				break
 			}
 		}
-		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task) ||
-			directNameCall(task.Message.Text, task.Segments, botName) && !refersToEarlierDiscussion(task) || requestsFollowingContent(early)) {
+		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task)) {
 			readHistory = false
 		}
 		if topics != nil && len(topics.Candidates) != 0 {
@@ -327,11 +327,18 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
 	rule, rulesetVersion, set := d.applyRules(ctx, in)
 	prompt := ScoreParticipationPrompt(d.participationPrompt(ctx, task, runtime, set, botName))
+	if question, ok := in.CallQuestion(); ok && rule.NeedSemantic && !rule.Blocked {
+		layer := domain.PromptLayer{Layer: domain.PromptLayerServerConstraints, Source: domain.CallQuestionKey, Version: 1,
+			Hash: domain.PromptTextHash(domain.CallQuestionText)}
+		prompt.Layers = append(prompt.Layers, layer)
+		prompt.FinalHash = domain.PromptTextHash(prompt.FinalHash + ":" + layer.Hash)
+		prompt.RenderedHash = domain.PromptTextHash(prompt.RenderedHash + ":" + question.Instructions)
+	}
 	prompt.ConversationID = task.ConversationID
 	in.Prompt = prompt
-	var semantic domain.SemanticAnswer
+	semantic := initialCallAddressing(in, rule)
 	var latency int64
-	asked := rule.NeedSemantic && !rule.Blocked && d.semantic != nil
+	asked := shouldAskSemantic(in, rule) && d.semantic != nil
 	if asked {
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 	}
@@ -342,7 +349,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Task: in.Task, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Input:    domain.SnapshotInput{Task: in.Task, BotName: in.BotName, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
 		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
 	}
 
@@ -384,6 +391,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		"RulesetVersion": decision.RulesetVersion,
 		"RunID":          decision.RunID,
 		"FlowVersion":    decision.FlowVersion,
+		"CallAddressing": callAddressingAudit(in, semantic),
 	}
 	if decision.Topic != nil {
 		auditDecision["Topic"] = decision.Topic
@@ -565,8 +573,12 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		"Comparisons":          semanticComparisons(semantic, decisionQuestions(rule), in.Task.Kind),
 		"LatencyMS":            latency,
 	}
+	semanticDetail["CallAddressing"] = callAddressingAudit(in, semantic)
 	if !asked {
 		semanticDetail["SkipReason"] = semanticSkipReason(rule)
+		if semantic.CallFailureCode == "name_unavailable" {
+			semanticDetail["SkipReason"] = semantic.CallFailureCode
+		}
 	}
 	steps = append(steps, domain.Step{
 		Index:       3,
@@ -834,6 +846,39 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 	return rule, version, selected
 }
 
+func shouldAskSemantic(in domain.Input, rule domain.RuleResult) bool {
+	return rule.NeedSemantic && !rule.Blocked && (!in.CallAddressingRequired() || in.BotName != "" || hasTopicCandidates(in))
+}
+
+func initialCallAddressing(in domain.Input, rule domain.RuleResult) domain.SemanticAnswer {
+	if !in.CallAddressingRequired() || rule.Blocked || in.MentionsBot() {
+		return domain.SemanticAnswer{}
+	}
+	reason := "semantic_unavailable"
+	if in.BotName == "" {
+		reason = "name_unavailable"
+	}
+	return domain.SemanticAnswer{CallAddressing: domain.CallUnknown, CallFailureCode: reason}
+}
+
+func callAddressingAudit(in domain.Input, answer domain.SemanticAnswer) map[string]any {
+	audit := map[string]any{"ExternalRequests": answer.ExternalRequests}
+	if in.CallAddressingRequired() {
+		audit["Question"] = domain.CallQuestionKey
+		audit["NameSource"] = "unavailable"
+		if in.BotName != "" {
+			audit["NameSource"] = "verified_account"
+		}
+		if answer.CallAddressing != "" {
+			audit["Result"] = answer.CallAddressing
+		}
+		if answer.CallFailureCode != "" {
+			audit["FailureCode"] = answer.CallFailureCode
+		}
+	}
+	return audit
+}
+
 // decideSemantic calls Jev inside its own span so the network latency, the
 // returned scores and the degradation are attributable. A failure yields an
 // unusable answer; it is never turned into a guessed decision.
@@ -873,12 +918,20 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 		// 语义不可用降级为仅规则决策，绝不臆测。
 		span.RecordError(err)
 		span.SetAttributes(attribute.Bool("nagi.jev_degraded", true))
+		unavailable := initialCallAddressing(in, rule)
+		unavailable.FailureCode = "semantic_unavailable"
+		unavailable.ExternalRequests = answer.ExternalRequests
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
-			"degraded":   true,
-			"latency_ms": latency,
+			"degraded": true, "latency_ms": latency, "call_addressing": callAddressingAudit(in, unavailable),
 		})
 		d.logger.Warn("semantic decision unavailable", "error", err, "job_id", in.Task.JobID)
-		return domain.SemanticAnswer{FailureCode: "semantic_unavailable"}, latency
+		return unavailable, latency
+	}
+	if initial := initialCallAddressing(in, rule); initial.CallAddressing != "" && answer.CallAddressing == "" {
+		answer.CallAddressing, answer.CallFailureCode = initial.CallAddressing, initial.CallFailureCode
+		if in.BotName != "" {
+			answer.CallFailureCode = "question_missing"
+		}
 	}
 	span.SetAttributes(
 		attribute.String("nagi.intent_category", answer.IntentCategory),
@@ -889,6 +942,8 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 	)
 	observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 		"intent_category":      answer.IntentCategory,
+		"call_addressing":      callAddressingAudit(in, answer),
+		"failure_code":         answer.FailureCode,
 		"directed_to_bot":      answer.DirectedToBot,
 		"continues_bot_thread": answer.ContinuesBotThread,
 		"addressed_to_other":   answer.AddressedToOther,
@@ -940,9 +995,9 @@ func tracer() trace.Tracer {
 // EvaluateSimulation 复用运行中的语义服务与阈值，不调用回复执行器。
 func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule domain.RuleResult, full bool) (domain.FinalDecision, []domain.Step) {
 	runtime := d.runtimeFor(ctx)
-	var semantic domain.SemanticAnswer
+	semantic := initialCallAddressing(in, rule)
 	var latency int64
-	called := full && rule.NeedSemantic && d.semantic != nil && !rule.Blocked
+	called := full && d.semantic != nil && shouldAskSemantic(in, rule)
 	if called {
 		in.Prompt = ScoreParticipationPrompt(in.Prompt)
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)

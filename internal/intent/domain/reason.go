@@ -3,6 +3,8 @@
 package domain
 
 var reasonText = map[string]string{
+	"semantic_direct_call":         "语义确认呼叫本机器人",
+	"call_addressing_uncertain":    "无法确认呼叫本机器人",
 	"awaiting_content":             "等待同一位发送人补充内容",
 	"awaited_content_received":     "已收到同一位发送人补充的内容",
 	"direct_name_call":             "直接呼叫机器人名称",

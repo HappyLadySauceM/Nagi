@@ -120,7 +120,8 @@ func TestParticipationDecisionBaseline(t *testing.T) {
 		},
 		{
 			name: "reply_quote", input: baselineGroupInput("你刚才说的那个呢？", baselineQuoteBot()),
-			wantDecision: domain.DecisionReply, wantReason: "explicit_mention", wantExplicit: true,
+			semantic:     domain.SemanticAnswer{Available: true, CallAddressing: domain.CallYes},
+			wantDecision: domain.DecisionReply, wantReason: "semantic_direct_call", wantExplicit: true, wantNeedSemantic: true,
 		},
 		{
 			name: "natural_follow_up", input: baselineGroupInput("那你觉得哪个更稳？", nil),
@@ -274,8 +275,9 @@ func TestParticipationBaselineRecordsRuleVersionAndFailure(t *testing.T) {
 // 计算，而不是另建一套。
 func TestParticipationBaselineSimulationMatchesPolicy(t *testing.T) {
 	in := baselineGroupInput("那你觉得哪个更稳？", nil)
+	in.BotName = "FixtureBot"
 	rule := EvaluateRules(in)
-	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.90, AddressedToOther: 0.10, IntentCategory: "chat"}}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, CallAddressing: domain.CallYes, ContinuesBotThread: 0.90, AddressedToOther: 0.10, IntentCategory: "chat"}}
 	recorder := &fakeRecorder{}
 	executor := &fakeExecutor{}
 	d := newDecider(t, Options{
@@ -283,7 +285,7 @@ func TestParticipationBaselineSimulationMatchesPolicy(t *testing.T) {
 		Thresholds: baselineThresholds, Provider: "jev", Model: "jev-latest",
 	})
 	final, steps := d.EvaluateSimulation(context.Background(), in, rule, true)
-	if final.Decision != domain.DecisionReply || final.ReasonCode != "active_thread_continuation" {
+	if final.Decision != domain.DecisionReply || final.ReasonCode != "semantic_direct_call" {
 		t.Fatalf("simulation decision = %+v", final)
 	}
 	if len(steps) != 5 || len(recorder.decisions) != 0 || len(executor.tasks) != 0 {
@@ -291,76 +293,20 @@ func TestParticipationBaselineSimulationMatchesPolicy(t *testing.T) {
 	}
 }
 
-func TestClusterGroupCalls(t *testing.T) {
-	base := baselineGroupInput("", nil)
-	base.BotName = "Nagi"
-	base.Policy.AllowHistoryRead = true
-	base.Recent = nil
-	base.Activity.Known = true
-
-	first := domain.Message{MessageID: 21, SenderID: 1, Text: "Nagi在吗？", CreatedAt: baselineNow}
-	second := domain.Message{MessageID: 22, SenderID: 1, Text: "有人嘛", CreatedAt: baselineNow.Add(20 * time.Second)}
-	third := domain.Message{MessageID: 23, SenderID: 1, Text: "大家好", CreatedAt: baselineNow.Add(29 * time.Second)}
-	answer := func(directed, continuation, other, join float64) domain.SemanticAnswer {
-		return domain.SemanticAnswer{Available: true, DirectedToBot: directed, ContinuesBotThread: continuation, AddressedToOther: other, AppropriateToJoin: join, Scores: map[string]float64{"intent": 0.02}}
-	}
-	for _, tc := range []struct {
-		name     string
-		msg      domain.Message
-		history  []domain.Message
-		semantic domain.SemanticAnswer
-		want     string
-	}{
-		{"cluster 21", first, []domain.Message{first, second}, answer(.07, .34, .24, .15), "direct_name_call"},
-		{"cluster 22", second, []domain.Message{first, second, third}, answer(.04, .28, .27, .18), "unanswered_call_followup"},
-		{"cluster 23", third, []domain.Message{first, second, third}, answer(.02, .11, .19, .21), "ambiguous"},
-		{"cluster 30", domain.Message{Text: "Nagi 是谁？"}, nil, answer(.41, .34, .23, .39), "direct_name_call"},
-		{"cluster 34", domain.Message{Text: "谁是Nagi？"}, nil, answer(.32, .26, .20, .34), "direct_name_call"},
-		{"lowercase suffix identity", domain.Message{Text: "谁是 nagi"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"cluster dinner trailing call", domain.Message{Text: "我饿了 今天吃什么啊 Nagi"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"lowercase trailing call", domain.Message{Text: "今天吃什么，nagi？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"trailing call after a preamble", domain.Message{Text: "我饿了，今天吃什么，nagi？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"trailing call after an imperative", domain.Message{Text: "帮我看一下这个报错，Nagi"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"different addressee before a trailing call", domain.Message{Text: "小王，你要点什么啊，Nagi"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"trailing name as object", domain.Message{Text: "你为什么部署了 Nagi？"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"trailing name addressed to another member", domain.Message{Text: "小王，你为什么部署了 Nagi？"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"trailing name in statement", domain.Message{Text: "我说的是 Nagi"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"name fragment", domain.Message{Text: "今天吃什么啊 Naginata"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"identity question to the group", domain.Message{Text: "你们知道谁是 Nagi 吗？"}, nil, answer(.32, .26, .20, .34), "ambiguous"},
-		{"cluster 33", domain.Message{Text: "nagi告诉我几点了"}, nil, answer(.71, .51, .18, .69), "direct_name_call"},
-		{"mixed case identity", domain.Message{Text: "NaGi，你是谁？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"bare lowercase name", domain.Message{Text: "nagi"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"polite lowercase request", domain.Message{Text: "nagi，请告诉我现在几点了？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"named request", domain.Message{Text: "Nagi，你觉得哪个方案更好？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"explanation request", domain.Message{Text: "Nagi，请解释一下这个报错"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"question particle without punctuation", domain.Message{Text: "Nagi，你能解释一下这个报错吗"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"question without punctuation", domain.Message{Text: "Nagi，你怎么看这个报错"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"question with a possessive", domain.Message{Text: "Nagi，你怎么看我的方案？"}, nil, domain.SemanticAnswer{}, "direct_name_call"},
-		{"statement with question words", domain.Message{Text: "Nagi，你怎么看都比它强。"}, nil, domain.SemanticAnswer{Available: true}, "ambiguous"},
-		{"statement about visibility", domain.Message{Text: "Nagi，你怎么看也看不清这张图。"}, nil, domain.SemanticAnswer{Available: true}, "ambiguous"},
-		{"advice to another person", domain.Message{Text: "Nagi 你可以从 GitHub 下载，小王"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"question addressed to the group", domain.Message{Text: "你们知道 Nagi 是谁吗？"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"reports speech", domain.Message{Text: "Nagi告诉我昨天停电了"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"answered", second, []domain.Message{first, {SenderID: 2, IsBot: true, Text: "在", CreatedAt: first.CreatedAt.Add(time.Second)}}, answer(.04, .28, .27, .18), "ambiguous"},
-		{"interrupted", second, []domain.Message{first, {SenderID: 2, Text: "有人", CreatedAt: first.CreatedAt.Add(time.Second)}}, answer(.04, .28, .27, .18), "ambiguous"},
-		{"late", domain.Message{SenderID: 1, Text: "有人吗", CreatedAt: first.CreatedAt.Add(31 * time.Second)}, []domain.Message{first}, answer(.04, .28, .27, .18), "ambiguous"},
-		{"name at start of a statement", domain.Message{SenderID: 1, Text: "Nagi：一个开源项目"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"ASCII name prefix", domain.Message{SenderID: 1, Text: "NagiHi"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
-		{"mention in prose", domain.Message{SenderID: 1, Text: "我刚部署了 Nagi"}, nil, answer(.04, .28, .27, .18), "ambiguous"},
+func TestNaturalCallsRequireSemanticEvidence(t *testing.T) {
+	for _, text := range []string{
+		"Nagi在吗？", "Nagi，你觉得哪个方案更好？", "今天吃什么，Nagi？", "Nagi告诉我昨天停电了",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			in := base
-			in.Task.Message, in.Recent = tc.msg, tc.history
-			rule := EvaluateRules(in)
-			got := EvaluateReplyPolicy(in, rule, tc.semantic)
-			if got.ReasonCode != tc.want || (tc.want != "ambiguous" && rule.NeedSemantic) {
-				t.Fatalf("decision=%+v rule=%+v want reason %s", got, rule, tc.want)
-			}
-		})
+		in := baselineGroupInput(text, []obdomain.Segment{obdomain.Text(text)})
+		in.BotName = "Nagi"
+		rule := EvaluateRules(in)
+		if decision := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{}); !rule.NeedSemantic || decision.ReasonCode != "jev_unavailable" {
+			t.Errorf("%q: rule=%+v decision=%+v", text, rule, decision)
+		}
 	}
 }
 
-func TestNameWakeWithImage(t *testing.T) {
+func TestNameMentionWithImage(t *testing.T) {
 	task := domain.Task{Segments: []obdomain.Segment{obdomain.Text("Nagi"), obdomain.Image("sample"), obdomain.Text("OK")}}
 	if !mentionsBotName(task, "Nagi") {
 		t.Fatal("image hid the name")
@@ -370,22 +316,13 @@ func TestNameWakeWithImage(t *testing.T) {
 		t.Fatal("image joined parts of a name")
 	}
 	task.Segments = []obdomain.Segment{obdomain.Text("Nagi"), obdomain.Image("sample"), obdomain.Text("Bot")}
-	if mentionsBotName(task, "Nagi Bot") || directNameCall("", task.Segments, "Nagi Bot") {
+	if mentionsBotName(task, "Nagi Bot") {
 		t.Fatal("image joined parts of a name containing a space")
 	}
-	for _, segments := range [][]obdomain.Segment{
-		{obdomain.Text("Nagi，帮我看看这张图"), obdomain.Image("sample")},
-		{obdomain.Text("Nagi，"), obdomain.Image("sample"), obdomain.Text("帮我看看这张图")},
-		{obdomain.Text("Nagi，你"), obdomain.Image("sample"), obdomain.Text("能帮我看看这张图吗？")},
-		{obdomain.Text("Nagi，你能解释这个吗"), obdomain.Image("sample"), obdomain.Text("！")},
-	} {
-		if !directNameCall("", segments, "Nagi") {
-			t.Fatal("image prevented a direct request")
-		}
-	}
+
 }
 
-func TestNameWakeDoesNotRequireReply(t *testing.T) {
+func TestNameMentionDoesNotRequireReply(t *testing.T) {
 	for _, tc := range []struct {
 		text string
 		want bool
@@ -407,14 +344,14 @@ func TestNameWakeDoesNotRequireReply(t *testing.T) {
 }
 
 func TestGroupWaitsForTheNamedSendersImage(t *testing.T) {
-	request := domain.Message{MessageID: 11, SenderID: 101, Text: "Nagi你能看看我下面发的这个内容嘛？"}
+	request := domain.Message{MessageID: 11, SenderID: 101, Text: "Nagi你能看看我下面发的图片嘛？"}
 	input := domain.Input{
 		BotName:  "Nagi",
 		Policy:   scopedomain.Policy{Enabled: true, AllowHistoryRead: true, ReplyMode: scopedomain.ModeIntentBased},
 		Activity: domain.BotActivity{Known: true},
 		Task:     domain.Task{Kind: "group", BotID: 900, Message: request},
 	}
-	decision := EvaluateReplyPolicy(input, EvaluateRules(input), domain.SemanticAnswer{})
+	decision := EvaluateReplyPolicy(input, EvaluateRules(input), domain.SemanticAnswer{Available: true, CallAddressing: domain.CallYes})
 	if decision.Decision != domain.DecisionDefer || decision.ReasonCode != "awaiting_content" {
 		t.Fatalf("request decision = %+v", decision)
 	}
@@ -424,7 +361,7 @@ func TestGroupWaitsForTheNamedSendersImage(t *testing.T) {
 	input.Task.Message = domain.Message{MessageID: 13, SenderID: request.SenderID}
 	input.Task.Segments = []obdomain.Segment{obdomain.Image("requested")}
 	input.AwaitedRequest = &request
-	decision = EvaluateReplyPolicy(input, EvaluateRules(input), domain.SemanticAnswer{})
+	decision = EvaluateReplyPolicy(input, EvaluateRules(input), domain.SemanticAnswer{Available: true, CallAddressing: domain.CallUncertain})
 	if decision.Decision != domain.DecisionReply || decision.ReasonCode != "awaited_content_received" {
 		t.Fatalf("image decision = %+v", decision)
 	}
@@ -455,13 +392,17 @@ func TestAwaitedContentUsesCorrectReferenceAndContentType(t *testing.T) {
 		t.Fatal("image quoting a different message matched")
 	}
 	request.Text = "Nagi你能看看我下面发的文字嘛？"
-	input.Task.Segments = []obdomain.Segment{obdomain.Text("这是需要你查看的完整说明。")}
+	input.Task.Segments = []obdomain.Segment{obdomain.Text("文字：这是需要你查看的完整说明。")}
 	if !awaitingReply(input) {
 		t.Fatal("text did not match the pre-announced text request")
 	}
-	input.Task.Segments = []obdomain.Segment{obdomain.Reply(11), obdomain.Text("选 B")}
+	input.Task.Segments = []obdomain.Segment{obdomain.Reply(11), obdomain.Text("稍等一下")}
+	if awaitingReply(input) {
+		t.Fatal("a quote without the awaited material consumed the wait")
+	}
+	input.Task.Segments[1] = obdomain.Text("文字：选 B")
 	if !awaitingReply(input) {
-		t.Fatal("short text quoting the request did not match")
+		t.Fatal("labeled text quoting the request did not match")
 	}
 }
 
@@ -534,6 +475,147 @@ func TestGroupTopicParticipation(t *testing.T) {
 						t.Fatalf("mixed parallel histories: %+v", history)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestCallAddressingControlsParticipationAndWaiting(t *testing.T) {
+	const requestID = 51
+	for _, tc := range []struct {
+		name     string
+		call     domain.CallAddressing
+		text     string
+		segments []obdomain.Segment
+		withWait bool
+		end      bool
+		want     string
+	}{
+		{"unlisted call", domain.CallYes, "薄荷，劳驾指出哪里还没说明白", nil, false, false, "semantic_direct_call"},
+		{"reported speech", domain.CallNo, "小陈说薄荷答得好", nil, false, false, "addressed_to_other"},
+		{"uncertain high old scores", domain.CallUncertain, "这话怎么说", nil, false, false, "call_addressing_uncertain"},
+		{"new wait", domain.CallYes, "薄荷，我下面发个截图", nil, false, false, "awaiting_content"},
+		{"missing picture now", domain.CallYes, "薄荷，你认得这张图吗", nil, false, false, "semantic_direct_call"},
+		{"supplement", domain.CallUncertain, "", []obdomain.Segment{obdomain.Image("fixture")}, true, false, "awaited_content_received"},
+		{"explicitly for someone else", domain.CallUncertain, "", []obdomain.Segment{obdomain.At(42), obdomain.Image("fixture")}, true, false, "addressed_to_other"},
+		{"natural no preserves wait", domain.CallNo, "小陈看图", []obdomain.Segment{obdomain.Image("fixture")}, true, false, "addressed_to_other"},
+		{"topic close beats call", domain.CallYes, "薄荷，结束这个话题", baselineQuoteBot(), false, true, "topic_close"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baselineGroupInput(tc.text, tc.segments)
+			in.BotName, in.Policy.AllowHistoryRead = "薄荷", true
+			in.Task.Message.CreatedAt = baselineNow
+			if tc.withWait {
+				in.AwaitedRequest = &domain.Message{MessageID: requestID, SenderID: in.Task.Message.SenderID, Text: "我下面发截图", CreatedAt: baselineNow.Add(-time.Second)}
+			}
+			answer := domain.SemanticAnswer{Available: true, CallAddressing: tc.call, DirectedToBot: .12, AppropriateToJoin: .99}
+			if tc.end {
+				in.Topics = &domain.TopicContext{QuotedID: 2, QuotedBot: true, Candidates: []domain.TopicCandidate{{ID: 2, Active: true}}}
+				answer.TopicJudgments = []domain.TopicJudgment{{Affinity: .98, Action: domain.TopicClose}}
+			}
+			got := evaluateTopicDecision(in, EvaluateRules(in), answer)
+			if got.ReasonCode != tc.want || tc.end && (got.Topic == nil || got.Topic.Action != domain.TopicClose) {
+				t.Fatalf("decision = %+v, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTextWaitRequiresEvidenceAndAnnotatedImageCanClose(t *testing.T) {
+	in := baselineGroupInput("今天办公室里好冷", nil)
+	in.BotName, in.Policy.AllowHistoryRead = "薄荷", true
+	in.Task.Message.CreatedAt = baselineNow
+	in.AwaitedRequest = &domain.Message{MessageID: 123, SenderID: in.Task.Message.SenderID, Text: "我稍后发日志", CreatedAt: baselineNow.Add(-time.Second)}
+	semantic := domain.SemanticAnswer{Available: true, CallAddressing: domain.CallUncertain}
+	if got := evaluateTopicDecision(in, EvaluateRules(in), semantic); got.ReasonCode != "call_addressing_uncertain" {
+		t.Fatalf("chatter consumed wait: %+v", got)
+	}
+	in.Task.Message.Text = "日志：INFO connection closed"
+	if got := evaluateTopicDecision(in, EvaluateRules(in), semantic); got.ReasonCode != "awaited_content_received" {
+		t.Fatalf("labeled log missed wait: %+v", got)
+	}
+	in.AwaitedRequest.Text = "我稍后发截图"
+	in.Task.Segments = append(baselineAtBot(), obdomain.Image("fixture"), obdomain.Text("不用分析了，结束这个话题"))
+	in.Topics = &domain.TopicContext{QuotedID: 2, Candidates: []domain.TopicCandidate{{ID: 2, Active: true, Waiting: true}}}
+	rule := EvaluateRules(in)
+	if !needsTopicSemantic(in, rule) {
+		t.Fatal("annotated supplement skipped topic classification")
+	}
+	semantic.TopicJudgments = []domain.TopicJudgment{{Affinity: .96, Action: domain.TopicClose}}
+	if got := evaluateTopicDecision(in, rule, semantic); got.Decision != domain.DecisionSilent || got.Topic == nil || got.Topic.Action != domain.TopicClose {
+		t.Fatalf("closing image renewed topic: %+v", got)
+	}
+}
+
+func TestQuotedWaitExitDoesNotRequireMaterial(t *testing.T) {
+	for _, tc := range []struct {
+		name, action string
+		quoteSender  int64
+		call         domain.CallAddressing
+		wantExit     bool
+	}{
+		{"close", domain.TopicClose, 77, domain.CallUncertain, true},
+		{"personal exit", domain.TopicLeave, 77, domain.CallUncertain, true},
+		{"other sender", domain.TopicClose, 78, domain.CallUncertain, false},
+		{"opposite addressing", domain.TopicClose, 77, domain.CallNo, false},
+		{"ordinary supplement", domain.TopicContribution, 77, domain.CallUncertain, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "不用看了，结束这个话题"
+			switch tc.action {
+			case domain.TopicContribution:
+				text = "稍等一下"
+			case domain.TopicLeave:
+				text = "我自己退出这个话题"
+			}
+			in := baselineGroupInput(text, []obdomain.Segment{obdomain.Reply(51), obdomain.Text(text)})
+			in.BotName, in.Policy.AllowHistoryRead = "薄荷", true
+			in.Task.Message.SenderID, in.Task.Message.CreatedAt = 77, baselineNow
+			in.AwaitedRequest = &domain.Message{MessageID: 52, SenderID: 77, Text: "我稍后发日志", CreatedAt: baselineNow.Add(-time.Second)}
+			in.Topics = &domain.TopicContext{
+				QuotedID:   2,
+				Reference:  &domain.Message{MessageID: 51, SenderID: tc.quoteSender, Text: "我稍后发日志", CreatedAt: baselineNow.Add(-2 * time.Second)},
+				Candidates: []domain.TopicCandidate{{ID: 2, Active: true, Waiting: true}, {ID: 3, Active: true}},
+			}
+			sem := domain.SemanticAnswer{Available: true, CallAddressing: tc.call, TopicJudgments: []domain.TopicJudgment{
+				{AffinityMissing: true, Action: tc.action}, {Affinity: .99, Action: domain.TopicClose},
+			}}
+			rule := EvaluateRules(in)
+			if awaitingReply(in) || !needsTopicSemantic(in, rule) {
+				t.Fatal("quote without material should request a topic judgment without resuming the wait")
+			}
+			got := evaluateTopicDecision(in, rule, sem)
+			if got.Decision != domain.DecisionSilent || (got.Topic != nil) != tc.wantExit ||
+				got.Topic != nil && (got.Topic.ID != 2 || got.Topic.Action != tc.action || got.Topic.Source != "quote" || got.Topic.Waiting) {
+				t.Fatalf("decision = %+v, topic = %+v", got, got.Topic)
+			}
+		})
+	}
+}
+
+func TestUnquotedTopicExitNeedsAllCompetingScores(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		competitor []domain.TopicJudgment
+		wantClose  bool
+	}{
+		{"missing score", []domain.TopicJudgment{{AffinityMissing: true, Action: "other"}}, false},
+		{"missing judgment", nil, false},
+		{"explicit zero", []domain.TopicJudgment{{Affinity: 0, Action: "other"}}, true},
+		{"complete scores", []domain.TopicJudgment{{Affinity: .65, Action: "other"}}, true},
+		{"close competition", []domain.TopicJudgment{{Affinity: .92, Action: "other"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baselineGroupInput("不用看了，结束这个话题", nil)
+			in.BotName, in.Policy.AllowHistoryRead = "薄荷", true
+			in.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 1, Active: true}, {ID: 2, Active: true}}}
+			sem := domain.SemanticAnswer{Available: true, CallAddressing: domain.CallUncertain, TopicJudgments: append(
+				[]domain.TopicJudgment{{Affinity: .97, Action: domain.TopicClose}}, tc.competitor...),
+			}
+			got := evaluateTopicDecision(in, EvaluateRules(in), sem)
+			if got.Decision != domain.DecisionSilent || (got.Topic != nil) != tc.wantClose ||
+				got.Topic != nil && (got.Topic.ID != 1 || got.Topic.Action != domain.TopicClose) {
+				t.Fatalf("decision = %+v, topic = %+v", got, got.Topic)
 			}
 		})
 	}

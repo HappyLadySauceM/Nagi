@@ -214,7 +214,7 @@ func TestProcessTaskGatesHistoryOnPolicy(t *testing.T) {
 	history := &fakeHistory{messages: []domain.Message{}}
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, ContinuesBotThread: 0.9, AddressedToOther: 0.1, IntentCategory: "chat"}}
 	d := newDecider(t, Options{Scopes: &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
-		History: history, Semantic: semantic, Recorder: &fakeRecorder{}, Thresholds: thresholds})
+		History: history, Semantic: semantic, BotName: "FixtureBot", Recorder: &fakeRecorder{}, Thresholds: thresholds})
 
 	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
 		t.Fatalf("process: %v", err)
@@ -231,7 +231,7 @@ func TestProcessTaskGatesHistoryOnPolicy(t *testing.T) {
 	policy.AllowHistoryRead = false
 	history2 := &fakeHistory{}
 	d2 := newDecider(t, Options{Scopes: &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
-		History: history2, Semantic: semantic, Recorder: &fakeRecorder{}, Thresholds: thresholds})
+		History: history2, Semantic: semantic, BotName: "FixtureBot", Recorder: &fakeRecorder{}, Thresholds: thresholds})
 	if err := d2.ProcessTask(context.Background(), groupTask()); err != nil {
 		t.Fatalf("process 2: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestProcessTaskDegradesWithoutSemantic(t *testing.T) {
 	recorder := &fakeRecorder{}
 	executor := &fakeExecutor{}
 	d := newDecider(t, Options{Scopes: &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(100, "group", 700): policy}},
-		Semantic: &fakeSemantic{err: context.DeadlineExceeded}, Recorder: recorder, Executor: executor, Thresholds: thresholds})
+		Semantic: &fakeSemantic{err: context.DeadlineExceeded}, BotName: "FixtureBot", Recorder: recorder, Executor: executor, Thresholds: thresholds})
 
 	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
 		t.Fatalf("process: %v", err)
@@ -360,7 +360,7 @@ func TestProcessTaskRecordsExplainableSteps(t *testing.T) {
 	}
 	recorder.decisions = nil
 	semantic := &fakeSemantic{}
-	d = newDecider(t, Options{Scopes: scopes, Semantic: semantic, Recorder: recorder, Thresholds: thresholds, Provider: "jev", Model: "jev-latest"})
+	d = newDecider(t, Options{Scopes: scopes, Semantic: semantic, BotName: "FixtureBot", Recorder: recorder, Thresholds: thresholds, Provider: "jev", Model: "jev-latest"})
 	if err := d.ProcessTask(context.Background(), groupTask()); err != nil {
 		t.Fatalf("process with semantics: %v", err)
 	}
@@ -438,11 +438,12 @@ func TestProcessTaskStopsWhenDecisionRecordingFails(t *testing.T) {
 }
 
 func TestSemanticSimulationNeverRecordsOrExecutesReply(t *testing.T) {
-	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, DirectedToBot: 0.9}}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, CallAddressing: domain.CallYes, DirectedToBot: 0.12}}
 	recorder := &fakeRecorder{}
 	executor := &fakeExecutor{}
 	d := newDecider(t, Options{Scopes: &fakeScopes{}, Semantic: semantic, Recorder: recorder, Executor: executor, Thresholds: thresholds, Provider: "test-local", Model: "decision-model"})
 	in := baseInput(scopedomain.ModeIntentBased)
+	in.BotName = "FixtureBot"
 	rule, _ := EvaluateRuleChain(in, nil, nil)
 	final, steps := d.EvaluateSimulation(context.Background(), in, rule, true)
 	if final.Decision != domain.DecisionReply || semantic.calls != 1 || len(steps) != 5 {
@@ -682,11 +683,9 @@ func TestProcessTaskUsesPolicyVersionQuestions(t *testing.T) {
 	}
 }
 
-// TestProcessTaskSkipsSemanticWhenPolicyQuestionsEmpty verifies an active
-// ruleset with no questions does not ask the standard prompt or the model.
-// TestProcessTaskSkipsSemanticWhenPolicyQuestionsEmpty 验证生效规则集没有问题时，
-// 不再使用标准 Prompt，也不调用模型。
-func TestProcessTaskSkipsSemanticWhenPolicyQuestionsEmpty(t *testing.T) {
+// TestProcessTaskAsksCallWhenPolicyQuestionsEmpty verifies that the runtime question survives an empty ruleset.
+// TestProcessTaskAsksCallWhenPolicyQuestionsEmpty 验证空规则集仍保留运行时寻址题。
+func TestProcessTaskAsksCallWhenPolicyQuestionsEmpty(t *testing.T) {
 	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
 		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
 	rules := &fakeRules{sets: map[string]domain.Ruleset{
@@ -708,8 +707,8 @@ func TestProcessTaskSkipsSemanticWhenPolicyQuestionsEmpty(t *testing.T) {
 	if prompts.calls != 0 {
 		t.Fatalf("prompts calls = %d, want no standard prompt", prompts.calls)
 	}
-	if semantic.calls != 0 {
-		t.Fatalf("semantic calls = %d, want none", semantic.calls)
+	if semantic.calls != 1 {
+		t.Fatalf("semantic calls = %d, want one", semantic.calls)
 	}
 }
 
@@ -727,10 +726,11 @@ func TestCustomDecisionQuestionUsesItsOwnThreshold(t *testing.T) {
 		Semantic: semantic, Recorder: &fakeRecorder{}, Thresholds: thresholds, Provider: "jev", Model: "jev-latest",
 	})
 	in := baseInput(scopedomain.ModeIntentBased)
+	in.Task.Kind = "private"
 	rule := EvaluateRules(in)
 	rule.Questions = map[string]domain.PromptQuestion{
 		"urgency": {Type: "noul", Role: domain.QuestionRoleCustom, Weight: 1, Instructions: "是否紧急？",
-			Order: 10, Threshold: 0.80, Action: domain.ActionReply, Scope: domain.QuestionScopeGroup},
+			Order: 10, Threshold: 0.80, Action: domain.ActionReply, Scope: domain.QuestionScopePrivate},
 	}
 	if !rule.NeedSemantic {
 		t.Fatalf("rules = %+v, want semantic path", rule)
@@ -743,8 +743,8 @@ func TestCustomDecisionQuestionUsesItsOwnThreshold(t *testing.T) {
 
 	semantic.answer.Scores["urgency"] = 0.50
 	low, _ := d.EvaluateSimulation(context.Background(), in, rule, true)
-	if low.Decision != domain.DecisionSilent || low.ReasonCode != "ambiguous" {
-		t.Fatalf("low score decision = %+v, want silent/ambiguous", low)
+	if low.Decision != domain.DecisionReply || low.ReasonCode != "private_normal" {
+		t.Fatalf("low score decision = %+v, want reply/private_normal", low)
 	}
 }
 
@@ -757,7 +757,7 @@ func TestParticipationScoreFallbackSkippedForDefaultQuestions(t *testing.T) {
 	policy := scopedomain.Policy{ScopeType: scopedomain.ScopeGroup, ScopeID: 700, Enabled: true,
 		ReplyMode: scopedomain.ModeIntentBased, MinReplyIntervalMS: 0, MaxRepliesPerHour: 0}
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{
-		Available: true, HasParticipation: true, ParticipationScore: 0.90,
+		Available: true, CallAddressing: domain.CallUncertain, HasParticipation: true, ParticipationScore: 0.90,
 		RolePresent: map[string]bool{"directed_to_bot": false},
 	}}
 	lowThresholds := domain.Thresholds{Continuation: 0.80, Interjection: 0.01, AddressedOtherMax: 0.60}
@@ -768,13 +768,14 @@ func TestParticipationScoreFallbackSkippedForDefaultQuestions(t *testing.T) {
 	// Default five standard questions: no custom noul question present.
 	in := baseInput(scopedomain.ModeIntentBased)
 	in.Prompt = domain.BuiltinPrompt(domain.PromptProviderJev)
+	in.BotName = "FixtureBot"
 	rule := EvaluateRules(in)
 	if !rule.NeedSemantic {
 		t.Fatalf("rules = %+v, want semantic path", rule)
 	}
 	final, _ := d.EvaluateSimulation(context.Background(), in, rule, true)
-	if final.Decision != domain.DecisionSilent || final.ReasonCode != "ambiguous" {
-		t.Fatalf("default questions with low threshold = %+v, want silent/ambiguous", final)
+	if final.Decision != domain.DecisionSilent || final.ReasonCode != "call_addressing_uncertain" {
+		t.Fatalf("default questions with low threshold = %+v, want silent/call_addressing_uncertain", final)
 	}
 }
 
@@ -798,12 +799,12 @@ func (e *contextCapturingExecutor) ExecuteReply(_ context.Context, _ domain.Task
 
 func TestProcessTaskUsesOnlyAwaitedContextForImage(t *testing.T) {
 	task := groupTask()
-	task.Message.Text = "Nagi你能看看我下面发的这个内容嘛？"
+	task.Message.Text = "Nagi你能看看我下面发的图片嘛？"
 	otherImage := domain.Message{MessageID: 5002, SenderID: 201, Segments: []obdomain.Segment{obdomain.Image("other")}}
 	history := &fakeHistory{messages: []domain.Message{task.Message, otherImage}}
 	recorder := &awaitingRecorder{prior: task.Message}
 	executor := &contextCapturingExecutor{}
-	semantic := &fakeSemantic{}
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, CallAddressing: domain.CallYes}}
 	decider := newDecider(t, Options{
 		BotName: "Nagi", History: history, Semantic: semantic, Recorder: recorder, Executor: executor,
 		Activity: &fakeActivity{},
@@ -823,6 +824,7 @@ func TestProcessTaskUsesOnlyAwaitedContextForImage(t *testing.T) {
 		t.Fatal("pre-announced request generated a reply before the image arrived")
 	}
 	task.JobID++
+	semantic.answer.CallAddressing = domain.CallUncertain
 	task.Message = domain.Message{MessageID: 5003, SenderID: task.Message.SenderID}
 	task.Segments = []obdomain.Segment{obdomain.Image("requested")}
 	if err := decider.ProcessTask(context.Background(), task); err != nil {
@@ -831,8 +833,8 @@ func TestProcessTaskUsesOnlyAwaitedContextForImage(t *testing.T) {
 	if got := recorder.decisions[1]; got.ReasonCode != "awaited_content_received" {
 		t.Fatalf("image decision = %+v", got)
 	}
-	if history.limit != 0 || semantic.calls != 0 {
-		t.Fatalf("full history or semantic service used: history limit=%d, calls=%d", history.limit, semantic.calls)
+	if semantic.calls != 2 || len(semantic.input.Recent) != 0 || semantic.input.AwaitedRequest == nil {
+		t.Fatalf("supplement context or calls = %+v, %d", semantic.input, semantic.calls)
 	}
 	if len(executor.histories) != 1 || len(executor.histories[0]) != 1 || executor.histories[0][0].MessageID != recorder.prior.MessageID {
 		t.Fatalf("generation context = %+v", executor.histories)

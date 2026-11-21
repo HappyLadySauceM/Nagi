@@ -47,8 +47,12 @@ func topicRuleInput(in domain.Input) (domain.Input, bool) {
 	return in, false
 }
 
+func hasTopicCandidates(in domain.Input) bool {
+	return in.Topics != nil && len(in.Topics.Candidates) != 0
+}
+
 func needsTopicSemantic(in domain.Input, rule domain.RuleResult) bool {
-	if in.Topics == nil || len(in.Topics.Candidates) == 0 || rule.Blocked || rule.WaitForContent || awaitingReply(in) {
+	if in.Topics == nil || len(in.Topics.Candidates) == 0 || rule.Blocked || rule.WaitForContent {
 		return false
 	}
 	_, text := supplementContents(in.Task)
@@ -59,12 +63,22 @@ func selectTopic(in domain.Input, semantic domain.SemanticAnswer) (*domain.Topic
 	if in.Topics.QuotedID != 0 {
 		for i := range in.Topics.Candidates {
 			candidate := &in.Topics.Candidates[i]
-			if candidate.ID == in.Topics.QuotedID && (!candidate.Waiting || awaitingReply(in)) {
-				if awaitingReply(in) {
-					return candidate, "supplement"
-				}
+			if candidate.ID != in.Topics.QuotedID {
+				continue
+			}
+			if !candidate.Waiting {
 				return candidate, "quote"
 			}
+			if awaitingReply(in) {
+				return candidate, "supplement"
+			}
+			if candidate.Active && semantic.Available && i < len(semantic.TopicJudgments) && quotesOwnWait(in) {
+				switch semantic.TopicJudgments[i].Action {
+				case domain.TopicLeave, domain.TopicClose:
+					return candidate, "quote"
+				}
+			}
+			return nil, ""
 		}
 	}
 	if !semantic.Available {
@@ -77,8 +91,8 @@ func selectTopic(in domain.Input, semantic domain.SemanticAnswer) (*domain.Topic
 		if !candidate.Active || candidate.Waiting {
 			continue
 		}
-		if i >= len(semantic.TopicJudgments) {
-			continue
+		if i >= len(semantic.TopicJudgments) || semantic.TopicJudgments[i].AffinityMissing {
+			return nil, ""
 		}
 		score := semantic.TopicJudgments[i].Affinity
 		if score > highest {
@@ -91,6 +105,19 @@ func selectTopic(in domain.Input, semantic domain.SemanticAnswer) (*domain.Topic
 		return nil, ""
 	}
 	return best, "semantic"
+}
+
+func quotesOwnWait(in domain.Input) bool {
+	previous := in.Topics.Reference
+	if previous == nil || previous.IsBot || previous.SenderID != in.Task.Message.SenderID || previous.MessageID == 0 {
+		return false
+	}
+	for _, segment := range in.Task.Segments {
+		if segment.Type == ob.SegReply {
+			return segment.Data["id"] == strconv.FormatInt(previous.MessageID, 10)
+		}
+	}
+	return false
 }
 
 func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic domain.SemanticAnswer) domain.FinalDecision {
@@ -109,19 +136,22 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 			}
 		}
 	}
-	directed := rule.Explicit || rule.ForceReply && rule.ForceReason != "unanswered_call_followup"
+	directed := rule.Explicit || rule.ForceReply || semantic.CallAddressing == domain.CallYes || decision.ReasonCode == "awaited_content_received"
 	if addressesOther(in) && !in.MentionsBot() && !rule.AlwaysReply {
 		return withScores(domain.DecisionSilent, "addressed_to_other", decisionScores(semantic))
 	}
 	if candidate != nil && candidate.Active {
 		switch action {
 		case domain.TopicLeave, domain.TopicClose:
+			if candidate.Waiting && semantic.CallAddressing == domain.CallNo {
+				return decision
+			}
 			decision = withScores(domain.DecisionSilent, "topic_"+action, decisionScores(semantic))
 			decision.Topic = &domain.TopicChange{ID: candidate.ID, Action: action, Source: source,
-				ExpiresAt: candidate.ExpiresAt, Waiting: candidate.Waiting}
+				ExpiresAt: candidate.ExpiresAt}
 			return decision
 		case domain.TopicFollowUp, domain.TopicContribution:
-			if decision.ReasonCode != "addressed_to_other" {
+			if decision.Decision == domain.DecisionReply || semantic.CallAddressing == "" && decision.Decision == domain.DecisionSilent && decision.ReasonCode != "addressed_to_other" {
 				if !directed {
 					decision = withScores(domain.DecisionReply, "active_thread_continuation", decisionScores(semantic))
 				}
@@ -136,7 +166,7 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 			return decision
 		}
 	}
-	if cooldown {
+	if cooldown && (decision.Decision == domain.DecisionReply || decision.Decision == domain.DecisionDefer) {
 		return silent("cooldown")
 	}
 	if !directed && decision.ReasonCode == "active_thread_continuation" {
@@ -185,7 +215,7 @@ func topicReplyHistory(in domain.Input, decision domain.FinalDecision) []domain.
 	if decision.Topic != nil && decision.Topic.Action != "opened" && decision.Topic.Action != "waiting" {
 		for _, candidate := range in.Topics.Candidates {
 			if candidate.ID == decision.Topic.ID {
-				if awaitingReply(in) && len(candidate.History) == 0 {
+				if decision.ReasonCode == "awaited_content_received" && len(candidate.History) == 0 {
 					break
 				}
 				if in.Topics.Reference != nil && len(in.Topics.Reference.Segments) > 0 {
@@ -200,6 +230,9 @@ func topicReplyHistory(in domain.Input, decision domain.FinalDecision) []domain.
 				return candidate.History
 			}
 		}
+	}
+	if decision.ReasonCode == "awaited_content_received" && awaitingReply(in) {
+		return replyHistory(in, decision.ReasonCode)
 	}
 	if in.Topics != nil && decision.Topic != nil && decision.Topic.Action == "opened" {
 		if in.Topics.Reference != nil {

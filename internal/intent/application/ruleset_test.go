@@ -108,7 +108,7 @@ func TestEmptyQuestionListDoesNotClaimAmbiguousSemantic(t *testing.T) {
 	in := baseInput(scopedomain.ModeIntentBased)
 	rule, _ := EvaluateRuleChain(in, &domain.Ruleset{ID: 2, Version: 3}, nil)
 	got := EvaluateReplyPolicy(in, rule, domain.SemanticAnswer{})
-	if got.Decision != domain.DecisionSilent || got.ReasonCode != "no_decision_question" {
+	if got.Decision != domain.DecisionSilent || got.ReasonCode != "jev_unavailable" {
 		t.Fatalf("empty group questions = %+v", got)
 	}
 	in.Task.Kind = "private"
@@ -124,7 +124,7 @@ func TestRuleChainSpecificReplacesGlobalQuestions(t *testing.T) {
 	global := domain.Ruleset{ID: 1, Version: 2, Questions: domain.DefaultDecisionQuestions()}
 	specific := domain.Ruleset{ID: 2, Version: 3}
 	rule, version := EvaluateRuleChain(in, &specific, &global)
-	if version != "scope:2@3" || rule.NeedSemantic || len(rule.Questions) != 0 {
+	if version != "scope:2@3" || !rule.NeedSemantic || len(rule.Questions) != 0 {
 		t.Fatalf("empty specific set = %+v %s", rule, version)
 	}
 	specific.Questions = domain.DefaultDecisionQuestions()

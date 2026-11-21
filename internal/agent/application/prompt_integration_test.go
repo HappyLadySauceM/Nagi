@@ -33,6 +33,9 @@ func TestBuildMessagesConsumesChatPrompt(t *testing.T) {
 	if !strings.Contains(messages[0].Content, "回答用一句话") || strings.Contains(messages[0].Content, intentdomain.DefaultReplyStyle) {
 		t.Fatal("use the published reply style")
 	}
+	if !strings.Contains(messages[0].Content, "请简短询问用户或请对方补发") {
+		t.Fatal("reply prompt must request clarification when necessary material is missing")
+	}
 	if replyPrompt.RenderedHash != intentdomain.PromptTextHash(messages[0].Content) {
 		t.Fatal("reply prompt hash must match the system content passed to the model")
 	}

@@ -2,6 +2,7 @@ package svc
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ type AccountConnection struct {
 
 	mu       sync.RWMutex
 	rejected string
+	nickname string
 }
 
 // NewAccountConnection binds an endpoint to its client.
@@ -52,6 +54,44 @@ func (c *AccountConnection) Rejected() string {
 func (c *AccountConnection) BotID() (int64, bool) {
 	id, ok := c.Client.SelfID()
 	return int64(id), ok
+}
+
+// SetVerifiedNickname only stores a nickname for this connection's bound account.
+// SetVerifiedNickname 只保存本连接已绑定账号的昵称。
+func (c *AccountConnection) SetVerifiedNickname(botID int64, nickname string) {
+	id, bound := c.BotID()
+	if !bound || id != botID || c.ExpectedQQ != 0 && c.ExpectedQQ != botID {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rejected == "" {
+		c.nickname = strings.TrimSpace(nickname)
+	}
+}
+
+// BotNickname reads the nickname of the account bound to the inbound bot ID.
+// BotNickname 按入站账号 ID 读取已绑定账号的昵称。
+func (a *Accounts) BotNickname(botID int64) string {
+	var nickname string
+	matched := false
+	for _, conn := range a.List() {
+		id, bound := conn.BotID()
+		if !bound || id != botID {
+			continue
+		}
+		conn.mu.RLock()
+		name, rejected := conn.nickname, conn.rejected != ""
+		conn.mu.RUnlock()
+		if rejected || conn.ExpectedQQ != 0 && conn.ExpectedQQ != id {
+			continue
+		}
+		if matched {
+			return ""
+		}
+		nickname, matched = name, true
+	}
+	return nickname
 }
 
 // Connected reports the transport state of this endpoint only.

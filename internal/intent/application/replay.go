@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"github.com/google/uuid"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
@@ -150,11 +151,12 @@ func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confi
 	if err != nil {
 		return contracts.Run{}, err
 	}
-	rule := snapshot.Rule
+	rule := replayRule(in, snapshot.Rule)
 	runtime := s.decider.runtimeFor(ctx)
-	semantic := domain.SemanticAnswer{Available: false, FailureCode: "semantic_unavailable"}
+	semantic := initialCallAddressing(in, rule)
+	semantic.FailureCode = "semantic_unavailable"
 	latency := int64(0)
-	asked := rule.NeedSemantic && !rule.Blocked && s.decider.semantic != nil
+	asked := shouldAskSemantic(in, rule) && s.decider.semantic != nil
 	if confirmed != nil && (runtime.Provider != confirmed.Provider || runtime.Model != confirmed.Model ||
 		replayRequestCount(runtime.Provider, asked, in.Topics) != confirmed.EstimatedExternalRequests) {
 		return contracts.Run{}, ErrReplayConfirmationStale
@@ -358,7 +360,7 @@ func (s *ReplayService) modelReplayParameters(ctx context.Context, decisionID in
 		if err != nil {
 			return contracts.ReplayParameters{}, err
 		}
-		requests = replayRequestCount(runtime.Provider, true, in.Topics)
+		requests = replayRequestCount(runtime.Provider, shouldAskSemantic(in, replayRule(in, snapshot.Rule)), in.Topics)
 	}
 	return contracts.ReplayParameters{
 		Provider: runtime.Provider, Model: runtime.Model,
@@ -392,6 +394,15 @@ func (s *ReplayService) consumeConfirmation(ctx context.Context, decisionID int6
 		return contracts.ReplayParameters{}, ErrReplayConfirmationStale
 	}
 	return params, nil
+}
+
+func replayRule(in domain.Input, frozen domain.RuleResult) domain.RuleResult {
+	in, _ = topicRuleInput(in)
+	if current := EvaluateRules(in); current.Blocked {
+		frozen.Blocked = true
+		frozen.ReasonCode = current.ReasonCode
+	}
+	return frozen
 }
 
 func replayRequestCount(provider string, asked bool, topics *domain.TopicContext) int {
@@ -534,13 +545,14 @@ func promptLabel(prompt contracts.PromptInfo) string {
 }
 
 func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnapshot) (domain.Input, error) {
-	policy, err := d.scopes.Resolve(ctx, snapshot.Input.Task.BotID, snapshot.Input.Policy.ScopeType, snapshot.Input.Policy.ScopeID)
+	task := snapshot.Input.Task
+	policy, err := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if err != nil {
 		return domain.Input{}, err
 	}
 	in := domain.Input{
 		Task:                 snapshot.Input.Task,
-		BotName:              d.currentBotName(),
+		BotName:              snapshot.Input.BotName,
 		Recent:               snapshot.Input.Recent,
 		AwaitedRequest:       snapshot.Input.AwaitedRequest,
 		Topics:               snapshot.Input.Topics,
@@ -549,6 +561,9 @@ func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnaps
 		Policy:               policy,
 		Now:                  snapshot.Input.Now,
 		Prompt:               snapshot.Prompt,
+	}
+	if !policy.AllowHistoryRead {
+		in.Recent, in.AwaitedRequest = nil, nil
 	}
 	if !allowsTopicContinuation(in) {
 		in.Topics = nil
