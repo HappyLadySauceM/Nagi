@@ -120,13 +120,39 @@ func (d *Decider) runtimeFor(ctx context.Context) RuntimeConfig {
 	return d.runtime()
 }
 
-// currentBotName resolves the display name used to render prompt variables.
-// currentBotName 解析用于渲染 Prompt 变量的展示名。
-func (d *Decider) currentBotName(botID int64) string {
-	if d.botNickname != nil {
-		return strings.TrimSpace(d.botNickname(botID))
+// currentCallIdentity binds the settings and verified nickname for one task.
+// currentCallIdentity 为本次任务固定设置中的呼叫名和已核验昵称。
+func (d *Decider) currentCallIdentity(ctx context.Context, botID int64) *domain.CallIdentity {
+	identity := &domain.CallIdentity{BotID: botID}
+	if botID <= 0 {
+		return identity
 	}
-	return d.botName
+	if d.callName != nil {
+		identity.CallName, identity.CallNameSource = d.callName(ctx, botID)
+	} else if d.botName != "" {
+		identity.CallName, identity.CallNameSource = d.botName, "role"
+	}
+	if d.botNickname != nil {
+		identity.QQNickname = strings.TrimSpace(d.botNickname(botID))
+		if identity.QQNickname != "" {
+			identity.QQNicknameSource = "verified_account"
+		}
+	}
+	return identity
+}
+
+func withCallQuestionLayer(in domain.Input, rule domain.RuleResult, prompt domain.Prompt) domain.Prompt {
+	question, ok := in.CallQuestion()
+	if !ok || !rule.NeedSemantic || rule.Blocked {
+		return prompt
+	}
+	key, template, version := in.CallQuestionVersion()
+	layer := domain.PromptLayer{Layer: domain.PromptLayerServerConstraints, Source: key, Version: version,
+		Hash: domain.PromptTextHash(template)}
+	prompt.Layers = append(prompt.Layers, layer)
+	prompt.FinalHash = domain.PromptTextHash(prompt.FinalHash + ":" + layer.Hash)
+	prompt.RenderedHash = domain.PromptTextHash(prompt.RenderedHash + ":" + question.Instructions)
+	return prompt
 }
 
 // participationPrompt resolves wording with the same ruleset selected for policy.
@@ -178,6 +204,7 @@ type Options struct {
 	// Dynamic optionally overrides the static values above per task.
 	// Dynamic 可选地按任务覆盖上面的静态取值。
 	Dynamic     RuntimeConfigProvider
+	CallName    func(ctx context.Context, botID int64) (name, source string)
 	BotNickname func(botID int64) string
 	Logger      *slog.Logger
 }
@@ -200,6 +227,7 @@ type Decider struct {
 	provider     string
 	model        string
 	botName      string
+	callName     func(context.Context, int64) (string, string)
 	botNickname  func(botID int64) string
 	dynamic      RuntimeConfigProvider
 	logger       *slog.Logger
@@ -219,7 +247,7 @@ func NewDecider(opts Options) (*Decider, error) {
 		semantic: opts.Semantic, prompts: opts.Prompts,
 		rules: opts.Rules, recorder: opts.Recorder, executor: opts.Executor,
 		th: opts.Thresholds, historyLimit: opts.HistoryLimit,
-		provider: opts.Provider, model: opts.Model, botName: opts.BotName, botNickname: opts.BotNickname, dynamic: opts.Dynamic, logger: opts.Logger,
+		provider: opts.Provider, model: opts.Model, botName: opts.BotName, callName: opts.CallName, botNickname: opts.BotNickname, dynamic: opts.Dynamic, logger: opts.Logger,
 	}, nil
 }
 
@@ -297,8 +325,8 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 			}
 		}
 	}
-	botName := d.currentBotName(task.BotID)
-	early := domain.Input{Task: task, BotName: botName, Policy: policy, AwaitedRequest: awaited}
+	identity := d.currentCallIdentity(ctx, task.BotID)
+	early := domain.Input{Task: task, CallIdentity: identity, Policy: policy, AwaitedRequest: awaited}
 	topics, err := d.loadTopics(ctx, early, runtime)
 	if err != nil {
 		return fmt.Errorf("intent: load topics: %w", err)
@@ -324,16 +352,10 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		return err
 	}
 	runID := uuid.NewString()
-	in := domain.Input{Task: task, BotName: botName, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
+	in := domain.Input{Task: task, CallIdentity: identity, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
 	rule, rulesetVersion, set := d.applyRules(ctx, in)
-	prompt := ScoreParticipationPrompt(d.participationPrompt(ctx, task, runtime, set, botName))
-	if question, ok := in.CallQuestion(); ok && rule.NeedSemantic && !rule.Blocked {
-		layer := domain.PromptLayer{Layer: domain.PromptLayerServerConstraints, Source: domain.CallQuestionKey, Version: 1,
-			Hash: domain.PromptTextHash(domain.CallQuestionText)}
-		prompt.Layers = append(prompt.Layers, layer)
-		prompt.FinalHash = domain.PromptTextHash(prompt.FinalHash + ":" + layer.Hash)
-		prompt.RenderedHash = domain.PromptTextHash(prompt.RenderedHash + ":" + question.Instructions)
-	}
+	prompt := ScoreParticipationPrompt(d.participationPrompt(ctx, task, runtime, set, in.CallNameVariable()))
+	prompt = withCallQuestionLayer(in, rule, prompt)
 	prompt.ConversationID = task.ConversationID
 	in.Prompt = prompt
 	semantic := initialCallAddressing(in, rule)
@@ -349,7 +371,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Task: in.Task, BotName: in.BotName, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Input:    domain.SnapshotInput{Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
 		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
 	}
 
@@ -537,7 +559,7 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		Summary:     "决策问题求值完成",
 		Detail: map[string]any{
 			"Questions":        decisionQuestionDetails(rule.Questions, in.Task.Kind),
-			"BotNameMentioned": in.Task.Kind == "group" && mentionsBotName(in.Task, in.BotName),
+			"BotNameMentioned": in.Task.Kind == "group" && callNameMentioned(in),
 			"Evaluations":      rule.Evaluations,
 			"evaluations":      rule.Evaluations,
 			"Matched":          rule.Matched,
@@ -847,7 +869,7 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 }
 
 func shouldAskSemantic(in domain.Input, rule domain.RuleResult) bool {
-	return rule.NeedSemantic && !rule.Blocked && (!in.CallAddressingRequired() || in.BotName != "" || hasTopicCandidates(in))
+	return rule.NeedSemantic && !rule.Blocked && (!in.CallAddressingRequired() || in.CallName() != "" || hasTopicCandidates(in))
 }
 
 func initialCallAddressing(in domain.Input, rule domain.RuleResult) domain.SemanticAnswer {
@@ -855,7 +877,7 @@ func initialCallAddressing(in domain.Input, rule domain.RuleResult) domain.Seman
 		return domain.SemanticAnswer{}
 	}
 	reason := "semantic_unavailable"
-	if in.BotName == "" {
+	if in.CallName() == "" {
 		reason = "name_unavailable"
 	}
 	return domain.SemanticAnswer{CallAddressing: domain.CallUnknown, CallFailureCode: reason}
@@ -864,9 +886,21 @@ func initialCallAddressing(in domain.Input, rule domain.RuleResult) domain.Seman
 func callAddressingAudit(in domain.Input, answer domain.SemanticAnswer) map[string]any {
 	audit := map[string]any{"ExternalRequests": answer.ExternalRequests}
 	if in.CallAddressingRequired() {
-		audit["Question"] = domain.CallQuestionKey
+		key, _, version := in.CallQuestionVersion()
+		audit["Question"], audit["QuestionVersion"] = key, version
 		audit["NameSource"] = "unavailable"
-		if in.BotName != "" {
+		if identity := in.CallIdentity; identity != nil && identity.BotID == in.Task.BotID {
+			if identity.CallNameSource != "" {
+				audit["CallNameSource"] = identity.CallNameSource
+				audit["NameSource"] = identity.CallNameSource
+			}
+			if identity.QQNicknameSource != "" {
+				audit["QQNicknameSource"] = identity.QQNicknameSource
+				if identity.CallNameSource == "" {
+					audit["NameSource"] = identity.QQNicknameSource
+				}
+			}
+		} else if in.CallName() != "" {
 			audit["NameSource"] = "verified_account"
 		}
 		if answer.CallAddressing != "" {
@@ -929,7 +963,7 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 	}
 	if initial := initialCallAddressing(in, rule); initial.CallAddressing != "" && answer.CallAddressing == "" {
 		answer.CallAddressing, answer.CallFailureCode = initial.CallAddressing, initial.CallFailureCode
-		if in.BotName != "" {
+		if in.CallName() != "" {
 			answer.CallFailureCode = "question_missing"
 		}
 	}
@@ -999,7 +1033,7 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 	var latency int64
 	called := full && d.semantic != nil && shouldAskSemantic(in, rule)
 	if called {
-		in.Prompt = ScoreParticipationPrompt(in.Prompt)
+		in.Prompt = withCallQuestionLayer(in, rule, ScoreParticipationPrompt(in.Prompt))
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
@@ -1009,6 +1043,7 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 // PrepareSimulation loads the same authorized context and activity as live decisions.
 // PrepareSimulation 加载与真实决策相同的已授权上下文及会话活动。
 func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domain.Input, error) {
+	in.CallIdentity = d.currentCallIdentity(ctx, in.Task.BotID)
 	locator, ok := d.activity.(interface {
 		ConversationIDForScope(context.Context, int64, string, int64) (string, error)
 	})

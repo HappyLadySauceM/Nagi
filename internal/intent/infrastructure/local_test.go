@@ -148,7 +148,8 @@ func TestLocalReusesFirstRequestForThreeWayCall(t *testing.T) {
 				}
 				if strings.Contains(query, "期待它回应吗") {
 					callQuestions.Add(1)
-					if !strings.Contains(query, "名为 橘子 的 QQ") || !strings.Contains(query, `"bot_name":"橘子"`) {
+					if !strings.Contains(query, `当前机器人称呼：{"call_name":"薄荷","qq_nickname":"橘子"}`) ||
+						!strings.Contains(query, `"bot_identity":{"call_name":"薄荷","qq_nickname":"橘子"}`) || strings.Contains(query, `"bot_name"`) {
 						t.Error("nickname mismatch")
 					}
 					values = map[string]float64{"A": -3, "B": -3, "C": -3}
@@ -163,7 +164,9 @@ func TestLocalReusesFirstRequestForThreeWayCall(t *testing.T) {
 			defer server.Close()
 			client := &LocalClient{Config: JevConfig{Endpoint: server.URL, Model: "fixture", Timeout: time.Second}, Client: server.Client()}
 			in := testInput()
-			in.Policy.ReplyMode, in.BotName = scopedomain.ModeIntentBased, "橘子"
+			in.Policy.ReplyMode = scopedomain.ModeIntentBased
+			in.CallIdentity = &domain.CallIdentity{BotID: in.Task.BotID, CallName: "薄荷", QQNickname: "橘子"}
+			in.Prompt.OpenAI = &domain.OpenAIPrompt{UserTemplate: "仅自定义文字"}
 			out, err := client.Decide(context.Background(), in)
 			if err != nil || out.CallAddressing != want || out.FailureCode != "decision_questions_degraded" || out.ExternalRequests != 5 || requests.Load() != 5 || callQuestions.Load() != 1 {
 				t.Fatalf("answer=%+v err=%v requests=%d call_questions=%d", out, err, requests.Load(), callQuestions.Load())

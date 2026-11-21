@@ -227,6 +227,7 @@ export interface SettingsPromptVariable {
 /** Bot identity shared by intent judgment and reply generation. */
 export interface SettingsRole {
   botName: string
+  callNames: Record<string, string>
   /** Custom prompt variables, ordered; names are unique identifiers. */
   variables: SettingsPromptVariable[]
 }

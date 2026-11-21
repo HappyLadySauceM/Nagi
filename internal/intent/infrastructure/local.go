@@ -42,11 +42,8 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 		recent = append(recent, map[string]any{"MessageID": m.MessageID, "SenderID": m.SenderID, "IsBot": m.IsBot, "Text": m.Text, "CreatedAt": m.CreatedAt})
 	}
 	var state bytes.Buffer
-	name := c.Config.BotName
-	if in.CallAddressingRequired() {
-		name = in.BotName
-	}
-	payload := map[string]any{"channel": in.Task.Kind, "bot_name": name, "message": in.Task.Message.Text, "recent": recent}
+	payload := map[string]any{"channel": in.Task.Kind, "message": in.Task.Message.Text, "recent": recent}
+	addCallIdentityState(payload, in, c.Config.BotName)
 	if in.Policy.AllowHistoryRead && in.AwaitedRequest != nil {
 		payload["awaited_request"] = semanticText(in.AwaitedRequest.Text)
 	}
@@ -57,6 +54,14 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 	var callResult domain.CallAddressing
 	var requests atomic.Int32
 	callQuestion, askCall := in.CallQuestion()
+	if askCall && in.CallIdentity != nil {
+		if !strings.Contains(userTemplate, "{{state}}") {
+			userTemplate += "\n{{state}}"
+		}
+		if !strings.Contains(userTemplate, "{{question}}") {
+			userTemplate += "\n{{question}}"
+		}
+	}
 	c.gateOnce.Do(func() { c.gate = make(chan struct{}, 2) })
 	sem := c.gate
 	var wg sync.WaitGroup
@@ -182,7 +187,7 @@ func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question s
 	if c.Config.ContextWindow > 0 && len(state)+len(question)+maxTokens > c.Config.ContextWindow {
 		return nil, fmt.Errorf("intent context budget exceeded")
 	}
-	userPrompt := strings.ReplaceAll(strings.ReplaceAll(userTemplate, "{{state}}", state), "{{question}}", question)
+	userPrompt := strings.NewReplacer("{{state}}", state, "{{question}}", question).Replace(userTemplate)
 	body := map[string]any{"model": c.Config.Model, "messages": []map[string]string{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userPrompt}}, "max_tokens": maxTokens, "temperature": 0, "reasoning_effort": effort, "logprobs": true, "top_logprobs": 20, "stream": false}
 	data, err := json.Marshal(body)
 	if err != nil {

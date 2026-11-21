@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	"maps"
 	"net/url"
 	"regexp"
 	"strings"
@@ -62,7 +63,8 @@ type PromptVariable struct {
 // Role holds the bot identity shared by intent judgment and reply generation.
 // Role 保存意图判断与回复生成共用的机器人身份。
 type Role struct {
-	BotName string `json:"BotName"`
+	BotName   string           `json:"BotName"`
+	CallNames map[int64]string `json:"CallNames,omitempty"`
 	// Variables are ordered custom prompt variables; names are unique.
 	// Variables 是有序的自定义 Prompt 变量，名称唯一。
 	Variables []PromptVariable `json:"Variables,omitempty"`
@@ -285,6 +287,9 @@ func (s *Settings) Normalize() {
 	if s.Role.BotName == "" {
 		s.Role.BotName = strings.TrimSpace(s.Intent.BotName)
 	}
+	for botID, name := range s.Role.CallNames {
+		s.Role.CallNames[botID] = strings.TrimSpace(name)
+	}
 	for i := range s.Role.Variables {
 		s.Role.Variables[i].Name = strings.TrimSpace(s.Role.Variables[i].Name)
 		s.Role.Variables[i].Value = strings.TrimSpace(s.Role.Variables[i].Value)
@@ -305,6 +310,7 @@ func (s *Settings) Normalize() {
 func (s Settings) Clone() Settings {
 	clone := s
 	clone.Models = s.Models.Clone()
+	clone.Role.CallNames = maps.Clone(s.Role.CallNames)
 	if s.Extraction != nil {
 		extraction := *s.Extraction
 		extraction.RetryDelaysMS = append([]int64(nil), extraction.RetryDelaysMS...)
@@ -367,6 +373,11 @@ func (s Settings) Validate(knownPermissions map[string]bool) error {
 // validateRole 校验有序的自定义 Prompt 变量：名称合法且唯一、取值有界、
 // 不含保留名，且数量有界。
 func (s Settings) validateRole(problems *ValidationError) {
+	for botID, name := range s.Role.CallNames {
+		if botID <= 0 || strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > maxPromptVariableValueLen {
+			problems.Add("Role.CallNames", "呼叫名需绑定正整数账号 ID，且包含 1 至 500 字符")
+		}
+	}
 	if len(s.Role.Variables) > maxPromptVariables {
 		problems.Add("Role.Variables", fmt.Sprintf("自定义变量最多 %d 条", maxPromptVariables))
 	}

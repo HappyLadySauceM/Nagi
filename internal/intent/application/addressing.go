@@ -12,6 +12,18 @@ import (
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
+func callNameMentioned(in domain.Input) bool {
+	if in.CallIdentity == nil {
+		return mentionsBotName(in.Task, in.BotName)
+	}
+	for _, name := range in.CallNames() {
+		if mentionsBotName(in.Task, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func mentionsBotName(task domain.Task, name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {

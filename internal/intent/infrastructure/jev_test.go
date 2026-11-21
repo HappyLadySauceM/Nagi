@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -288,13 +289,21 @@ func TestJevClientComputesParticipationFromDefaultQuestions(t *testing.T) {
 }
 
 func TestJevAsksCallInSameRequestAsCustomQuestion(t *testing.T) {
-	for _, name := range []string{"薄荷", "橘子"} {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		label, callName, nickname string
+		want                      map[string]string
+	}{
+		{"both escaped", `薄荷"<角色>`, "橘子\n第二行", map[string]string{"call_name": `薄荷"<角色>`, "qq_nickname": "橘子\n第二行"}},
+		{"call name only", "薄荷", "", map[string]string{"call_name": "薄荷"}},
+		{"nickname only", "", "橘子", map[string]string{"qq_nickname": "橘子"}},
+		{"same name", "薄荷", "薄荷", map[string]string{"call_name": "薄荷"}},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
 			var calls atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				var req struct {
-					State     map[string]any
+					State     map[string]json.RawMessage
 					Questions map[string]jevQuestion
 				}
 				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -302,14 +311,18 @@ func TestJevAsksCallInSameRequestAsCustomQuestion(t *testing.T) {
 					return
 				}
 				question := req.Questions[domain.CallQuestionKey]
-				if req.State["bot_name"] != name || !strings.Contains(question.Instructions, "名为 "+name+" 的") || len(question.Criteria) != 3 || len(req.Questions) != 2 || req.Questions["custom"].Type != "noul" {
+				var names map[string]string
+				_, rendered, found := strings.Cut(question.Instructions, "当前机器人称呼：")
+				if !found || json.Unmarshal(req.State["bot_identity"], &names) != nil || !maps.Equal(names, tc.want) || req.State["bot_name"] != nil ||
+					rendered != string(req.State["bot_identity"]) || len(question.Criteria) != 3 || len(req.Questions) != 2 || req.Questions["custom"].Type != "noul" {
 					t.Errorf("wrong effective request: %+v", req)
 				}
 				fmt.Fprintf(w, `{"answers":{"custom":{"noul":0.12},%q:{"choice":"yes"}}}`, domain.CallQuestionKey)
 			}))
 			defer srv.Close()
 			in := testInput()
-			in.Policy.ReplyMode, in.BotName = scopedomain.ModeIntentBased, name
+			in.Policy.ReplyMode = scopedomain.ModeIntentBased
+			in.CallIdentity = &domain.CallIdentity{BotID: in.Task.BotID, CallName: tc.callName, QQNickname: tc.nickname}
 			in.Prompt.SystemOne = &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{"custom": {Type: "noul", Instructions: "fixture"}}}
 			out, err := testClient(t, srv.URL).Decide(context.Background(), in)
 			if err != nil || out.CallAddressing != domain.CallYes || out.ExternalRequests != 1 || calls.Load() != 1 || out.Scores["custom"] != .12 {
@@ -336,7 +349,8 @@ func TestJevKeepsCallAndCustomKeyWhenOtherQuestionFails(t *testing.T) {
 			}))
 			defer server.Close()
 			in := testInput()
-			in.BotName, in.Policy.ReplyMode = "薄荷", scopedomain.ModeIntentBased
+			in.Policy.ReplyMode = scopedomain.ModeIntentBased
+			in.CallIdentity = &domain.CallIdentity{BotID: in.Task.BotID, QQNickname: "薄荷"}
 			in.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 1, Active: true}}}
 			in.Prompt.SystemOne = &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{
 				domain.CallQuestionKey: {Type: "noul", Instructions: "custom"},
@@ -356,7 +370,8 @@ func TestJevPreservesTopicCloseWhenCallAndCustomAnswersAreMissing(t *testing.T) 
 	}))
 	defer srv.Close()
 	in := testInput()
-	in.BotName, in.Policy.ReplyMode = "薄荷", scopedomain.ModeIntentBased
+	in.Policy.ReplyMode = scopedomain.ModeIntentBased
+	in.CallIdentity = &domain.CallIdentity{BotID: in.Task.BotID, QQNickname: "薄荷"}
 	in.Topics = &domain.TopicContext{QuotedID: 1, Candidates: []domain.TopicCandidate{{ID: 1, Active: true}}}
 	in.Prompt.SystemOne = &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{"custom": {Type: "noul", Instructions: "fixture"}}}
 	out, err := testClient(t, srv.URL).Decide(context.Background(), in)
@@ -380,7 +395,8 @@ func TestJevDistinguishesMissingTopicScoreFromZero(t *testing.T) {
 			}))
 			defer srv.Close()
 			in := testInput()
-			in.BotName, in.Policy.ReplyMode = "薄荷", scopedomain.ModeIntentBased
+			in.Policy.ReplyMode = scopedomain.ModeIntentBased
+			in.CallIdentity = &domain.CallIdentity{BotID: in.Task.BotID, QQNickname: "薄荷"}
 			in.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 1, Active: true}, {ID: 2, Active: true}}}
 			got, err := testClient(t, srv.URL).Decide(context.Background(), in)
 			if err != nil || !got.Available || got.ExternalRequests != 1 || got.CallFailureCode != "question_missing" ||

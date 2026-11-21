@@ -429,6 +429,16 @@ func buildPromptService(cfg *config.Config, logger *slog.Logger, pool *db.Pool, 
 	return promptService, nil
 }
 
+func accountCallName(role settingsdomain.Role, accounts *svc.Accounts, botID int64) (name, source string) {
+	if configured := role.CallNames[botID]; configured != "" {
+		return configured, "account_config"
+	}
+	if account, single := accounts.Default(); single && account.OwnsBotID(botID) && role.BotName != "" {
+		return role.BotName, "role"
+	}
+	return "", ""
+}
+
 // buildWorker wires the decision pipeline and the bounded worker. The worker is
 // created whenever the database exists: with intent disabled it still consumes
 // jobs (skipping the decision), so the console can switch the pipeline on later
@@ -482,7 +492,10 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		HistoryLimit: live.Context.HistoryLimit,
 		Provider:     live.Intent.Provider,
 		Model:        live.Intent.Model,
-		BotNickname:  accounts.BotNickname,
+		CallName: func(ctx context.Context, botID int64) (string, string) {
+			return accountCallName(executionSettings(ctx, settings).Role, accounts, botID)
+		},
+		BotNickname: accounts.BotNickname,
 		// The console changes these without a restart, so the decider reads
 		// them per task instead of freezing the startup values.
 		// 控制台可不停机修改这些值，因此决策器按任务读取，而不是固化启动值。

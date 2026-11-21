@@ -553,6 +553,7 @@ func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnaps
 	in := domain.Input{
 		Task:                 snapshot.Input.Task,
 		BotName:              snapshot.Input.BotName,
+		CallIdentity:         snapshot.Input.CallIdentity,
 		Recent:               snapshot.Input.Recent,
 		AwaitedRequest:       snapshot.Input.AwaitedRequest,
 		Topics:               snapshot.Input.Topics,

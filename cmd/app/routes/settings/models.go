@@ -7,6 +7,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	app "github.com/HappyLadySauceM/Nagi/internal/settings/application"
 	"net/http"
+	"strings"
 )
 
 func (h *Handler) registerModels(mux *http.ServeMux) {
@@ -112,6 +113,17 @@ func (h *Handler) patchSettings(w http.ResponseWriter, r *http.Request) {
 		case "AI":
 			target = &next.AI
 		case "Role":
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				common.WriteFailure(w, 400, "invalid settings section")
+				return
+			}
+			for name := range fields {
+				if strings.EqualFold(name, "CallNames") {
+					next.Role.CallNames = nil
+					break
+				}
+			}
 			target = &next.Role
 		case "Context":
 			target = &next.Context

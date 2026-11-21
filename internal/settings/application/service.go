@@ -8,6 +8,7 @@ import (
 	"fmt"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -165,11 +166,35 @@ func (s *Service) Update(ctx context.Context, incoming settingsdomain.Settings, 
 	defer s.modelMu.Unlock()
 	current := s.provider.Settings()
 	incoming.Extraction = current.Extraction
-	return s.updateLocked(ctx, incoming, expected, actor)
+	return s.updateLocked(ctx, incoming, current, expected, actor)
 }
 
-func (s *Service) updateLocked(ctx context.Context, incoming settingsdomain.Settings, expected int64, actor string) (View, error) {
-	incoming.Models = s.provider.Settings().Models.Clone()
+// Replace persists a whole-console save while preserving bindings omitted by
+// older clients and the sections managed by separate endpoints.
+// Replace 保存控制台的整份设置，保留旧客户端未传入的呼叫名及独立接口管理的分区。
+func (s *Service) Replace(ctx context.Context, incoming settingsdomain.Settings, expected int64, actor string) (View, error) {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	current := s.provider.Current()
+	if s.repo != nil {
+		revision, found, err := s.repo.Load(ctx)
+		if err != nil {
+			return View{}, fmt.Errorf("settings: load revision for replace: %w", err)
+		}
+		if !found || revision.Version != expected {
+			return View{}, ErrConflict
+		}
+		current = snapshotOf(revision)
+	}
+	if incoming.Role.CallNames == nil {
+		incoming.Role.CallNames = maps.Clone(current.Settings.Role.CallNames)
+	}
+	incoming.Extraction = current.Settings.Extraction
+	return s.updateLocked(ctx, incoming, current.Settings, expected, actor)
+}
+
+func (s *Service) updateLocked(ctx context.Context, incoming, current settingsdomain.Settings, expected int64, actor string) (View, error) {
+	incoming.Models = current.Models.Clone()
 	applyModelConnections(&incoming)
 	incoming.Normalize()
 	if err := incoming.Validate(s.knownPermissions); err != nil {

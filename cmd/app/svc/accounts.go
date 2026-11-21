@@ -21,9 +21,10 @@ type AccountConnection struct {
 	ExpectedQQ int64
 	Client     *obapp.ClientService
 
-	mu       sync.RWMutex
-	rejected string
-	nickname string
+	mu            sync.RWMutex
+	rejected      string
+	nickname      string
+	verifiedBotID int64
 }
 
 // NewAccountConnection binds an endpoint to its client.
@@ -66,8 +67,27 @@ func (c *AccountConnection) SetVerifiedNickname(botID int64, nickname string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.rejected == "" {
+		c.verifiedBotID = botID
 		c.nickname = strings.TrimSpace(nickname)
 	}
+}
+
+// OwnsBotID checks the endpoint's expected or login-verified identity.
+// OwnsBotID 核对端点的预期账号或登录核验身份。
+func (c *AccountConnection) OwnsBotID(botID int64) bool {
+	if botID <= 0 {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.rejected != "" {
+		return false
+	}
+	if c.ExpectedQQ != 0 {
+		bound, known := c.BotID()
+		return botID == c.ExpectedQQ && (!known || bound == botID)
+	}
+	return c.verifiedBotID == botID
 }
 
 // BotNickname reads the nickname of the account bound to the inbound bot ID.

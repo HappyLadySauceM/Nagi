@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,8 +23,9 @@ import (
 )
 
 type memoryRepo struct {
-	revision settingsdomain.Revision
-	exists   bool
+	revision     settingsdomain.Revision
+	exists       bool
+	beforeUpdate func()
 }
 
 func (m *memoryRepo) Load(context.Context) (settingsdomain.Revision, bool, error) {
@@ -36,6 +39,10 @@ func (m *memoryRepo) Insert(_ context.Context, settings settingsdomain.Settings,
 }
 
 func (m *memoryRepo) Update(_ context.Context, settings settingsdomain.Settings, expected int64, actor string) (settingsdomain.Revision, bool, error) {
+	if before := m.beforeUpdate; before != nil {
+		m.beforeUpdate = nil
+		before()
+	}
 	if !m.exists || m.revision.Version != expected {
 		return settingsdomain.Revision{}, false, nil
 	}
@@ -74,6 +81,11 @@ func defaults() settingsdomain.Settings {
 func newTestHandler(t *testing.T) (*Handler, *memoryRepo) {
 	t.Helper()
 	repo := &memoryRepo{}
+	return newTestReplica(t, repo), repo
+}
+
+func newTestReplica(t *testing.T, repo *memoryRepo) *Handler {
+	t.Helper()
 	provider := settingsapp.NewProvider(settingsapp.Snapshot{Settings: defaults()})
 	service, err := settingsapp.NewService(settingsapp.Options{
 		Repository: repo,
@@ -92,7 +104,7 @@ func newTestHandler(t *testing.T) (*Handler, *memoryRepo) {
 		Config:   &config.Config{},
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Settings: service,
-	}), repo
+	})
 }
 
 func TestGetReturnsRevisionAndBaseline(t *testing.T) {
@@ -263,5 +275,129 @@ func TestPatchSettingsUpdatesRoleAndContext(t *testing.T) {
 	}
 	if envelope.Data.Settings.Role.BotName != "新名字" || envelope.Data.Settings.Context.HistoryLimit != 42 {
 		t.Fatalf("settings = %+v", envelope.Data.Settings)
+	}
+}
+
+func TestPatchRoleCallNamesReplacesBindingsAndOmissionPreservesThem(t *testing.T) {
+	handler, _ := newTestHandler(t)
+	for i, tc := range []struct {
+		role  string
+		want  int
+		botID int64
+		name  string
+	}{
+		{`{"CallNames":{"1":" Alpha ","10":"Beta"}}`, 2, 1, "Alpha"},
+		{`{"BotName":"Renamed"}`, 2, 10, "Beta"},
+		{`{"CallNames":{"10":"Shared"}}`, 1, 10, "Shared"},
+		{`{"CallNames":{}}`, 0, 0, ""},
+	} {
+		body := fmt.Sprintf(`{"Version":%d,"Sections":{"Role":%s}}`, i+1, tc.role)
+		rec := httptest.NewRecorder()
+		handler.patchSettings(rec, httptest.NewRequest(http.MethodPatch, "/api/v1/settings", strings.NewReader(body)))
+		var envelope struct{ Data settingsapp.View }
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &envelope) != nil {
+			t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+		}
+		got := envelope.Data.Settings.Role.CallNames
+		if len(got) != tc.want || got[tc.botID] != tc.name {
+			t.Fatalf("bindings = %v", got)
+		}
+	}
+}
+
+func TestPutSettingsPreservesOmittedCallNamesAndAllowsExplicitClear(t *testing.T) {
+	handler, repo := newTestHandler(t)
+	patch := httptest.NewRecorder()
+	handler.patchSettings(patch, httptest.NewRequest(http.MethodPatch, "/api/v1/settings", strings.NewReader(
+		`{"Version":1,"Sections":{"Role":{"CallNames":{"1":"Alpha"}}}}`,
+	)))
+	if patch.Code != http.StatusOK || repo.revision.Settings.Role.CallNames[1] != "Alpha" {
+		t.Fatalf("patch status=%d persisted bindings=%v", patch.Code, repo.revision.Settings.Role.CallNames)
+	}
+	for _, tc := range []struct {
+		version    int64
+		clear      bool
+		wantStatus int
+		wantName   string
+	}{
+		{1, false, http.StatusConflict, "Alpha"},
+		{2, false, http.StatusOK, "Alpha"},
+		{3, true, http.StatusOK, ""},
+	} {
+		incoming := repo.revision.Settings.Clone()
+		incoming.Agent.MaxSteps++
+		incoming.Role.CallNames = nil
+		body, err := json.Marshal(incoming)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.clear {
+			body = bytes.Replace(body, []byte(`"Role":{`), []byte(`"Role":{"CallNames":{},`), 1)
+		}
+		req := fmt.Sprintf(`{"Version":%d,"Settings":%s}`, tc.version, body)
+		rec := httptest.NewRecorder()
+		handler.Put(rec, httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(req)))
+		if rec.Code != tc.wantStatus || repo.revision.Settings.Role.CallNames[1] != tc.wantName {
+			t.Fatalf("PUT status=%d persisted bindings=%v", rec.Code, repo.revision.Settings.Role.CallNames)
+		}
+	}
+}
+
+func TestPutSettingsUsesPersistedRevisionAcrossReplicas(t *testing.T) {
+	writer, repo := newTestHandler(t)
+	patch := func(version int64, name string) {
+		t.Helper()
+		body := fmt.Sprintf(`{"Version":%d,"Sections":{"Role":{"CallNames":{"1":%q}}}}`, version, name)
+		rec := httptest.NewRecorder()
+		writer.patchSettings(rec, httptest.NewRequest(http.MethodPatch, "/api/v1/settings", strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PATCH status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	patch(1, "Alpha")
+	lagged := newTestReplica(t, repo)
+	patch(2, "\ufeff")
+	if cached := lagged.svcCtx.Settings.View(); cached.Version != 2 || cached.Settings.Role.CallNames[1] != "Alpha" {
+		t.Fatalf("lagged cache version=%d names=%v", cached.Version, cached.Settings.Role.CallNames)
+	}
+	if repo.revision.Version != 3 || repo.revision.Settings.Role.CallNames[1] != "\ufeff" {
+		t.Fatalf("PATCH did not persist the boundary value: %+v", repo.revision.Settings.Role.CallNames)
+	}
+	put := func(version int64, nameField string) int {
+		t.Helper()
+		incoming := repo.revision.Settings.Clone()
+		incoming.Agent.MaxSteps++
+		incoming.Role.CallNames = nil
+		body, err := json.Marshal(incoming)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if nameField != "" {
+			body = bytes.Replace(body, []byte(`"Role":{`), []byte(`"Role":{`+nameField+`,`), 1)
+		}
+		req := fmt.Sprintf(`{"Version":%d,"Settings":%s}`, version, body)
+		rec := httptest.NewRecorder()
+		lagged.Put(rec, httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(req)))
+		return rec.Code
+	}
+	if status := put(2, ""); status != http.StatusConflict || repo.revision.Version != 3 {
+		t.Fatalf("stale PUT status=%d stored version=%d", status, repo.revision.Version)
+	}
+	if status := put(3, ""); status != http.StatusOK || repo.revision.Version != 4 ||
+		repo.revision.Settings.Role.CallNames[1] != "\ufeff" || repo.revision.Settings.Agent.MaxSteps != 7 {
+		t.Fatalf("current PUT status=%d stored version=%d names=%q max steps=%d", status,
+			repo.revision.Version, repo.revision.Settings.Role.CallNames[1], repo.revision.Settings.Agent.MaxSteps)
+	}
+	writer = newTestReplica(t, repo)
+	repo.beforeUpdate = func() { patch(4, "Next") }
+	if status := put(4, ""); status != http.StatusConflict || repo.revision.Version != 5 ||
+		repo.revision.Settings.Role.CallNames[1] != "Next" || repo.revision.Settings.Agent.MaxSteps != 7 {
+		t.Fatalf("racing PUT status=%d stored version=%d names=%v max steps=%d", status,
+			repo.revision.Version, repo.revision.Settings.Role.CallNames, repo.revision.Settings.Agent.MaxSteps)
+	}
+	if status := put(5, `"CallNames":{}`); status != http.StatusOK || repo.revision.Version != 6 ||
+		len(repo.revision.Settings.Role.CallNames) != 0 || repo.revision.Settings.Agent.MaxSteps != 8 {
+		t.Fatalf("explicit clear status=%d stored version=%d names=%v max steps=%d", status,
+			repo.revision.Version, repo.revision.Settings.Role.CallNames, repo.revision.Settings.Agent.MaxSteps)
 	}
 }

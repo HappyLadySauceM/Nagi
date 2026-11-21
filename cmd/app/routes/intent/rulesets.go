@@ -318,9 +318,6 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 			ScopeType: scopedomain.ScopeType(body.ScopeType), ScopeID: body.ScopeID,
 		},
 	}
-	if h.svcCtx.SettingsProvider != nil {
-		in.BotName = h.svcCtx.SettingsProvider.Settings().Role.BotName
-	}
 	if !in.Policy.ReplyMode.Valid() {
 		common.WriteFailure(w, 400, "invalid reply mode")
 		return
@@ -370,10 +367,7 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 	// match the live participation policy; rules-only mode keeps the default.
 	// 语义模拟使用有效问题集求值，使预览与线上参与策略一致；仅规则模式保持默认。
 	if body.Mode == "semantic" {
-		botName := ""
-		if h.svcCtx.SettingsProvider != nil {
-			botName = h.svcCtx.SettingsProvider.Settings().Role.BotName
-		}
+		botName := in.CallNameVariable()
 		variables := map[string]string{"bot_name": botName}
 		if senderID > 0 {
 			variables["sender_id"] = strconv.FormatInt(senderID, 10)

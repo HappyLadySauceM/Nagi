@@ -56,7 +56,7 @@ func (s *Service) UpdateExtraction(ctx context.Context, extraction settingsdomai
 	}
 	next := current.Settings
 	next.Extraction = &extraction
-	return s.updateLocked(ctx, next, expected, actor)
+	return s.updateLocked(ctx, next, current.Settings, expected, actor)
 }
 
 func validateExtraction(settings settingsdomain.Extraction) error {
