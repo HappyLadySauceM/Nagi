@@ -137,6 +137,7 @@ func (p memoryProvider) detail(ctx context.Context, argumentsInJSON string) (str
 	if err != nil {
 		return "", fmt.Errorf("memory tool: marshal detail: %w", err)
 	}
+	p.track(ctx, scope, item, contracts.MemoryDetailToolID)
 	return string(payload), nil
 }
 
@@ -174,6 +175,7 @@ func (p memoryProvider) source(ctx context.Context, argumentsInJSON string) (str
 	if conversationID != scope.ConversationID {
 		return "error: 来源原文不在当前会话的历史读取范围", nil
 	}
+	p.track(ctx, scope, item, contracts.MemorySourceToolID)
 	return boundToolText(text, maxMemoryToolSourceRunes), nil
 }
 
@@ -196,6 +198,33 @@ func (p memoryProvider) lookup(ctx context.Context, scope pluginsapp.Scope, argu
 	}
 	return p.memories.RecallDetail(ctx, memorycontracts.DetailRequest{
 		BotID: scope.BotID, Kind: scope.Kind, TargetID: scope.TargetID,
-		ConversationID: scope.ConversationID, MemoryID: args.MemoryID,
+		ConversationID: scope.ConversationID, MemoryID: args.MemoryID, SenderID: scope.SenderID,
+	})
+}
+
+func (p memoryProvider) track(ctx context.Context, scope pluginsapp.Scope, item memorycontracts.Memory, toolID string) {
+	memorycontracts.TrackRead(ctx, p.memories, memorycontracts.DetailRequest{
+		BotID: scope.BotID, Kind: scope.Kind, TargetID: scope.TargetID, ConversationID: scope.ConversationID,
+		SenderID: scope.SenderID, MemoryID: item.ID,
+	}, item.UpdatedAt, func(call context.Context) error {
+		if scope.Reauthorize == nil {
+			return memorycontracts.ErrReadChanged
+		}
+		if err := scope.Reauthorize(call, contracts.ToolDescriptor{ID: toolID, Category: contracts.CategoryMemory, RiskLevel: contracts.RiskRead, ReadOnly: true}); err != nil {
+			return err
+		}
+		if toolID == contracts.MemorySourceToolID {
+			if scope.AuthorizeHistory == nil {
+				return memorycontracts.ErrReadChanged
+			}
+			if err := scope.AuthorizeHistory(call); err != nil {
+				return err
+			}
+			conversationID, _, found, err := p.sources.MessageSource(call, scope.BotID, item.SourceMessageID)
+			if err != nil || !found || conversationID != scope.ConversationID {
+				return memorycontracts.ErrReadChanged
+			}
+		}
+		return nil
 	})
 }

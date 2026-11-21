@@ -3,8 +3,10 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -444,11 +446,22 @@ func parseStatusAction(status string) (statusAction, bool) {
 	}
 }
 
-// Patch revises one memory and optionally applies a status transition. The
-// status is validated before any write so an unsupported transition cannot
-// leave a half-applied edit behind.
-// Patch 修订一条记忆并可应用状态变更；状态在任何写入前先校验，
-// 避免不支持的变更留下「内容已改、状态未变」的半成品。
+func hasOnlyDeleteStatus(raw json.RawMessage) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return false
+	}
+	key, err := decoder.Token()
+	if err != nil || key != "status" {
+		return false
+	}
+	value, err := decoder.Token()
+	return err == nil && value == "deleted" && !decoder.More()
+}
+
+// Patch revises or approves a memory, or deletes it without other edits.
+// Patch 修订或审批一条记忆，删除须单独提交。
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	if !h.requireDB(w) {
 		return
@@ -458,8 +471,10 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid memory id")
 		return
 	}
+	decoder := json.NewDecoder(r.Body)
+	var raw json.RawMessage
 	var body v1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decoder.Decode(&raw); err != nil || json.Unmarshal(raw, &body) != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -468,31 +483,41 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "unsupported status; use active or deleted")
 		return
 	}
-	var content string
-	if body.Content != nil {
-		content = *body.Content
-	}
-	var ownerKey *string
-	if body.OwnerKey != nil {
-		ownerKey = body.OwnerKey
-	}
-	if action == statusApprove {
-		if err := h.svcCtx.Memory.ApproveWithEdit(r.Context(), id, middlewareActor(r), content, memorydomain.Visibility(body.Visibility), ownerKey); err != nil {
+	if action == statusDelete {
+		if _, err := decoder.Token(); err != io.EOF {
+			common.WriteFailure(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if !hasOnlyDeleteStatus(raw) {
+			common.WriteFailure(w, http.StatusBadRequest, "delete must be requested without other fields")
+			return
+		}
+		if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
 			writeMemoryMutationError(w, err)
 			return
 		}
 		common.WriteSuccess(w, map[string]any{"id": id})
 		return
 	}
-	if err := h.svcCtx.Memory.Revise(r.Context(), id, content, memorydomain.Visibility(body.Visibility), ownerKey); err != nil {
-		writeMemoryMutationError(w, err)
-		return
+	var content string
+	if body.Content != nil {
+		content = *body.Content
 	}
-	if action == statusDelete {
-		if err := h.svcCtx.Memory.Delete(r.Context(), id); err != nil {
+	var visibility memorydomain.Visibility
+	if body.Visibility != nil {
+		visibility = memorydomain.Visibility(*body.Visibility)
+	}
+	if action == statusApprove {
+		if err := h.svcCtx.Memory.ApproveWithEdit(r.Context(), id, middlewareActor(r), content, visibility, body.OwnerKey); err != nil {
 			writeMemoryMutationError(w, err)
 			return
 		}
+		common.WriteSuccess(w, map[string]any{"id": id})
+		return
+	}
+	if err := h.svcCtx.Memory.Revise(r.Context(), id, content, visibility, body.OwnerKey); err != nil {
+		writeMemoryMutationError(w, err)
+		return
 	}
 	common.WriteSuccess(w, map[string]any{"id": id})
 }

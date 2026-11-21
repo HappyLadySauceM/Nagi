@@ -438,14 +438,14 @@ export const MEMORY_SUBJECT_LABELS: Record<MemorySubjectType, string> = {
 }
 
 export const MEMORY_VISIBILITY_LABELS: Record<MemoryVisibility, string> = {
-  bot_shared: '全局共享',
+  bot_shared: '历史共享',
   group: '群级',
   private_user: '个人',
   conversation: '会话级',
 }
 
 export const MEMORY_VISIBILITY_HINTS: Record<MemoryVisibility, string> = {
-  bot_shared: '对该机器人下的所有会话可见，审批前请确认内容适合全局共享。',
+  bot_shared: '来源可核验且当前获准时，仅原会话可读。',
   group: '仅同一群内的会话可见，需要归属群号。',
   private_user: '仅该好友的私聊可见，需要归属 QQ 号。',
   conversation: '仅单个会话可见，需要会话归属标识。',

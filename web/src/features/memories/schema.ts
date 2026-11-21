@@ -1,32 +1,12 @@
 import { z } from 'zod'
 
-const visibilityField = z.enum(['bot_shared', 'group', 'private_user', 'conversation'])
+export const memoryWriteVisibilities = ['group', 'private_user', 'conversation'] as const
+const visibilityField = z.enum(memoryWriteVisibilities)
 
 const contentField = z.string().trim().min(1, '内容不能为空').max(2_000, '内容不能超过 2000 字')
-const ownerField = z.string().trim().max(100, '归属不能超过 100 字')
+const ownerField = z.string().trim().min(1, '该可见性必须填写归属').max(100, '归属不能超过 100 字')
 const subjectTypeField = z.enum(['user', 'group', 'unknown'])
 const subjectIdField = z.string().trim().max(100, '主体 ID 不能超过 100 字')
-
-/**
- * `bot_shared` must never carry an owner, every other visibility requires one.
- * 全局共享记忆不得带归属，其余可见性必须填写归属。
- */
-function checkOwner(values: { visibility: string; ownerKey: string }, ctx: z.RefinementCtx) {
-  const owner = values.ownerKey.trim()
-  if (values.visibility === 'bot_shared') {
-    if (owner !== '') {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['ownerKey'],
-        message: '全局共享记忆不能带个人归属，请清空该字段',
-      })
-    }
-    return
-  }
-  if (owner === '') {
-    ctx.addIssue({ code: 'custom', path: ['ownerKey'], message: '该可见性必须填写归属' })
-  }
-}
 
 /**
  * A candidate can only replace a fact when its subject is explicit. The UI
@@ -76,7 +56,6 @@ export const memoryCreateSchema = z
       .regex(/^(0(\.\d{1,2})?|1(\.0{1,2})?)$/, '置信度需在 0 到 1 之间，最多两位小数'),
     approve: z.boolean(),
   })
-  .superRefine(checkOwner)
   .superRefine(checkSubject)
 
 export type MemoryCreateValues = z.infer<typeof memoryCreateSchema>
@@ -94,7 +73,6 @@ export const memoryEditSchema = z
     ownerKey: ownerField,
     content: contentField,
   })
-  .superRefine(checkOwner)
 
 export type MemoryEditValues = z.infer<typeof memoryEditSchema>
 

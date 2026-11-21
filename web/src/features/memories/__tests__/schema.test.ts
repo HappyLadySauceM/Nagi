@@ -17,32 +17,15 @@ function createMessages(input: unknown): string[] {
   return result.success ? [] : result.error.issues.map((issue) => issue.message)
 }
 
-function editMessages(input: unknown): string[] {
-  const result = memoryEditSchema.safeParse(input)
-  return result.success ? [] : result.error.issues.map((issue) => issue.message)
-}
-
 describe('memoryCreateSchema', () => {
   it('accepts a scoped memory with an owner', () => {
     expect(memoryCreateSchema.safeParse(createValues).success).toBe(true)
   })
 
-  it('rejects a bot_shared memory that carries an owner', () => {
-    const messages = createMessages({
-      ...createValues,
-      visibility: 'bot_shared',
-    })
-    expect(messages).toContain('全局共享记忆不能带个人归属，请清空该字段')
-  })
-
-  it('accepts a bot_shared memory without an owner', () => {
-    expect(
-      memoryCreateSchema.safeParse({
-        ...createValues,
-        visibility: 'bot_shared',
-        ownerKey: '',
-      }).success,
-    ).toBe(true)
+  it('rejects legacy bot_shared on create with or without an owner', () => {
+    for (const ownerKey of ['', '555']) {
+      expect(memoryCreateSchema.safeParse({ ...createValues, visibility: 'bot_shared', ownerKey }).success).toBe(false)
+    }
   })
 
   it('requires an owner for every non-shared visibility', () => {
@@ -110,13 +93,9 @@ describe('memoryEditSchema', () => {
     expect(memoryEditSchema.safeParse(editable).success).toBe(true)
   })
 
-  it('still enforces the owner rule when switching to bot_shared', () => {
-    const messages = editMessages({
-      visibility: 'bot_shared',
-      ownerKey: '10001',
-      content: '共享内容',
-    })
-
-    expect(messages).toContain('全局共享记忆不能带个人归属，请清空该字段')
+  it('rejects legacy bot_shared on edit', () => {
+    expect(memoryEditSchema.safeParse({
+      visibility: 'bot_shared', ownerKey: '', content: '历史共享内容',
+    }).success).toBe(false)
   })
 })

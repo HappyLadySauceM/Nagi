@@ -2,11 +2,15 @@ package infrastructure
 
 import (
 	"context"
+	"entgo.io/ent/dialect/sql"
 	"fmt"
+	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
+	c "github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	m "github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	msg "github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/google/uuid"
 	"time"
@@ -77,11 +81,14 @@ func (r *Repo) Update(ctx context.Context, v domain.Memory) error {
 	if err != nil {
 		return err
 	}
+	if v.Visibility == domain.VisibilityBotShared {
+		return memoryapp.ErrMemoryInvalid
+	}
 	origin := v.Origin
 	if origin == "" {
 		origin = domain.OriginManual
 	}
-	b := r.pool.Client.Memory.UpdateOneID(key).SetContent(v.Content).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy).SetOrigin(string(origin)).SetReviewReason(v.ReviewReason).SetUpdatedAt(time.Now())
+	b := r.pool.Client.Memory.UpdateOneID(key).Where(m.VisibilityNEQ(string(domain.VisibilityBotShared))).SetContent(v.Content).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy).SetOrigin(string(origin)).SetReviewReason(v.ReviewReason).SetUpdatedAt(time.Now())
 	if v.SourceSenderID != 0 {
 		b.SetSourceSenderID(v.SourceSenderID)
 	} else {
@@ -107,7 +114,16 @@ func (r *Repo) Update(ctx context.Context, v domain.Memory) error {
 	} else {
 		b.SetExpiresAt(v.ExpiresAt)
 	}
-	return b.Exec(ctx)
+	if err := b.Exec(ctx); ent.IsNotFound(err) {
+		if found, readErr := r.pool.Client.Memory.Query().Where(m.ID(key), m.Visibility(string(domain.VisibilityBotShared))).Exist(ctx); readErr != nil {
+			return readErr
+		} else if found {
+			return memoryapp.ErrMemoryInvalid
+		}
+		return err
+	} else {
+		return err
+	}
 }
 func (r *Repo) Delete(ctx context.Context, id string) (bool, error) {
 	key, err := uuid.Parse(id)
@@ -170,22 +186,7 @@ func (r *Repo) FindSame(ctx context.Context, bot int64, visibility domain.Visibi
 	return memoryModel(v), true, nil
 }
 func (r *Repo) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]domain.Memory, error) {
-	visibility := "group"
-	if in.Kind == "private" {
-		visibility = "private_user"
-	}
-	owner := ""
-	if in.TargetID > 0 {
-		owner = fmt.Sprint(in.TargetID)
-	}
-	visible := []predicate.Memory{m.Visibility("bot_shared")}
-	if owner != "" {
-		visible = append(visible, m.And(m.Visibility(visibility), m.OwnerKey(owner)))
-	}
-	if in.ConversationID != "" {
-		visible = append(visible, m.And(m.Visibility("conversation"), m.OwnerKey(in.ConversationID)))
-	}
-	q := r.pool.Client.Memory.Query().Where(m.BotID(in.BotID), m.Status("active"), m.Or(m.ExpiresAtIsNil(), m.ExpiresAtGT(time.Now())), m.Or(visible...))
+	q := r.visibleMemories(in)
 	keywords := in.Keywords
 	if keywords == nil {
 		keywords = domain.QueryKeywords(in.Query)
@@ -204,6 +205,56 @@ func (r *Repo) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]do
 	rows, err := q.All(ctx)
 	return memoryModels(rows), err
 }
+
+// ReadVisible uses the same scope predicate as retrieval, without keyword or ranking filters.
+// ReadVisible 使用与检索相同的作用域谓词，不套用关键词和排序过滤。
+func (r *Repo) ReadVisible(ctx context.Context, in domain.SearchRequest, id string) (domain.Memory, bool, error) {
+	key, err := uuid.Parse(id)
+	if err != nil {
+		return domain.Memory{}, false, err
+	}
+	row, err := r.visibleMemories(in).Where(m.ID(key)).Only(ctx)
+	if ent.IsNotFound(err) {
+		return domain.Memory{}, false, nil
+	}
+	if err != nil {
+		return domain.Memory{}, false, err
+	}
+	return memoryModel(row), true, nil
+}
+
+func (r *Repo) visibleMemories(in domain.SearchRequest) *ent.MemoryQuery {
+	q := r.pool.Client.Memory.Query().Where(m.BotID(in.BotID), m.Status("active"), m.Or(m.ExpiresAtIsNil(), m.ExpiresAtGT(time.Now())))
+	if in.BotID <= 0 || in.TargetID <= 0 || in.Kind != "group" && in.Kind != "private" {
+		return q.Where(m.BotID(0))
+	}
+	visibility := "group"
+	if in.Kind == "private" {
+		visibility = "private_user"
+	}
+	visible := []predicate.Memory{m.And(m.Visibility(visibility), m.OwnerKey(fmt.Sprint(in.TargetID)))}
+	if key, err := uuid.Parse(in.ConversationID); err == nil {
+		visible = append(visible, m.And(m.Visibility("conversation"), m.OwnerKey(key.String())))
+		visible = append(visible, m.And(m.Visibility("bot_shared"), m.ApprovedByNEQ(""), func(sel *sql.Selector) {
+			source := sql.Table(msg.Table)
+			scope := sql.Table(c.Table)
+			match := sql.Select(source.C(msg.FieldID)).From(source).Join(scope).On(source.C(msg.FieldConversationID), scope.C(c.FieldID)).Where(sql.And(
+				sql.ColumnsEQ(source.C(msg.FieldID), sel.C(m.FieldSourceMessageID)),
+				sql.EQ(source.C(msg.FieldDirection), "incoming"), sql.EQ(source.C(msg.FieldBotID), in.BotID),
+				sql.GT(source.C(msg.FieldSenderID), 0), sql.NEQ(source.C(msg.FieldSenderID), in.BotID),
+				sql.Or(sql.IsNull(sel.C(m.FieldSourceSenderID)), sql.ColumnsEQ(source.C(msg.FieldSenderID), sel.C(m.FieldSourceSenderID))),
+				sql.EQ(scope.C(c.FieldID), key), sql.EQ(scope.C(c.FieldBotID), in.BotID),
+				sql.EQ(scope.C(c.FieldKind), in.Kind), sql.EQ(scope.C(c.FieldTargetID), in.TargetID),
+			))
+			if in.Kind == "private" {
+				match.Where(sql.ColumnsEQ(source.C(msg.FieldSenderID), scope.C(c.FieldTargetID)))
+			}
+			sel.Where(sql.Exists(match))
+		}))
+	}
+	return q.Where(m.Or(visible...))
+}
+
 func memoryModel(v *ent.Memory) domain.Memory {
 	out := domain.Memory{ID: v.ID.String(), BotID: v.BotID, Visibility: domain.Visibility(v.Visibility), OwnerKey: v.OwnerKey, Content: v.Content, Source: v.Source, Origin: domain.Origin(v.Origin), ReviewReason: v.ReviewReason, Confidence: float64(v.Confidence), Status: domain.Status(v.Status), ApprovedBy: v.ApprovedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 	if v.SourceMessageID != nil {

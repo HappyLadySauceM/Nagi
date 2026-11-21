@@ -274,6 +274,15 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	}
 	promptTrace.Record(genSpan, false)
 	genCtx = observability.WithPromptTrace(genCtx, promptTrace)
+	genCtx = memorycontracts.WithRunReads(genCtx)
+	reader, _ := r.memory.(memorycontracts.DetailReader)
+	for _, item := range memories {
+		memorycontracts.TrackRead(genCtx, reader, memorycontracts.DetailRequest{
+			BotID: task.BotID, Kind: task.Kind, TargetID: task.TargetID, ConversationID: task.ConversationID,
+			SenderID: task.Message.SenderID, MemoryID: item.MemoryID,
+		}, item.UpdatedAt, nil)
+	}
+
 	if len(memories) > 0 {
 		genSpan.SetAttributes(
 			attribute.Int("nagi.memory.count", len(memories)),

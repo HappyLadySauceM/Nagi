@@ -76,7 +76,7 @@ type CreateRequest struct {
 // PatchRequest 是 PATCH 请求体；空字段保持当前值。
 type PatchRequest struct {
 	Content    *string `json:"content"`
-	Visibility string  `json:"visibility"`
+	Visibility *string `json:"visibility"`
 	OwnerKey   *string `json:"owner_key"`
 	Status     string  `json:"status"`
 }
