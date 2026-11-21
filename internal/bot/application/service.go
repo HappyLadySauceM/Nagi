@@ -25,18 +25,75 @@ type Dispatcher struct {
 	mu       sync.RWMutex
 	handlers []botcontracts.Handler
 
-	handled atomic.Uint64
+	handled        atomic.Uint64
+	messageIngress *MessageIngress
 }
 
 // NewDispatcher binds the dispatcher to one connection's event source and
 // identity. self may be nil; events then must carry their own self_id.
 // NewDispatcher 将分发器绑定到单条连接的事件源与身份；self 可为 nil，
 // 此时事件必须自带 self_id。
-func NewDispatcher(src EventSource, self SelfIDReader, logger *slog.Logger) *Dispatcher {
+func NewDispatcher(src EventSource, self SelfIDReader, logger *slog.Logger, messageIngress *MessageIngress) *Dispatcher {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Dispatcher{src: src, self: self, logger: logger}
+	if messageIngress == nil {
+		messageIngress = &MessageIngress{}
+	}
+	return &Dispatcher{src: src, self: self, logger: logger, messageIngress: messageIngress}
+}
+
+// MessageIngress controls message admission across all connections of one process.
+// Its zero value accepts messages. A pause lets already-running dispatches finish.
+// MessageIngress 控制单进程内全部连接的消息准入。零值接收消息，暂停允许已开始的分发完成。
+type MessageIngress struct {
+	mu          sync.Mutex
+	paused      atomic.Bool
+	dispatching int
+}
+
+// MessageIngressState is a point-in-time snapshot of admission and active dispatches.
+// MessageIngressState 快照记录当前准入状态与正在分发的消息数。
+type MessageIngressState struct {
+	Paused      bool
+	Dispatching int
+}
+
+// Paused is the non-blocking admission check used before publishing a message frame.
+// Paused 在消息帧进入事件通道前无阻塞地检查准入。
+func (g *MessageIngress) Paused() bool { return g.paused.Load() }
+
+// State reports admission and active dispatches together.
+// State 同时返回准入状态和正在分发的消息数。
+func (g *MessageIngress) State() MessageIngressState {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return MessageIngressState{Paused: g.Paused(), Dispatching: g.dispatching}
+}
+
+// SetPaused changes admission without waiting for handlers or closing connections.
+// SetPaused 修改准入状态，不等待处理器、不断开连接。
+func (g *MessageIngress) SetPaused(paused bool) MessageIngressState {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.paused.Store(paused)
+	return MessageIngressState{Paused: paused, Dispatching: g.dispatching}
+}
+
+func (g *MessageIngress) beginDispatch() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.Paused() {
+		return false
+	}
+	g.dispatching++
+	return true
+}
+
+func (g *MessageIngress) endDispatch() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.dispatching--
 }
 
 // accountOf resolves the originating account: the event's self_id wins because
@@ -107,6 +164,12 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 // dispatch matches handlers via the pure policy and invokes each in isolation.
 // dispatch 经纯策略匹配处理器，并逐个隔离调用。
 func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) {
+	if event.IsMessage() {
+		if !d.messageIngress.beginDispatch() {
+			return
+		}
+		defer d.messageIngress.endDispatch()
+	}
 	botID, known := d.accountOf(event)
 	if !known {
 		// Without an account identity the event cannot be isolated safely.

@@ -30,9 +30,10 @@ type callResult struct {
 // ClientService turns raw transport frames into typed use cases.
 // ClientService 将传输层的原始帧转换为类型化用例，并维护 echo 匹配。
 type ClientService struct {
-	transport   Transport
-	callTimeout time.Duration
-	logger      *slog.Logger
+	transport     Transport
+	callTimeout   time.Duration
+	logger        *slog.Logger
+	messagePaused func() bool
 
 	seq     atomic.Uint64
 	closed  atomic.Bool
@@ -180,6 +181,12 @@ func (s *ClientService) HandleResponse(echo string, payload json.RawMessage) {
 	ch <- callResult{payload: env.Data, async: env.Retcode == 1 || env.Status == "async"}
 }
 
+// SetMessagePauseCheck binds the message admission check before the transport starts.
+// SetMessagePauseCheck 在传输启动前绑定消息准入检查。
+func (s *ClientService) SetMessagePauseCheck(paused func() bool) {
+	s.messagePaused = paused
+}
+
 // HandleEvent implements EventSink.
 // HandleEvent 实现 EventSink：记录自身账号与最近心跳，并发布事件。
 func (s *ClientService) HandleEvent(event domain.Event) {
@@ -201,7 +208,7 @@ func (s *ClientService) HandleEvent(event domain.Event) {
 	}
 	s.eventsMu.RLock()
 	defer s.eventsMu.RUnlock()
-	if s.eventsClosed {
+	if s.eventsClosed || (event.IsMessage() && s.messagePaused != nil && s.messagePaused()) {
 		return
 	}
 	select {

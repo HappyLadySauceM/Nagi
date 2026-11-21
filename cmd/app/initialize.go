@@ -145,6 +145,7 @@ func Run(ctx context.Context, opts options.Options) error {
 	if err != nil {
 		return err
 	}
+	svcCtx.MessageIngress = rt.MessageIngress
 	svcCtx.Stats = rt.Stats
 	svcCtx.Conversation = rt.Conversation
 	svcCtx.AIAudit = rt.AIAudit

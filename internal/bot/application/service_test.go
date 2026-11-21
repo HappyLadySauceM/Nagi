@@ -51,7 +51,7 @@ func (h *recordingHandler) Handle(ctx context.Context, botID domain.BotID, event
 func TestDispatcherRoutesMatchingHandlersAndRecoversPanics(t *testing.T) {
 	// 验证分发按 Match 路由、panic 被恢复且循环继续。
 	src := newFakeSource()
-	d := NewDispatcher(src, nil, nil)
+	d := NewDispatcher(src, nil, nil, nil)
 	var handled, panicked, unmatched atomic.Int32
 	var observed atomic.Int64
 	if err := d.Register(&recordingHandler{
@@ -117,7 +117,7 @@ func TestDispatcherRoutesMatchingHandlersAndRecoversPanics(t *testing.T) {
 func TestDispatcherRejectsDuplicateNames(t *testing.T) {
 	// 验证重名处理器被拒绝。
 	src := newFakeSource()
-	d := NewDispatcher(src, nil, nil)
+	d := NewDispatcher(src, nil, nil, nil)
 	var counter atomic.Int32
 	if err := d.Register(&recordingHandler{
 		name:    "dup",
@@ -139,7 +139,7 @@ func TestDispatcherRejectsDuplicateNames(t *testing.T) {
 func TestDispatcherReturnsWhenChannelCloses(t *testing.T) {
 	// 验证事件通道关闭后 Run 返回。
 	src := newFakeSource()
-	d := NewDispatcher(src, nil, nil)
+	d := NewDispatcher(src, nil, nil, nil)
 	done := make(chan error, 1)
 	go func() { done <- d.Run(context.Background()) }()
 	close(src.events)
@@ -150,5 +150,75 @@ func TestDispatcherReturnsWhenChannelCloses(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("run did not return after channel close")
+	}
+}
+
+func TestMessagePausePreservesActiveDispatchAndBlocksNewMessages(t *testing.T) {
+	gate := &MessageIngress{}
+	first := NewDispatcher(newFakeSource(), nil, nil, gate)
+	second := NewDispatcher(newFakeSource(), nil, nil, gate)
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	if err := first.Register(blockingIngress{entered: entered, release: release}); err != nil {
+		t.Fatal(err)
+	}
+	var messages, notices atomic.Int32
+	for _, h := range []*recordingHandler{
+		{name: "messages", match: domain.Event.IsMessage, handled: &messages},
+		{name: "notices", match: func(e domain.Event) bool { return e.Post == domain.PostNotice }, handled: &notices},
+	} {
+		if err := second.Register(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	message := domain.Event{Post: domain.PostMessage, SelfID: 1}
+	go func() {
+		defer close(finished)
+		first.dispatch(ctx, message)
+	}()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("default admission did not start the handler")
+	}
+	if state := gate.SetPaused(true); state != (MessageIngressState{Paused: true, Dispatching: 1}) {
+		t.Fatalf("pause state = %+v", state)
+	}
+	second.dispatch(ctx, message)
+	second.dispatch(ctx, domain.Event{Post: domain.PostNotice, SelfID: 1})
+	if messages.Load() != 0 || notices.Load() != 1 {
+		t.Fatalf("while paused: messages=%d notices=%d", messages.Load(), notices.Load())
+	}
+	close(release)
+	select {
+	case <-finished:
+	case <-ctx.Done():
+		t.Fatal("pre-pause dispatch did not finish")
+	}
+	if state := gate.State(); state != (MessageIngressState{Paused: true}) || first.HandledCount() != 1 {
+		t.Fatalf("drained state = %+v, completed handlers = %d", state, first.HandledCount())
+	}
+	gate.SetPaused(false)
+	second.dispatch(ctx, message)
+	if messages.Load() != 1 {
+		t.Fatalf("resumed messages = %d", messages.Load())
+	}
+}
+
+type blockingIngress struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (blockingIngress) Name() string              { return "blocking" }
+func (blockingIngress) Match(e domain.Event) bool { return e.IsMessage() }
+func (h blockingIngress) Handle(ctx context.Context, _ domain.BotID, _ domain.Event) error {
+	close(h.entered)
+	select {
+	case <-h.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }

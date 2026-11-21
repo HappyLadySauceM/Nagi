@@ -84,8 +84,9 @@ type Runtime struct {
 	Accounts []*AccountRuntime
 	// Registry routes account-scoped operations by bot id.
 	// Registry 按 bot id 路由账号级操作。
-	Registry *svc.Accounts
-	Handlers []botcontracts.Handler
+	Registry       *svc.Accounts
+	Handlers       []botcontracts.Handler
+	MessageIngress *botapp.MessageIngress
 
 	// Directory, Scope, Conversation, Memory and Audit are nil when pool is nil
 	// (no database configured); Worker is nil until intent is enabled.
@@ -151,6 +152,7 @@ type Runtime struct {
 // 并在提供数据库连接池时装配目录、作用域、会话与记忆服务。
 func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *sdktrace.TracerProvider) (*Runtime, error) {
 	registry := svc.NewAccounts()
+	messageIngress := &botapp.MessageIngress{}
 	accounts := make([]*AccountRuntime, 0, len(cfg.Onebot.Endpoints))
 	for _, endpoint := range cfg.Onebot.Endpoints {
 		connLogger := logger.With("endpoint", endpoint.URL)
@@ -163,8 +165,9 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			HeartbeatTimeout: cfg.Onebot.HeartbeatTimeout.D(),
 		}, connLogger)
 		client := obapp.NewClientService(transport, cfg.Onebot.CallTimeout.D(), connLogger)
+		client.SetMessagePauseCheck(messageIngress.Paused)
 		transport.Attach(client, client)
-		dispatcher := botapp.NewDispatcher(client, client, connLogger)
+		dispatcher := botapp.NewDispatcher(client, client, connLogger, messageIngress)
 		connection := svc.NewAccountConnection(endpoint.URL, endpoint.ExpectQQ, client)
 		if err := registry.Add(connection); err != nil {
 			return nil, err
@@ -179,7 +182,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		})
 	}
 
-	rt := &Runtime{Accounts: accounts, Registry: registry}
+	rt := &Runtime{Accounts: accounts, Registry: registry, MessageIngress: messageIngress}
 	handlers, err := buildBuiltins(cfg, registry)
 	if err != nil {
 		return nil, err

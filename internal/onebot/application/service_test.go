@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -198,5 +199,33 @@ func TestCloseRejectsFurtherCalls(t *testing.T) {
 	}
 	if !tr.closed {
 		t.Fatal("transport not closed")
+	}
+}
+
+func TestHandleEventDropsPausedMessagesBeforePublishing(t *testing.T) {
+	svc := NewClientService(newFakeTransport(), 0, nil)
+	var paused atomic.Bool
+	svc.SetMessagePauseCheck(paused.Load)
+	svc.HandleEvent(domain.Event{SelfID: 1, Post: domain.PostMessage, MessageID: 1})
+	paused.Store(true)
+	svc.HandleEvent(domain.Event{SelfID: 1, Post: domain.PostMessage, MessageID: 2})
+	svc.HandleEvent(domain.Event{SelfID: 1, Post: domain.PostMeta})
+	paused.Store(false)
+	svc.HandleEvent(domain.Event{SelfID: 1, Post: domain.PostMessage, MessageID: 3})
+	for _, want := range []struct {
+		post domain.PostType
+		id   domain.MessageID
+	}{{domain.PostMessage, 1}, {domain.PostMeta, 0}, {domain.PostMessage, 3}} {
+		select {
+		case event := <-svc.Events():
+			if event.Post != want.post || event.MessageID != want.id {
+				t.Fatalf("published %s:%d, want %s:%d", event.Post, event.MessageID, want.post, want.id)
+			}
+		default:
+			t.Fatalf("missing %s:%d", want.post, want.id)
+		}
+	}
+	if queued := len(svc.Events()); queued != 0 {
+		t.Fatalf("queued events = %d", queued)
 	}
 }

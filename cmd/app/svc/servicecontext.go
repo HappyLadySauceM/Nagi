@@ -54,7 +54,8 @@ type ServiceContext struct {
 	Accounts *Accounts
 	// Dispatchers holds one event loop per connection.
 	// Dispatchers 为每条连接持有一个事件循环。
-	Dispatchers []*botapp.Dispatcher
+	Dispatchers    []*botapp.Dispatcher
+	MessageIngress *botapp.MessageIngress
 
 	// Directory, Scope, Memory, Conversation and Audit are nil when the database
 	// is not configured.

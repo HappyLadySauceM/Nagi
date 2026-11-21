@@ -14,3 +14,10 @@ type AccountView struct {
 	LastHeartbeatAt string `json:"last_heartbeat,omitempty"`
 	SyncedAt        string `json:"synced_at,omitempty"`
 }
+
+// IngressView describes the process-local message gate and active dispatch count.
+// IngressView 描述本进程的消息闸门及正在分发的消息数。
+type IngressView struct {
+	Paused      bool `json:"paused"`
+	Dispatching int  `json:"dispatching"`
+}

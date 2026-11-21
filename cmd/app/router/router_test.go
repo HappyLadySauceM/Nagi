@@ -8,9 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
+	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -57,5 +60,51 @@ func TestUnknownRouteStaysNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestIngressRouteRequiresAuthorizationAndExplicitPause(t *testing.T) {
+	ctx := testContext()
+	ctx.MessageIngress = &botapp.MessageIngress{}
+	ctx.Config.Server.AdminToken = "synthetic-test-token"
+	handler := New(ctx, ctx.Logger)
+	for _, tc := range []struct {
+		name, method, token, body string
+		status                    int
+		paused                    bool
+	}{
+		{name: "default", method: http.MethodGet, token: "synthetic-test-token", status: http.StatusOK},
+		{name: "unauthorized pause", method: http.MethodPut, body: `{"paused":true}`, status: http.StatusUnauthorized},
+		{name: "pause", method: http.MethodPut, token: "synthetic-test-token", body: `{"paused":true}`, status: http.StatusOK, paused: true},
+		{name: "missing", method: http.MethodPut, token: "synthetic-test-token", body: `{}`, status: http.StatusBadRequest, paused: true},
+		{name: "null", method: http.MethodPut, token: "synthetic-test-token", body: `{"paused":null}`, status: http.StatusBadRequest, paused: true},
+		{name: "non-boolean", method: http.MethodPut, token: "synthetic-test-token", body: `{"paused":"false"}`, status: http.StatusBadRequest, paused: true},
+		{name: "unknown field", method: http.MethodPut, token: "synthetic-test-token", body: `{"paused":false,"bot_id":1}`, status: http.StatusBadRequest, paused: true},
+		{name: "multiple objects", method: http.MethodPut, token: "synthetic-test-token", body: `{"paused":false}{}`, status: http.StatusBadRequest, paused: true},
+		{name: "oversized body", method: http.MethodPut, token: "synthetic-test-token", body: `{"paused":false}` + strings.Repeat(" ", 1024), status: http.StatusBadRequest, paused: true},
+		{name: "unauthorized read", method: http.MethodGet, status: http.StatusUnauthorized, paused: true},
+		{name: "read paused", method: http.MethodGet, token: "synthetic-test-token", status: http.StatusOK, paused: true},
+		{name: "resume", method: http.MethodPut, token: "synthetic-test-token", body: `{"paused":false}`, status: http.StatusOK},
+		{name: "read resumed", method: http.MethodGet, token: "synthetic-test-token", status: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(tc.method, "/api/v1/ingress", strings.NewReader(tc.body))
+			if tc.token != "" {
+				request.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, request)
+			if rec.Code != tc.status || ctx.MessageIngress.Paused() != tc.paused {
+				t.Fatalf("status=%d paused=%t body=%s", rec.Code, ctx.MessageIngress.Paused(), rec.Body.String())
+			}
+			if rec.Code == http.StatusOK {
+				var envelope struct {
+					Data *v1.IngressView `json:"data"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil || envelope.Data == nil || envelope.Data.Paused != tc.paused || envelope.Data.Dispatching != 0 {
+					t.Fatalf("invalid ingress state: %s", rec.Body.String())
+				}
+			}
+		})
 	}
 }

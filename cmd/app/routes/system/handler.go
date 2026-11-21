@@ -4,6 +4,8 @@
 package system
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -31,6 +33,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /livez", h.Livez)
 	mux.HandleFunc("GET /readyz", h.Readyz)
 	mux.HandleFunc("GET /api/v1/status", h.Status)
+	if h.svcCtx.MessageIngress != nil {
+		mux.HandleFunc("GET /api/v1/ingress", h.ingress)
+		mux.HandleFunc("PUT /api/v1/ingress", h.updateIngress)
+	}
 	mux.HandleFunc("GET /api/v1/accounts", h.Accounts)
 	mux.HandleFunc("GET /api/v1/accounts/{bot_id}", h.Account)
 }
@@ -55,6 +61,29 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 // Status 返回运行状态快照。
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	common.WriteSuccess(w, h.svcCtx.StatusSnapshot())
+}
+
+func (h *Handler) ingress(w http.ResponseWriter, r *http.Request) {
+	state := h.svcCtx.MessageIngress.State()
+	common.WriteSuccess(w, v1.IngressView{Paused: state.Paused, Dispatching: state.Dispatching})
+}
+
+func (h *Handler) updateIngress(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Paused *bool `json:"paused"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil || body.Paused == nil {
+		common.WriteFailure(w, http.StatusBadRequest, "expected a paused boolean")
+		return
+	}
+	if err := decoder.Decode(new(json.RawMessage)); err != io.EOF {
+		common.WriteFailure(w, http.StatusBadRequest, "expected one JSON object")
+		return
+	}
+	state := h.svcCtx.MessageIngress.SetPaused(*body.Paused)
+	common.WriteSuccess(w, v1.IngressView{Paused: state.Paused, Dispatching: state.Dispatching})
 }
 
 // Accounts reports every configured account and its connection state. It only
