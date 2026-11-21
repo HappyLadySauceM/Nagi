@@ -55,146 +55,6 @@ func nameWordRune(r rune) bool {
 	return r == '_' || unicode.IsNumber(r) || unicode.IsLetter(r) && !unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
 }
 
-func groupCallReason(in domain.Input) string {
-	if directNameCall(in.Task.Message.Text, in.Task.Segments, in.BotName) {
-		return "direct_name_call"
-	}
-	if !in.Policy.AllowHistoryRead || in.Task.Message.SenderID <= 0 ||
-		!shortCall(callText(in.Task.Message.Text, in.Task.Segments)) {
-		return ""
-	}
-	recent, at := in.HistoryBeforeCurrent()
-	if len(recent) == 0 || at.IsZero() {
-		return ""
-	}
-	previous := recent[len(recent)-1]
-	elapsed := at.Sub(previous.CreatedAt)
-	if previous.IsBot || previous.SenderID != in.Task.Message.SenderID ||
-		previous.CreatedAt.IsZero() || elapsed < 0 || elapsed > 30*time.Second {
-		return ""
-	}
-	if !in.Activity.LastReplyAt.IsZero() && !in.Activity.LastReplyAt.Before(previous.CreatedAt) {
-		return ""
-	}
-	if directNameCall(callText(previous.Text, previous.Segments), nil, in.BotName) {
-		return "unanswered_call_followup"
-	}
-	return ""
-}
-
-func callText(text string, segments []ob.Segment) string {
-	if len(segments) > 0 {
-		for _, segment := range segments {
-			if segment.Type != ob.SegText {
-				return ""
-			}
-		}
-		text = ob.PlainText(segments)
-	}
-	return strings.TrimSpace(text)
-}
-
-func directNameCall(text string, segments []ob.Segment, name string) bool {
-	for _, segment := range segments {
-		if segment.Type != ob.SegText && segment.Type != ob.SegImage {
-			return false
-		}
-	}
-	if len(segments) > 0 {
-		text = nameCallText(segments)
-	}
-	name = strings.ToLower(strings.TrimSpace(name))
-	text = strings.ToLower(strings.TrimSpace(text))
-	if name == "" || text == "" {
-		return false
-	}
-	const punctuation = " \t，,：:！!？?。."
-	if rest, ok := strings.CutPrefix(text, name); ok {
-		rest = strings.TrimSpace(strings.ReplaceAll(rest, "\x00", ""))
-		question := strings.HasSuffix(rest, "?") || strings.HasSuffix(rest, "？")
-		rest = strings.Trim(rest, punctuation)
-		question = question || strings.HasSuffix(rest, "吗") || strings.HasSuffix(rest, "嘛")
-		if rest == "" || shortCall(rest) {
-			return true
-		}
-		if rest == "是谁" || rest == "你是谁" {
-			return true
-		}
-		switch strings.TrimPrefix(rest, "请") {
-		case "告诉我几点了", "告诉我现在几点了":
-			return true
-		}
-		if tail, ok := strings.CutPrefix(rest, "你怎么看"); ok &&
-			!strings.HasPrefix(tail, "都") && !strings.HasPrefix(tail, "也") &&
-			(question || tail == "" || strings.HasPrefix(tail, "这") || strings.HasPrefix(tail, "那")) {
-			return true
-		}
-		if directRequest(rest) {
-			return true
-		}
-		if question {
-			for _, request := range []string{"你能", "你可以", "你觉得"} {
-				if strings.HasPrefix(rest, request) {
-					return true
-				}
-			}
-		}
-	}
-	if rest, ok := strings.CutSuffix(strings.TrimRight(text, punctuation), name); ok {
-		return strings.Trim(rest, punctuation) == "谁是" || shortCall(rest) || trailingNameQuestion(rest)
-	}
-	return false
-}
-
-func trailingNameQuestion(beforeName string) bool {
-	body := strings.TrimRightFunc(beforeName, unicode.IsSpace)
-	separator, _ := utf8.DecodeLastRuneInString(body)
-	switch separator {
-	case '，', ',', '？', '?':
-		body = strings.TrimSpace(strings.TrimSuffix(body, string(separator)))
-	case '啊', '呀', '吗', '嘛', '呢':
-	default:
-		return false
-	}
-	if comma := strings.IndexAny(body, "，,"); comma >= 0 {
-		preamble := body[:comma]
-		if !strings.HasPrefix(preamble, "我") || strings.ContainsAny(preamble, "问：:") {
-			return false
-		}
-		_, width := utf8.DecodeRuneInString(body[comma:])
-		body = strings.TrimSpace(body[comma+width:])
-	}
-	if strings.ContainsAny(body, "，,：:") || strings.HasPrefix(body, "你们") {
-		return false
-	}
-	if directRequest(body) {
-		return true
-	}
-	for _, question := range []string{"什么", "怎么", "哪", "几点", "多少", "为啥"} {
-		if strings.Contains(body, question) {
-			return true
-		}
-	}
-	return strings.HasSuffix(body, "吗") || strings.HasSuffix(body, "嘛")
-}
-
-func directRequest(text string) bool {
-	for _, prefix := range []string{"请帮", "请解释", "请分析", "帮我", "能帮", "可以帮"} {
-		if strings.HasPrefix(text, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func shortCall(text string) bool {
-	switch strings.Trim(text, " \t，,：:！!？?。.") {
-	case "在吗", "在嘛", "在不在", "在不", "有人吗", "有人嘛", "你好", "嗨":
-		return true
-	}
-	return false
-}
-
 // requestsFollowingContent identifies a directed request that explicitly refers
 // to material the sender is about to send.
 // requestsFollowingContent 识别明确指向机器人、且预告即将发送内容的请求。
@@ -222,24 +82,26 @@ func requestsFollowingContent(in domain.Input) bool {
 			return false
 		}
 	}
-	body := strings.ToLower(strings.TrimSpace(text.String()))
-	if !in.MentionsBot() && !in.RepliesToBot() {
-		name := strings.ToLower(strings.TrimSpace(in.BotName))
-		rest, ok := strings.CutPrefix(body, name)
-		if name == "" || !ok {
-			return false
-		}
-		body = strings.TrimLeft(rest, " \t，,：:")
-		if !strings.HasPrefix(body, "你") && !strings.HasPrefix(body, "请") {
-			return false
-		}
+	body := strings.TrimSpace(text.String())
+	return forthcomingMaterial(body) != ""
+}
+
+func forthcomingMaterial(text string) string {
+	if !strings.Contains(text, "发") || !strings.Contains(text, "下面") && !strings.Contains(text, "接下来") &&
+		!strings.Contains(text, "等会") && !strings.Contains(text, "待会") && !strings.Contains(text, "稍后") && !strings.Contains(text, "接着") {
+		return ""
 	}
-	request := strings.Contains(body, "看看") || strings.Contains(body, "看一下") ||
-		strings.Contains(body, "看下") || strings.Contains(body, "分析")
-	forthcoming := strings.Contains(body, "下面发") || strings.Contains(body, "接下来发") ||
-		strings.Contains(body, "等会发") || strings.Contains(body, "待会发") ||
-		strings.Contains(body, "我发给你")
-	return request && forthcoming
+	return materialType(text)
+}
+
+func materialType(text string) string {
+	switch {
+	case strings.Contains(text, "图片") || strings.Contains(text, "截图") || strings.Contains(text, "发图") || strings.Contains(text, "张图"):
+		return "image"
+	case strings.Contains(text, "文字") || strings.Contains(text, "文本") || strings.Contains(text, "日志") || strings.Contains(text, "代码"):
+		return "text"
+	}
+	return ""
 }
 
 func eligibleSupplement(task domain.Task) bool {
@@ -252,6 +114,11 @@ func eligibleSupplement(task domain.Task) bool {
 	}
 	hasImage, text := supplementContents(task)
 	return hasImage || quoted && text != "" || utf8.RuneCountInString(text) >= 6
+}
+
+func hasSupplementText(task domain.Task) bool {
+	_, text := supplementContents(task)
+	return text != ""
 }
 
 func supplementContents(task domain.Task) (hasImage bool, text string) {
@@ -272,20 +139,43 @@ func awaitingReply(in domain.Input) bool {
 		!eligibleSupplement(in.Task) {
 		return false
 	}
+	if at := in.Task.Message.CreatedAt; !at.IsZero() && !previous.CreatedAt.IsZero() && (at.Before(previous.CreatedAt) || at.Sub(previous.CreatedAt) > 30*time.Second) {
+		return false
+	}
 	for _, segment := range in.Task.Segments {
 		if segment.Type == ob.SegReply && segment.Data["id"] != strconv.FormatInt(previous.MessageID, 10) {
 			return false
 		}
 	}
 	hasImage, text := supplementContents(in.Task)
-	switch {
-	case strings.Contains(previous.Text, "图片") || strings.Contains(previous.Text, "发图"):
+	switch materialType(previous.Text) {
+	case "image":
 		return hasImage
-	case strings.Contains(previous.Text, "文字") || strings.Contains(previous.Text, "文本"):
-		return text != ""
+	case "text":
+		return hasTextMaterialEvidence(previous.Text, text)
 	default:
-		return hasImage || text != ""
+		return false
 	}
+}
+
+func hasTextMaterialEvidence(request, text string) bool {
+	if strings.HasPrefix(text, "```") && strings.Contains(text[3:], "\n") {
+		return true
+	}
+	for _, label := range []string{"文字", "文本", "日志", "代码"} {
+		if !strings.Contains(request, label) {
+			continue
+		}
+		for _, prefix := range []string{label, "这是" + label} {
+			if rest, ok := strings.CutPrefix(text, prefix); ok {
+				rest = strings.TrimSpace(rest)
+				if strings.HasPrefix(rest, ":") || strings.HasPrefix(rest, "：") {
+					return strings.TrimSpace(strings.TrimLeft(rest, ":：")) != ""
+				}
+			}
+		}
+	}
+	return false
 }
 
 func refersToEarlierDiscussion(task domain.Task) bool {
@@ -315,11 +205,8 @@ func replyHistory(in domain.Input, reason string) []domain.Message {
 			}
 		}
 	}
-	if len(quoted) != 0 || reason == "direct_name_call" && !refersToEarlierDiscussion(in.Task) {
+	if len(quoted) != 0 {
 		return quoted
-	}
-	if reason == "unanswered_call_followup" && len(history) != 0 {
-		return history[len(history)-1:]
 	}
 	if reason == "active_thread_continuation" {
 		for i := len(history) - 1; i >= 0; i-- {

@@ -122,7 +122,18 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 			topicKeys[key] = requestKey
 		}
 	}
+	callQuestion, askCall := in.CallQuestion()
 	wireQuestions := questionsFromSpecs(specs)
+	callKey := domain.CallQuestionKey
+	if askCall {
+		for {
+			if _, taken := wireQuestions[callKey]; !taken {
+				break
+			}
+			callKey += "_"
+		}
+		wireQuestions[callKey] = jevQuestion{Type: callQuestion.Type, Instructions: callQuestion.Instructions, Criteria: callQuestion.Criteria}
+	}
 	if span := trace.SpanFromContext(ctx); span.IsRecording() {
 		prompt := in.Prompt
 		if prompt.SystemOne == nil {
@@ -165,9 +176,11 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	if c.cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 	}
+	req.GetBody = nil
 	resp, err := modelhttp.Client(c.client, c.cfg.HTTPHeaders).Do(req)
+	attempt := domain.SemanticAnswer{ExternalRequests: 1}
 	if err != nil {
-		return domain.SemanticAnswer{}, fmt.Errorf("jev: call: %w", err)
+		return attempt, fmt.Errorf("jev: call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -178,30 +191,71 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 		}
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&failure)
 		if failure.Error.Code == "invalidModelIdentifier" {
-			return domain.SemanticAnswer{}, ErrDecisionModelUnavailable
+			return attempt, ErrDecisionModelUnavailable
 		}
 		c.logger.Warn("jev request failed", "status", resp.StatusCode)
-		return domain.SemanticAnswer{}, fmt.Errorf("jev: unexpected status %d", resp.StatusCode)
+		return attempt, fmt.Errorf("jev: unexpected status %d", resp.StatusCode)
 	}
 	var parsed struct {
 		Answers map[string]json.RawMessage `json:"answers"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
-		return domain.SemanticAnswer{}, fmt.Errorf("jev: decode response: %w", err)
+		return attempt, fmt.Errorf("jev: decode response: %w", err)
+	}
+	if !askCall && len(specs) == 0 {
+		return attempt, fmt.Errorf("jev: no questions configured")
 	}
 	answer, err := parseAnswers(parsed.Answers, specs)
-	if err != nil || len(topicKeys) == 0 {
-		return answer, err
+	answer.ExternalRequests = attempt.ExternalRequests
+	if askCall {
+		answer.CallAddressing, answer.CallFailureCode = decodeCallAddressing(parsed.Answers[callKey])
 	}
-	for i := range in.Topics.Candidates {
-		scoreKey, actionKey := topicKeys[domain.TopicQuestionKey(i)], topicKeys[domain.TopicActionKey(i)]
-		answer.TopicJudgments = append(answer.TopicJudgments, domain.TopicJudgment{
-			Affinity: answer.Scores[scoreKey], Action: answer.Choices[actionKey],
-		})
-		delete(answer.Scores, scoreKey)
-		delete(answer.Choices, actionKey)
+	hasCall := askCall && answer.CallAddressing != domain.CallUnknown
+	hasExit := false
+	if len(topicKeys) != 0 {
+		for i, candidate := range in.Topics.Candidates {
+			scoreKey, actionKey := topicKeys[domain.TopicQuestionKey(i)], topicKeys[domain.TopicActionKey(i)]
+			affinity, scored := answer.Scores[scoreKey]
+			action := answer.Choices[actionKey]
+			if candidate.Active && (scored || in.Topics.QuotedID == candidate.ID) && (action == domain.TopicClose || action == domain.TopicLeave) {
+				hasExit = true
+			}
+			answer.TopicJudgments = append(answer.TopicJudgments, domain.TopicJudgment{Affinity: affinity, AffinityMissing: !scored, Action: action})
+			delete(answer.Scores, scoreKey)
+			delete(answer.Choices, actionKey)
+		}
 	}
-	return answer, nil
+	if err != nil && (hasCall || hasExit) {
+		answer.Available = true
+		answer.FailureCode = "decision_questions_degraded"
+		return answer, nil
+	}
+	return answer, err
+}
+
+func decodeCallAddressing(raw json.RawMessage) (domain.CallAddressing, string) {
+	if len(raw) == 0 {
+		return domain.CallUnknown, "question_missing"
+	}
+	var value struct {
+		Choice   domain.CallAddressing `json:"choice"`
+		Label    domain.CallAddressing `json:"label"`
+		Category domain.CallAddressing `json:"category"`
+	}
+	if json.Unmarshal(raw, &value) == nil {
+		result := value.Choice
+		if result == "" {
+			result = value.Label
+		}
+		if result == "" {
+			result = value.Category
+		}
+		switch result {
+		case domain.CallYes, domain.CallNo, domain.CallUncertain:
+			return result, ""
+		}
+	}
+	return domain.CallUnknown, "invalid_answer"
 }
 
 // questionsFromSpecs maps the effective question configuration to the SystemOne
@@ -243,14 +297,21 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	if botLastSpoke < 0 {
 		botLastSpoke = -1
 	}
+	name := c.cfg.BotName
+	if in.CallAddressingRequired() {
+		name = in.BotName
+	}
 	state := map[string]any{
-		"bot_name":                   c.cfg.BotName,
+		"bot_name":                   name,
 		"channel":                    in.Task.Kind,
 		"current_message":            map[string]any{"sender": sender, "text": semanticText(in.Task.Message.Text)},
 		"recent_messages":            recent,
 		"bot_last_spoke_seconds_ago": botLastSpoke,
 		"mentions_bot":               in.MentionsBot(),
 		"replies_to_bot":             in.RepliesToBot(),
+	}
+	if in.Policy.AllowHistoryRead && in.AwaitedRequest != nil {
+		state["awaited_request"] = semanticText(in.AwaitedRequest.Text)
 	}
 	addTopicState(state, in.Topics)
 	return state
@@ -310,10 +371,10 @@ func parseAnswers(answers map[string]json.RawMessage, questions map[string]domai
 		Roles:       make(map[string]float64),
 		RolePresent: make(map[string]bool),
 	}
-	if len(answers) == 0 {
+	if len(answers) == 0 && len(questions) != 0 {
 		return out, fmt.Errorf("jev: empty answers")
 	}
-	if len(questions) == 0 {
+	if questions == nil {
 		return out, fmt.Errorf("jev: no questions configured")
 	}
 	noul := func(name string) (float64, error) {
@@ -355,6 +416,7 @@ func parseAnswers(answers map[string]json.RawMessage, questions map[string]domai
 		return "", fmt.Errorf("jev: answer %s has no category", name)
 	}
 	var numerator, denominator float64
+	var firstError error
 	terms := 0
 	for name, q := range questions {
 		role := domain.EffectiveQuestionRole(name, q)
@@ -362,7 +424,10 @@ func parseAnswers(answers map[string]json.RawMessage, questions map[string]domai
 		case "noul":
 			value, err := noul(name)
 			if err != nil {
-				return out, err
+				if firstError == nil {
+					firstError = err
+				}
+				continue
 			}
 			out.Scores[name] = value
 			if role != domain.QuestionRoleCustom && domain.IsKnownQuestionRole(role) {
@@ -378,7 +443,10 @@ func parseAnswers(answers map[string]json.RawMessage, questions map[string]domai
 		case "choice":
 			category, err := choice(name)
 			if err != nil {
-				return out, err
+				if firstError == nil {
+					firstError = err
+				}
+				continue
 			}
 			if role != domain.QuestionRoleCustom && domain.IsKnownQuestionRole(role) {
 				out.RolePresent[role] = true
@@ -388,15 +456,17 @@ func parseAnswers(answers map[string]json.RawMessage, questions map[string]domai
 				out.IntentCategory = category
 			}
 		default:
-			return out, fmt.Errorf("jev: answer %s has unsupported type %q", name, q.Type)
+			if firstError == nil {
+				firstError = fmt.Errorf("jev: answer %s has unsupported type %q", name, q.Type)
+			}
 		}
 	}
 	if terms > 0 {
 		out.ParticipationScore = numerator / denominator
 		out.HasParticipation = true
 	}
-	out.Available = true
-	return out, nil
+	out.Available = firstError == nil
+	return out, firstError
 }
 
 // assignNamedScore copies a named-role noul score into its legacy field.

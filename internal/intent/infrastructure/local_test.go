@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
@@ -125,5 +126,48 @@ func TestLocalClientUsesOpenAIUserTemplate(t *testing.T) {
 	defer mu.Unlock()
 	if !sawTemplate {
 		t.Fatal("OpenAI user template was not applied")
+	}
+}
+
+func TestLocalReusesFirstRequestForThreeWayCall(t *testing.T) {
+	for _, want := range []domain.CallAddressing{domain.CallYes, domain.CallNo, domain.CallUncertain} {
+		t.Run(string(want), func(t *testing.T) {
+			var requests, callQuestions atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				var body struct{ Messages []map[string]string }
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					return
+				}
+				values := map[string]float64{"A": -.1, "B": -3, "C": -3}
+				query := body.Messages[1]["content"]
+				if strings.Contains(query, "是否适合在此时加入讨论") {
+					http.Error(w, "fixture auxiliary failure", http.StatusServiceUnavailable)
+					return
+				}
+				if strings.Contains(query, "期待它回应吗") {
+					callQuestions.Add(1)
+					if !strings.Contains(query, "名为 橘子 的 QQ") || !strings.Contains(query, `"bot_name":"橘子"`) {
+						t.Error("nickname mismatch")
+					}
+					values = map[string]float64{"A": -3, "B": -3, "C": -3}
+					values[map[domain.CallAddressing]string{domain.CallYes: "A", domain.CallNo: "B", domain.CallUncertain: "C"}[want]] = -.1
+				}
+				var top []map[string]any
+				for token, lp := range values {
+					top = append(top, map[string]any{"token": token, "logprob": lp})
+				}
+				json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"logprobs": map[string]any{"content": []any{map[string]any{"token": "A", "top_logprobs": top}}}}}})
+			}))
+			defer server.Close()
+			client := &LocalClient{Config: JevConfig{Endpoint: server.URL, Model: "fixture", Timeout: time.Second}, Client: server.Client()}
+			in := testInput()
+			in.Policy.ReplyMode, in.BotName = scopedomain.ModeIntentBased, "橘子"
+			out, err := client.Decide(context.Background(), in)
+			if err != nil || out.CallAddressing != want || out.FailureCode != "decision_questions_degraded" || out.ExternalRequests != 5 || requests.Load() != 5 || callQuestions.Load() != 1 {
+				t.Fatalf("answer=%+v err=%v requests=%d call_questions=%d", out, err, requests.Load(), callQuestions.Load())
+			}
+		})
 	}
 }

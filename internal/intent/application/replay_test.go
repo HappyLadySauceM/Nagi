@@ -43,11 +43,12 @@ func TestReplayModelUsesStoredRuleAndCallsModel(t *testing.T) {
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, IntentCategory: "chat"}}
 	recorder := &fakeRecorder{}
 	executor := &fakeExecutor{}
-	d := newDecider(t, Options{Scopes: &fakeScopes{}, Recorder: recorder, Semantic: semantic, Executor: executor, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), BotNickname: func(int64) string { return "LiveName" }, Recorder: recorder, Semantic: semantic, Executor: executor, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
 	svc := NewReplayService(d, nil, &fakeSnapshotReader{snapshot: domain.DecisionSnapshot{
 		Input: domain.SnapshotInput{
-			Task: domain.Task{JobID: 7, BotID: 100, Kind: "group", TargetID: 700, ConversationID: "conv-1"},
-			Now:  time.Now(),
+			Task:    domain.Task{JobID: 7, BotID: 100, Kind: "group", TargetID: 700, ConversationID: "conv-1"},
+			BotName: "FrozenName",
+			Now:     time.Now(),
 		},
 		Prompt:         domain.BuiltinPrompt(domain.PromptProviderJev),
 		Rule:           domain.RuleResult{NeedSemantic: true},
@@ -57,7 +58,7 @@ func TestReplayModelUsesStoredRuleAndCallsModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if semantic.calls != 1 {
+	if semantic.calls != 1 || semantic.input.BotName != "FrozenName" {
 		t.Fatalf("semantic calls = %d, want 1", semantic.calls)
 	}
 	if run.RulesetVersion != "ruleset-1" || len(run.Nodes) != 5 {

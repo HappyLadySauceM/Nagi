@@ -589,7 +589,7 @@ func TestPromptsRepoPublishRollbackConcurrent(t *testing.T) {
 	}
 }
 
-func TestAwaitedRequestUsesLatestDecisionOfSameSender(t *testing.T) {
+func TestAwaitedRequestSurvivesUnrelatedMessagesUntilConsumed(t *testing.T) {
 	pool := dbtest.Open(t)
 	conversations, err := conversationinfra.NewRepo(pool)
 	if err != nil {
@@ -625,6 +625,15 @@ func TestAwaitedRequestUsesLatestDecisionOfSameSender(t *testing.T) {
 	unrelated := ingest(1, otherSender, "[图片]")
 	followup := ingest(2, senderID, "[图片]")
 	duplicate := ingest(3, senderID, "[图片]")
+	followupClaim := dbtest.Claim(t, pool, followup.JobID)
+	if err := decisions.Record(ctx, followup.JobID, domain.FinalDecision{Decision: domain.DecisionReply, ReasonCode: "awaited_content_received", Snapshot: &domain.DecisionSnapshot{
+		Input: domain.SnapshotInput{AwaitedRequest: &domain.Message{MessageID: base}},
+	}}, followupClaim); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversations.CompleteJob(ctx, followup.JobID, followupClaim); err != nil {
+		t.Fatal(err)
+	}
 	for _, sample := range []struct{ jobID, botID, expected int64 }{
 		{jobID: unrelated.JobID, botID: botID},
 		{jobID: followup.JobID, botID: botID, expected: base},

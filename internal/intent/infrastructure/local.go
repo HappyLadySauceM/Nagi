@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
@@ -41,11 +42,21 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 		recent = append(recent, map[string]any{"MessageID": m.MessageID, "SenderID": m.SenderID, "IsBot": m.IsBot, "Text": m.Text, "CreatedAt": m.CreatedAt})
 	}
 	var state bytes.Buffer
-	payload := map[string]any{"channel": in.Task.Kind, "bot_name": c.Config.BotName, "message": in.Task.Message.Text, "recent": recent}
+	name := c.Config.BotName
+	if in.CallAddressingRequired() {
+		name = in.BotName
+	}
+	payload := map[string]any{"channel": in.Task.Kind, "bot_name": name, "message": in.Task.Message.Text, "recent": recent}
+	if in.Policy.AllowHistoryRead && in.AwaitedRequest != nil {
+		payload["awaited_request"] = semanticText(in.AwaitedRequest.Text)
+	}
 	addTopicState(payload, in.Topics)
 	_ = json.NewEncoder(&state).Encode(payload)
 	values := make([]float64, 4)
 	var intentScore float64
+	var callResult domain.CallAddressing
+	var requests atomic.Int32
+	callQuestion, askCall := in.CallQuestion()
 	c.gateOnce.Do(func() { c.gate = make(chan struct{}, 2) })
 	sem := c.gate
 	var wg sync.WaitGroup
@@ -71,7 +82,11 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 			if i < 4 {
 				q = questions[i] + " A=是，B=否。"
 			}
-			probs, err := c.score(ctx, systemPrompt, state.String(), q, labels, userTemplate)
+			if i == 0 && askCall {
+				labels = []string{"A", "B", "C"}
+				q = callQuestion.Instructions + " A=" + callQuestion.Criteria["yes"] + " B=" + callQuestion.Criteria["no"] + " C=" + callQuestion.Criteria["uncertain"]
+			}
+			probs, err := c.score(ctx, systemPrompt, state.String(), q, labels, userTemplate, &requests)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -82,23 +97,36 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 			}
 			if i < 4 {
 				values[i] = probs[0]
+				if i == 0 && askCall {
+					callResult = domain.CallUncertain
+					if probs[0] > max(probs[1], probs[2]) {
+						callResult = domain.CallYes
+					}
+					if probs[1] > max(probs[0], probs[2]) {
+						callResult = domain.CallNo
+					}
+				}
 			} else {
 				intentScore = probs[0]
 			}
 		}(i)
 	}
 	wg.Wait()
+	if first != nil && callResult == "" {
+		return domain.SemanticAnswer{ExternalRequests: int(requests.Load())}, first
+	}
+	answer := domain.SemanticAnswer{Available: true, CallAddressing: callResult, DirectedToBot: values[0], ContinuesBotThread: values[1], AddressedToOther: values[2], AppropriateToJoin: values[3], Scores: map[string]float64{"intent": intentScore}}
 	if first != nil {
-		return domain.SemanticAnswer{}, first
+		answer.FailureCode = "decision_questions_degraded"
 	}
-	answer := domain.SemanticAnswer{Available: true, DirectedToBot: values[0], ContinuesBotThread: values[1], AddressedToOther: values[2], AppropriateToJoin: values[3], Scores: map[string]float64{"intent": intentScore}}
 	if in.Topics != nil && len(in.Topics.Candidates) > 0 {
-		c.scoreTopic(ctx, in.Topics, systemPrompt, state.String(), userTemplate, &answer)
+		c.scoreTopic(ctx, in.Topics, systemPrompt, state.String(), userTemplate, &answer, &requests)
 	}
+	answer.ExternalRequests = int(requests.Load())
 	return answer, nil
 }
 
-func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContext, systemPrompt, state, userTemplate string, answer *domain.SemanticAnswer) {
+func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContext, systemPrompt, state, userTemplate string, answer *domain.SemanticAnswer, requests *atomic.Int32) {
 	actions := []string{domain.TopicFollowUp, domain.TopicContribution, domain.TopicLeave, domain.TopicClose}
 	labels := []string{"A"}
 	question := strings.Builder{}
@@ -116,7 +144,7 @@ func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContex
 	case <-ctx.Done():
 		return
 	}
-	values, err := c.score(ctx, systemPrompt, state, question.String(), labels, userTemplate)
+	values, err := c.score(ctx, systemPrompt, state, question.String(), labels, userTemplate, requests)
 	if err != nil {
 		return
 	}
@@ -136,7 +164,7 @@ func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContex
 	}
 }
 
-func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question string, labels []string, userTemplate string) ([]float64, error) {
+func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question string, labels []string, userTemplate string, requests *atomic.Int32) ([]float64, error) {
 	effort := "none"
 	if c.Config.Thinking {
 		effort = c.Config.ReasoningEffort
@@ -168,6 +196,8 @@ func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question s
 	if c.Config.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Config.APIKey)
 	}
+	req.GetBody = nil
+	requests.Add(1)
 	resp, err := modelhttp.Client(c.Client, c.Config.HTTPHeaders).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("local semantic service unavailable: %w", err)

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+
 	"github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 )
@@ -58,12 +60,19 @@ func (f *fakeReplayEvaluations) List(_ context.Context, query contracts.ReplayEv
 	return out, nil
 }
 
+func authorizedReplayScope() *fakeScopes {
+	return &fakeScopes{policies: map[string]scopedomain.Policy{
+		keyOf(100, "group", 700): {Enabled: true, AllowHistoryRead: true, ReplyMode: scopedomain.ModeIntentBased},
+	}}
+}
+
 func replaySnapshot() domain.DecisionSnapshot {
 	return domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: "run-1",
 		Input: domain.SnapshotInput{
-			Task: domain.Task{JobID: 7, BotID: 100, Kind: "group", TargetID: 700, ConversationID: "conv-1"},
-			Now:  time.Now(),
+			Task:    domain.Task{JobID: 7, BotID: 100, Kind: "group", TargetID: 700, ConversationID: "conv-1"},
+			BotName: "FrozenName",
+			Now:     time.Now(),
 		},
 		Prompt:         domain.BuiltinPrompt(domain.PromptProviderJev),
 		Rule:           domain.RuleResult{NeedSemantic: true},
@@ -81,7 +90,7 @@ func replayDecisionRecord() contracts.DecisionRecord {
 
 func TestEstimateModelReplayRequiresNoModelCall(t *testing.T) {
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, IntentCategory: "chat"}}
-	d := newDecider(t, Options{Scopes: &fakeScopes{}, Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
 	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: replaySnapshot()}, &fakeReplayEvaluations{})
 	estimate, err := svc.EstimateModelReplay(context.Background(), 7)
 	if err != nil {
@@ -103,7 +112,7 @@ func TestEstimateModelReplayRequiresNoModelCall(t *testing.T) {
 
 func TestReplayModelWithoutConfirmationIsRejected(t *testing.T) {
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, IntentCategory: "chat"}}
-	d := newDecider(t, Options{Scopes: &fakeScopes{}, Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
 	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: replaySnapshot()}, &fakeReplayEvaluations{})
 	if _, err := svc.ReplayModelConfirmed(context.Background(), 7, "", "", ""); !errors.Is(err, ErrReplayConfirmationRequired) {
 		t.Fatalf("err = %v, want confirmation required", err)
@@ -116,7 +125,7 @@ func TestReplayModelWithoutConfirmationIsRejected(t *testing.T) {
 func TestReplayModelConfirmationBecomesStaleWhenModelChanges(t *testing.T) {
 	runtime := RuntimeConfig{Enabled: true, AIEnabled: true, HistoryLimit: 30, Provider: "jev", Model: "model-a", Thresholds: thresholds}
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, IntentCategory: "chat"}}
-	d := newDecider(t, Options{Scopes: &fakeScopes{}, Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Dynamic: func() RuntimeConfig { return runtime }})
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Dynamic: func() RuntimeConfig { return runtime }})
 	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: replaySnapshot()}, &fakeReplayEvaluations{})
 	estimate, err := svc.EstimateModelReplay(context.Background(), 7)
 	if err != nil {
@@ -137,7 +146,7 @@ func TestConfirmedModelReplaySavesIndependentEvaluation(t *testing.T) {
 	executor := &fakeExecutor{}
 	evaluations := &fakeReplayEvaluations{}
 	d := newDecider(t, Options{
-		Scopes: &fakeScopes{}, Recorder: recorder, Semantic: semantic, Executor: executor,
+		Scopes: authorizedReplayScope(), Recorder: recorder, Semantic: semantic, Executor: executor,
 		Thresholds: thresholds, Provider: "jev", Model: "decision-model",
 	})
 	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: replaySnapshot()}, evaluations)
@@ -174,7 +183,7 @@ func TestSaveRecalculateEvaluationIsFreeAndLocal(t *testing.T) {
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, IntentCategory: "chat"}}
 	executor := &fakeExecutor{}
 	evaluations := &fakeReplayEvaluations{}
-	d := newDecider(t, Options{Scopes: &fakeScopes{}, Recorder: &fakeRecorder{}, Semantic: semantic, Executor: executor, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), Recorder: &fakeRecorder{}, Semantic: semantic, Executor: executor, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
 	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: replaySnapshot()}, evaluations)
 	evaluation, err := svc.SaveRecalculateEvaluation(context.Background(), 7, "free", "")
 	if err != nil {
@@ -235,7 +244,7 @@ func TestEstimateModelReplaySkipsCostWhenNoSemanticCall(t *testing.T) {
 	snapshot := replaySnapshot()
 	snapshot.Rule = domain.RuleResult{NeedSemantic: false}
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, IntentCategory: "chat"}}
-	d := newDecider(t, Options{Scopes: &fakeScopes{}, Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
 	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: snapshot}, &fakeReplayEvaluations{})
 	estimate, err := svc.EstimateModelReplay(context.Background(), 7)
 	if err != nil {
@@ -254,7 +263,7 @@ func TestEstimateModelReplaySkipsCostWhenNoSemanticCall(t *testing.T) {
 
 func TestReplayModelConfirmedChecksStoreBeforeExternalCall(t *testing.T) {
 	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, IntentCategory: "chat"}}
-	d := newDecider(t, Options{Scopes: &fakeScopes{}, Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
 	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: replaySnapshot()})
 	estimate, err := svc.EstimateModelReplay(context.Background(), 7)
 	if err != nil {
@@ -265,5 +274,36 @@ func TestReplayModelConfirmedChecksStoreBeforeExternalCall(t *testing.T) {
 	}
 	if semantic.calls != 0 {
 		t.Fatalf("missing evaluation store still called model %d times", semantic.calls)
+	}
+}
+
+func TestReplayBlocksExternalCallAfterScopeRevocation(t *testing.T) {
+	for _, policy := range []scopedomain.Policy{
+		{Enabled: false, ReplyMode: scopedomain.ModeIntentBased},
+		{Enabled: true, ReplyMode: scopedomain.ModeObserveOnly},
+		{Enabled: true, ReplyMode: scopedomain.ModeMentionOnly},
+	} {
+		t.Run(string(policy.ReplyMode), func(t *testing.T) {
+			ctx := context.Background()
+			scopes := authorizedReplayScope()
+			semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, CallAddressing: domain.CallYes}}
+			d := newDecider(t, Options{Scopes: scopes, Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "fixture"})
+			s := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: replaySnapshot()}, &fakeReplayEvaluations{})
+			before, err := s.EstimateModelReplay(ctx, 7)
+			if err != nil || before.EstimatedExternalRequests != 1 {
+				t.Fatalf("authorized estimate=%+v err=%v", before, err)
+			}
+			scopes.policies[keyOf(100, "group", 700)] = policy
+			if _, err := s.ReplayModelConfirmed(ctx, 7, before.ConfirmationToken, "fixture", ""); !errors.Is(err, ErrReplayConfirmationStale) {
+				t.Fatalf("revoked confirmation err=%v", err)
+			}
+			after, err := s.EstimateModelReplay(ctx, 7)
+			if err != nil || after.EstimatedExternalRequests != 0 {
+				t.Fatalf("revoked estimate=%+v err=%v", after, err)
+			}
+			if run, err := s.ReplayModel(ctx, 7); err != nil || run.Summary.Decision != string(domain.DecisionSilent) || semantic.calls != 0 {
+				t.Fatalf("revoked replay=%+v err=%v calls=%d", run, err, semantic.calls)
+			}
+		})
 	}
 }

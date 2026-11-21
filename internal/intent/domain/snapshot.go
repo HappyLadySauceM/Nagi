@@ -29,6 +29,7 @@ const (
 // SnapshotInput 是回放路径所需的精确决策输入。
 type SnapshotInput struct {
 	Task                 Task
+	BotName              string
 	Recent               []Message
 	AwaitedRequest       *Message      `json:",omitempty"`
 	Topics               *TopicContext `json:",omitempty"`

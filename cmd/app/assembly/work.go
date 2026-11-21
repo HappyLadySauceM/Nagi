@@ -497,7 +497,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 				return handler.Shutdown(ctx)
 			}
 		}
-		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, promptService, rt.Scope, rt.Conversation, executor, identities, rt.Rulesets, rt.AIAudit)
+		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, promptService, rt.Scope, rt.Conversation, rt.Registry, executor, identities, rt.Rulesets, rt.AIAudit)
 		if workerErr != nil {
 			return nil, workerErr
 		}

@@ -5,8 +5,12 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -280,5 +284,110 @@ func TestJevClientComputesParticipationFromDefaultQuestions(t *testing.T) {
 	want := (0.42 + 0.88 - 0.10 + 0.30) / 4
 	if !answer.HasParticipation || answer.ParticipationScore < want-1e-9 || answer.ParticipationScore > want+1e-9 {
 		t.Fatalf("participation = %v, want %v", answer.ParticipationScore, want)
+	}
+}
+
+func TestJevAsksCallInSameRequestAsCustomQuestion(t *testing.T) {
+	for _, name := range []string{"薄荷", "橘子"} {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				var req struct {
+					State     map[string]any
+					Questions map[string]jevQuestion
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				question := req.Questions[domain.CallQuestionKey]
+				if req.State["bot_name"] != name || !strings.Contains(question.Instructions, "名为 "+name+" 的") || len(question.Criteria) != 3 || len(req.Questions) != 2 || req.Questions["custom"].Type != "noul" {
+					t.Errorf("wrong effective request: %+v", req)
+				}
+				fmt.Fprintf(w, `{"answers":{"custom":{"noul":0.12},%q:{"choice":"yes"}}}`, domain.CallQuestionKey)
+			}))
+			defer srv.Close()
+			in := testInput()
+			in.Policy.ReplyMode, in.BotName = scopedomain.ModeIntentBased, name
+			in.Prompt.SystemOne = &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{"custom": {Type: "noul", Instructions: "fixture"}}}
+			out, err := testClient(t, srv.URL).Decide(context.Background(), in)
+			if err != nil || out.CallAddressing != domain.CallYes || out.ExternalRequests != 1 || calls.Load() != 1 || out.Scores["custom"] != .12 {
+				t.Fatalf("answer=%+v err=%v calls=%d", out, err, calls.Load())
+			}
+		})
+	}
+}
+
+func TestJevKeepsCallAndCustomKeyWhenOtherQuestionFails(t *testing.T) {
+	for _, result := range []domain.CallAddressing{domain.CallYes, domain.CallNo} {
+		t.Run(string(result), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var payload struct{ Questions map[string]jevQuestion }
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Error(err)
+					return
+				}
+				key := domain.CallQuestionKey
+				if payload.Questions[key].Type != "noul" || payload.Questions[key+"_"].Type != "choice" {
+					t.Errorf("colliding question was overwritten: %+v", payload.Questions)
+				}
+				fmt.Fprintf(w, `{"answers":{%q:{"noul":0.12},%q:{"choice":%q},"nagi_topic_1":{"noul":0.95},"nagi_topic_1_action":{"choice":"close"}}}`, key, key+"_", result)
+			}))
+			defer server.Close()
+			in := testInput()
+			in.BotName, in.Policy.ReplyMode = "薄荷", scopedomain.ModeIntentBased
+			in.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 1, Active: true}}}
+			in.Prompt.SystemOne = &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{
+				domain.CallQuestionKey: {Type: "noul", Instructions: "custom"},
+				"missing":              {Type: "noul", Instructions: "omitted"},
+			}}
+			out, err := testClient(t, server.URL).Decide(context.Background(), in)
+			if err != nil || out.CallAddressing != result || out.FailureCode != "decision_questions_degraded" || out.Scores[domain.CallQuestionKey] != .12 || len(out.TopicJudgments) != 1 || out.TopicJudgments[0].Action != domain.TopicClose {
+				t.Fatalf("partial response: %+v err=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestJevPreservesTopicCloseWhenCallAndCustomAnswersAreMissing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"answers":{"nagi_topic_1":{"noul":0.97},"nagi_topic_1_action":{"choice":"close"}}}`)
+	}))
+	defer srv.Close()
+	in := testInput()
+	in.BotName, in.Policy.ReplyMode = "薄荷", scopedomain.ModeIntentBased
+	in.Topics = &domain.TopicContext{QuotedID: 1, Candidates: []domain.TopicCandidate{{ID: 1, Active: true}}}
+	in.Prompt.SystemOne = &domain.SystemOnePrompt{Questions: map[string]domain.PromptQuestion{"custom": {Type: "noul", Instructions: "fixture"}}}
+	out, err := testClient(t, srv.URL).Decide(context.Background(), in)
+	if err != nil || !out.Available || out.CallAddressing != domain.CallUnknown || out.CallFailureCode != "question_missing" || out.FailureCode != "decision_questions_degraded" || len(out.TopicJudgments) != 1 || out.TopicJudgments[0].Action != domain.TopicClose {
+		t.Fatalf("partial response: %+v err=%v", out, err)
+	}
+}
+
+func TestJevDistinguishesMissingTopicScoreFromZero(t *testing.T) {
+	for _, tc := range []struct {
+		name, competitor string
+		missing          bool
+	}{
+		{"missing", "", true},
+		{"null", `,"nagi_topic_2":{"noul":null}`, true},
+		{"zero", `,"nagi_topic_2":{"noul":0}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintf(w, `{"answers":{"nagi_topic_1":{"noul":0.97},"nagi_topic_1_action":{"choice":"close"},"nagi_topic_2_action":{"choice":"other"}%s}}`, tc.competitor)
+			}))
+			defer srv.Close()
+			in := testInput()
+			in.BotName, in.Policy.ReplyMode = "薄荷", scopedomain.ModeIntentBased
+			in.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 1, Active: true}, {ID: 2, Active: true}}}
+			got, err := testClient(t, srv.URL).Decide(context.Background(), in)
+			if err != nil || !got.Available || got.ExternalRequests != 1 || got.CallFailureCode != "question_missing" ||
+				len(got.TopicJudgments) != 2 || got.TopicJudgments[0] != (domain.TopicJudgment{Affinity: .97, Action: domain.TopicClose}) ||
+				got.TopicJudgments[1] != (domain.TopicJudgment{AffinityMissing: tc.missing, Action: "other"}) {
+				t.Fatalf("answer = %+v, err = %v", got, err)
+			}
+		})
 	}
 }

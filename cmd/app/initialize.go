@@ -314,8 +314,8 @@ func identifyAccount(ctx context.Context, logger *slog.Logger, account *assembly
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if botID, known := account.Client.SelfID(); known {
-			verifyIdentity(logger, account, int64(botID), "")
+		if botID, known := account.Client.SelfID(); known && account.ExpectedQQ != 0 && int64(botID) != account.ExpectedQQ {
+			verifyIdentity(logger, account, int64(botID))
 			return
 		}
 		select {
@@ -333,14 +333,20 @@ func identifyAccount(ctx context.Context, logger *slog.Logger, account *assembly
 			logger.Debug("account identity pending: get_login_info failed", "error", err)
 			continue
 		}
+		if login.UserID <= 0 {
+			continue
+		}
 		if err := account.Client.BindIdentity(obdomain.BotID(login.UserID)); err != nil {
 			account.Connection.Reject(err.Error())
 			logger.Error("account identity conflict; connection rejected", "bot_id", int64(login.UserID), "error", err)
 			_ = account.Client.Close()
 			return
 		}
-		verifyIdentity(logger, account, int64(login.UserID), login.Nickname)
-		return
+		verifyIdentity(logger, account, int64(login.UserID))
+		account.Connection.SetVerifiedNickname(int64(login.UserID), login.Nickname)
+		if account.Connection.Rejected() != "" || strings.TrimSpace(login.Nickname) != "" {
+			return
+		}
 	}
 }
 
@@ -389,7 +395,7 @@ func runRetentionSweep(ctx context.Context, logger *slog.Logger, conversation *c
 
 // verifyIdentity enforces expect-qq and logs the discovered account.
 // verifyIdentity 校验 expect-qq 并记录识别到的账号。
-func verifyIdentity(logger *slog.Logger, account *assembly.AccountRuntime, botID int64, nickname string) {
+func verifyIdentity(logger *slog.Logger, account *assembly.AccountRuntime, botID int64) {
 	if account.ExpectedQQ != 0 && botID != account.ExpectedQQ {
 		reason := fmt.Sprintf("endpoint reports QQ %d, expected %d", botID, account.ExpectedQQ)
 		account.Connection.Reject(reason)
@@ -397,7 +403,7 @@ func verifyIdentity(logger *slog.Logger, account *assembly.AccountRuntime, botID
 		_ = account.Client.Close()
 		return
 	}
-	logger.Info("account identified", "bot_id", botID, "nickname", nickname)
+	logger.Info("account identified", "bot_id", botID)
 }
 
 // connectDatabase opens the pool and validates externally applied migrations;
