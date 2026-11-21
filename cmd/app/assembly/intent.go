@@ -112,11 +112,6 @@ func (p intentProcessor) Process(ctx context.Context, job conversationdomain.Job
 	defer cancel()
 	if p.models != nil {
 		ctx = p.models.ModelSnapshot(ctx)
-		if resolver, ok := p.models.(models.Resolver); ok {
-			if _, err := resolver.ResolveModel(ctx, "generation", job.BotID, string(job.Kind), job.TargetID); err != nil {
-				return nil
-			}
-		}
 	}
 	return p.decider.ProcessTask(ctx, intentdomain.Task{
 		JobID:          job.ID,

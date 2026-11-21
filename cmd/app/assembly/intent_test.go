@@ -7,6 +7,9 @@ package assembly
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log/slog"
 	"reflect"
 	"sort"
 	"strings"
@@ -17,6 +20,9 @@ import (
 
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
+	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
@@ -457,5 +463,93 @@ func TestMemorySourceReauthorizationBlocksAfterHistoryRevocation(t *testing.T) {
 	}
 	if out, err := detail.InvokableRun(ctx, "{}"); err != nil || out != "detail" {
 		t.Fatalf("detail after history revocation = %q, %v", out, err)
+	}
+}
+
+type intentProcessorSnapshotKey struct{}
+
+type intentProcessorProbe struct {
+	resolveCalls int
+	decisions    []intentdomain.Decision
+	resolveErr   error
+}
+
+func (p *intentProcessorProbe) ModelSnapshot(ctx context.Context) context.Context {
+	return context.WithValue(ctx, intentProcessorSnapshotKey{}, p)
+}
+
+func (p *intentProcessorProbe) ResolveModel(ctx context.Context, _ string, _ int64, _ string, _ int64) (models.Resolved, error) {
+	p.resolveCalls++
+	if ctx.Value(intentProcessorSnapshotKey{}) != p {
+		return models.Resolved{}, errors.New("model snapshot missing")
+	}
+	return models.Resolved{}, p.resolveErr
+}
+
+func (*intentProcessorProbe) BilibiliCredential(context.Context) (string, error) { return "", nil }
+
+func (p *intentProcessorProbe) Record(_ context.Context, _ int64, d intentdomain.FinalDecision, _ ...string) error {
+	p.decisions = append(p.decisions, d.Decision)
+	return nil
+}
+
+func (p *intentProcessorProbe) ExecuteReply(ctx context.Context, task intentdomain.Task, _ []intentdomain.Message) error {
+	_, err := p.ResolveModel(ctx, "generation", task.BotID, task.Kind, task.TargetID)
+	return err
+}
+
+func TestIntentProcessorDefersGenerationResolution(t *testing.T) {
+	credentialErr := errors.New("synthetic credential failure")
+	for _, tt := range []struct {
+		name           string
+		intentEnabled  bool
+		aiEnabled      bool
+		mode           scopedomain.ReplyMode
+		wantDecision   intentdomain.Decision
+		wantGeneration bool
+	}{
+		{"observe only", true, true, scopedomain.ModeObserveOnly, intentdomain.DecisionSilent, false},
+		{"generation disabled", true, false, scopedomain.ModeAlwaysReply, intentdomain.DecisionReply, false},
+		{"intent disabled", false, false, scopedomain.ModeAlwaysReply, "", false},
+		{"reply requires generation", true, true, scopedomain.ModeAlwaysReply, intentdomain.DecisionReply, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			probe := &intentProcessorProbe{resolveErr: credentialErr}
+			scopes, err := scopeapp.NewService(&mutableScopeRepo{policy: scopedomain.Policy{
+				ScopeType: scopedomain.ScopeGroup, ScopeID: 20, Enabled: true, StoreMessages: true, ReplyMode: tt.mode,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			decider, err := intentapp.NewDecider(intentapp.Options{
+				Scopes: scopes, Recorder: probe, Executor: probe,
+				Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := intentapp.WithRuntimeConfig(context.Background(), intentapp.RuntimeConfig{
+				Enabled: tt.intentEnabled, AIEnabled: tt.aiEnabled,
+			})
+			processor := intentProcessor{decider: decider, models: probe}
+			err = processor.Process(ctx, conversationdomain.Job{
+				ID: 1, BotID: 1, Kind: "group", TargetID: 20,
+				Message: conversationdomain.Message{PlatformMessageID: 1, SenderID: 2, Text: "synthetic"},
+			})
+			if tt.wantGeneration {
+				if !errors.Is(err, credentialErr) || probe.resolveCalls != 1 {
+					t.Fatalf("process error=%v model resolutions=%d; want one failed generation", err, probe.resolveCalls)
+				}
+			} else if err != nil || probe.resolveCalls != 0 {
+				t.Fatalf("process error=%v model resolutions=%d; want no generation", err, probe.resolveCalls)
+			}
+			if tt.wantDecision == "" {
+				if len(probe.decisions) != 0 {
+					t.Fatalf("disabled pipeline recorded %v", probe.decisions)
+				}
+			} else if len(probe.decisions) != 1 || probe.decisions[0] != tt.wantDecision {
+				t.Fatalf("decisions=%v; want [%s]", probe.decisions, tt.wantDecision)
+			}
+		})
 	}
 }
