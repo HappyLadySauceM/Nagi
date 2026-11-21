@@ -620,7 +620,7 @@ func TestProcessTaskUsesLayeredIntentPrompt(t *testing.T) {
 		prompts.provider != "jev" || prompts.botID != 100 || prompts.targetType != "group" || prompts.targetID != 700 {
 		t.Fatalf("layered prompt args = %+v", prompts)
 	}
-	if prompts.variables["bot_name"] != "Nagi" || prompts.variables["scope_type"] != "group" {
+	if prompts.variables["bot_name"] != `"Nagi"` || prompts.variables["scope_type"] != "group" {
 		t.Fatalf("layered prompt variables = %+v", prompts.variables)
 	}
 	if semantic.calls != 1 || semantic.input.Prompt.OpenAI == nil || semantic.input.Prompt.OpenAI.SystemPrompt != "自定义意图 Prompt" {
@@ -671,14 +671,14 @@ func TestProcessTaskUsesPolicyVersionQuestions(t *testing.T) {
 	if !ok {
 		t.Fatalf("policy question missing: %+v", p.SystemOne.Questions)
 	}
-	if q.Instructions != "机器人「Nagi」(bot 100) 在会话 700 此时插话是否紧急？" {
+	if q.Instructions != `机器人「"Nagi"」(bot 100) 在会话 700 此时插话是否紧急？` {
 		t.Fatalf("runtime variables not rendered: %q", q.Instructions)
 	}
 	if p.RenderedHash == "" {
 		t.Fatal("rendered prompt hash must be set")
 	}
 	if p.Variables["scope_type"] != "group" || p.Variables["sender_id"] != "200" ||
-		p.Variables["bot_name"] != "Nagi" || p.Variables["bot_id"] != "100" || p.Variables["target_id"] != "700" {
+		p.Variables["bot_name"] != `"Nagi"` || p.Variables["bot_id"] != "100" || p.Variables["target_id"] != "700" {
 		t.Fatalf("prompt variables = %+v", p.Variables)
 	}
 }

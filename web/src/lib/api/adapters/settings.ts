@@ -78,10 +78,24 @@ function toPromptVariables(raw: unknown): SettingsPromptVariable[] {
   })
 }
 
+function toCallNames(raw: unknown): Record<string, string> {
+  if (raw === undefined || raw === null) {
+    return {}
+  }
+  const bindings = asRecord(raw, SETTINGS_ENDPOINT, 'Role.CallNames')
+  return Object.fromEntries(Object.entries(bindings).map(([botID, name]) => {
+    if (typeof name !== 'string') {
+      throw contractError(SETTINGS_ENDPOINT, 'Role.CallNames 含无效绑定')
+    }
+    return [botID, name]
+  }))
+}
+
 function toRole(raw: unknown): SettingsRole {
   const record = asRecord(raw, SETTINGS_ENDPOINT, 'Role')
   return {
     botName: readString(record, 'BotName', SETTINGS_ENDPOINT, ''),
+    callNames: toCallNames(record.CallNames),
     variables: toPromptVariables(record.Variables),
   }
 }
@@ -172,6 +186,7 @@ export function toSettingsPutBody(settings: SystemSettings, version: number): un
     Settings: {
       Role: {
         BotName: settings.role.botName,
+        ...(Object.keys(settings.role.callNames).length > 0 ? { CallNames: settings.role.callNames } : {}),
         Variables: settings.role.variables.map((variable) => ({
           Name: variable.name,
           Value: variable.value,

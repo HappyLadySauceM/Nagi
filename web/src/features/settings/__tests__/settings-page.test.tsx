@@ -149,6 +149,37 @@ describe('SettingsPage', () => {
     expect(screen.getByText('已是最新配置')).toBeInTheDocument()
   })
 
+  it('preserves API-managed call names through unrelated edits and saves', async () => {
+    const initial = settingsView()
+    const callNames = { '1': '\uFEFF', '10': '墨团' }
+    let stored = { ...initial, Settings: { ...initial.Settings, Role: { ...initial.Settings.Role, CallNames: callNames } } }
+    const puts: unknown[] = []
+    mockedRequest.mockImplementation((path: string, options?: { method?: string; body?: unknown }) => {
+      if (path === '/api/v1/models') {
+        return Promise.resolve({ Catalog: { Profiles: [], Defaults: {}, Selections: {}, HasBilibiliCredential: false }, Version: 1 })
+      }
+      if (path.startsWith('/api/v1/tools')) {
+        return Promise.resolve(toolsCatalog)
+      }
+      if (options?.method === 'PUT') {
+        const body = options.body as { Settings: typeof stored.Settings; Version: number }
+        puts.push(body)
+        stored = { ...stored, Settings: body.Settings, Version: body.Version + 1 }
+      }
+      return Promise.resolve(stored)
+    })
+    renderPage()
+
+    for (const [index, steps] of [7, 8].entries()) {
+      fireEvent.change(await screen.findByLabelText('最大推理步数'), { target: { value: String(steps) } })
+      fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+      await waitFor(() => expect(screen.getByText('已是最新配置')).toBeInTheDocument())
+      expect(puts[index]).toMatchObject({ Version: index + 1, Settings: {
+        Role: { CallNames: callNames }, Agent: { MaxSteps: steps },
+      } })
+    }
+  })
+
   it('shows a conflict without discarding the draft', async () => {
     // 版本冲突提示刷新，草稿保持不变。
     mockedRequest.mockImplementation((path: string, options?: { method?: string }) => {

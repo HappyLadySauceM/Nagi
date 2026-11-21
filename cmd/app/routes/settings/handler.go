@@ -62,7 +62,12 @@ func (h *Handler) Put(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "请求体不是合法的 JSON")
 		return
 	}
-	h.apply(w, r, body.Settings, body.Version)
+	view, err := h.svcCtx.Settings.Replace(r.Context(), body.Settings, body.Version, middleware.ActorFrom(r.Context()))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	common.WriteSuccess(w, view)
 }
 
 // Reset restores the configuration-file baseline as a new revision.

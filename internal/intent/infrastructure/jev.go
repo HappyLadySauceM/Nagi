@@ -124,7 +124,7 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	}
 	callQuestion, askCall := in.CallQuestion()
 	wireQuestions := questionsFromSpecs(specs)
-	callKey := domain.CallQuestionKey
+	callKey, _, _ := in.CallQuestionVersion()
 	if askCall {
 		for {
 			if _, taken := wireQuestions[callKey]; !taken {
@@ -297,12 +297,7 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	if botLastSpoke < 0 {
 		botLastSpoke = -1
 	}
-	name := c.cfg.BotName
-	if in.CallAddressingRequired() {
-		name = in.BotName
-	}
 	state := map[string]any{
-		"bot_name":                   name,
 		"channel":                    in.Task.Kind,
 		"current_message":            map[string]any{"sender": sender, "text": semanticText(in.Task.Message.Text)},
 		"recent_messages":            recent,
@@ -313,8 +308,19 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	if in.Policy.AllowHistoryRead && in.AwaitedRequest != nil {
 		state["awaited_request"] = semanticText(in.AwaitedRequest.Text)
 	}
+	addCallIdentityState(state, in, c.cfg.BotName)
 	addTopicState(state, in.Topics)
 	return state
+}
+
+func addCallIdentityState(state map[string]any, in domain.Input, configuredName string) {
+	if !in.CallAddressingRequired() {
+		state["bot_name"] = configuredName
+	} else if in.CallIdentity == nil {
+		state["bot_name"] = in.BotName
+	} else {
+		state["bot_identity"] = in.CallNames()
+	}
 }
 
 func addTopicState(state map[string]any, topics *domain.TopicContext) {

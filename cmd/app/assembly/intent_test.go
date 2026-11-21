@@ -18,16 +18,20 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
+	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	conversationdomain "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	obapp "github.com/HappyLadySauceM/Nagi/internal/onebot/application"
+	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	plugincontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
 
@@ -552,4 +556,59 @@ func TestIntentProcessorDefersGenerationResolution(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAccountCallNameRequiresConfiguredOrVerifiedOwner(t *testing.T) {
+	role := settingsdomain.Role{BotName: "RoleName", CallNames: map[int64]string{10: "AccountName"}}
+	register := func(accounts *svc.Accounts, endpoint string, expected, bound int64) *svc.AccountConnection {
+		t.Helper()
+		client := obapp.NewClientService(nil, time.Second, nil)
+		conn := svc.NewAccountConnection(endpoint, expected, client)
+		if bound != 0 {
+			if err := client.BindIdentity(obdomain.BotID(bound)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := accounts.Add(conn); err != nil {
+			t.Fatal(err)
+		}
+		return conn
+	}
+	check := func(role settingsdomain.Role, accounts *svc.Accounts, id int64, name, source string) {
+		t.Helper()
+		if n, s := accountCallName(role, accounts, id); n != name || s != source {
+			t.Fatalf("bot=%d got (%q, %q), want (%q, %q)", id, n, s, name, source)
+		}
+	}
+	explicit := svc.NewAccounts()
+	register(explicit, "expected", 1, 0)
+	check(role, explicit, 1, "RoleName", "role")
+	check(role, explicit, 10, "AccountName", "account_config")
+	check(role, explicit, 20, "", "")
+	register(explicit, "second", 2, 0)
+	check(role, explicit, 1, "", "")
+
+	changed := svc.NewAccounts()
+	newAccount := register(changed, "replacement", 0, 2)
+	check(role, changed, 1, "", "")
+	check(role, changed, 2, "", "")
+	newAccount.SetVerifiedNickname(2, "")
+	check(role, changed, 2, "RoleName", "role")
+	check(role, changed, 1, "", "")
+	newAccount.SetVerifiedNickname(2, "FixtureNickname")
+	if nickname := changed.BotNickname(2); nickname != "FixtureNickname" || changed.BotNickname(1) != "" {
+		t.Fatal("verified nickname did not stay with its account")
+	}
+	newAccount.Reject("fixture rejection")
+	check(role, changed, 2, "", "")
+	conflict := svc.NewAccounts()
+	register(conflict, "conflict", 1, 2)
+	check(role, conflict, 1, "", "")
+
+	frozenAccount := svc.NewAccounts()
+	register(frozenAccount, "frozen", 1, 0)
+	provider := settingsapp.NewProvider(settingsapp.Snapshot{Settings: settingsdomain.Settings{Role: role}})
+	ctx := context.WithValue(context.Background(), runSettingsKey{}, provider.Settings())
+	provider.Store(settingsapp.Snapshot{Settings: settingsdomain.Settings{Role: settingsdomain.Role{BotName: "Renamed"}}})
+	check(executionSettings(ctx, provider).Role, frozenAccount, 1, "RoleName", "role")
 }

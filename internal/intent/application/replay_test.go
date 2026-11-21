@@ -98,3 +98,35 @@ func TestRecalculateNeverCallsModelOrWrites(t *testing.T) {
 		t.Fatalf("recalculate wrote or sent: decisions=%d tasks=%d", len(recorder.decisions), len(executor.tasks))
 	}
 }
+
+func TestReplayKeepsFrozenDualNameAndQuestionVersion(t *testing.T) {
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true, CallAddressing: domain.CallYes}}
+	d := newDecider(t, Options{Scopes: authorizedReplayScope(), Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds,
+		CallName: func(context.Context, int64) (string, string) {
+			t.Fatal("replay resolved live call name")
+			return "", ""
+		},
+		BotNickname: func(int64) string { t.Fatal("replay resolved live nickname"); return "" },
+	})
+	stored := &fakeSnapshotReader{snapshot: domain.DecisionSnapshot{
+		Input: domain.SnapshotInput{Task: domain.Task{BotID: 100, Kind: "group", TargetID: 700, ConversationID: "conv-1"},
+			CallIdentity: &domain.CallIdentity{BotID: 100, CallName: "FrozenRole", QQNickname: "FrozenNickname"}},
+		Prompt: domain.BuiltinPrompt(domain.PromptProviderJev), Rule: domain.RuleResult{NeedSemantic: true},
+	}}
+	svc := NewReplayService(d, nil, stored)
+	if _, err := svc.ReplayModel(context.Background(), 7); err != nil {
+		t.Fatal(err)
+	}
+	key, _, version := semantic.input.CallQuestionVersion()
+	if semantic.calls != 1 || key != domain.CallQuestionKey || version != 2 || semantic.input.CallName() != "FrozenRole" || semantic.input.CallNames()["qq_nickname"] != "FrozenNickname" {
+		t.Fatalf("v2 replay input = %+v", semantic.input)
+	}
+	stored.snapshot.Input.CallIdentity, stored.snapshot.Input.BotName = nil, "FrozenV1"
+	if _, err := svc.ReplayModel(context.Background(), 7); err != nil {
+		t.Fatal(err)
+	}
+	key, _, version = semantic.input.CallQuestionVersion()
+	if semantic.calls != 2 || key != "nagi_call_addressing_v1" || version != 1 || semantic.input.CallName() != "FrozenV1" || len(semantic.input.CallNames()) != 0 {
+		t.Fatalf("v1 replay input = %+v", semantic.input)
+	}
+}

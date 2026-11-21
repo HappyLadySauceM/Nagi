@@ -3,7 +3,7 @@ import { ApiError } from '../client'
 import { toSettings, toSettingsPutBody } from '../adapters/settings'
 
 const SETTINGS = {
-  Role: { BotName: 'Nagi', Variables: [{ Name: 'user_name', Value: '小明' }] },
+  Role: { BotName: 'Nagi', CallNames: { '9007199254740993': '雪团' }, Variables: [{ Name: 'user_name', Value: '小明' }] },
   Context: { HistoryLimit: 30 },
   AI: {
     Enabled: true,
@@ -41,7 +41,7 @@ const SETTINGS = {
 describe('settings adapter', () => {
   it('reads Role and Context and ignores legacy Intent fields', () => {
     const settings = toSettings(SETTINGS)
-    expect(settings.role).toEqual({ botName: 'Nagi', variables: [{ name: 'user_name', value: '小明' }] })
+    expect(settings.role).toEqual({ botName: 'Nagi', callNames: { '9007199254740993': '雪团' }, variables: [{ name: 'user_name', value: '小明' }] })
     expect(settings.context).toEqual({ historyLimit: 30 })
     expect(settings.intent).not.toHaveProperty('botName')
     expect(settings.intent).not.toHaveProperty('historyLimit')
@@ -50,6 +50,8 @@ describe('settings adapter', () => {
   it('defaults Variables to an empty list when the section omits them', () => {
     const settings = toSettings({ ...SETTINGS, Role: { BotName: 'Nagi' } })
     expect(settings.role.variables).toEqual([])
+    expect(settings.role.callNames).toEqual({})
+    expect(toSettingsPutBody(settings, 7)).not.toHaveProperty('Settings.Role.CallNames')
   })
 
   it('sends Role and Context without legacy Intent fields', () => {
@@ -60,6 +62,7 @@ describe('settings adapter', () => {
     expect(body.Version).toBe(7)
     expect(body.Settings.Role).toEqual({
       BotName: 'Nagi',
+      CallNames: { '9007199254740993': '雪团' },
       Variables: [{ Name: 'user_name', Value: '小明' }],
     })
     expect(body.Settings.Context).toEqual({ HistoryLimit: 30 })
