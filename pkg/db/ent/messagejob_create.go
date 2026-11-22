@@ -14,6 +14,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/google/uuid"
@@ -30,6 +31,56 @@ type MessageJobCreate struct {
 // SetIncomingMessageID sets the "incoming_message_id" field.
 func (_c *MessageJobCreate) SetIncomingMessageID(v int64) *MessageJobCreate {
 	_c.mutation.SetIncomingMessageID(v)
+	return _c
+}
+
+// SetNillableIncomingMessageID sets the "incoming_message_id" field if the given value is not nil.
+func (_c *MessageJobCreate) SetNillableIncomingMessageID(v *int64) *MessageJobCreate {
+	if v != nil {
+		_c.SetIncomingMessageID(*v)
+	}
+	return _c
+}
+
+// SetIncomingDirection sets the "incoming_direction" field.
+func (_c *MessageJobCreate) SetIncomingDirection(v string) *MessageJobCreate {
+	_c.mutation.SetIncomingDirection(v)
+	return _c
+}
+
+// SetNillableIncomingDirection sets the "incoming_direction" field if the given value is not nil.
+func (_c *MessageJobCreate) SetNillableIncomingDirection(v *string) *MessageJobCreate {
+	if v != nil {
+		_c.SetIncomingDirection(*v)
+	}
+	return _c
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (_c *MessageJobCreate) SetSourceKind(v string) *MessageJobCreate {
+	_c.mutation.SetSourceKind(v)
+	return _c
+}
+
+// SetNillableSourceKind sets the "source_kind" field if the given value is not nil.
+func (_c *MessageJobCreate) SetNillableSourceKind(v *string) *MessageJobCreate {
+	if v != nil {
+		_c.SetSourceKind(*v)
+	}
+	return _c
+}
+
+// SetConsentProposalID sets the "consent_proposal_id" field.
+func (_c *MessageJobCreate) SetConsentProposalID(v uuid.UUID) *MessageJobCreate {
+	_c.mutation.SetConsentProposalID(v)
+	return _c
+}
+
+// SetNillableConsentProposalID sets the "consent_proposal_id" field if the given value is not nil.
+func (_c *MessageJobCreate) SetNillableConsentProposalID(v *uuid.UUID) *MessageJobCreate {
+	if v != nil {
+		_c.SetConsentProposalID(*v)
+	}
 	return _c
 }
 
@@ -213,9 +264,22 @@ func (_c *MessageJobCreate) SetIncomingMessageIDRefID(id int64) *MessageJobCreat
 	return _c
 }
 
+// SetNillableIncomingMessageIDRefID sets the "incoming_message_id_ref" edge to the Message entity by ID if the given value is not nil.
+func (_c *MessageJobCreate) SetNillableIncomingMessageIDRefID(id *int64) *MessageJobCreate {
+	if id != nil {
+		_c = _c.SetIncomingMessageIDRefID(*id)
+	}
+	return _c
+}
+
 // SetIncomingMessageIDRef sets the "incoming_message_id_ref" edge to the Message entity.
 func (_c *MessageJobCreate) SetIncomingMessageIDRef(v *Message) *MessageJobCreate {
 	return _c.SetIncomingMessageIDRefID(v.ID)
+}
+
+// SetConsentProposal sets the "consent_proposal" edge to the MemoryConsentProposal entity.
+func (_c *MessageJobCreate) SetConsentProposal(v *MemoryConsentProposal) *MessageJobCreate {
+	return _c.SetConsentProposalID(v.ID)
 }
 
 // AddIntentDecisionsJobIDIDs adds the "intent_decisions_job_id" edge to the IntentDecision entity by IDs.
@@ -298,6 +362,14 @@ func (_c *MessageJobCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *MessageJobCreate) defaults() {
+	if _, ok := _c.mutation.IncomingDirection(); !ok {
+		v := messagejob.DefaultIncomingDirection
+		_c.mutation.SetIncomingDirection(v)
+	}
+	if _, ok := _c.mutation.SourceKind(); !ok {
+		v := messagejob.DefaultSourceKind
+		_c.mutation.SetSourceKind(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := messagejob.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -338,12 +410,6 @@ func (_c *MessageJobCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *MessageJobCreate) check() error {
-	if _, ok := _c.mutation.IncomingMessageID(); !ok {
-		return &ValidationError{Name: "incoming_message_id", err: errors.New(`ent: missing required field "MessageJob.incoming_message_id"`)}
-	}
-	if len(_c.mutation.IncomingMessageIDRefIDs()) == 0 {
-		return &ValidationError{Name: "incoming_message_id_ref", err: errors.New(`ent: missing required edge "MessageJob.incoming_message_id_ref"`)}
-	}
 	return nil
 }
 
@@ -376,6 +442,14 @@ func (_c *MessageJobCreate) createSpec() (*MessageJob, *sqlgraph.CreateSpec) {
 	if id, ok := _c.mutation.ID(); ok {
 		_node.ID = id
 		_spec.ID.Value = id
+	}
+	if value, ok := _c.mutation.IncomingDirection(); ok {
+		_spec.SetField(messagejob.FieldIncomingDirection, field.TypeString, value)
+		_node.IncomingDirection = value
+	}
+	if value, ok := _c.mutation.SourceKind(); ok {
+		_spec.SetField(messagejob.FieldSourceKind, field.TypeString, value)
+		_node.SourceKind = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(messagejob.FieldStatus, field.TypeString, value)
@@ -439,7 +513,24 @@ func (_c *MessageJobCreate) createSpec() (*MessageJob, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.IncomingMessageID = nodes[0]
+		_node.IncomingMessageID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ConsentProposalIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   messagejob.ConsentProposalTable,
+			Columns: []string{messagejob.ConsentProposalColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryconsentproposal.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.ConsentProposalID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.IntentDecisionsJobIDIDs(); len(nodes) > 0 {
@@ -551,6 +642,54 @@ func (u *MessageJobUpsert) SetIncomingMessageID(v int64) *MessageJobUpsert {
 // UpdateIncomingMessageID sets the "incoming_message_id" field to the value that was provided on create.
 func (u *MessageJobUpsert) UpdateIncomingMessageID() *MessageJobUpsert {
 	u.SetExcluded(messagejob.FieldIncomingMessageID)
+	return u
+}
+
+// ClearIncomingMessageID clears the value of the "incoming_message_id" field.
+func (u *MessageJobUpsert) ClearIncomingMessageID() *MessageJobUpsert {
+	u.SetNull(messagejob.FieldIncomingMessageID)
+	return u
+}
+
+// SetIncomingDirection sets the "incoming_direction" field.
+func (u *MessageJobUpsert) SetIncomingDirection(v string) *MessageJobUpsert {
+	u.Set(messagejob.FieldIncomingDirection, v)
+	return u
+}
+
+// UpdateIncomingDirection sets the "incoming_direction" field to the value that was provided on create.
+func (u *MessageJobUpsert) UpdateIncomingDirection() *MessageJobUpsert {
+	u.SetExcluded(messagejob.FieldIncomingDirection)
+	return u
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (u *MessageJobUpsert) SetSourceKind(v string) *MessageJobUpsert {
+	u.Set(messagejob.FieldSourceKind, v)
+	return u
+}
+
+// UpdateSourceKind sets the "source_kind" field to the value that was provided on create.
+func (u *MessageJobUpsert) UpdateSourceKind() *MessageJobUpsert {
+	u.SetExcluded(messagejob.FieldSourceKind)
+	return u
+}
+
+// SetConsentProposalID sets the "consent_proposal_id" field.
+func (u *MessageJobUpsert) SetConsentProposalID(v uuid.UUID) *MessageJobUpsert {
+	u.Set(messagejob.FieldConsentProposalID, v)
+	return u
+}
+
+// UpdateConsentProposalID sets the "consent_proposal_id" field to the value that was provided on create.
+func (u *MessageJobUpsert) UpdateConsentProposalID() *MessageJobUpsert {
+	u.SetExcluded(messagejob.FieldConsentProposalID)
+	return u
+}
+
+// ClearConsentProposalID clears the value of the "consent_proposal_id" field.
+func (u *MessageJobUpsert) ClearConsentProposalID() *MessageJobUpsert {
+	u.SetNull(messagejob.FieldConsentProposalID)
 	return u
 }
 
@@ -787,6 +926,62 @@ func (u *MessageJobUpsertOne) SetIncomingMessageID(v int64) *MessageJobUpsertOne
 func (u *MessageJobUpsertOne) UpdateIncomingMessageID() *MessageJobUpsertOne {
 	return u.Update(func(s *MessageJobUpsert) {
 		s.UpdateIncomingMessageID()
+	})
+}
+
+// ClearIncomingMessageID clears the value of the "incoming_message_id" field.
+func (u *MessageJobUpsertOne) ClearIncomingMessageID() *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.ClearIncomingMessageID()
+	})
+}
+
+// SetIncomingDirection sets the "incoming_direction" field.
+func (u *MessageJobUpsertOne) SetIncomingDirection(v string) *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetIncomingDirection(v)
+	})
+}
+
+// UpdateIncomingDirection sets the "incoming_direction" field to the value that was provided on create.
+func (u *MessageJobUpsertOne) UpdateIncomingDirection() *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateIncomingDirection()
+	})
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (u *MessageJobUpsertOne) SetSourceKind(v string) *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetSourceKind(v)
+	})
+}
+
+// UpdateSourceKind sets the "source_kind" field to the value that was provided on create.
+func (u *MessageJobUpsertOne) UpdateSourceKind() *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateSourceKind()
+	})
+}
+
+// SetConsentProposalID sets the "consent_proposal_id" field.
+func (u *MessageJobUpsertOne) SetConsentProposalID(v uuid.UUID) *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetConsentProposalID(v)
+	})
+}
+
+// UpdateConsentProposalID sets the "consent_proposal_id" field to the value that was provided on create.
+func (u *MessageJobUpsertOne) UpdateConsentProposalID() *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateConsentProposalID()
+	})
+}
+
+// ClearConsentProposalID clears the value of the "consent_proposal_id" field.
+func (u *MessageJobUpsertOne) ClearConsentProposalID() *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.ClearConsentProposalID()
 	})
 }
 
@@ -1218,6 +1413,62 @@ func (u *MessageJobUpsertBulk) SetIncomingMessageID(v int64) *MessageJobUpsertBu
 func (u *MessageJobUpsertBulk) UpdateIncomingMessageID() *MessageJobUpsertBulk {
 	return u.Update(func(s *MessageJobUpsert) {
 		s.UpdateIncomingMessageID()
+	})
+}
+
+// ClearIncomingMessageID clears the value of the "incoming_message_id" field.
+func (u *MessageJobUpsertBulk) ClearIncomingMessageID() *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.ClearIncomingMessageID()
+	})
+}
+
+// SetIncomingDirection sets the "incoming_direction" field.
+func (u *MessageJobUpsertBulk) SetIncomingDirection(v string) *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetIncomingDirection(v)
+	})
+}
+
+// UpdateIncomingDirection sets the "incoming_direction" field to the value that was provided on create.
+func (u *MessageJobUpsertBulk) UpdateIncomingDirection() *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateIncomingDirection()
+	})
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (u *MessageJobUpsertBulk) SetSourceKind(v string) *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetSourceKind(v)
+	})
+}
+
+// UpdateSourceKind sets the "source_kind" field to the value that was provided on create.
+func (u *MessageJobUpsertBulk) UpdateSourceKind() *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateSourceKind()
+	})
+}
+
+// SetConsentProposalID sets the "consent_proposal_id" field.
+func (u *MessageJobUpsertBulk) SetConsentProposalID(v uuid.UUID) *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetConsentProposalID(v)
+	})
+}
+
+// UpdateConsentProposalID sets the "consent_proposal_id" field to the value that was provided on create.
+func (u *MessageJobUpsertBulk) UpdateConsentProposalID() *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateConsentProposalID()
+	})
+}
+
+// ClearConsentProposalID clears the value of the "consent_proposal_id" field.
+func (u *MessageJobUpsertBulk) ClearConsentProposalID() *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.ClearConsentProposalID()
 	})
 }
 

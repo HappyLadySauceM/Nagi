@@ -1,6 +1,7 @@
 package infrastructure
 
 import (
+	"cmp"
 	"context"
 	"entgo.io/ent/dialect/sql"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	msg "github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/google/uuid"
+	"slices"
 	"time"
 )
 
@@ -77,65 +79,20 @@ func (r *Repo) Get(ctx context.Context, id string) (domain.Memory, bool, error) 
 	return memoryModel(v), true, nil
 }
 func (r *Repo) Update(ctx context.Context, v domain.Memory) error {
-	key, err := uuid.Parse(v.ID)
+	current, found, err := r.Get(ctx, v.ID)
 	if err != nil {
 		return err
 	}
-	if v.Visibility == domain.VisibilityBotShared {
-		return memoryapp.ErrMemoryInvalid
+	if !found {
+		return memoryapp.ErrMemoryNotFound
 	}
-	origin := v.Origin
-	if origin == "" {
-		origin = domain.OriginManual
+	if current.Status != v.Status || current.ApprovedBy != v.ApprovedBy {
+		return memoryapp.ErrMemoryStatusConflict
 	}
-	b := r.pool.Client.Memory.UpdateOneID(key).Where(m.VisibilityNEQ(string(domain.VisibilityBotShared))).SetContent(v.Content).SetVisibility(string(v.Visibility)).SetOwnerKey(v.OwnerKey).SetStatus(string(v.Status)).SetApprovedBy(v.ApprovedBy).SetOrigin(string(origin)).SetReviewReason(v.ReviewReason).SetUpdatedAt(time.Now())
-	if v.SourceSenderID != 0 {
-		b.SetSourceSenderID(v.SourceSenderID)
-	} else {
-		b.ClearSourceSenderID()
-	}
-	if v.SubjectType != "" {
-		b.SetSubjectType(string(v.SubjectType))
-	} else {
-		b.ClearSubjectType()
-	}
-	if v.SubjectID != "" {
-		b.SetSubjectID(v.SubjectID)
-	} else {
-		b.ClearSubjectID()
-	}
-	if v.DedupeKey != "" {
-		b.SetDedupeKey(v.DedupeKey)
-	} else {
-		b.ClearDedupeKey()
-	}
-	if v.ExpiresAt.IsZero() {
-		b.ClearExpiresAt()
-	} else {
-		b.SetExpiresAt(v.ExpiresAt)
-	}
-	if err := b.Exec(ctx); ent.IsNotFound(err) {
-		if found, readErr := r.pool.Client.Memory.Query().Where(m.ID(key), m.Visibility(string(domain.VisibilityBotShared))).Exist(ctx); readErr != nil {
-			return readErr
-		} else if found {
-			return memoryapp.ErrMemoryInvalid
-		}
-		return err
-	} else {
-		return err
-	}
+	v.BotID = current.BotID
+	return r.UpdateMemoryLocked(ctx, v)
 }
-func (r *Repo) Delete(ctx context.Context, id string) (bool, error) {
-	key, err := uuid.Parse(id)
-	if err != nil {
-		return false, err
-	}
-	count, err := r.pool.Client.Memory.Delete().Where(m.ID(key)).Exec(ctx)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
+func (r *Repo) Delete(ctx context.Context, id string) (bool, error) { return r.DeleteMemory(ctx, id) }
 func (r *Repo) List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, int64, error) {
 	q := r.pool.Client.Memory.Query()
 	if f.BotID != nil {
@@ -203,7 +160,28 @@ func (r *Repo) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]do
 		q = q.Limit(in.Limit)
 	}
 	rows, err := q.All(ctx)
-	return memoryModels(rows), err
+	if err != nil {
+		return nil, err
+	}
+	local := memoryModels(rows)
+	if !validConsentRead(in) {
+		return local, nil
+	}
+	cross, err := r.consentRead(ctx, in, "", keywords)
+	if err != nil {
+		return nil, err
+	}
+	all := append(local, cross...)
+	slices.SortStableFunc(all, func(a, b domain.Memory) int {
+		if rank := cmp.Compare(b.Confidence, a.Confidence); rank != 0 {
+			return rank
+		}
+		return b.UpdatedAt.Compare(a.UpdatedAt)
+	})
+	if in.Limit > 0 && len(all) > in.Limit {
+		all = all[:in.Limit]
+	}
+	return all, nil
 }
 
 // ReadVisible uses the same scope predicate as retrieval, without keyword or ranking filters.
@@ -215,7 +193,11 @@ func (r *Repo) ReadVisible(ctx context.Context, in domain.SearchRequest, id stri
 	}
 	row, err := r.visibleMemories(in).Where(m.ID(key)).Only(ctx)
 	if ent.IsNotFound(err) {
-		return domain.Memory{}, false, nil
+		cross, err := r.consentRead(ctx, in, id, nil)
+		if len(cross) == 1 {
+			return cross[0], true, err
+		}
+		return domain.Memory{}, false, err
 	}
 	if err != nil {
 		return domain.Memory{}, false, err
@@ -256,7 +238,7 @@ func (r *Repo) visibleMemories(in domain.SearchRequest) *ent.MemoryQuery {
 }
 
 func memoryModel(v *ent.Memory) domain.Memory {
-	out := domain.Memory{ID: v.ID.String(), BotID: v.BotID, Visibility: domain.Visibility(v.Visibility), OwnerKey: v.OwnerKey, Content: v.Content, Source: v.Source, Origin: domain.Origin(v.Origin), ReviewReason: v.ReviewReason, Confidence: float64(v.Confidence), Status: domain.Status(v.Status), ApprovedBy: v.ApprovedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	out := domain.Memory{AuthorizationVersion: v.AuthorizationVersion, ID: v.ID.String(), BotID: v.BotID, Visibility: domain.Visibility(v.Visibility), OwnerKey: v.OwnerKey, Content: v.Content, Source: v.Source, Origin: domain.Origin(v.Origin), ReviewReason: v.ReviewReason, Confidence: float64(v.Confidence), Status: domain.Status(v.Status), ApprovedBy: v.ApprovedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 	if v.SourceMessageID != nil {
 		out.SourceMessageID = *v.SourceMessageID
 	}

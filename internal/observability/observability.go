@@ -203,28 +203,49 @@ func Setup(ctx context.Context, cfg Config, logger *slog.Logger) (*Telemetry, er
 
 type contentStateKey struct{}
 
+type contentState struct {
+	redacted    atomic.Bool
+	credentials atomic.Bool
+}
+
 // WithContentState gives one run an independently revocable content export flag.
 // WithContentState 为一次运行提供可独立撤销的正文导出标记。
 func WithContentState(ctx context.Context) context.Context {
-	if _, ok := ctx.Value(contentStateKey{}).(*atomic.Bool); ok {
+	if _, ok := ctx.Value(contentStateKey{}).(*contentState); ok {
 		return ctx
 	}
-	return context.WithValue(ctx, contentStateKey{}, &atomic.Bool{})
+	return context.WithValue(ctx, contentStateKey{}, &contentState{})
 }
 
 // SuppressContent disables raw export for the run and all its descendants.
 // SuppressContent 关闭本次运行及其后代的原始正文导出。
 func SuppressContent(ctx context.Context) {
-	if state, ok := ctx.Value(contentStateKey{}).(*atomic.Bool); ok {
-		state.Store(true)
+	if state, ok := ctx.Value(contentStateKey{}).(*contentState); ok {
+		state.redacted.Store(true)
 	}
+}
+
+// SuppressCredentials disables both raw export and automatic replies for the run.
+// SuppressCredentials 为本轮禁用原始正文导出及自动回复。
+func SuppressCredentials(ctx context.Context) {
+	if state, ok := ctx.Value(contentStateKey{}).(*contentState); ok {
+		state.credentials.Store(true)
+		state.redacted.Store(true)
+	}
+}
+
+// CredentialsUsed reports whether an authorized credential tool was invoked.
+// CredentialsUsed 报告本轮是否调用了已获准的凭证工具。
+func CredentialsUsed(ctx context.Context) bool {
+	state, ok := ctx.Value(contentStateKey{}).(*contentState)
+	return ok && state.credentials.Load()
 }
 
 // ContentSuppressed reports the run-specific export restriction.
 // ContentSuppressed 报告运行级别的导出限制。
 func ContentSuppressed(ctx context.Context) bool {
-	state, ok := ctx.Value(contentStateKey{}).(*atomic.Bool)
-	return ok && state.Load()
+	state, ok := ctx.Value(contentStateKey{}).(*contentState)
+	return ok && state.redacted.Load()
 }
 
 // RecordObservationSecure respects both global and per-run redaction.

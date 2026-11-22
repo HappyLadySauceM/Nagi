@@ -66,6 +66,11 @@ func BotID(v int64) predicate.Message {
 	return predicate.Message(sql.FieldEQ(FieldBotID, v))
 }
 
+// ControlKind applies equality check predicate on the "control_kind" field. It's identical to ControlKindEQ.
+func ControlKind(v string) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldControlKind, v))
+}
+
 // Direction applies equality check predicate on the "direction" field. It's identical to DirectionEQ.
 func Direction(v string) predicate.Message {
 	return predicate.Message(sql.FieldEQ(FieldDirection, v))
@@ -144,6 +149,71 @@ func BotIDIn(vs ...int64) predicate.Message {
 // BotIDNotIn applies the NotIn predicate on the "bot_id" field.
 func BotIDNotIn(vs ...int64) predicate.Message {
 	return predicate.Message(sql.FieldNotIn(FieldBotID, vs...))
+}
+
+// ControlKindEQ applies the EQ predicate on the "control_kind" field.
+func ControlKindEQ(v string) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldControlKind, v))
+}
+
+// ControlKindNEQ applies the NEQ predicate on the "control_kind" field.
+func ControlKindNEQ(v string) predicate.Message {
+	return predicate.Message(sql.FieldNEQ(FieldControlKind, v))
+}
+
+// ControlKindIn applies the In predicate on the "control_kind" field.
+func ControlKindIn(vs ...string) predicate.Message {
+	return predicate.Message(sql.FieldIn(FieldControlKind, vs...))
+}
+
+// ControlKindNotIn applies the NotIn predicate on the "control_kind" field.
+func ControlKindNotIn(vs ...string) predicate.Message {
+	return predicate.Message(sql.FieldNotIn(FieldControlKind, vs...))
+}
+
+// ControlKindGT applies the GT predicate on the "control_kind" field.
+func ControlKindGT(v string) predicate.Message {
+	return predicate.Message(sql.FieldGT(FieldControlKind, v))
+}
+
+// ControlKindGTE applies the GTE predicate on the "control_kind" field.
+func ControlKindGTE(v string) predicate.Message {
+	return predicate.Message(sql.FieldGTE(FieldControlKind, v))
+}
+
+// ControlKindLT applies the LT predicate on the "control_kind" field.
+func ControlKindLT(v string) predicate.Message {
+	return predicate.Message(sql.FieldLT(FieldControlKind, v))
+}
+
+// ControlKindLTE applies the LTE predicate on the "control_kind" field.
+func ControlKindLTE(v string) predicate.Message {
+	return predicate.Message(sql.FieldLTE(FieldControlKind, v))
+}
+
+// ControlKindContains applies the Contains predicate on the "control_kind" field.
+func ControlKindContains(v string) predicate.Message {
+	return predicate.Message(sql.FieldContains(FieldControlKind, v))
+}
+
+// ControlKindHasPrefix applies the HasPrefix predicate on the "control_kind" field.
+func ControlKindHasPrefix(v string) predicate.Message {
+	return predicate.Message(sql.FieldHasPrefix(FieldControlKind, v))
+}
+
+// ControlKindHasSuffix applies the HasSuffix predicate on the "control_kind" field.
+func ControlKindHasSuffix(v string) predicate.Message {
+	return predicate.Message(sql.FieldHasSuffix(FieldControlKind, v))
+}
+
+// ControlKindEqualFold applies the EqualFold predicate on the "control_kind" field.
+func ControlKindEqualFold(v string) predicate.Message {
+	return predicate.Message(sql.FieldEqualFold(FieldControlKind, v))
+}
+
+// ControlKindContainsFold applies the ContainsFold predicate on the "control_kind" field.
+func ControlKindContainsFold(v string) predicate.Message {
+	return predicate.Message(sql.FieldContainsFold(FieldControlKind, v))
 }
 
 // DirectionEQ applies the EQ predicate on the "direction" field.

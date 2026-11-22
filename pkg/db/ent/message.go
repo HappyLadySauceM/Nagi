@@ -27,6 +27,8 @@ type Message struct {
 	ConversationID uuid.UUID `json:"conversation_id,omitempty"`
 	// BotID holds the value of the "bot_id" field.
 	BotID int64 `json:"bot_id,omitempty"`
+	// ControlKind holds the value of the "control_kind" field.
+	ControlKind string `json:"control_kind,omitempty"`
 	// Direction holds the value of the "direction" field.
 	Direction string `json:"direction,omitempty"`
 	// PlatformMessageID holds the value of the "platform_message_id" field.
@@ -143,7 +145,7 @@ func (*Message) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case message.FieldID, message.FieldBotID, message.FieldPlatformMessageID, message.FieldSenderID, message.FieldMemoryAuthorizationEventID:
 			values[i] = new(sql.NullInt64)
-		case message.FieldDirection, message.FieldTextContent, message.FieldSentStatus:
+		case message.FieldControlKind, message.FieldDirection, message.FieldTextContent, message.FieldSentStatus:
 			values[i] = new(sql.NullString)
 		case message.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -181,6 +183,12 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field bot_id", values[i])
 			} else if value.Valid {
 				_m.BotID = value.Int64
+			}
+		case message.FieldControlKind:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field control_kind", values[i])
+			} else if value.Valid {
+				_m.ControlKind = value.String
 			}
 		case message.FieldDirection:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -321,6 +329,9 @@ func (_m *Message) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("bot_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.BotID))
+	builder.WriteString(", ")
+	builder.WriteString("control_kind=")
+	builder.WriteString(_m.ControlKind)
 	builder.WriteString(", ")
 	builder.WriteString("direction=")
 	builder.WriteString(_m.Direction)

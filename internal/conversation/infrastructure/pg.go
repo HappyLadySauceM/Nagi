@@ -4,10 +4,13 @@ package infrastructure
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	entsql "entgo.io/ent/dialect/sql"
 	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
+	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	ec "github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	em "github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
@@ -30,6 +33,8 @@ type Repo struct {
 	pool                *db.Pool
 	memoryAuthorization MemoryAuthorizationStamper
 	attachmentRetention time.Duration
+	consentIngress      ConsentIngress
+	consentEnabled      bool
 }
 
 // MemoryAuthorizationStamper stamps the effective memory authorization event
@@ -53,6 +58,18 @@ func WithMemoryAuthorizationStamper(stamper MemoryAuthorizationStamper) RepoOpti
 		r.memoryAuthorization = stamper
 		return nil
 	}
+}
+
+type ConsentIngress interface {
+	LockConsentIngress(context.Context, *ent.Tx, int64) error
+	LockConsentCleanup(context.Context, *db.Tx, int64) error
+	ConsumeStoredConsent(context.Context, *ent.Tx, int64, string, int64, bool) (memorycontracts.ConsentResult, error)
+}
+
+// WithConsentIngress consumes control messages in the existing ingress transaction.
+// WithConsentIngress 在既有入站事务中处理控制消息。
+func WithConsentIngress(repo ConsentIngress, enabled bool) RepoOption {
+	return func(r *Repo) error { r.consentIngress = repo; r.consentEnabled = enabled; return nil }
 }
 
 // WithInboundAttachments records archive work in the ingress transaction.
@@ -92,6 +109,13 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 	}
 	defer tx.Rollback()
 	c := tx.Client()
+	if in.ConsentControl && in.Kind == domain.KindGroup && r.consentIngress != nil {
+		// Lock order is per-account mutation, then conversation, then message.
+		// 锁顺序为账号变更锁、会话锁、消息锁。
+		if err := r.consentIngress.LockConsentIngress(ctx, tx, in.BotID); err != nil {
+			return domain.IngestResult{}, err
+		}
+	}
 	if err := c.BotAccount.Create().SetID(in.BotID).OnConflict(entsql.ConflictColumns("bot_id")).Ignore().Exec(ctx); err != nil {
 		return domain.IngestResult{}, err
 	}
@@ -105,18 +129,19 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 	}
 	// The conversation upsert holds its row lock until commit, serializing event deduplication.
 	// 会话 upsert 持有行锁直至提交，串行化同一会话的事件去重。
-	exists, err := c.Message.Query().Where(em.BotID(in.BotID), em.ConversationID(conv), em.PlatformMessageID(in.PlatformMessageID), em.Direction("incoming")).Exist(ctx)
-	if err != nil {
+	existing, err := c.Message.Query().Where(em.BotID(in.BotID), em.ConversationID(conv), em.PlatformMessageID(in.PlatformMessageID), em.Direction("incoming")).Only(ctx)
+	if err != nil && !ent.IsNotFound(err) {
 		return domain.IngestResult{}, err
 	}
-	if exists {
+	if existing != nil {
+		result := domain.IngestResult{ConversationID: conv.String(), Duplicate: true}
 		if err := tx.Commit(); err != nil {
 			return domain.IngestResult{}, err
 		}
-		return domain.IngestResult{ConversationID: conv.String(), Duplicate: true}, nil
+		return result, nil
 	}
 	var authorizationEventID *int64
-	if r.memoryAuthorization != nil {
+	if r.memoryAuthorization != nil && !in.ConsentControl {
 		id, authorized, err := r.memoryAuthorization.StampMemoryAuthorization(ctx, tx, in.BotID, string(in.Kind), in.TargetID)
 		if err != nil {
 			return domain.IngestResult{}, err
@@ -130,6 +155,9 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 		return domain.IngestResult{}, err
 	}
 	messageCreate := c.Message.Create().SetInboundMediaSummary(summary).SetConversationID(conv).SetBotID(in.BotID).SetDirection("incoming").SetPlatformMessageID(in.PlatformMessageID).SetSenderID(in.SenderID).SetTextContent(in.Text).SetSegments(segments)
+	if in.ConsentControl {
+		messageCreate.SetControlKind(memorydomain.ConsentCommandKind)
+	}
 	if authorizationEventID != nil {
 		messageCreate.SetMemoryAuthorizationEventID(*authorizationEventID)
 	}
@@ -138,6 +166,17 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 		return domain.IngestResult{}, err
 	}
 	message := stored.ID
+	if in.ConsentControl {
+		if in.Kind == domain.KindGroup && r.consentIngress != nil {
+			if _, err = r.consentIngress.ConsumeStoredConsent(ctx, tx, in.BotID, conv.String(), message, r.consentEnabled); err != nil {
+				return domain.IngestResult{}, err
+			}
+		}
+		if err = tx.Commit(); err != nil {
+			return domain.IngestResult{}, err
+		}
+		return domain.IngestResult{ConversationID: conv.String(), MessageID: message}, nil
+	}
 	if r.attachmentRetention > 0 {
 		if err := registerInboundAttachments(ctx, c, message, stored.CreatedAt.Add(r.attachmentRetention), in.Segments); err != nil {
 			return domain.IngestResult{}, err
@@ -165,7 +204,7 @@ func (r *Repo) RecentMessages(ctx context.Context, conversationID string, limit 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := r.pool.Client.Message.Query().Where(em.ConversationID(id)).Order(ent.Desc(em.FieldCreatedAt, em.FieldID)).Limit(limit).All(ctx)
+	rows, err := r.pool.Client.Message.Query().Where(em.ConversationID(id), em.ControlKindEQ("")).Order(ent.Desc(em.FieldCreatedAt, em.FieldID)).Limit(limit).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +258,7 @@ func (r *Repo) JobIngress(ctx context.Context, botID, jobID int64) (*domain.JobI
 // MessageByID 返回属于指定机器人账号的一条已存消息。行不存在返回未找到，
 // 这也是留存清理删除过期消息后的可观察结果。
 func (r *Repo) MessageByID(ctx context.Context, botID, messageID int64) (domain.SourceMessage, bool, error) {
-	v, err := r.pool.Client.Message.Query().Where(em.ID(messageID), em.BotID(botID)).Only(ctx)
+	v, err := r.pool.Client.Message.Query().Where(em.ID(messageID), em.BotID(botID), em.ControlKindEQ("")).Only(ctx)
 	if ent.IsNotFound(err) {
 		return domain.SourceMessage{}, false, nil
 	}
@@ -262,7 +301,7 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	locked, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE m.conversation_id=c.id AND j.status='pending' AND j.next_run_at<=clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM message_jobs busy JOIN messages bm ON bm.id=busy.incoming_message_id WHERE bm.conversation_id=c.id AND busy.status='processing') ORDER BY c.id LIMIT $1 FOR UPDATE OF c SKIP LOCKED`, limit)
+	locked, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND j.next_run_at<=clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing') ORDER BY c.id LIMIT $1 FOR UPDATE OF c SKIP LOCKED`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -284,16 +323,16 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 	rows, err := tx.Query(ctx, `
  WITH picked AS (
  SELECT j.id FROM conversations c
- JOIN LATERAL(SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE m.conversation_id=c.id AND j.status='pending' AND j.next_run_at<=clock_timestamp() ORDER BY j.next_run_at,j.id LIMIT 1) chosen ON true
+ JOIN LATERAL(SELECT j.id FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND j.next_run_at<=clock_timestamp() ORDER BY j.next_run_at,j.id LIMIT 1) chosen ON true
  JOIN message_jobs j ON j.id=chosen.id
  WHERE c.id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
- AND NOT EXISTS(SELECT 1 FROM message_jobs busy JOIN messages bm ON bm.id=busy.incoming_message_id WHERE bm.conversation_id=c.id AND busy.status='processing')
+ AND NOT EXISTS(SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing')
  FOR UPDATE OF j SKIP LOCKED
  ),claimed AS(
  UPDATE message_jobs j SET status='processing',claim_token=gen_random_uuid(),lease_expires_at=clock_timestamp()+interval '2 minutes',updated_at=clock_timestamp() FROM picked WHERE j.id=picked.id AND j.status='pending'
- RETURNING j.id,j.incoming_message_id,j.traceparent,j.tracestate,j.claim_token,j.lease_expires_at
- ) SELECT cl.id,cl.incoming_message_id,cl.traceparent,cl.tracestate,m.conversation_id,c.bot_id,c.kind,c.target_id,m.id,COALESCE(m.platform_message_id,0),m.sender_id,m.text_content,m.segments,m.created_at,cl.claim_token,cl.lease_expires_at
- FROM claimed cl JOIN messages m ON m.id=cl.incoming_message_id JOIN conversations c ON c.id=m.conversation_id ORDER BY cl.id`, encoded)
+ RETURNING j.id,j.incoming_message_id,j.traceparent,j.tracestate,j.claim_token,j.lease_expires_at,j.consent_proposal_id
+ ) SELECT cl.id,COALESCE(cl.incoming_message_id,0),cl.traceparent,cl.tracestate,c.id,c.bot_id,c.kind,c.target_id,COALESCE(m.id,0),COALESCE(m.platform_message_id,0),COALESCE(m.sender_id,0),COALESCE(m.text_content,''),COALESCE(m.segments,'[]'::jsonb),COALESCE(m.created_at,p.created_at),cl.claim_token,cl.lease_expires_at,COALESCE(p.id::text,'')
+ FROM claimed cl LEFT JOIN messages m ON m.id=cl.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=cl.consent_proposal_id JOIN conversations c ON c.id=COALESCE(m.conversation_id,p.source_conversation_id) ORDER BY cl.id`, encoded)
 	if err != nil {
 		return nil, fmt.Errorf("conversation: claim ready jobs: %w", err)
 	}
@@ -307,13 +346,15 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 		if err := rows.Scan(&j.ID, &j.MessageID, &j.TraceParent, &j.TraceState,
 			&j.ConversationID, &j.BotID, &kindStr, &j.TargetID,
 			&j.Message.ID, &j.Message.PlatformMessageID, &j.Message.SenderID, &j.Message.Text,
-			&segJSON, &j.Message.CreatedAt, &j.ClaimToken, &j.LeaseExpiresAt); err != nil {
+			&segJSON, &j.Message.CreatedAt, &j.ClaimToken, &j.LeaseExpiresAt, &j.ConsentProposalID); err != nil {
 			return nil, fmt.Errorf("conversation: scan job: %w", err)
 		}
 		j.Kind = domain.Kind(kindStr)
 		j.Message.ConversationID = j.ConversationID
 		j.Message.BotID = j.BotID
-		j.Message.Direction = domain.Incoming
+		if j.ConsentProposalID == "" {
+			j.Message.Direction = domain.Incoming
+		}
 		segs, err := decodeSegments(segJSON)
 		if err != nil {
 			// Poison payload: fail only this job in a single attempt so the rest
@@ -393,9 +434,9 @@ func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter
 	// History follows the actual target, matching Settle; a cross-conversation
 	// message must never be filed under the source conversation.
 	// 历史归属实际目标，与 Settle 一致；跨会话消息不得记到来源会话名下。
-	if _, err := tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,segments,sent_status,outbound_id,created_at)
- SELECT c.id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,COALESCE(o.payload->'segments','[]'::jsonb),o.status,o.id,o.updated_at
- FROM agent_outbound_messages o JOIN conversations c ON c.bot_id=o.bot_id AND c.kind=o.target_kind AND c.target_id=o.target_id
+	if _, err := tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,segments,sent_status,outbound_id,created_at,control_kind)
+ SELECT c.id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,COALESCE(o.payload->'segments','[]'::jsonb),o.status,o.id,o.updated_at,CASE WHEN j.source_kind='memory_consent_prompt' THEN j.source_kind WHEN o.payload @> '{"cross_group_fact":true}'::jsonb THEN 'memory_consent_reply' ELSE '' END
+ FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN conversations c ON c.bot_id=o.bot_id AND c.kind=o.target_kind AND c.target_id=o.target_id
  JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages
  WHERE o.job_id=$1 AND o.status IN('sent','unknown')
  ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, jobID); err != nil {
@@ -471,7 +512,7 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context, policies ...domain.Recovery
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE m.conversation_id=c.id AND j.status='processing' AND j.lease_expires_at<=clock_timestamp()) ORDER BY c.id LIMIT 100 FOR UPDATE OF c SKIP LOCKED`)
+	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='processing' AND j.lease_expires_at<=clock_timestamp()) ORDER BY c.id LIMIT 100 FOR UPDATE OF c SKIP LOCKED`)
 	if err != nil {
 		return err
 	}
@@ -501,14 +542,17 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context, policies ...domain.Recovery
      WHERE d.job_id=j.id AND d.decision='silent' AND d.reason_code=$4
       AND s.input->>'WorkerAuditRunID'=r.id::text))
  ) AS audit_start_failed
- FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
- WHERE m.conversation_id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
+ FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id
+ LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id
+ WHERE COALESCE(m.conversation_id,p.source_conversation_id) IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
  AND j.status='processing' AND j.lease_expires_at<=clock_timestamp() FOR UPDATE OF j
  ),cancelled AS (
- UPDATE agent_outbound_messages o SET status='cancelled',updated_at=clock_timestamp()
+ UPDATE agent_outbound_messages o SET status='cancelled',
+ error_code=CASE WHEN EXISTS (SELECT 1 FROM agent_run_budgets b WHERE b.job_id=o.job_id AND b.reserved_messages >= (SELECT count(*) FROM agent_outbound_messages q WHERE q.job_id=o.job_id AND q.status='prepared') AND b.reserved_chars >= (SELECT COALESCE(sum(q.charge_chars),0) FROM agent_outbound_messages q WHERE q.job_id=o.job_id AND q.status='prepared')) THEN 'lease_expired_prepared_refunded' ELSE 'lease_expired' END,
+ updated_at=clock_timestamp()
  WHERE o.job_id IN(SELECT id FROM expired) AND o.status='prepared' RETURNING job_id,charge_chars chars
  ),refund AS (SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id),budgets AS (
- UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars)
+ UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars),updated_at=clock_timestamp()
  FROM refund r WHERE b.job_id=r.job_id
  ),uncertain AS (
  UPDATE agent_outbound_messages o SET status='unknown',error_code='lease_expired',updated_at=clock_timestamp()
@@ -569,7 +613,7 @@ func (r *Repo) RecordOutgoing(ctx context.Context, conversationID string, botID 
 	if err := r.lockClaim(ctx, tx, jobID, claimValue(claim)); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id,segments) SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id,CASE WHEN o.action='qq.send_voice_current' THEN jsonb_build_array(jsonb_build_object('type','record','data',jsonb_build_object('file','outbound:'||o.id::text))) ELSE '[]'::jsonb END FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN conversations c ON c.id=o.conversation_id JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages WHERE o.id=$1 AND j.status='processing' AND j.claim_token=$2::uuid AND j.lease_expires_at>clock_timestamp() ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, outboundID, claimValue(claim))
+	_, err = tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id,segments) SELECT o.conversation_id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,o.status,o.id,CASE WHEN o.action='qq.send_voice_current' THEN jsonb_build_array(jsonb_build_object('type','record','data',jsonb_build_object('file','outbound:'||o.id::text))) ELSE '[]'::jsonb END FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN conversations c ON c.id=o.conversation_id JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages WHERE o.id=$1 AND j.status='processing' AND j.claim_token=$2::uuid AND j.lease_expires_at>clock_timestamp() AND NOT (o.payload @> '{"cross_group_fact":true}'::jsonb) ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, outboundID, claimValue(claim))
 	if err != nil {
 		return err
 	}
@@ -691,7 +735,37 @@ func (r *Repo) PurgeBefore(ctx context.Context, before time.Time, limit int) (in
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.created_at<$1) AND NOT EXISTS(SELECT 1 FROM message_jobs j JOIN messages incoming ON incoming.id=j.incoming_message_id WHERE incoming.conversation_id=c.id AND j.status='processing') ORDER BY c.id LIMIT $2 FOR UPDATE OF c SKIP LOCKED`, before, limit)
+	botRows, err := tx.Query(ctx, `SELECT DISTINCT c.bot_id FROM conversations c JOIN (
+ SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.created_at<$1)
+ AND NOT EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages incoming ON incoming.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(incoming.conversation_id,p.source_conversation_id)=c.id AND j.status='processing')
+ ORDER BY c.id LIMIT $2
+ ) eligible ON eligible.id=c.id ORDER BY c.bot_id`, before, limit)
+	if err != nil {
+		return 0, err
+	}
+	bots := []int64{}
+	for botRows.Next() {
+		var bot int64
+		if err := botRows.Scan(&bot); err != nil {
+			botRows.Close()
+			return 0, err
+		}
+		bots = append(bots, bot)
+	}
+	err = botRows.Err()
+	botRows.Close()
+	if err != nil {
+		return 0, err
+	}
+	if r.consentIngress != nil {
+		for _, bot := range bots {
+			if err := r.consentIngress.LockConsentCleanup(ctx, tx, bot); err != nil {
+				return 0, err
+			}
+		}
+	}
+	accounts, _ := json.Marshal(bots)
+	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE c.bot_id IN(SELECT value::bigint FROM jsonb_array_elements_text($3::jsonb)) AND EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.created_at<$1) AND NOT EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages incoming ON incoming.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(incoming.conversation_id,p.source_conversation_id)=c.id AND j.status='processing') ORDER BY c.id LIMIT $2 FOR UPDATE OF c SKIP LOCKED`, before, limit, accounts)
 	if err != nil {
 		return 0, err
 	}
@@ -710,7 +784,7 @@ func (r *Repo) PurgeBefore(ctx context.Context, before time.Time, limit int) (in
 		return 0, err
 	}
 	encoded, _ := json.Marshal(conversations)
-	rows, err = tx.Query(ctx, `SELECT m.id FROM messages m WHERE m.created_at<$1 AND m.conversation_id IN(SELECT value::uuid FROM jsonb_array_elements_text($2::jsonb)) AND NOT EXISTS(SELECT 1 FROM message_jobs j JOIN messages incoming ON incoming.id=j.incoming_message_id WHERE incoming.conversation_id=m.conversation_id AND j.status='processing') ORDER BY m.created_at,m.id LIMIT $3`, before, encoded, limit)
+	rows, err = tx.Query(ctx, `SELECT m.id FROM messages m WHERE m.created_at<$1 AND m.conversation_id IN(SELECT value::uuid FROM jsonb_array_elements_text($2::jsonb)) AND NOT EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages incoming ON incoming.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(incoming.conversation_id,p.source_conversation_id)=m.conversation_id AND j.status='processing') ORDER BY m.created_at,m.id LIMIT $3`, before, encoded, limit)
 	if err != nil {
 		return 0, err
 	}
@@ -730,6 +804,19 @@ func (r *Repo) PurgeBefore(ctx context.Context, before time.Time, limit int) (in
 	}
 	selected, _ := json.Marshal(ids)
 	if _, err := tx.Exec(ctx, `DELETE FROM message_jobs WHERE incoming_message_id IN(SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb))`, selected); err != nil {
+		return 0, err
+	}
+	// Close affected versions before dropping source evidence. Confirmation and
+	// prompt deletion are checked directly by the consent read predicate.
+	// 删除原事实来源前先关闭受影响版本。确认和提示凭据由读取谓词直接校验。
+	if _, err := tx.Exec(ctx, `WITH changed AS (
+  UPDATE memories SET authorization_version=authorization_version+1,updated_at=clock_timestamp()
+  WHERE source_message_id IN (SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb)) RETURNING memory_id
+ ), invalid AS (
+  UPDATE memory_consent_proposals p SET status='invalidated',state_version=state_version+1
+  WHERE p.memory_id IN(SELECT memory_id FROM changed) AND p.status IN('pending','confirmed') RETURNING id
+ ) UPDATE memory_consent_grants g SET revoked_at=clock_timestamp(),revocation_source='source_removed',state_version=g.state_version+1
+ WHERE g.proposal_id IN(SELECT id FROM invalid) AND g.revoked_at IS NULL`, selected); err != nil {
 		return 0, err
 	}
 	result, err := tx.Exec(ctx, `DELETE FROM messages WHERE id IN(SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb))`, selected)
@@ -753,7 +840,7 @@ func (r *Repo) ReconcileOutgoing(ctx context.Context) error {
  WHERE sp.bot_id=c.bot_id AND sp.scope_type=c.kind AND sp.scope_id IN (c.target_id,0)
  ORDER BY sp.scope_id DESC LIMIT 1
  ) p ON true
- WHERE o.status IN ('sent','unknown') AND p.enabled AND p.store_messages
+ WHERE o.tool_call_id IS DISTINCT FROM 'memory_consent_prompt' AND NOT (o.payload @> '{"cross_group_fact":true}'::jsonb) AND o.status IN ('sent','unknown') AND p.enabled AND p.store_messages
  AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.outbound_id=o.id)
  ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`)
 	return err
@@ -798,11 +885,53 @@ func (r *Repo) SaveTranscript(ctx context.Context, jobID int64, claim, text stri
 	return nil
 }
 
+const ordinaryMessage = ` FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.bot_id=m.bot_id
+ JOIN LATERAL (SELECT enabled,store_messages,allow_history_read FROM scope_policies
+ WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1) policy
+ ON policy.enabled AND policy.store_messages
+ WHERE m.bot_id=$1 AND m.conversation_id=$2::uuid AND m.platform_message_id=$3 AND m.platform_message_id<>0
+ AND m.direction='incoming' AND m.control_kind='' AND m.sender_id>0 AND m.sender_id<>m.bot_id
+ AND NOT EXISTS(SELECT 1 FROM messages conflicting WHERE conflicting.bot_id=m.bot_id AND conflicting.conversation_id=m.conversation_id AND conflicting.platform_message_id=m.platform_message_id AND conflicting.id<>m.id)`
+
+// StoredPublicMessage returns only directly stored text without resolving platform references.
+// StoredPublicMessage 只返回直接入库的文字，不展开平台引用。
+func (r *Repo) StoredPublicMessage(ctx context.Context, bot int64, conversation string, id int64) (map[string]any, error) {
+	var kind string
+	var sender int64
+	var segments []byte
+	var created time.Time
+	err := r.pool.QueryRow(ctx, `SELECT c.kind,m.sender_id,m.segments,m.created_at`+ordinaryMessage+`
+ AND policy.allow_history_read
+ AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(m.segments) seg WHERE seg->>'type' IS DISTINCT FROM 'text')`, bot, conversation, id).Scan(&kind, &sender, &segments, &created)
+	if err != nil {
+		return nil, err
+	}
+	if len(segments) == 0 || string(segments) == "null" {
+		return nil, sql.ErrNoRows
+	}
+	return map[string]any{"message_id": id, "message_type": kind, "sender": map[string]int64{"user_id": sender}, "message": json.RawMessage(segments), "time": created.Unix()}, nil
+}
+
+// HistoryImages returns persisted text and image segments of an authorized ordinary history message.
+// HistoryImages 返回当前允许读取的普通历史消息中已持久化的文字和图片段。
+func (r *Repo) HistoryImages(ctx context.Context, bot int64, conversation, kind string, target, id int64) ([]obdomain.Segment, error) {
+	var data []byte
+	err := r.pool.QueryRow(ctx, `SELECT (SELECT COALESCE(jsonb_agg(seg.value ORDER BY seg.ordinality),'[]'::jsonb)
+ FROM jsonb_array_elements(m.segments) WITH ORDINALITY AS seg(value,ordinality)
+ WHERE seg.value->>'type' IN ('text','image'))`+ordinaryMessage+`
+ AND policy.allow_history_read AND c.kind=$4 AND c.target_id=$5
+ AND EXISTS(SELECT 1 FROM jsonb_array_elements(m.segments) seg WHERE seg->>'type'='image')`, bot, conversation, id, kind, target).Scan(&data)
+	if err != nil {
+		return nil, err
+	}
+	return obdomain.SegmentsFromWire(data)
+}
+
 // MediaAttachment returns only an incoming message in the bound account and conversation.
 // MediaAttachment 仅返回绑定账号和会话内的入站消息。
 func (r *Repo) MediaAttachment(ctx context.Context, bot int64, conversation string, id int64) ([]obdomain.Segment, error) {
 	var data []byte
-	err := r.pool.QueryRow(ctx, `SELECT segments FROM messages WHERE bot_id=$1 AND conversation_id=$2::uuid AND platform_message_id=$3 AND direction='incoming'`, bot, conversation, id).Scan(&data)
+	err := r.pool.QueryRow(ctx, `SELECT m.segments`+ordinaryMessage+` AND (policy.allow_history_read OR EXISTS(SELECT 1 FROM message_jobs WHERE id=$4 AND incoming_message_id=m.id AND claim_token::text=$5 AND status='processing' AND lease_expires_at>clock_timestamp()))`, bot, conversation, id, memorycontracts.ReplyJobFrom(ctx).ID, memorycontracts.ReplyJobFrom(ctx).Claim).Scan(&data)
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +941,7 @@ func (r *Repo) MediaAttachment(ctx context.Context, bot int64, conversation stri
 // HistoryIndexBatch scans source rows in ID order for the rotating index rebuild.
 // HistoryIndexBatch 按 ID 正序扫描原始消息，供轮转重建搜索索引。
 func (r *Repo) HistoryIndexBatch(ctx context.Context, afterID int64, limit int) ([]domain.IndexedMessage, error) {
-	rows, err := r.pool.Client.Message.Query().Where(em.IDGT(afterID)).
+	rows, err := r.pool.Client.Message.Query().Where(em.IDGT(afterID), em.ControlKindEQ("")).
 		Order(ent.Asc(em.FieldID)).Limit(limit).WithConversationIDRef().All(ctx)
 	if err != nil {
 		return nil, err
@@ -843,7 +972,7 @@ func (r *Repo) HistoryMessages(ctx context.Context, search domain.HistorySearch,
 		return nil, err
 	}
 	query := r.pool.Client.Message.Query().Where(
-		em.IDIn(ids...), em.BotID(search.BotID), em.ConversationID(conversation),
+		em.IDIn(ids...), em.BotID(search.BotID), em.ConversationID(conversation), em.ControlKindEQ(""),
 		em.Or(em.CreatedAtLT(search.Before), em.And(em.CreatedAtEQ(search.Before), em.IDLT(search.BeforeID))),
 	)
 	if search.SenderID > 0 {

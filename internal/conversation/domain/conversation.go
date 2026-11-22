@@ -74,6 +74,7 @@ type SourceMessage struct {
 // IngestInput 是持久化一条已授权入站消息的输入。
 type IngestInput struct {
 	ArchiveOnly       bool
+	ConsentControl    bool
 	BotID             int64
 	Kind              Kind
 	TargetID          int64
@@ -111,15 +112,16 @@ type JobIngress struct {
 // Job is one pending decision task derived from an inbound message.
 // Job 是从入站消息派生的一个待处理决策任务。
 type Job struct {
-	ClaimToken     string
-	LeaseExpiresAt time.Time
-	ID             int64
-	MessageID      int64
-	ConversationID string
-	BotID          int64
-	Kind           Kind
-	TargetID       int64
-	Message        Message
+	ConsentProposalID string
+	ClaimToken        string
+	LeaseExpiresAt    time.Time
+	ID                int64
+	MessageID         int64
+	ConversationID    string
+	BotID             int64
+	Kind              Kind
+	TargetID          int64
+	Message           Message
 	// TraceParent and TraceState restore the ingress trace in the worker; an
 	// empty TraceParent marks a legacy job that starts its own trace.
 	// TraceParent 与 TraceState 让工作器还原入站 trace；

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"strings"
 	"testing"
 
@@ -97,8 +98,13 @@ func newTool(t *testing.T, sender *fakeSender, ledger *fakeLedger, recorder *fak
 	return contracts.RegisteredTool{Invoke: p.send}
 }
 
+func toolContext(scope pluginsapp.Scope) context.Context {
+	scope.ClaimToken = "fixture-claim"
+	return pluginsapp.WithToolCallID(pluginsapp.WithScope(context.Background(), scope), "fixture-call")
+}
+
 func groupContext() context.Context {
-	return pluginsapp.WithScope(context.Background(), pluginsapp.Scope{
+	return toolContext(pluginsapp.Scope{
 		BotID: 1, JobID: 9, ConversationID: "conv-1", Kind: contracts.ScopeKindGroup, TargetID: 700,
 	})
 }
@@ -258,7 +264,7 @@ func TestPublicSendRequiresSpecificAndCrossConversationGrants(t *testing.T) {
 			}
 			calls := 0
 			text := "hello"
-			_, err := SendPublic(pluginsapp.WithScope(context.Background(), scope), Options{
+			_, err := SendPublic(toolContext(scope), Options{
 				Ledger: ledger, Limits: outbounddomain.Limits{MaxMessages: 3},
 				AuthorizeTarget: func(context.Context, string, int64) error {
 					if tc.targetDisabled {
@@ -312,7 +318,7 @@ func TestVoiceUsesLedgerAndMediaPermission(t *testing.T) {
 				t.Fatal(err)
 			}
 			scope := pluginsapp.Scope{BotID: 1, JobID: 9, ConversationID: "conv", Kind: "group", TargetID: 88, Permissions: map[string]bool{"media.voice.send": true, "qq.reply.current": true, "qq.content.media": true}}
-			_, sendErr := list[0].Invoke(pluginsapp.WithScope(context.Background(), scope), `{"text":"你好"}`)
+			_, sendErr := list[0].Invoke(toolContext(scope), `{"text":"你好"}`)
 			if !uncertain && sendErr != nil {
 				t.Fatal(sendErr)
 			}
@@ -329,7 +335,7 @@ func TestVoiceUsesLedgerAndMediaPermission(t *testing.T) {
 				t.Fatal("uncertain delivery must stay unknown")
 			}
 			delete(scope.Permissions, "qq.content.media")
-			_, err = list[0].Invoke(pluginsapp.WithScope(context.Background(), scope), `{"text":"拒绝"}`)
+			_, err = list[0].Invoke(toolContext(scope), `{"text":"拒绝"}`)
 			if err == nil || speech.calls != 1 {
 				t.Fatal("media permission bypassed")
 			}
@@ -358,7 +364,7 @@ func TestVoiceSendingGrantAndRevocation(t *testing.T) {
 					}
 					return nil
 				}}
-				_, err = tools[0].Invoke(pluginsapp.WithScope(context.Background(), scope), `{"text":"验证语音授权"}`)
+				_, err = tools[0].Invoke(toolContext(scope), `{"text":"验证语音授权"}`)
 				sent := sender.groupCal > 0 || sender.private > 0
 				if sent != (mode == "enabled") || (err == nil) != (mode == "enabled") {
 					t.Fatalf("mode=%s sent=%v err=%v", mode, sent, err)
@@ -368,5 +374,21 @@ func TestVoiceSendingGrantAndRevocation(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCrossGroupVoiceStopsBeforeSynthesisAndLedger(t *testing.T) {
+	ctx := memory.WithRunReads(context.Background())
+	memory.TrackVersionedRead(ctx, nil, memory.DetailRequest{}, memory.Memory{ConsentIdentity: "synthetic"}, nil)
+	voice := &speechFixture{}
+	ledger := &fakeLedger{}
+	sender := &voiceSender{fakeSender: fakeSender{message: 33}}
+	list, err := NewVoiceProvider(Options{Speech: voice, Senders: sender, Ledger: ledger, Recorder: &fakeRecorder{}}).Tools(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = pluginsapp.WithScope(ctx, pluginsapp.Scope{BotID: 1, JobID: 1, ConversationID: "fixture", TargetID: 2, Kind: "group", Permissions: map[string]bool{"media.voice.send": true, "qq.reply.current": true, "qq.content.media": true}})
+	if _, err = list[0].Invoke(ctx, `{"text":"synthetic"}`); err == nil || voice.calls != 0 || len(ledger.reserved) != 0 || len(sender.segments) != 0 {
+		t.Fatalf("synthesis=%d reservations=%d OneBot segments=%d err=%v", voice.calls, len(ledger.reserved), len(sender.segments), err)
 	}
 }

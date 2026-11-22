@@ -894,3 +894,34 @@ func TestMessageByIDScopedToBot(t *testing.T) {
 		t.Fatalf("missing source must be unavailable: found=%v err=%v", found, err)
 	}
 }
+
+func TestHistoryImagesUsesPersistedCurrentScope(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, err := NewRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	bot, target, mid := int64(991075), int64(7125), time.Now().UnixNano()
+	in := domain.IngestInput{BotID: bot, Kind: domain.KindGroup, TargetID: target, PlatformMessageID: mid, SenderID: 991076, Text: "普通图片", Segments: []obdomain.Segment{obdomain.Text("普通图片"), {Type: obdomain.SegImage, Data: map[string]string{"file": "fixture-image"}}}}
+	stored, err := repo.Ingest(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,store_messages,allow_history_read) VALUES($1,'group',$2,true,true,true) ON CONFLICT(bot_id,scope_type,scope_id) DO UPDATE SET allow_history_read=true`, bot, target); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := repo.HistoryImages(ctx, bot, stored.ConversationID, "group", target, mid)
+	if err != nil || len(parts) != 2 || parts[1].Data["file"] != "fixture-image" {
+		t.Fatalf("persisted picture: %v %v", parts, err)
+	}
+	if _, err := repo.HistoryImages(ctx, bot, stored.ConversationID, "group", target+1, mid); err == nil {
+		t.Fatal("unmatched scope supplied an attachment")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE scope_policies SET allow_history_read=false WHERE bot_id=$1 AND scope_type='group' AND scope_id=$2`, bot, target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.HistoryImages(ctx, bot, stored.ConversationID, "group", target, mid); err == nil {
+		t.Fatal("disabled history supplied an attachment")
+	}
+}

@@ -693,6 +693,7 @@ var (
 		{Name: "visibility", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "owner_key", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "content", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "authorization_version", Type: field.TypeInt64, Default: schema.Expr("1")},
 		{Name: "source", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "source_sender_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "origin", Type: field.TypeString, Default: schema.Expr("'manual'::text"), SchemaType: map[string]string{"postgres": "text"}},
@@ -717,13 +718,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "memories_bot_accounts_memories_bot_id",
-				Columns:    []*schema.Column{MemoriesColumns[17]},
+				Columns:    []*schema.Column{MemoriesColumns[18]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "memories_messages_memories_source_message_id",
-				Columns:    []*schema.Column{MemoriesColumns[18]},
+				Columns:    []*schema.Column{MemoriesColumns[19]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -732,15 +733,142 @@ var (
 			{
 				Name:    "memories_visibility",
 				Unique:  false,
-				Columns: []*schema.Column{MemoriesColumns[17], MemoriesColumns[1], MemoriesColumns[2], MemoriesColumns[12]},
+				Columns: []*schema.Column{MemoriesColumns[18], MemoriesColumns[1], MemoriesColumns[2], MemoriesColumns[13]},
 			},
 			{
 				Name:    "memories_dedupe_key",
 				Unique:  true,
-				Columns: []*schema.Column{MemoriesColumns[9]},
+				Columns: []*schema.Column{MemoriesColumns[10]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "((dedupe_key IS NOT NULL) AND (status = ANY (ARRAY['candidate'::text, 'active'::text])))",
 				},
+			},
+		},
+	}
+	// MemoryConsentEventsColumns holds the columns for the "memory_consent_events" table.
+	MemoryConsentEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "bot_id", Type: field.TypeInt64},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "platform_message_id", Type: field.TypeInt64},
+		{Name: "outcome", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "proposal_id", Type: field.TypeUUID},
+	}
+	// MemoryConsentEventsTable holds the schema information for the "memory_consent_events" table.
+	MemoryConsentEventsTable = &schema.Table{
+		Name:       "memory_consent_events",
+		Columns:    MemoryConsentEventsColumns,
+		PrimaryKey: []*schema.Column{MemoryConsentEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "memory_consent_events_memory_consent_proposals_events",
+				Columns:    []*schema.Column{MemoryConsentEventsColumns[6]},
+				RefColumns: []*schema.Column{MemoryConsentProposalsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "memory_consent_event_processed",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryConsentEventsColumns[1], MemoryConsentEventsColumns[2], MemoryConsentEventsColumns[3]},
+			},
+		},
+	}
+	// MemoryConsentGrantsColumns holds the columns for the "memory_consent_grants" table.
+	MemoryConsentGrantsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "bot_id", Type: field.TypeInt64},
+		{Name: "memory_id", Type: field.TypeUUID},
+		{Name: "fact_version", Type: field.TypeInt64},
+		{Name: "subject_id", Type: field.TypeInt64},
+		{Name: "target_group_id", Type: field.TypeInt64},
+		{Name: "confirmed_at", Type: field.TypeTime},
+		{Name: "state_version", Type: field.TypeInt64, Default: schema.Expr("1")},
+		{Name: "revoked_at", Type: field.TypeTime, Nullable: true},
+		{Name: "revocation_source", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "confirmation_message_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "proposal_id", Type: field.TypeUUID},
+	}
+	// MemoryConsentGrantsTable holds the schema information for the "memory_consent_grants" table.
+	MemoryConsentGrantsTable = &schema.Table{
+		Name:       "memory_consent_grants",
+		Columns:    MemoryConsentGrantsColumns,
+		PrimaryKey: []*schema.Column{MemoryConsentGrantsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "memory_consent_grants_messages_confirmation_message",
+				Columns:    []*schema.Column{MemoryConsentGrantsColumns[10]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "memory_consent_grants_memory_consent_proposals_grants",
+				Columns:    []*schema.Column{MemoryConsentGrantsColumns[11]},
+				RefColumns: []*schema.Column{MemoryConsentProposalsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "memory_consent_grant_current",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryConsentGrantsColumns[1], MemoryConsentGrantsColumns[2], MemoryConsentGrantsColumns[3], MemoryConsentGrantsColumns[4], MemoryConsentGrantsColumns[5]},
+			},
+			{
+				Name:    "memory_consent_grant_target",
+				Unique:  false,
+				Columns: []*schema.Column{MemoryConsentGrantsColumns[1], MemoryConsentGrantsColumns[5], MemoryConsentGrantsColumns[4]},
+			},
+		},
+	}
+	// MemoryConsentProposalsColumns holds the columns for the "memory_consent_proposals" table.
+	MemoryConsentProposalsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "bot_id", Type: field.TypeInt64},
+		{Name: "memory_id", Type: field.TypeUUID},
+		{Name: "fact_version", Type: field.TypeInt64},
+		{Name: "subject_id", Type: field.TypeInt64},
+		{Name: "source_conversation_id", Type: field.TypeUUID},
+		{Name: "source_group_id", Type: field.TypeInt64},
+		{Name: "target_groups", Type: field.TypeJSON},
+		{Name: "display_digest", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "idempotency_key", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "status", Type: field.TypeString, Default: schema.Expr("'pending'::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "state_version", Type: field.TypeInt64, Default: schema.Expr("1")},
+		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
+		{Name: "expires_at", Type: field.TypeTime},
+		{Name: "source_message_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
+	}
+	// MemoryConsentProposalsTable holds the schema information for the "memory_consent_proposals" table.
+	MemoryConsentProposalsTable = &schema.Table{
+		Name:       "memory_consent_proposals",
+		Columns:    MemoryConsentProposalsColumns,
+		PrimaryKey: []*schema.Column{MemoryConsentProposalsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "memory_consent_proposals_messages_source_message",
+				Columns:    []*schema.Column{MemoryConsentProposalsColumns[14]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "memory_consent_proposal_bound_identity",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryConsentProposalsColumns[0], MemoryConsentProposalsColumns[1], MemoryConsentProposalsColumns[2], MemoryConsentProposalsColumns[3], MemoryConsentProposalsColumns[4]},
+			},
+			{
+				Name:    "memory_consent_proposal_idempotency",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryConsentProposalsColumns[1], MemoryConsentProposalsColumns[9]},
+			},
+			{
+				Name:    "memory_consent_proposal_fact",
+				Unique:  false,
+				Columns: []*schema.Column{MemoryConsentProposalsColumns[1], MemoryConsentProposalsColumns[2], MemoryConsentProposalsColumns[3]},
 			},
 		},
 	}
@@ -886,6 +1014,7 @@ var (
 	// MessagesColumns holds the columns for the "messages" table.
 	MessagesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "control_kind", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "direction", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "platform_message_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "sender_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
@@ -907,28 +1036,33 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "messages_agent_outbound_messages_messages_outbound_id",
-				Columns:    []*schema.Column{MessagesColumns[10]},
+				Columns:    []*schema.Column{MessagesColumns[11]},
 				RefColumns: []*schema.Column{AgentOutboundMessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "messages_bot_accounts_messages_bot_id",
-				Columns:    []*schema.Column{MessagesColumns[11]},
+				Columns:    []*schema.Column{MessagesColumns[12]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "messages_conversations_messages_conversation_id",
-				Columns:    []*schema.Column{MessagesColumns[12]},
+				Columns:    []*schema.Column{MessagesColumns[13]},
 				RefColumns: []*schema.Column{ConversationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
+				Name:    "messages_bound_direction",
+				Unique:  true,
+				Columns: []*schema.Column{MessagesColumns[0], MessagesColumns[2]},
+			},
+			{
 				Name:    "messages_incoming_event_uniq",
 				Unique:  true,
-				Columns: []*schema.Column{MessagesColumns[11], MessagesColumns[12], MessagesColumns[2]},
+				Columns: []*schema.Column{MessagesColumns[12], MessagesColumns[13], MessagesColumns[3]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "((direction = 'incoming'::text) AND (platform_message_id IS NOT NULL))",
 				},
@@ -936,17 +1070,17 @@ var (
 			{
 				Name:    "messages_conversation_timeline",
 				Unique:  false,
-				Columns: []*schema.Column{MessagesColumns[12], MessagesColumns[8], MessagesColumns[0]},
+				Columns: []*schema.Column{MessagesColumns[13], MessagesColumns[9], MessagesColumns[0]},
 			},
 			{
 				Name:    "messages_memory_authorization_event",
 				Unique:  false,
-				Columns: []*schema.Column{MessagesColumns[11], MessagesColumns[12], MessagesColumns[9]},
+				Columns: []*schema.Column{MessagesColumns[12], MessagesColumns[13], MessagesColumns[10]},
 			},
 			{
 				Name:    "messages_outbound_unique",
 				Unique:  true,
-				Columns: []*schema.Column{MessagesColumns[10]},
+				Columns: []*schema.Column{MessagesColumns[11]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "(outbound_id IS NOT NULL)",
 				},
@@ -954,13 +1088,15 @@ var (
 			{
 				Name:    "messages_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{MessagesColumns[8]},
+				Columns: []*schema.Column{MessagesColumns[9]},
 			},
 		},
 	}
 	// MessageJobsColumns holds the columns for the "message_jobs" table.
 	MessageJobsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "incoming_direction", Type: field.TypeString, Default: schema.Expr("'incoming'::text"), SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "source_kind", Type: field.TypeString, Default: schema.Expr("'incoming'::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "status", Type: field.TypeString, Default: schema.Expr("'pending'::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "attempts", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "next_run_at", Type: field.TypeTime, Default: schema.Expr("now()")},
@@ -973,7 +1109,8 @@ var (
 		{Name: "denied_count", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
 		{Name: "claim_token", Type: field.TypeUUID, Nullable: true},
 		{Name: "lease_expires_at", Type: field.TypeTime, Nullable: true},
-		{Name: "incoming_message_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "consent_proposal_id", Type: field.TypeUUID, Nullable: true},
+		{Name: "incoming_message_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
 	}
 	// MessageJobsTable holds the schema information for the "message_jobs" table.
 	MessageJobsTable = &schema.Table{
@@ -982,27 +1119,38 @@ var (
 		PrimaryKey: []*schema.Column{MessageJobsColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
+				Symbol:     "message_jobs_memory_consent_proposals_delivery_job",
+				Columns:    []*schema.Column{MessageJobsColumns[15]},
+				RefColumns: []*schema.Column{MemoryConsentProposalsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
 				Symbol:     "message_jobs_messages_message_jobs_incoming_message_id",
-				Columns:    []*schema.Column{MessageJobsColumns[13]},
+				Columns:    []*schema.Column{MessageJobsColumns[16]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
+				Name:    "message_jobs_consent_proposal_unique",
+				Unique:  true,
+				Columns: []*schema.Column{MessageJobsColumns[15]},
+			},
+			{
 				Name:    "message_jobs_incoming_message_id_key",
 				Unique:  true,
-				Columns: []*schema.Column{MessageJobsColumns[13]},
+				Columns: []*schema.Column{MessageJobsColumns[16]},
 			},
 			{
 				Name:    "message_jobs_ready",
 				Unique:  false,
-				Columns: []*schema.Column{MessageJobsColumns[1], MessageJobsColumns[3], MessageJobsColumns[0]},
+				Columns: []*schema.Column{MessageJobsColumns[3], MessageJobsColumns[5], MessageJobsColumns[0]},
 			},
 			{
 				Name:    "message_jobs_expired",
 				Unique:  false,
-				Columns: []*schema.Column{MessageJobsColumns[12]},
+				Columns: []*schema.Column{MessageJobsColumns[14]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "status = 'processing'",
 				},
@@ -1153,6 +1301,9 @@ var (
 		IntentRuleEntriesTable,
 		IntentRulesetsTable,
 		MemoriesTable,
+		MemoryConsentEventsTable,
+		MemoryConsentGrantsTable,
+		MemoryConsentProposalsTable,
 		MemoryExtractionCursorsTable,
 		MemoryExtractionJobsTable,
 		MemoryReplacementsTable,
@@ -1287,6 +1438,27 @@ func init() {
 		"memories_subject_type_check": "((subject_type IS NULL) OR (subject_type = ANY (ARRAY['user'::text, 'group'::text, 'unknown'::text])))",
 		"memories_visibility_check":   "((visibility = ANY (ARRAY['bot_shared'::text, 'group'::text, 'private_user'::text, 'conversation'::text])))",
 	}
+	MemoryConsentEventsTable.ForeignKeys[0].RefTable = MemoryConsentProposalsTable
+	MemoryConsentEventsTable.Annotation = &entsql.Annotation{
+		Table: "memory_consent_events",
+	}
+	MemoryConsentGrantsTable.ForeignKeys[0].RefTable = MessagesTable
+	MemoryConsentGrantsTable.ForeignKeys[1].RefTable = MemoryConsentProposalsTable
+	MemoryConsentGrantsTable.Annotation = &entsql.Annotation{
+		Table: "memory_consent_grants",
+	}
+	MemoryConsentGrantsTable.Annotation.Checks = map[string]string{
+		"memory_consent_grant_identity_check": "(bot_id > 0 AND subject_id > 0 AND target_group_id > 0 AND fact_version > 0 AND state_version > 0)",
+	}
+	MemoryConsentProposalsTable.ForeignKeys[0].RefTable = MessagesTable
+	MemoryConsentProposalsTable.Annotation = &entsql.Annotation{
+		Table: "memory_consent_proposals",
+	}
+	MemoryConsentProposalsTable.Annotation.Checks = map[string]string{
+		"memory_consent_proposal_identity_check": "(bot_id > 0 AND subject_id > 0 AND source_group_id > 0 AND fact_version > 0 AND state_version > 0)",
+		"memory_consent_proposal_status_check":   "(status IN ('pending', 'confirmed', 'cancelled', 'invalidated'))",
+		"memory_consent_proposal_targets_check":  "(jsonb_typeof(target_groups) = 'array' AND jsonb_array_length(target_groups) > 0)",
+	}
 	MemoryExtractionCursorsTable.ForeignKeys[0].RefTable = BotAccountsTable
 	MemoryExtractionCursorsTable.ForeignKeys[1].RefTable = ConversationsTable
 	MemoryExtractionCursorsTable.Annotation = &entsql.Annotation{
@@ -1319,17 +1491,21 @@ func init() {
 		Table: "messages",
 	}
 	MessagesTable.Annotation.Checks = map[string]string{
-		"messages_direction_check":   "((direction = ANY (ARRAY['incoming'::text, 'outgoing'::text])))",
-		"messages_sent_status_check": "(((sent_status IS NULL) OR (sent_status = ANY (ARRAY['sent'::text, 'failed'::text, 'unknown'::text]))))",
+		"messages_control_kind_check": "((control_kind = '') OR (control_kind = 'memory_consent_command' AND direction = 'incoming') OR (control_kind IN ('memory_consent_prompt','memory_consent_reply') AND direction = 'outgoing'))",
+		"messages_direction_check":    "((direction = ANY (ARRAY['incoming'::text, 'outgoing'::text])))",
+		"messages_sent_status_check":  "(((sent_status IS NULL) OR (sent_status = ANY (ARRAY['sent'::text, 'failed'::text, 'unknown'::text]))))",
 	}
-	MessageJobsTable.ForeignKeys[0].RefTable = MessagesTable
+	MessageJobsTable.ForeignKeys[0].RefTable = MemoryConsentProposalsTable
+	MessageJobsTable.ForeignKeys[1].RefTable = MessagesTable
 	MessageJobsTable.Annotation = &entsql.Annotation{
 		Table: "message_jobs",
 	}
 	MessageJobsTable.Annotation.Checks = map[string]string{
-		"message_jobs_denied_count_check": "((denied_count >= 0))",
-		"message_jobs_lease_check":        "((status = 'processing' AND claim_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR (status <> 'processing' AND claim_token IS NULL AND lease_expires_at IS NULL))",
-		"message_jobs_status_check":       "((status = ANY (ARRAY['pending'::text, 'processing'::text, 'done'::text, 'failed'::text, 'cancelled'::text])))",
+		"message_jobs_denied_count_check":       "((denied_count >= 0))",
+		"message_jobs_incoming_direction_check": "(incoming_direction = 'incoming')",
+		"message_jobs_lease_check":              "((status = 'processing' AND claim_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR (status <> 'processing' AND claim_token IS NULL AND lease_expires_at IS NULL))",
+		"message_jobs_source_check":             "((source_kind = 'incoming' AND incoming_message_id IS NOT NULL AND consent_proposal_id IS NULL) OR (source_kind = 'memory_consent_prompt' AND incoming_message_id IS NULL AND consent_proposal_id IS NOT NULL))",
+		"message_jobs_status_check":             "((status = ANY (ARRAY['pending'::text, 'processing'::text, 'done'::text, 'failed'::text, 'cancelled'::text])))",
 	}
 	QqGroupsTable.ForeignKeys[0].RefTable = BotAccountsTable
 	QqGroupsTable.Annotation = &entsql.Annotation{

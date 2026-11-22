@@ -125,10 +125,11 @@ type RecallRewriter interface {
 // Service implements the candidate → dedupe → approve/merge → active workflow.
 // Service 实现 候选 → 去重 → 审核/合并 → 激活 流程。
 type Service struct {
-	rewriter     RecallRewriter
-	repo         Repository
-	authorizer   scopecontracts.MemoryAuthorizer
-	readPolicies scopecontracts.Authorizer
+	crossGroupConsent bool
+	rewriter          RecallRewriter
+	repo              Repository
+	authorizer        scopecontracts.MemoryAuthorizer
+	readPolicies      scopecontracts.Authorizer
 }
 
 // NewService validates dependencies and builds the service.
@@ -149,6 +150,8 @@ func (s *Service) SetMemoryAuthorizer(authorizer scopecontracts.MemoryAuthorizer
 
 // SetReadPolicies binds the live authorization used for conversation memory reads.
 // SetReadPolicies 绑定会话读取记忆时使用的实时授权。
+func (s *Service) SetCrossGroupConsentRead(enabled bool) { s.crossGroupConsent = enabled }
+
 func (s *Service) SetReadPolicies(policies scopecontracts.Authorizer) {
 	s.readPolicies = policies
 }
@@ -553,6 +556,9 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contr
 	search := domain.SearchRequest{
 		BotID: in.BotID, Kind: in.Kind, TargetID: in.TargetID, ConversationID: in.ConversationID, Query: in.Query,
 	}
+	if s.crossGroupConsent {
+		search.ReplyJob = contracts.ReplyJobFrom(ctx)
+	}
 	allowed, err := s.canRead(ctx, search)
 	if err != nil || !allowed {
 		return result, err
@@ -623,7 +629,8 @@ func (s *Service) Recall(ctx context.Context, in contracts.RecallRequest) (contr
 	result.Items = make([]contracts.RecallItem, 0, len(hits))
 	for _, hit := range hits {
 		result.Items = append(result.Items, contracts.RecallItem{
-			MemoryID:        hit.Memory.ID,
+			MemoryID:             hit.Memory.ID,
+			AuthorizationVersion: hit.Memory.AuthorizationVersion, ConsentIdentity: hit.Memory.ConsentIdentity,
 			Content:         hit.Memory.Content,
 			Visibility:      string(hit.Memory.Visibility),
 			SubjectType:     string(hit.Memory.SubjectType),
@@ -700,6 +707,9 @@ func (s *Service) RecallDetail(ctx context.Context, in contracts.DetailRequest) 
 		return contracts.Memory{}, false, fmt.Errorf("%w: %q", ErrInvalidID, in.MemoryID)
 	}
 	search := domain.SearchRequest{BotID: in.BotID, Kind: in.Kind, TargetID: in.TargetID, ConversationID: in.ConversationID}
+	if s.crossGroupConsent {
+		search.ReplyJob = contracts.ReplyJobFrom(ctx)
+	}
 	allowed, err := s.canRead(ctx, search)
 	if err != nil || !allowed {
 		return contracts.Memory{}, false, err
@@ -716,7 +726,8 @@ func (s *Service) RecallDetail(ctx context.Context, in contracts.DetailRequest) 
 		return contracts.Memory{}, false, err
 	}
 	return contracts.Memory{
-		ID:              item.ID,
+		ID:                   item.ID,
+		AuthorizationVersion: item.AuthorizationVersion, ConsentIdentity: item.ConsentIdentity,
 		Content:         item.Content,
 		Visibility:      string(item.Visibility),
 		Source:          item.Source,

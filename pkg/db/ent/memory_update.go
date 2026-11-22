@@ -86,6 +86,27 @@ func (_u *MemoryUpdate) SetNillableContent(v *string) *MemoryUpdate {
 	return _u
 }
 
+// SetAuthorizationVersion sets the "authorization_version" field.
+func (_u *MemoryUpdate) SetAuthorizationVersion(v int64) *MemoryUpdate {
+	_u.mutation.ResetAuthorizationVersion()
+	_u.mutation.SetAuthorizationVersion(v)
+	return _u
+}
+
+// SetNillableAuthorizationVersion sets the "authorization_version" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableAuthorizationVersion(v *int64) *MemoryUpdate {
+	if v != nil {
+		_u.SetAuthorizationVersion(*v)
+	}
+	return _u
+}
+
+// AddAuthorizationVersion adds value to the "authorization_version" field.
+func (_u *MemoryUpdate) AddAuthorizationVersion(v int64) *MemoryUpdate {
+	_u.mutation.AddAuthorizationVersion(v)
+	return _u
+}
+
 // SetSourceMessageID sets the "source_message_id" field.
 func (_u *MemoryUpdate) SetSourceMessageID(v int64) *MemoryUpdate {
 	_u.mutation.SetSourceMessageID(v)
@@ -435,6 +456,12 @@ func (_u *MemoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Content(); ok {
 		_spec.SetField(memory.FieldContent, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.AuthorizationVersion(); ok {
+		_spec.SetField(memory.FieldAuthorizationVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAuthorizationVersion(); ok {
+		_spec.AddField(memory.FieldAuthorizationVersion, field.TypeInt64, value)
+	}
 	if value, ok := _u.mutation.Source(); ok {
 		_spec.SetField(memory.FieldSource, field.TypeString, value)
 	}
@@ -626,6 +653,27 @@ func (_u *MemoryUpdateOne) SetNillableContent(v *string) *MemoryUpdateOne {
 	if v != nil {
 		_u.SetContent(*v)
 	}
+	return _u
+}
+
+// SetAuthorizationVersion sets the "authorization_version" field.
+func (_u *MemoryUpdateOne) SetAuthorizationVersion(v int64) *MemoryUpdateOne {
+	_u.mutation.ResetAuthorizationVersion()
+	_u.mutation.SetAuthorizationVersion(v)
+	return _u
+}
+
+// SetNillableAuthorizationVersion sets the "authorization_version" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableAuthorizationVersion(v *int64) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetAuthorizationVersion(*v)
+	}
+	return _u
+}
+
+// AddAuthorizationVersion adds value to the "authorization_version" field.
+func (_u *MemoryUpdateOne) AddAuthorizationVersion(v int64) *MemoryUpdateOne {
+	_u.mutation.AddAuthorizationVersion(v)
 	return _u
 }
 
@@ -1007,6 +1055,12 @@ func (_u *MemoryUpdateOne) sqlSave(ctx context.Context) (_node *Memory, err erro
 	}
 	if value, ok := _u.mutation.Content(); ok {
 		_spec.SetField(memory.FieldContent, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.AuthorizationVersion(); ok {
+		_spec.SetField(memory.FieldAuthorizationVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAuthorizationVersion(); ok {
+		_spec.AddField(memory.FieldAuthorizationVersion, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Source(); ok {
 		_spec.SetField(memory.FieldSource, field.TypeString, value)

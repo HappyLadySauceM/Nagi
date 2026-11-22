@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
@@ -79,6 +80,12 @@ func ScopeFrom(ctx context.Context) (Scope, bool) {
 	return scope, ok
 }
 
+// ConsentReplyTool identifies tools whose derived output goes through the group delivery gate.
+// ConsentReplyTool 识别使用群聊派发闸门发送派生回复的工具。
+func ConsentReplyTool(id string) bool {
+	return id == "qq.send_msg" || id == "qq.send_group_msg"
+}
+
 // Guard wraps one tool invocation with authorization and resource limits.
 // Failures are returned as text so the model can explain them; they never
 // become a larger permission or a hard agent crash.
@@ -86,6 +93,9 @@ func ScopeFrom(ctx context.Context) (Scope, bool) {
 // 模型可以解释原因，既不会扩大权限，也不会让 Agent 直接崩溃。
 func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.InvokeFunc) contracts.InvokeFunc {
 	return func(ctx context.Context, argumentsInJSON string) (string, error) {
+		if memory.CrossGroupReadUsed(ctx) {
+			observability.SuppressContent(ctx)
+		}
 		if descriptor.Sensitive {
 			ctx = observability.WithContentState(ctx)
 		}
@@ -142,6 +152,9 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			return result, nil
 		}
 
+		if memory.CrossGroupReadUsed(ctx) && !ConsentReplyTool(descriptor.ID) {
+			return complete(StatusDenied, 0, "error: 跨群授权回复仅允许当前群文字发送", "cross_group_consent")
+		}
 		if descriptor.Permission != "" && !scope.Permissions[descriptor.Permission] {
 			return complete(StatusDenied, 0,
 				"error: permission denied for "+descriptor.ID, "authorization_revoked")
@@ -155,7 +168,7 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			// Suppression starts only after authorization, so a denied credential
 			// call cannot mute the whole turn.
 			// 只有授权通过后才开始抑制，被拒绝的凭证调用不会静音整轮。
-			observability.SuppressContent(ctx)
+			observability.SuppressCredentials(ctx)
 		}
 		timeout := scope.Timeout
 		if descriptor.Media {

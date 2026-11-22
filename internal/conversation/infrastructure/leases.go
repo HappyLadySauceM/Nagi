@@ -44,7 +44,7 @@ func (r *Repo) RenewClaims(ctx context.Context, tokens []string) ([]string, erro
 // lockClaim 使认领状态迁移与发送、恢复按一致顺序串行执行。
 func (r *Repo) lockClaim(ctx context.Context, tx *db.Tx, jobID int64, token any) error {
 	var conversation string
-	if err := tx.QueryRow(ctx, `SELECT c.id FROM conversations c JOIN messages m ON m.conversation_id=c.id JOIN message_jobs j ON j.incoming_message_id=m.id WHERE j.id=$1 FOR UPDATE OF c`, jobID).Scan(&conversation); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT c.id FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id JOIN conversations c ON c.id=COALESCE(m.conversation_id,p.source_conversation_id) WHERE j.id=$1 FOR UPDATE OF c`, jobID).Scan(&conversation); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrLeaseLost
 		}

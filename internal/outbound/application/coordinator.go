@@ -5,8 +5,10 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
 
@@ -74,6 +76,24 @@ func (c *Coordinator) Reserve(ctx context.Context, req Request) (domain.Record, 
 	}
 	if req.Text == "" && req.ChargeChars == 0 {
 		return domain.Record{}, fmt.Errorf("outbound: reserve requires non-empty text")
+	}
+	if reads := memory.ConsentReads(ctx); len(reads) > 0 {
+		if err := memory.ValidateCrossGroupOutput(ctx); err != nil {
+			return domain.Record{}, err
+		}
+		var payload map[string]any
+		if req.Payload == "" {
+			payload = map[string]any{"message": req.Text, "segments": []map[string]any{{"type": "text", "data": map[string]string{"text": req.Text}}}}
+		} else if err := json.Unmarshal([]byte(req.Payload), &payload); err != nil || payload == nil {
+			return domain.Record{}, fmt.Errorf("outbound: invalid cross-group reply payload")
+		}
+		payload["cross_group_fact"] = true
+		payload["consent_read_digest"] = memory.ConsentReadDigest(reads)
+		wire, err := json.Marshal(payload)
+		if err != nil {
+			return domain.Record{}, err
+		}
+		req.Payload = string(wire)
 	}
 	return c.repo.Reserve(ctx, domain.ReserveInput{
 		JobID:          req.JobID,

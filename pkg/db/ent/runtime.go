@@ -26,6 +26,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
@@ -531,38 +534,72 @@ func init() {
 	memoryDescOwnerKey := memoryFields[3].Descriptor()
 	// memory.DefaultOwnerKey holds the default value on creation for the owner_key field.
 	memory.DefaultOwnerKey = memoryDescOwnerKey.Default.(string)
+	// memoryDescAuthorizationVersion is the schema descriptor for authorization_version field.
+	memoryDescAuthorizationVersion := memoryFields[5].Descriptor()
+	// memory.DefaultAuthorizationVersion holds the default value on creation for the authorization_version field.
+	memory.DefaultAuthorizationVersion = memoryDescAuthorizationVersion.Default.(int64)
 	// memoryDescSource is the schema descriptor for source field.
-	memoryDescSource := memoryFields[6].Descriptor()
+	memoryDescSource := memoryFields[7].Descriptor()
 	// memory.DefaultSource holds the default value on creation for the source field.
 	memory.DefaultSource = memoryDescSource.Default.(string)
 	// memoryDescOrigin is the schema descriptor for origin field.
-	memoryDescOrigin := memoryFields[8].Descriptor()
+	memoryDescOrigin := memoryFields[9].Descriptor()
 	// memory.DefaultOrigin holds the default value on creation for the origin field.
 	memory.DefaultOrigin = memoryDescOrigin.Default.(string)
 	// memoryDescReviewReason is the schema descriptor for review_reason field.
-	memoryDescReviewReason := memoryFields[12].Descriptor()
+	memoryDescReviewReason := memoryFields[13].Descriptor()
 	// memory.DefaultReviewReason holds the default value on creation for the review_reason field.
 	memory.DefaultReviewReason = memoryDescReviewReason.Default.(string)
 	// memoryDescConfidence is the schema descriptor for confidence field.
-	memoryDescConfidence := memoryFields[13].Descriptor()
+	memoryDescConfidence := memoryFields[14].Descriptor()
 	// memory.DefaultConfidence holds the default value on creation for the confidence field.
 	memory.DefaultConfidence = memoryDescConfidence.Default.(float32)
 	// memoryDescStatus is the schema descriptor for status field.
-	memoryDescStatus := memoryFields[14].Descriptor()
+	memoryDescStatus := memoryFields[15].Descriptor()
 	// memory.DefaultStatus holds the default value on creation for the status field.
 	memory.DefaultStatus = memoryDescStatus.Default.(string)
 	// memoryDescApprovedBy is the schema descriptor for approved_by field.
-	memoryDescApprovedBy := memoryFields[15].Descriptor()
+	memoryDescApprovedBy := memoryFields[16].Descriptor()
 	// memory.DefaultApprovedBy holds the default value on creation for the approved_by field.
 	memory.DefaultApprovedBy = memoryDescApprovedBy.Default.(string)
 	// memoryDescCreatedAt is the schema descriptor for created_at field.
-	memoryDescCreatedAt := memoryFields[17].Descriptor()
+	memoryDescCreatedAt := memoryFields[18].Descriptor()
 	// memory.DefaultCreatedAt holds the default value on creation for the created_at field.
 	memory.DefaultCreatedAt = memoryDescCreatedAt.Default.(func() time.Time)
 	// memoryDescUpdatedAt is the schema descriptor for updated_at field.
-	memoryDescUpdatedAt := memoryFields[18].Descriptor()
+	memoryDescUpdatedAt := memoryFields[19].Descriptor()
 	// memory.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	memory.DefaultUpdatedAt = memoryDescUpdatedAt.Default.(func() time.Time)
+	memoryconsenteventFields := nagi.MemoryConsentEvent{}.Fields()
+	_ = memoryconsenteventFields
+	// memoryconsenteventDescCreatedAt is the schema descriptor for created_at field.
+	memoryconsenteventDescCreatedAt := memoryconsenteventFields[6].Descriptor()
+	// memoryconsentevent.DefaultCreatedAt holds the default value on creation for the created_at field.
+	memoryconsentevent.DefaultCreatedAt = memoryconsenteventDescCreatedAt.Default.(func() time.Time)
+	memoryconsentgrantFields := nagi.MemoryConsentGrant{}.Fields()
+	_ = memoryconsentgrantFields
+	// memoryconsentgrantDescStateVersion is the schema descriptor for state_version field.
+	memoryconsentgrantDescStateVersion := memoryconsentgrantFields[9].Descriptor()
+	// memoryconsentgrant.DefaultStateVersion holds the default value on creation for the state_version field.
+	memoryconsentgrant.DefaultStateVersion = memoryconsentgrantDescStateVersion.Default.(int64)
+	// memoryconsentgrantDescRevocationSource is the schema descriptor for revocation_source field.
+	memoryconsentgrantDescRevocationSource := memoryconsentgrantFields[11].Descriptor()
+	// memoryconsentgrant.DefaultRevocationSource holds the default value on creation for the revocation_source field.
+	memoryconsentgrant.DefaultRevocationSource = memoryconsentgrantDescRevocationSource.Default.(string)
+	memoryconsentproposalFields := nagi.MemoryConsentProposal{}.Fields()
+	_ = memoryconsentproposalFields
+	// memoryconsentproposalDescStatus is the schema descriptor for status field.
+	memoryconsentproposalDescStatus := memoryconsentproposalFields[11].Descriptor()
+	// memoryconsentproposal.DefaultStatus holds the default value on creation for the status field.
+	memoryconsentproposal.DefaultStatus = memoryconsentproposalDescStatus.Default.(string)
+	// memoryconsentproposalDescStateVersion is the schema descriptor for state_version field.
+	memoryconsentproposalDescStateVersion := memoryconsentproposalFields[12].Descriptor()
+	// memoryconsentproposal.DefaultStateVersion holds the default value on creation for the state_version field.
+	memoryconsentproposal.DefaultStateVersion = memoryconsentproposalDescStateVersion.Default.(int64)
+	// memoryconsentproposalDescCreatedAt is the schema descriptor for created_at field.
+	memoryconsentproposalDescCreatedAt := memoryconsentproposalFields[13].Descriptor()
+	// memoryconsentproposal.DefaultCreatedAt holds the default value on creation for the created_at field.
+	memoryconsentproposal.DefaultCreatedAt = memoryconsentproposalDescCreatedAt.Default.(func() time.Time)
 	memoryextractioncursorFields := nagi.MemoryExtractionCursor{}.Fields()
 	_ = memoryextractioncursorFields
 	// memoryextractioncursorDescLastMessageID is the schema descriptor for last_message_id field.
@@ -623,54 +660,66 @@ func init() {
 	memoryreplacement.DefaultCreatedAt = memoryreplacementDescCreatedAt.Default.(func() time.Time)
 	messageFields := nagi.Message{}.Fields()
 	_ = messageFields
+	// messageDescControlKind is the schema descriptor for control_kind field.
+	messageDescControlKind := messageFields[3].Descriptor()
+	// message.DefaultControlKind holds the default value on creation for the control_kind field.
+	message.DefaultControlKind = messageDescControlKind.Default.(string)
 	// messageDescTextContent is the schema descriptor for text_content field.
-	messageDescTextContent := messageFields[6].Descriptor()
+	messageDescTextContent := messageFields[7].Descriptor()
 	// message.DefaultTextContent holds the default value on creation for the text_content field.
 	message.DefaultTextContent = messageDescTextContent.Default.(string)
 	// messageDescSegments is the schema descriptor for segments field.
-	messageDescSegments := messageFields[7].Descriptor()
+	messageDescSegments := messageFields[8].Descriptor()
 	// message.DefaultSegments holds the default value on creation for the segments field.
 	message.DefaultSegments = messageDescSegments.Default.(jsontext.Value)
 	// messageDescCreatedAt is the schema descriptor for created_at field.
-	messageDescCreatedAt := messageFields[10].Descriptor()
+	messageDescCreatedAt := messageFields[11].Descriptor()
 	// message.DefaultCreatedAt holds the default value on creation for the created_at field.
 	message.DefaultCreatedAt = messageDescCreatedAt.Default.(func() time.Time)
 	messagejobFields := nagi.MessageJob{}.Fields()
 	_ = messagejobFields
+	// messagejobDescIncomingDirection is the schema descriptor for incoming_direction field.
+	messagejobDescIncomingDirection := messagejobFields[2].Descriptor()
+	// messagejob.DefaultIncomingDirection holds the default value on creation for the incoming_direction field.
+	messagejob.DefaultIncomingDirection = messagejobDescIncomingDirection.Default.(string)
+	// messagejobDescSourceKind is the schema descriptor for source_kind field.
+	messagejobDescSourceKind := messagejobFields[3].Descriptor()
+	// messagejob.DefaultSourceKind holds the default value on creation for the source_kind field.
+	messagejob.DefaultSourceKind = messagejobDescSourceKind.Default.(string)
 	// messagejobDescStatus is the schema descriptor for status field.
-	messagejobDescStatus := messagejobFields[2].Descriptor()
+	messagejobDescStatus := messagejobFields[5].Descriptor()
 	// messagejob.DefaultStatus holds the default value on creation for the status field.
 	messagejob.DefaultStatus = messagejobDescStatus.Default.(string)
 	// messagejobDescAttempts is the schema descriptor for attempts field.
-	messagejobDescAttempts := messagejobFields[3].Descriptor()
+	messagejobDescAttempts := messagejobFields[6].Descriptor()
 	// messagejob.DefaultAttempts holds the default value on creation for the attempts field.
 	messagejob.DefaultAttempts = messagejobDescAttempts.Default.(int)
 	// messagejobDescNextRunAt is the schema descriptor for next_run_at field.
-	messagejobDescNextRunAt := messagejobFields[4].Descriptor()
+	messagejobDescNextRunAt := messagejobFields[7].Descriptor()
 	// messagejob.DefaultNextRunAt holds the default value on creation for the next_run_at field.
 	messagejob.DefaultNextRunAt = messagejobDescNextRunAt.Default.(func() time.Time)
 	// messagejobDescUpdatedAt is the schema descriptor for updated_at field.
-	messagejobDescUpdatedAt := messagejobFields[5].Descriptor()
+	messagejobDescUpdatedAt := messagejobFields[8].Descriptor()
 	// messagejob.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	messagejob.DefaultUpdatedAt = messagejobDescUpdatedAt.Default.(func() time.Time)
 	// messagejobDescTraceparent is the schema descriptor for traceparent field.
-	messagejobDescTraceparent := messagejobFields[7].Descriptor()
+	messagejobDescTraceparent := messagejobFields[10].Descriptor()
 	// messagejob.DefaultTraceparent holds the default value on creation for the traceparent field.
 	messagejob.DefaultTraceparent = messagejobDescTraceparent.Default.(string)
 	// messagejobDescTracestate is the schema descriptor for tracestate field.
-	messagejobDescTracestate := messagejobFields[8].Descriptor()
+	messagejobDescTracestate := messagejobFields[11].Descriptor()
 	// messagejob.DefaultTracestate holds the default value on creation for the tracestate field.
 	messagejob.DefaultTracestate = messagejobDescTracestate.Default.(string)
 	// messagejobDescDeliveryOutcome is the schema descriptor for delivery_outcome field.
-	messagejobDescDeliveryOutcome := messagejobFields[9].Descriptor()
+	messagejobDescDeliveryOutcome := messagejobFields[12].Descriptor()
 	// messagejob.DefaultDeliveryOutcome holds the default value on creation for the delivery_outcome field.
 	messagejob.DefaultDeliveryOutcome = messagejobDescDeliveryOutcome.Default.(string)
 	// messagejobDescDeliveryReason is the schema descriptor for delivery_reason field.
-	messagejobDescDeliveryReason := messagejobFields[10].Descriptor()
+	messagejobDescDeliveryReason := messagejobFields[13].Descriptor()
 	// messagejob.DefaultDeliveryReason holds the default value on creation for the delivery_reason field.
 	messagejob.DefaultDeliveryReason = messagejobDescDeliveryReason.Default.(string)
 	// messagejobDescDeniedCount is the schema descriptor for denied_count field.
-	messagejobDescDeniedCount := messagejobFields[11].Descriptor()
+	messagejobDescDeniedCount := messagejobFields[14].Descriptor()
 	// messagejob.DefaultDeniedCount holds the default value on creation for the denied_count field.
 	messagejob.DefaultDeniedCount = messagejobDescDeniedCount.Default.(int)
 	qqgroupFields := nagi.QQGroup{}.Fields()

@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	"strings"
 
 	"github.com/google/uuid"
@@ -137,6 +138,9 @@ func (p memoryProvider) detail(ctx context.Context, argumentsInJSON string) (str
 	if err != nil {
 		return "", fmt.Errorf("memory tool: marshal detail: %w", err)
 	}
+	if item.ConsentIdentity != "" {
+		observability.SuppressContent(ctx)
+	}
 	p.track(ctx, scope, item, contracts.MemoryDetailToolID)
 	return string(payload), nil
 }
@@ -203,10 +207,14 @@ func (p memoryProvider) lookup(ctx context.Context, scope pluginsapp.Scope, argu
 }
 
 func (p memoryProvider) track(ctx context.Context, scope pluginsapp.Scope, item memorycontracts.Memory, toolID string) {
-	memorycontracts.TrackRead(ctx, p.memories, memorycontracts.DetailRequest{
+	track := memorycontracts.TrackVersionedRead
+	if toolID == contracts.MemorySourceToolID {
+		track = memorycontracts.TrackHistorySourceRead
+	}
+	track(ctx, p.memories, memorycontracts.DetailRequest{
 		BotID: scope.BotID, Kind: scope.Kind, TargetID: scope.TargetID, ConversationID: scope.ConversationID,
 		SenderID: scope.SenderID, MemoryID: item.ID,
-	}, item.UpdatedAt, func(call context.Context) error {
+	}, item, func(call context.Context) error {
 		if scope.Reauthorize == nil {
 			return memorycontracts.ErrReadChanged
 		}

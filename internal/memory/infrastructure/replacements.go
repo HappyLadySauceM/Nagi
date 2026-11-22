@@ -18,7 +18,7 @@ import (
 const memoryRowColumns = `memory_id::text, bot_id, visibility, owner_key, content,
 	source_message_id, source, source_sender_id, origin, subject_type, subject_id,
 	dedupe_key, review_reason, confidence, status, approved_by, expires_at,
-	created_at, updated_at`
+	created_at, updated_at, authorization_version`
 
 const replacementColumns = `replacement_id::text, bot_id, new_memory_id::text,
 	old_memory_id::text, actor, reason, idempotency_key, created_at`
@@ -64,13 +64,16 @@ func (r *Repo) ApproveMemory(ctx context.Context, memoryID, actor string) error 
 	}
 	result, err := tx.Exec(ctx, `
 		UPDATE memories
-		SET status='active', approved_by=$1, updated_at=clock_timestamp()
+		SET status='active', approved_by=$1, updated_at=clock_timestamp(),authorization_version=authorization_version+1
 		WHERE memory_id=$2::uuid AND status='candidate'`, actor, memoryID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() != 1 {
 		return memoryapp.ErrMemoryStatusConflict
+	}
+	if err := invalidateStaleConsent(ctx, tx, memoryID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -129,7 +132,7 @@ func (r *Repo) ApproveMemoryWithEdit(ctx context.Context, memoryID, actor, conte
 			content=$1, visibility=$2, owner_key=$3, status='active', approved_by=$4,
 			origin=$5, review_reason=$6, source_sender_id=$7,
 			subject_type=$8, subject_id=$9, dedupe_key=$10,
-			expires_at=$11, updated_at=clock_timestamp()
+			expires_at=$11, updated_at=clock_timestamp(),authorization_version=authorization_version+1
 		WHERE memory_id=$12::uuid AND status='candidate'`,
 		memory.Content, string(memory.Visibility), memory.OwnerKey, actor,
 		string(memory.Origin), memory.ReviewReason, memoryNullableInt64(memory.SourceSenderID),
@@ -140,6 +143,9 @@ func (r *Repo) ApproveMemoryWithEdit(ctx context.Context, memoryID, actor, conte
 	}
 	if result.RowsAffected() != 1 {
 		return memoryapp.ErrMemoryStatusConflict
+	}
+	if err := invalidateStaleConsent(ctx, tx, memoryID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -161,7 +167,7 @@ func (r *Repo) UpdateMemoryLocked(ctx context.Context, memory domain.Memory) err
 	}
 	var status string
 	var visibility domain.Visibility
-	err = tx.QueryRow(ctx, `SELECT status, visibility FROM memories WHERE memory_id=$1::uuid FOR UPDATE`, memory.ID).Scan(&status, &visibility)
+	err = tx.QueryRow(ctx, `SELECT status, visibility FROM memories WHERE memory_id=$1::uuid AND bot_id=$2 FOR UPDATE`, memory.ID, memory.BotID).Scan(&status, &visibility)
 	if errors.Is(err, sql.ErrNoRows) {
 		return memoryapp.ErrMemoryNotFound
 	}
@@ -179,7 +185,8 @@ func (r *Repo) UpdateMemoryLocked(ctx context.Context, memory domain.Memory) err
 			content=$1, visibility=$2, owner_key=$3,
 			origin=$4, review_reason=$5, source_sender_id=$6,
 			subject_type=$7, subject_id=$8, dedupe_key=$9,
-			expires_at=$10, updated_at=clock_timestamp()
+			expires_at=$10, updated_at=clock_timestamp(),
+ authorization_version=authorization_version+CASE WHEN (content,visibility,owner_key,origin,source_sender_id,subject_type,subject_id,expires_at) IS DISTINCT FROM ($1::text,$2::text,$3::text,$4::text,$6::bigint,$7::text,$8::text,$10::timestamptz) THEN 1 ELSE 0 END
 		WHERE memory_id=$11::uuid`,
 		memory.Content, string(memory.Visibility), memory.OwnerKey,
 		string(memory.Origin), memory.ReviewReason, memoryNullableInt64(memory.SourceSenderID),
@@ -190,6 +197,9 @@ func (r *Repo) UpdateMemoryLocked(ctx context.Context, memory domain.Memory) err
 	}
 	if result.RowsAffected() != 1 {
 		return memoryapp.ErrMemoryNotFound
+	}
+	if err := invalidateStaleConsent(ctx, tx, memory.ID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -226,6 +236,9 @@ func (r *Repo) DeleteMemory(ctx context.Context, memoryID string) (bool, error) 
 	}
 	if result.RowsAffected() != 1 {
 		return false, nil
+	}
+	if err := invalidateStaleConsent(ctx, tx, memoryID); err != nil {
+		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
@@ -493,7 +506,7 @@ func lockMemoryRows(ctx context.Context, tx *db.Tx, ids ...string) (map[string]d
 func updateMemoryStatus(ctx context.Context, tx *db.Tx, id, from, to, actor string) error {
 	result, err := tx.Exec(ctx, `
 		UPDATE memories SET status=$1, approved_by=CASE WHEN $2 <> '' THEN $2 ELSE approved_by END,
-			updated_at=clock_timestamp()
+			updated_at=clock_timestamp(),authorization_version=authorization_version+1
 		WHERE memory_id=$3::uuid AND status=$4`, to, actor, id, from)
 	if err != nil {
 		return err
@@ -501,7 +514,7 @@ func updateMemoryStatus(ctx context.Context, tx *db.Tx, id, from, to, actor stri
 	if result.RowsAffected() != 1 {
 		return memoryapp.ErrMemoryStatusConflict
 	}
-	return nil
+	return invalidateStaleConsent(ctx, tx, id)
 }
 
 func findReplacementByPair(ctx context.Context, q rowQuerier, newID, oldID string) (domain.Replacement, bool, error) {
@@ -592,7 +605,7 @@ func scanMemoryRow(row rowScanner) (domain.Memory, error) {
 	err := row.Scan(&memory.ID, &memory.BotID, &visibility, &memory.OwnerKey, &memory.Content,
 		&sourceMessageID, &memory.Source, &sourceSenderID, &origin, &subjectType, &subjectID,
 		&dedupeKey, &memory.ReviewReason, &confidence, &status, &memory.ApprovedBy, &expiresAt,
-		&memory.CreatedAt, &memory.UpdatedAt)
+		&memory.CreatedAt, &memory.UpdatedAt, &memory.AuthorizationVersion)
 	if err != nil {
 		return domain.Memory{}, err
 	}

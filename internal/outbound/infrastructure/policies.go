@@ -4,15 +4,22 @@ package infrastructure
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	sp "github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 
-	"fmt"
-
+	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
+
+// DefaultMessageIntervalMS is the fallback when a scope has no sending policy.
+// DefaultMessageIntervalMS 是会话没有发送策略时的缺省间隔。
+const DefaultMessageIntervalMS = 700
 
 // Policy is one scope's sending configuration. Whether autonomous sending is
 // allowed is no longer stored here: it follows the scope's capability grant.
@@ -65,4 +72,27 @@ func (r *PoliciesRepo) Get(ctx context.Context, botID int64, scopeType string, s
 		return Policy{}, false, err
 	}
 	return Policy{BotID: v.BotID, ScopeType: v.ScopeType, ScopeID: v.ScopeID, MinIntervalMS: v.MessageIntervalMs, MaxMessagesPerRun: v.MaxMessagesPerRun, MaxCharsPerMessage: v.MaxCharsPerMessage, MaxTotalCharsPerRun: v.MaxTotalCharsPerRun}, true, nil
+}
+
+func lockCurrentLimits(ctx context.Context, tx *db.Tx, bot int64, kind string, target int64, limits domain.Limits) (domain.Limits, error) {
+	if err := scopeinfra.LockMemoryAuthorization(ctx, tx, bot, kind, target); err != nil {
+		return domain.Limits{}, err
+	}
+	err := tx.QueryRow(ctx, `SELECT max_messages_per_run,max_chars_per_message,max_total_chars_per_run,max_replies_per_hour,message_interval_ms
+ FROM scope_policies WHERE bot_id=$1 AND scope_type=$2 AND scope_id IN ($3,0) ORDER BY scope_id DESC LIMIT 1 FOR SHARE`, bot, kind, target).
+		Scan(&limits.MaxMessages, &limits.MaxCharsPerMessage, &limits.MaxTotalChars, &limits.MaxPerHour, &limits.MinIntervalMS)
+	if !errors.Is(err, sql.ErrNoRows) {
+		return limits, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended('settings:bootstrap',0))`); err != nil {
+		return domain.Limits{}, err
+	}
+	err = tx.QueryRow(ctx, `SELECT COALESCE((payload #>> '{Agent,Sending,MaxMessagesPerRun}')::integer,0),
+ COALESCE((payload #>> '{Agent,Sending,MaxCharsPerMessage}')::integer,0),
+ COALESCE((payload #>> '{Agent,Sending,MaxTotalCharsPerRun}')::integer,0)
+ FROM system_settings WHERE id=1 FOR SHARE`).Scan(&limits.MaxMessages, &limits.MaxCharsPerMessage, &limits.MaxTotalChars)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	}
+	return limits, err
 }

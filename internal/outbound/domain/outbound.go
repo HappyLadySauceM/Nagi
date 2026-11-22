@@ -9,6 +9,8 @@ import (
 	"unicode/utf8"
 )
 
+var ErrConsentSendDenied = errors.New("outbound: consent dispatch denied")
+
 // Status is the delivery state of one outbound message.
 // Status 是一条出站消息的投递状态。
 type Status string
@@ -196,6 +198,14 @@ var ErrRecordNotFound = errors.New("outbound: record not found")
 // ErrInvalidSettlement reports a settle target outside sent/failed/unknown.
 // ErrInvalidSettlement 表示落定目标不在 sent/failed/unknown 之内。
 var ErrInvalidSettlement = errors.New("outbound: invalid settlement status")
+
+// IntervalWait reports how long a prepared slot must wait before retrying.
+// IntervalWait 表示已预留投递再次过闸前需要等待的时长。
+type IntervalWait struct {
+	Remaining time.Duration
+}
+
+func (e *IntervalWait) Error() string { return "outbound: current message interval has not elapsed" }
 
 // TransitionError reports a status change the state machine rejects.
 // TransitionError 表示状态机拒绝的状态迁移。

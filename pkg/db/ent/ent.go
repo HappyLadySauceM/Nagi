@@ -33,6 +33,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
@@ -123,6 +126,9 @@ func checkColumn(t, c string) error {
 			intentruleentry.Table:               intentruleentry.ValidColumn,
 			intentruleset.Table:                 intentruleset.ValidColumn,
 			memory.Table:                        memory.ValidColumn,
+			memoryconsentevent.Table:            memoryconsentevent.ValidColumn,
+			memoryconsentgrant.Table:            memoryconsentgrant.ValidColumn,
+			memoryconsentproposal.Table:         memoryconsentproposal.ValidColumn,
 			memoryextractioncursor.Table:        memoryextractioncursor.ValidColumn,
 			memoryextractionjob.Table:           memoryextractionjob.ValidColumn,
 			memoryreplacement.Table:             memoryreplacement.ValidColumn,

@@ -2,11 +2,13 @@ package replytool
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	mc "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	oa "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	od "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
@@ -37,6 +39,10 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 	if !ok {
 		return pc.SendReceipt{}, fmt.Errorf("public send: missing scope")
 	}
+	slot, err := explicitSlot(ctx, scope)
+	if err != nil {
+		return pc.SendReceipt{}, err
+	}
 	// Policy stops on a public send must not block the job: the source
 	// conversation may still receive its own reply. They are attributed without
 	// setting a blocking delivery outcome.
@@ -53,6 +59,23 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 		defer cancel()
 		_ = recorder.RecordRefusal(cleanup, scope.JobID, reason, scope.ClaimToken)
 	}
+	if mc.CrossGroupReadUsed(ctx) {
+		if c.UserID != 0 || c.GroupID <= 0 || (c.Name != ob.ActionSendGroup && c.Name != ob.ActionSendMessage) || (c.Name == ob.ActionSendMessage && c.MessageType != ob.TypeGroup) || (c.Text != nil && len(c.Segments) != 0) {
+			return pc.SendReceipt{}, pa.Denied("跨群授权事实仅可用于无歧义的当前群文字回复")
+		}
+		if c.Text != nil {
+			c.Segments = []ob.Segment{ob.Text(*c.Text)}
+			c.Text = nil
+		}
+		c.Segments = ob.CloneSegments(c.Segments)
+		for _, segment := range c.Segments {
+			switch segment.Type {
+			case ob.SegText, ob.SegAt, ob.SegReply:
+			default:
+				return pc.SendReceipt{}, pa.Denied("跨群授权事实仅允许文字回复")
+			}
+		}
+	}
 	cost, err := pa.CheckMessageContent(ctx, c)
 	if err != nil {
 		return pc.SendReceipt{}, err
@@ -63,6 +86,13 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 	}
 	kind, target := TargetOf(c)
 	authorize := func() (od.Limits, error) {
+		if err := mc.ValidateCrossGroupOutput(ctx); err != nil {
+			return od.Limits{}, err
+		}
+		if (kind != scope.Kind || target != scope.TargetID) && mc.CrossGroupReadUsed(ctx) {
+			return od.Limits{}, pa.Denied("跨群授权事实仅可用于回复当前会话")
+		}
+
 		if err := pa.RequirePermission(ctx, Permission); err != nil {
 			return od.Limits{}, err
 		}
@@ -107,7 +137,7 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 	if err != nil || len(payload) > 65536 {
 		return pc.SendReceipt{}, fmt.Errorf("public send: payload too large")
 	}
-	record, err := opts.Ledger.Reserve(ctx, oa.Request{ClaimToken: scope.ClaimToken, JobID: scope.JobID, BotID: scope.BotID, ConversationID: scope.ConversationID, RunID: fmt.Sprintf("job-%d", scope.JobID), ToolCallID: pa.ToolCallID(ctx), Text: ob.PlainText(segments), TargetKind: kind, TargetID: target, Action: string(c.Name), Payload: string(payload), ChargeChars: cost, Limits: limits})
+	record, err := opts.Ledger.Reserve(ctx, oa.Request{ClaimToken: scope.ClaimToken, JobID: scope.JobID, BotID: scope.BotID, ConversationID: scope.ConversationID, RunID: fmt.Sprintf("job-%d", scope.JobID), ToolCallID: slot, Text: ob.PlainText(segments), TargetKind: kind, TargetID: target, Action: string(c.Name), Payload: string(payload), ChargeChars: cost, Limits: limits})
 	if err != nil {
 		var budget *od.BudgetError
 		if errors.As(err, &budget) {
@@ -118,6 +148,12 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 		}
 		return pc.SendReceipt{}, err
 	}
+	if record.Status.Delivered() {
+		return pc.SendReceipt{Data: map[string]any{"message_id": record.PlatformMessageID}, MessageID: record.PlatformMessageID, Async: record.Status != od.StatusSent, Sequence: record.Sequence, Status: string(record.Status)}, nil
+	}
+	if record.Status != od.StatusPrepared {
+		return pc.SendReceipt{}, fmt.Errorf("public send: already attempted")
+	}
 	defer func() {
 		if ledger, ok := opts.Ledger.(interface {
 			Cancel(context.Context, string, ...string) error
@@ -127,12 +163,6 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 			_ = ledger.Cancel(cleanup, record.ID, record.ClaimToken)
 		}
 	}()
-	if record.Status.Delivered() {
-		return pc.SendReceipt{Data: map[string]any{"message_id": record.PlatformMessageID}, MessageID: record.PlatformMessageID, Async: record.Status != od.StatusSent, Sequence: record.Sequence, Status: string(record.Status)}, nil
-	}
-	if record.Status != od.StatusPrepared {
-		return pc.SendReceipt{}, fmt.Errorf("public send: already attempted")
-	}
 	if !record.NotBefore.IsZero() {
 		timer := time.NewTimer(time.Until(record.NotBefore))
 		defer timer.Stop()
@@ -142,21 +172,27 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 			return pc.SendReceipt{}, ctx.Err()
 		}
 	}
-	limits, err = authorize()
-	if err != nil {
-		deny("authorization_revoked")
+	recheck := func() error {
+		limits, err := authorize()
+		if err != nil {
+			deny("authorization_revoked")
+			return err
+		}
+		if validator, ok := opts.Ledger.(interface {
+			ValidateReserved(context.Context, string, od.Limits) error
+		}); ok {
+			if err := validator.ValidateReserved(ctx, record.ID, limits); err != nil {
+				deny("budget_changed")
+				return err
+			}
+		}
+		return nil
+	}
+	if err := recheck(); err != nil {
 		return pc.SendReceipt{}, err
 	}
-	if validator, ok := opts.Ledger.(interface {
-		ValidateReserved(context.Context, string, od.Limits) error
-	}); ok {
-		if err := validator.ValidateReserved(ctx, record.ID, limits); err != nil {
-			deny("budget_changed")
-			return pc.SendReceipt{}, err
-		}
-	}
 	var result ob.PublicResult
-	outcome, err := oa.Deliver(ctx, opts.Ledger, record.ID, func(ctx context.Context) (int64, error) {
+	outcome, err := oa.DeliverWithRecheck(ctx, opts.Ledger, record.ID, recheck, func(ctx context.Context) (int64, error) {
 		var e error
 		result, e = send(ctx, c)
 		if e == nil && result.Async {
@@ -164,6 +200,9 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 		}
 		return result.MessageID, e
 	}, record.ClaimToken)
+	if errors.Is(err, od.ErrBudgetExceeded) {
+		deny("budget_changed")
+	}
 	if outcome.Status == od.StatusUnknown {
 		result.Async = true
 		// Keep the platform response; only fill a placeholder when the action
@@ -175,4 +214,14 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 		return pc.SendReceipt{Data: result.Data, MessageID: result.MessageID, Async: result.Async, Sequence: record.Sequence, Status: string(outcome.Status)}, nil
 	}
 	return pc.SendReceipt{Data: result.Data, MessageID: result.MessageID, Async: result.Async, Sequence: record.Sequence, Status: string(outcome.Status)}, err
+}
+
+// explicitSlot binds a framework call to its live execution. An independently generated call in a new claim cannot prove continuity.
+// explicitSlot 将框架调用绑定到当前领取。新领取独立生成的调用无法证明是原调用。
+func explicitSlot(ctx context.Context, scope pa.Scope) (string, error) {
+	id := pa.ToolCallID(ctx)
+	if id == "" || scope.ClaimToken == "" {
+		return "", pa.Denied("无法核验本次发送的工具调用")
+	}
+	return fmt.Sprintf("explicit:v1:%x", sha256.Sum256([]byte(scope.ClaimToken+"\x00"+id))), nil
 }

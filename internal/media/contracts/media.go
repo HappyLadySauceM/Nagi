@@ -26,6 +26,21 @@ type Part struct {
 type MessageReader interface {
 	Parts(context.Context, int64, string, []ob.Segment, string) ([]Part, error)
 }
+type historyImageCheckKey struct{}
+
+// WithHistoryImageCheck binds the current persisted-source check for historical image operations.
+// WithHistoryImageCheck 为历史图片操作绑定当前持久化来源的核验函数。
+func WithHistoryImageCheck(ctx context.Context, check func(context.Context, int, ob.Segment) bool) context.Context {
+	return context.WithValue(ctx, historyImageCheckKey{}, check)
+}
+
+// HistoryImageCheck returns the caller-supplied check, if these are historical images.
+// HistoryImageCheck 返回历史图片读取方提供的核验函数。
+func HistoryImageCheck(ctx context.Context) func(context.Context, int, ob.Segment) bool {
+	check, _ := ctx.Value(historyImageCheckKey{}).(func(context.Context, int, ob.Segment) bool)
+	return check
+}
+
 type Transcriber interface {
 	Transcribe(context.Context, int64, []ob.Segment, string) (string, error)
 }

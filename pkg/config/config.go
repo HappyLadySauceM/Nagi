@@ -191,7 +191,9 @@ func (e Extraction) Validate() error {
 // Memory is the long-term memory configuration section.
 // Memory 是长期记忆配置分区。
 type Memory struct {
-	Extraction Extraction `yaml:"extraction"`
+	CrossGroupConsentWrite bool       `yaml:"cross-group-consent-write"`
+	CrossGroupConsentRead  bool       `yaml:"cross-group-consent-read"`
+	Extraction             Extraction `yaml:"extraction"`
 }
 
 // AI supplies the initial generation settings; credentials are imported into the model catalogue once.

@@ -58,6 +58,20 @@ func (_c *MemoryCreate) SetContent(v string) *MemoryCreate {
 	return _c
 }
 
+// SetAuthorizationVersion sets the "authorization_version" field.
+func (_c *MemoryCreate) SetAuthorizationVersion(v int64) *MemoryCreate {
+	_c.mutation.SetAuthorizationVersion(v)
+	return _c
+}
+
+// SetNillableAuthorizationVersion sets the "authorization_version" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableAuthorizationVersion(v *int64) *MemoryCreate {
+	if v != nil {
+		_c.SetAuthorizationVersion(*v)
+	}
+	return _c
+}
+
 // SetSourceMessageID sets the "source_message_id" field.
 func (_c *MemoryCreate) SetSourceMessageID(v int64) *MemoryCreate {
 	_c.mutation.SetSourceMessageID(v)
@@ -329,6 +343,10 @@ func (_c *MemoryCreate) defaults() {
 		v := memory.DefaultOwnerKey
 		_c.mutation.SetOwnerKey(v)
 	}
+	if _, ok := _c.mutation.AuthorizationVersion(); !ok {
+		v := memory.DefaultAuthorizationVersion
+		_c.mutation.SetAuthorizationVersion(v)
+	}
 	if _, ok := _c.mutation.Source(); !ok {
 		v := memory.DefaultSource
 		_c.mutation.SetSource(v)
@@ -424,6 +442,10 @@ func (_c *MemoryCreate) createSpec() (*Memory, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Content(); ok {
 		_spec.SetField(memory.FieldContent, field.TypeString, value)
 		_node.Content = value
+	}
+	if value, ok := _c.mutation.AuthorizationVersion(); ok {
+		_spec.SetField(memory.FieldAuthorizationVersion, field.TypeInt64, value)
+		_node.AuthorizationVersion = value
 	}
 	if value, ok := _c.mutation.Source(); ok {
 		_spec.SetField(memory.FieldSource, field.TypeString, value)
@@ -608,6 +630,24 @@ func (u *MemoryUpsert) SetContent(v string) *MemoryUpsert {
 // UpdateContent sets the "content" field to the value that was provided on create.
 func (u *MemoryUpsert) UpdateContent() *MemoryUpsert {
 	u.SetExcluded(memory.FieldContent)
+	return u
+}
+
+// SetAuthorizationVersion sets the "authorization_version" field.
+func (u *MemoryUpsert) SetAuthorizationVersion(v int64) *MemoryUpsert {
+	u.Set(memory.FieldAuthorizationVersion, v)
+	return u
+}
+
+// UpdateAuthorizationVersion sets the "authorization_version" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateAuthorizationVersion() *MemoryUpsert {
+	u.SetExcluded(memory.FieldAuthorizationVersion)
+	return u
+}
+
+// AddAuthorizationVersion adds v to the "authorization_version" field.
+func (u *MemoryUpsert) AddAuthorizationVersion(v int64) *MemoryUpsert {
+	u.Add(memory.FieldAuthorizationVersion, v)
 	return u
 }
 
@@ -928,6 +968,27 @@ func (u *MemoryUpsertOne) SetContent(v string) *MemoryUpsertOne {
 func (u *MemoryUpsertOne) UpdateContent() *MemoryUpsertOne {
 	return u.Update(func(s *MemoryUpsert) {
 		s.UpdateContent()
+	})
+}
+
+// SetAuthorizationVersion sets the "authorization_version" field.
+func (u *MemoryUpsertOne) SetAuthorizationVersion(v int64) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetAuthorizationVersion(v)
+	})
+}
+
+// AddAuthorizationVersion adds v to the "authorization_version" field.
+func (u *MemoryUpsertOne) AddAuthorizationVersion(v int64) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.AddAuthorizationVersion(v)
+	})
+}
+
+// UpdateAuthorizationVersion sets the "authorization_version" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateAuthorizationVersion() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateAuthorizationVersion()
 	})
 }
 
@@ -1451,6 +1512,27 @@ func (u *MemoryUpsertBulk) SetContent(v string) *MemoryUpsertBulk {
 func (u *MemoryUpsertBulk) UpdateContent() *MemoryUpsertBulk {
 	return u.Update(func(s *MemoryUpsert) {
 		s.UpdateContent()
+	})
+}
+
+// SetAuthorizationVersion sets the "authorization_version" field.
+func (u *MemoryUpsertBulk) SetAuthorizationVersion(v int64) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetAuthorizationVersion(v)
+	})
+}
+
+// AddAuthorizationVersion adds v to the "authorization_version" field.
+func (u *MemoryUpsertBulk) AddAuthorizationVersion(v int64) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.AddAuthorizationVersion(v)
+	})
+}
+
+// UpdateAuthorizationVersion sets the "authorization_version" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateAuthorizationVersion() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateAuthorizationVersion()
 	})
 }
 

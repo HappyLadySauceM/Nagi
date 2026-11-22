@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -550,6 +551,150 @@ func TestPreparedCrashRecoveryCanDeliverOneMessage(t *testing.T) {
 			}
 			if err := f.pool.QueryRow(ctx, "SELECT status FROM message_jobs WHERE id=$1", f.jobID).Scan(&state); err != nil || state != "failed" {
 				t.Fatalf("attempted delivery was requeued: %s %v", state, err)
+			}
+		})
+	}
+}
+
+type intervalLedgerFixture struct {
+	*Repo
+	waits chan time.Duration
+}
+
+func (l intervalLedgerFixture) MarkSending(ctx context.Context, id string, claim ...string) error {
+	err := l.Repo.MarkSending(ctx, id, claim...)
+	var wait *domain.IntervalWait
+	if errors.As(err, &wait) {
+		l.waits <- wait.Remaining
+	}
+	return err
+}
+
+func TestDispatchWaitsOnCurrentPolicyAndReusesReservation(t *testing.T) {
+	f := newLedgerFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	var target int64
+	if err := f.pool.QueryRow(ctx, `SELECT target_id FROM conversations WHERE id=$1`, f.conversationID).Scan(&target); err != nil {
+		t.Fatal(err)
+	}
+	f.grantScope(t, "group", target)
+	policy := func(ctx context.Context, interval int) {
+		t.Helper()
+		if _, err := f.pool.Exec(ctx, `UPDATE scope_policies SET message_interval_ms=$3 WHERE bot_id=$1 AND scope_type='group' AND scope_id=$2`, f.botID, target, interval); err != nil {
+			t.Fatal(err)
+		}
+	}
+	policy(ctx, 0)
+	first := f.reserve(t, "先前回执", domain.Limits{})
+	if _, err := application.Deliver(ctx, f.repo, first.ID, func(context.Context) (int64, error) { return 8670, nil }, f.claim); err != nil {
+		t.Fatal(err)
+	}
+	second, err := f.repo.Reserve(ctx, domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, ToolCallID: "fixture-interval", Text: "再次发送"})
+	if err != nil || !second.NotBefore.IsZero() {
+		t.Fatalf("initial policy scheduled a wait: %v %v", second.NotBefore, err)
+	}
+	policy(ctx, 1300)
+	ledger := intervalLedgerFixture{Repo: f.repo, waits: make(chan time.Duration, 4)}
+	done := make(chan error, 1)
+	var sends atomic.Int64
+	var elapsedMS int64
+	go func() {
+		outcome, err := application.Deliver(ctx, ledger, second.ID, func(ctx context.Context) (int64, error) {
+			sends.Add(1)
+			err := f.pool.QueryRow(ctx, `SELECT floor(extract(epoch FROM (sending.updated_at - prior.updated_at))*1000)::bigint FROM agent_outbound_messages sending, agent_outbound_messages prior WHERE sending.id=$1 AND prior.id=$2`, second.ID, first.ID).Scan(&elapsedMS)
+			return 8671, err
+		}, f.claim)
+		if err == nil && (outcome.Status != domain.StatusSent || outcome.PlatformMessageID != 8671) {
+			err = fmt.Errorf("unexpected delivery outcome: %+v", outcome)
+		}
+		done <- err
+	}()
+	waitForGate := func() time.Duration {
+		t.Helper()
+		select {
+		case delay := <-ledger.waits:
+			return delay
+		case err := <-done:
+			t.Fatalf("delivery completed before interval wait: %v", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		return 0
+	}
+	initialWait := waitForGate()
+	lockCtx, stop := context.WithTimeout(ctx, 400*time.Millisecond)
+	defer stop()
+	policy(lockCtx, 2400)
+	var state string
+	if err := f.pool.QueryRow(lockCtx, `SELECT status FROM agent_outbound_messages WHERE id=$1 FOR UPDATE NOWAIT`, second.ID).Scan(&state); err != nil || state != "prepared" || sends.Load() != 0 {
+		t.Fatalf("slot during wait: %s, sends=%d, err=%v", state, sends.Load(), err)
+	}
+	secondWait := waitForGate()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	var slots, messages, chars int
+	if err := f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages WHERE job_id=$1), reserved_messages,reserved_chars FROM agent_run_budgets WHERE job_id=$1`, f.jobID).Scan(&slots, &messages, &chars); err != nil || slots != 2 || messages != 2 || chars != 8 || sends.Load() != 1 || elapsedMS < 2400 {
+		t.Fatalf("slots=%d usage=%d/%d sends=%d elapsed_ms=%d err=%v", slots, messages, chars, sends.Load(), elapsedMS, err)
+	}
+	t.Logf("same slot=%s sequence=%d, two policy waits=%v / %v with policy and slot writable during wait, dispatched at %d ms, mock sends=%d, original usage=%d/%d", second.ID, second.Sequence, initialWait, secondWait, elapsedMS, sends.Load(), messages, chars)
+}
+
+func TestDispatchUsesCurrentBudget(t *testing.T) {
+	for _, recover := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recover=%t", recover), func(t *testing.T) {
+			f := newLedgerFixture(t)
+			ctx := context.Background()
+			var target int64
+			if err := f.pool.QueryRow(ctx, `SELECT target_id FROM conversations WHERE id=$1`, f.conversationID).Scan(&target); err != nil {
+				t.Fatal(err)
+			}
+			f.grantScope(t, "group", target)
+			in := domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, ToolCallID: "final", Text: "ordinary", Limits: domain.Limits{MaxCharsPerMessage: 100}}
+			record, err := f.repo.Reserve(ctx, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if recover {
+				if _, err := f.pool.Exec(ctx, `UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, f.jobID); err != nil {
+					t.Fatal(err)
+				}
+				conv, err := conversationinfra.NewRepo(f.pool)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := conv.RecoverStaleJobs(ctx); err != nil {
+					t.Fatal(err)
+				}
+				in.ClaimToken = dbtest.Claim(t, f.pool, f.jobID)
+			}
+			if _, err := f.pool.Exec(ctx, `UPDATE scope_policies SET max_chars_per_message=4 WHERE bot_id=$1 AND scope_type='group' AND scope_id=$2`, f.botID, target); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			send := func(context.Context) (int64, error) { calls++; return 5252, nil }
+			if recover {
+				_, err = f.repo.Reserve(ctx, in)
+			} else {
+				_, err = application.Deliver(ctx, f.repo, record.ID, send, f.claim)
+			}
+			if got := budgetErrorDimension(t, err); got != domain.DimensionMessageChars || calls != 0 {
+				t.Fatalf("stale quota accepted: %v calls=%d", got, calls)
+			}
+			if !recover {
+				if err := f.repo.Cancel(ctx, record.ID, f.claim); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var slots, messages, chars int
+			if err := f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages WHERE job_id=$1 AND status='cancelled'), reserved_messages,reserved_chars FROM agent_run_budgets WHERE job_id=$1`, f.jobID).Scan(&slots, &messages, &chars); err != nil || slots != 1 || messages != 0 || chars != 0 {
+				t.Fatalf("slot/usage %d/%d/%d: %v", slots, messages, chars, err)
 			}
 		})
 	}

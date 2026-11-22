@@ -65,6 +65,20 @@ func (_u *MessageUpdate) SetNillableBotID(v *int64) *MessageUpdate {
 	return _u
 }
 
+// SetControlKind sets the "control_kind" field.
+func (_u *MessageUpdate) SetControlKind(v string) *MessageUpdate {
+	_u.mutation.SetControlKind(v)
+	return _u
+}
+
+// SetNillableControlKind sets the "control_kind" field if the given value is not nil.
+func (_u *MessageUpdate) SetNillableControlKind(v *string) *MessageUpdate {
+	if v != nil {
+		_u.SetControlKind(*v)
+	}
+	return _u
+}
+
 // SetDirection sets the "direction" field.
 func (_u *MessageUpdate) SetDirection(v string) *MessageUpdate {
 	_u.mutation.SetDirection(v)
@@ -474,6 +488,9 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			}
 		}
 	}
+	if value, ok := _u.mutation.ControlKind(); ok {
+		_spec.SetField(message.FieldControlKind, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.Direction(); ok {
 		_spec.SetField(message.FieldDirection, field.TypeString, value)
 	}
@@ -798,6 +815,20 @@ func (_u *MessageUpdateOne) SetBotID(v int64) *MessageUpdateOne {
 func (_u *MessageUpdateOne) SetNillableBotID(v *int64) *MessageUpdateOne {
 	if v != nil {
 		_u.SetBotID(*v)
+	}
+	return _u
+}
+
+// SetControlKind sets the "control_kind" field.
+func (_u *MessageUpdateOne) SetControlKind(v string) *MessageUpdateOne {
+	_u.mutation.SetControlKind(v)
+	return _u
+}
+
+// SetNillableControlKind sets the "control_kind" field if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillableControlKind(v *string) *MessageUpdateOne {
+	if v != nil {
+		_u.SetControlKind(*v)
 	}
 	return _u
 }
@@ -1240,6 +1271,9 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.ControlKind(); ok {
+		_spec.SetField(message.FieldControlKind, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Direction(); ok {
 		_spec.SetField(message.FieldDirection, field.TypeString, value)

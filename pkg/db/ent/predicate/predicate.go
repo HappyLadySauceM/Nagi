@@ -69,6 +69,15 @@ type IntentRuleset func(*sql.Selector)
 // Memory is the predicate function for memory builders.
 type Memory func(*sql.Selector)
 
+// MemoryConsentEvent is the predicate function for memoryconsentevent builders.
+type MemoryConsentEvent func(*sql.Selector)
+
+// MemoryConsentGrant is the predicate function for memoryconsentgrant builders.
+type MemoryConsentGrant func(*sql.Selector)
+
+// MemoryConsentProposal is the predicate function for memoryconsentproposal builders.
+type MemoryConsentProposal func(*sql.Selector)
+
 // MemoryExtractionCursor is the predicate function for memoryextractioncursor builders.
 type MemoryExtractionCursor func(*sql.Selector)
 

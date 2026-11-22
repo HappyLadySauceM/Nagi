@@ -61,6 +61,21 @@ func IncomingMessageID(v int64) predicate.MessageJob {
 	return predicate.MessageJob(sql.FieldEQ(FieldIncomingMessageID, v))
 }
 
+// IncomingDirection applies equality check predicate on the "incoming_direction" field. It's identical to IncomingDirectionEQ.
+func IncomingDirection(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldIncomingDirection, v))
+}
+
+// SourceKind applies equality check predicate on the "source_kind" field. It's identical to SourceKindEQ.
+func SourceKind(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldSourceKind, v))
+}
+
+// ConsentProposalID applies equality check predicate on the "consent_proposal_id" field. It's identical to ConsentProposalIDEQ.
+func ConsentProposalID(v uuid.UUID) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldConsentProposalID, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.MessageJob {
 	return predicate.MessageJob(sql.FieldEQ(FieldStatus, v))
@@ -139,6 +154,176 @@ func IncomingMessageIDIn(vs ...int64) predicate.MessageJob {
 // IncomingMessageIDNotIn applies the NotIn predicate on the "incoming_message_id" field.
 func IncomingMessageIDNotIn(vs ...int64) predicate.MessageJob {
 	return predicate.MessageJob(sql.FieldNotIn(FieldIncomingMessageID, vs...))
+}
+
+// IncomingMessageIDIsNil applies the IsNil predicate on the "incoming_message_id" field.
+func IncomingMessageIDIsNil() predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldIsNull(FieldIncomingMessageID))
+}
+
+// IncomingMessageIDNotNil applies the NotNil predicate on the "incoming_message_id" field.
+func IncomingMessageIDNotNil() predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNotNull(FieldIncomingMessageID))
+}
+
+// IncomingDirectionEQ applies the EQ predicate on the "incoming_direction" field.
+func IncomingDirectionEQ(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionNEQ applies the NEQ predicate on the "incoming_direction" field.
+func IncomingDirectionNEQ(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNEQ(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionIn applies the In predicate on the "incoming_direction" field.
+func IncomingDirectionIn(vs ...string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldIn(FieldIncomingDirection, vs...))
+}
+
+// IncomingDirectionNotIn applies the NotIn predicate on the "incoming_direction" field.
+func IncomingDirectionNotIn(vs ...string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNotIn(FieldIncomingDirection, vs...))
+}
+
+// IncomingDirectionGT applies the GT predicate on the "incoming_direction" field.
+func IncomingDirectionGT(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldGT(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionGTE applies the GTE predicate on the "incoming_direction" field.
+func IncomingDirectionGTE(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldGTE(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionLT applies the LT predicate on the "incoming_direction" field.
+func IncomingDirectionLT(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldLT(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionLTE applies the LTE predicate on the "incoming_direction" field.
+func IncomingDirectionLTE(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldLTE(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionContains applies the Contains predicate on the "incoming_direction" field.
+func IncomingDirectionContains(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldContains(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionHasPrefix applies the HasPrefix predicate on the "incoming_direction" field.
+func IncomingDirectionHasPrefix(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldHasPrefix(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionHasSuffix applies the HasSuffix predicate on the "incoming_direction" field.
+func IncomingDirectionHasSuffix(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldHasSuffix(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionEqualFold applies the EqualFold predicate on the "incoming_direction" field.
+func IncomingDirectionEqualFold(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEqualFold(FieldIncomingDirection, v))
+}
+
+// IncomingDirectionContainsFold applies the ContainsFold predicate on the "incoming_direction" field.
+func IncomingDirectionContainsFold(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldContainsFold(FieldIncomingDirection, v))
+}
+
+// SourceKindEQ applies the EQ predicate on the "source_kind" field.
+func SourceKindEQ(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldSourceKind, v))
+}
+
+// SourceKindNEQ applies the NEQ predicate on the "source_kind" field.
+func SourceKindNEQ(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNEQ(FieldSourceKind, v))
+}
+
+// SourceKindIn applies the In predicate on the "source_kind" field.
+func SourceKindIn(vs ...string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldIn(FieldSourceKind, vs...))
+}
+
+// SourceKindNotIn applies the NotIn predicate on the "source_kind" field.
+func SourceKindNotIn(vs ...string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNotIn(FieldSourceKind, vs...))
+}
+
+// SourceKindGT applies the GT predicate on the "source_kind" field.
+func SourceKindGT(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldGT(FieldSourceKind, v))
+}
+
+// SourceKindGTE applies the GTE predicate on the "source_kind" field.
+func SourceKindGTE(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldGTE(FieldSourceKind, v))
+}
+
+// SourceKindLT applies the LT predicate on the "source_kind" field.
+func SourceKindLT(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldLT(FieldSourceKind, v))
+}
+
+// SourceKindLTE applies the LTE predicate on the "source_kind" field.
+func SourceKindLTE(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldLTE(FieldSourceKind, v))
+}
+
+// SourceKindContains applies the Contains predicate on the "source_kind" field.
+func SourceKindContains(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldContains(FieldSourceKind, v))
+}
+
+// SourceKindHasPrefix applies the HasPrefix predicate on the "source_kind" field.
+func SourceKindHasPrefix(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldHasPrefix(FieldSourceKind, v))
+}
+
+// SourceKindHasSuffix applies the HasSuffix predicate on the "source_kind" field.
+func SourceKindHasSuffix(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldHasSuffix(FieldSourceKind, v))
+}
+
+// SourceKindEqualFold applies the EqualFold predicate on the "source_kind" field.
+func SourceKindEqualFold(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEqualFold(FieldSourceKind, v))
+}
+
+// SourceKindContainsFold applies the ContainsFold predicate on the "source_kind" field.
+func SourceKindContainsFold(v string) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldContainsFold(FieldSourceKind, v))
+}
+
+// ConsentProposalIDEQ applies the EQ predicate on the "consent_proposal_id" field.
+func ConsentProposalIDEQ(v uuid.UUID) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldConsentProposalID, v))
+}
+
+// ConsentProposalIDNEQ applies the NEQ predicate on the "consent_proposal_id" field.
+func ConsentProposalIDNEQ(v uuid.UUID) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNEQ(FieldConsentProposalID, v))
+}
+
+// ConsentProposalIDIn applies the In predicate on the "consent_proposal_id" field.
+func ConsentProposalIDIn(vs ...uuid.UUID) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldIn(FieldConsentProposalID, vs...))
+}
+
+// ConsentProposalIDNotIn applies the NotIn predicate on the "consent_proposal_id" field.
+func ConsentProposalIDNotIn(vs ...uuid.UUID) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNotIn(FieldConsentProposalID, vs...))
+}
+
+// ConsentProposalIDIsNil applies the IsNil predicate on the "consent_proposal_id" field.
+func ConsentProposalIDIsNil() predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldIsNull(FieldConsentProposalID))
+}
+
+// ConsentProposalIDNotNil applies the NotNil predicate on the "consent_proposal_id" field.
+func ConsentProposalIDNotNil() predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNotNull(FieldConsentProposalID))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.
@@ -816,6 +1001,29 @@ func HasIncomingMessageIDRef() predicate.MessageJob {
 func HasIncomingMessageIDRefWith(preds ...predicate.Message) predicate.MessageJob {
 	return predicate.MessageJob(func(s *sql.Selector) {
 		step := newIncomingMessageIDRefStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasConsentProposal applies the HasEdge predicate on the "consent_proposal" edge.
+func HasConsentProposal() predicate.MessageJob {
+	return predicate.MessageJob(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, ConsentProposalTable, ConsentProposalColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasConsentProposalWith applies the HasEdge predicate on the "consent_proposal" edge with a given conditions (other predicates).
+func HasConsentProposalWith(preds ...predicate.MemoryConsentProposal) predicate.MessageJob {
+	return predicate.MessageJob(func(s *sql.Selector) {
+		step := newConsentProposalStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

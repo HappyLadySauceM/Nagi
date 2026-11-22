@@ -37,6 +37,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
@@ -97,6 +100,12 @@ type Client struct {
 	IntentRuleset *IntentRulesetClient
 	// Memory is the client for interacting with the Memory builders.
 	Memory *MemoryClient
+	// MemoryConsentEvent is the client for interacting with the MemoryConsentEvent builders.
+	MemoryConsentEvent *MemoryConsentEventClient
+	// MemoryConsentGrant is the client for interacting with the MemoryConsentGrant builders.
+	MemoryConsentGrant *MemoryConsentGrantClient
+	// MemoryConsentProposal is the client for interacting with the MemoryConsentProposal builders.
+	MemoryConsentProposal *MemoryConsentProposalClient
 	// MemoryExtractionCursor is the client for interacting with the MemoryExtractionCursor builders.
 	MemoryExtractionCursor *MemoryExtractionCursorClient
 	// MemoryExtractionJob is the client for interacting with the MemoryExtractionJob builders.
@@ -147,6 +156,9 @@ func (c *Client) init() {
 	c.IntentRuleEntry = NewIntentRuleEntryClient(c.config)
 	c.IntentRuleset = NewIntentRulesetClient(c.config)
 	c.Memory = NewMemoryClient(c.config)
+	c.MemoryConsentEvent = NewMemoryConsentEventClient(c.config)
+	c.MemoryConsentGrant = NewMemoryConsentGrantClient(c.config)
+	c.MemoryConsentProposal = NewMemoryConsentProposalClient(c.config)
 	c.MemoryExtractionCursor = NewMemoryExtractionCursorClient(c.config)
 	c.MemoryExtractionJob = NewMemoryExtractionJobClient(c.config)
 	c.MemoryReplacement = NewMemoryReplacementClient(c.config)
@@ -269,6 +281,9 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
 		Memory:                        NewMemoryClient(cfg),
+		MemoryConsentEvent:            NewMemoryConsentEventClient(cfg),
+		MemoryConsentGrant:            NewMemoryConsentGrantClient(cfg),
+		MemoryConsentProposal:         NewMemoryConsentProposalClient(cfg),
 		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
 		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
 		MemoryReplacement:             NewMemoryReplacementClient(cfg),
@@ -318,6 +333,9 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
 		Memory:                        NewMemoryClient(cfg),
+		MemoryConsentEvent:            NewMemoryConsentEventClient(cfg),
+		MemoryConsentGrant:            NewMemoryConsentGrantClient(cfg),
+		MemoryConsentProposal:         NewMemoryConsentProposalClient(cfg),
 		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
 		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
 		MemoryReplacement:             NewMemoryReplacementClient(cfg),
@@ -361,7 +379,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.Contact, c.Conversation, c.GroupMember, c.InboundAttachment,
 		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
 		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
-		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryExtractionCursor,
+		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryConsentEvent,
+		c.MemoryConsentGrant, c.MemoryConsentProposal, c.MemoryExtractionCursor,
 		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
@@ -378,7 +397,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.Contact, c.Conversation, c.GroupMember, c.InboundAttachment,
 		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
 		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
-		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryExtractionCursor,
+		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryConsentEvent,
+		c.MemoryConsentGrant, c.MemoryConsentProposal, c.MemoryExtractionCursor,
 		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
 	} {
@@ -431,6 +451,12 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.IntentRuleset.mutate(ctx, m)
 	case *MemoryMutation:
 		return c.Memory.mutate(ctx, m)
+	case *MemoryConsentEventMutation:
+		return c.MemoryConsentEvent.mutate(ctx, m)
+	case *MemoryConsentGrantMutation:
+		return c.MemoryConsentGrant.mutate(ctx, m)
+	case *MemoryConsentProposalMutation:
+		return c.MemoryConsentProposal.mutate(ctx, m)
 	case *MemoryExtractionCursorMutation:
 		return c.MemoryExtractionCursor.mutate(ctx, m)
 	case *MemoryExtractionJobMutation:
@@ -3823,6 +3849,517 @@ func (c *MemoryClient) mutate(ctx context.Context, m *MemoryMutation) (Value, er
 	}
 }
 
+// MemoryConsentEventClient is a client for the MemoryConsentEvent schema.
+type MemoryConsentEventClient struct {
+	config
+}
+
+// NewMemoryConsentEventClient returns a client for the MemoryConsentEvent from the given config.
+func NewMemoryConsentEventClient(c config) *MemoryConsentEventClient {
+	return &MemoryConsentEventClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `memoryconsentevent.Hooks(f(g(h())))`.
+func (c *MemoryConsentEventClient) Use(hooks ...Hook) {
+	c.hooks.MemoryConsentEvent = append(c.hooks.MemoryConsentEvent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `memoryconsentevent.Intercept(f(g(h())))`.
+func (c *MemoryConsentEventClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MemoryConsentEvent = append(c.inters.MemoryConsentEvent, interceptors...)
+}
+
+// Create returns a builder for creating a MemoryConsentEvent entity.
+func (c *MemoryConsentEventClient) Create() *MemoryConsentEventCreate {
+	mutation := newMemoryConsentEventMutation(c.config, OpCreate)
+	return &MemoryConsentEventCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MemoryConsentEvent entities.
+func (c *MemoryConsentEventClient) CreateBulk(builders ...*MemoryConsentEventCreate) *MemoryConsentEventCreateBulk {
+	return &MemoryConsentEventCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MemoryConsentEventClient) MapCreateBulk(slice any, setFunc func(*MemoryConsentEventCreate, int)) *MemoryConsentEventCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MemoryConsentEventCreateBulk{err: fmt.Errorf("calling to MemoryConsentEventClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MemoryConsentEventCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MemoryConsentEventCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MemoryConsentEvent.
+func (c *MemoryConsentEventClient) Update() *MemoryConsentEventUpdate {
+	mutation := newMemoryConsentEventMutation(c.config, OpUpdate)
+	return &MemoryConsentEventUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MemoryConsentEventClient) UpdateOne(_m *MemoryConsentEvent) *MemoryConsentEventUpdateOne {
+	mutation := newMemoryConsentEventMutation(c.config, OpUpdateOne, withMemoryConsentEvent(_m))
+	return &MemoryConsentEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MemoryConsentEventClient) UpdateOneID(id int64) *MemoryConsentEventUpdateOne {
+	mutation := newMemoryConsentEventMutation(c.config, OpUpdateOne, withMemoryConsentEventID(id))
+	return &MemoryConsentEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MemoryConsentEvent.
+func (c *MemoryConsentEventClient) Delete() *MemoryConsentEventDelete {
+	mutation := newMemoryConsentEventMutation(c.config, OpDelete)
+	return &MemoryConsentEventDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MemoryConsentEventClient) DeleteOne(_m *MemoryConsentEvent) *MemoryConsentEventDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MemoryConsentEventClient) DeleteOneID(id int64) *MemoryConsentEventDeleteOne {
+	builder := c.Delete().Where(memoryconsentevent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MemoryConsentEventDeleteOne{builder}
+}
+
+// Query returns a query builder for MemoryConsentEvent.
+func (c *MemoryConsentEventClient) Query() *MemoryConsentEventQuery {
+	return &MemoryConsentEventQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMemoryConsentEvent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MemoryConsentEvent entity by its id.
+func (c *MemoryConsentEventClient) Get(ctx context.Context, id int64) (*MemoryConsentEvent, error) {
+	return c.Query().Where(memoryconsentevent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MemoryConsentEventClient) GetX(ctx context.Context, id int64) *MemoryConsentEvent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryProposal queries the proposal edge of a MemoryConsentEvent.
+func (c *MemoryConsentEventClient) QueryProposal(_m *MemoryConsentEvent) *MemoryConsentProposalQuery {
+	query := (&MemoryConsentProposalClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryconsentevent.Table, memoryconsentevent.FieldID, id),
+			sqlgraph.To(memoryconsentproposal.Table, memoryconsentproposal.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryconsentevent.ProposalTable, memoryconsentevent.ProposalColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *MemoryConsentEventClient) Hooks() []Hook {
+	return c.hooks.MemoryConsentEvent
+}
+
+// Interceptors returns the client interceptors.
+func (c *MemoryConsentEventClient) Interceptors() []Interceptor {
+	return c.inters.MemoryConsentEvent
+}
+
+func (c *MemoryConsentEventClient) mutate(ctx context.Context, m *MemoryConsentEventMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MemoryConsentEventCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MemoryConsentEventUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MemoryConsentEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MemoryConsentEventDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MemoryConsentEvent mutation op: %q", m.Op())
+	}
+}
+
+// MemoryConsentGrantClient is a client for the MemoryConsentGrant schema.
+type MemoryConsentGrantClient struct {
+	config
+}
+
+// NewMemoryConsentGrantClient returns a client for the MemoryConsentGrant from the given config.
+func NewMemoryConsentGrantClient(c config) *MemoryConsentGrantClient {
+	return &MemoryConsentGrantClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `memoryconsentgrant.Hooks(f(g(h())))`.
+func (c *MemoryConsentGrantClient) Use(hooks ...Hook) {
+	c.hooks.MemoryConsentGrant = append(c.hooks.MemoryConsentGrant, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `memoryconsentgrant.Intercept(f(g(h())))`.
+func (c *MemoryConsentGrantClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MemoryConsentGrant = append(c.inters.MemoryConsentGrant, interceptors...)
+}
+
+// Create returns a builder for creating a MemoryConsentGrant entity.
+func (c *MemoryConsentGrantClient) Create() *MemoryConsentGrantCreate {
+	mutation := newMemoryConsentGrantMutation(c.config, OpCreate)
+	return &MemoryConsentGrantCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MemoryConsentGrant entities.
+func (c *MemoryConsentGrantClient) CreateBulk(builders ...*MemoryConsentGrantCreate) *MemoryConsentGrantCreateBulk {
+	return &MemoryConsentGrantCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MemoryConsentGrantClient) MapCreateBulk(slice any, setFunc func(*MemoryConsentGrantCreate, int)) *MemoryConsentGrantCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MemoryConsentGrantCreateBulk{err: fmt.Errorf("calling to MemoryConsentGrantClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MemoryConsentGrantCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MemoryConsentGrantCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MemoryConsentGrant.
+func (c *MemoryConsentGrantClient) Update() *MemoryConsentGrantUpdate {
+	mutation := newMemoryConsentGrantMutation(c.config, OpUpdate)
+	return &MemoryConsentGrantUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MemoryConsentGrantClient) UpdateOne(_m *MemoryConsentGrant) *MemoryConsentGrantUpdateOne {
+	mutation := newMemoryConsentGrantMutation(c.config, OpUpdateOne, withMemoryConsentGrant(_m))
+	return &MemoryConsentGrantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MemoryConsentGrantClient) UpdateOneID(id int64) *MemoryConsentGrantUpdateOne {
+	mutation := newMemoryConsentGrantMutation(c.config, OpUpdateOne, withMemoryConsentGrantID(id))
+	return &MemoryConsentGrantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MemoryConsentGrant.
+func (c *MemoryConsentGrantClient) Delete() *MemoryConsentGrantDelete {
+	mutation := newMemoryConsentGrantMutation(c.config, OpDelete)
+	return &MemoryConsentGrantDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MemoryConsentGrantClient) DeleteOne(_m *MemoryConsentGrant) *MemoryConsentGrantDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MemoryConsentGrantClient) DeleteOneID(id int64) *MemoryConsentGrantDeleteOne {
+	builder := c.Delete().Where(memoryconsentgrant.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MemoryConsentGrantDeleteOne{builder}
+}
+
+// Query returns a query builder for MemoryConsentGrant.
+func (c *MemoryConsentGrantClient) Query() *MemoryConsentGrantQuery {
+	return &MemoryConsentGrantQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMemoryConsentGrant},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MemoryConsentGrant entity by its id.
+func (c *MemoryConsentGrantClient) Get(ctx context.Context, id int64) (*MemoryConsentGrant, error) {
+	return c.Query().Where(memoryconsentgrant.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MemoryConsentGrantClient) GetX(ctx context.Context, id int64) *MemoryConsentGrant {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryProposal queries the proposal edge of a MemoryConsentGrant.
+func (c *MemoryConsentGrantClient) QueryProposal(_m *MemoryConsentGrant) *MemoryConsentProposalQuery {
+	query := (&MemoryConsentProposalClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryconsentgrant.Table, memoryconsentgrant.FieldID, id),
+			sqlgraph.To(memoryconsentproposal.Table, memoryconsentproposal.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryconsentgrant.ProposalTable, memoryconsentgrant.ProposalColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryConfirmationMessage queries the confirmation_message edge of a MemoryConsentGrant.
+func (c *MemoryConsentGrantClient) QueryConfirmationMessage(_m *MemoryConsentGrant) *MessageQuery {
+	query := (&MessageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryconsentgrant.Table, memoryconsentgrant.FieldID, id),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, memoryconsentgrant.ConfirmationMessageTable, memoryconsentgrant.ConfirmationMessageColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *MemoryConsentGrantClient) Hooks() []Hook {
+	return c.hooks.MemoryConsentGrant
+}
+
+// Interceptors returns the client interceptors.
+func (c *MemoryConsentGrantClient) Interceptors() []Interceptor {
+	return c.inters.MemoryConsentGrant
+}
+
+func (c *MemoryConsentGrantClient) mutate(ctx context.Context, m *MemoryConsentGrantMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MemoryConsentGrantCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MemoryConsentGrantUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MemoryConsentGrantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MemoryConsentGrantDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MemoryConsentGrant mutation op: %q", m.Op())
+	}
+}
+
+// MemoryConsentProposalClient is a client for the MemoryConsentProposal schema.
+type MemoryConsentProposalClient struct {
+	config
+}
+
+// NewMemoryConsentProposalClient returns a client for the MemoryConsentProposal from the given config.
+func NewMemoryConsentProposalClient(c config) *MemoryConsentProposalClient {
+	return &MemoryConsentProposalClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `memoryconsentproposal.Hooks(f(g(h())))`.
+func (c *MemoryConsentProposalClient) Use(hooks ...Hook) {
+	c.hooks.MemoryConsentProposal = append(c.hooks.MemoryConsentProposal, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `memoryconsentproposal.Intercept(f(g(h())))`.
+func (c *MemoryConsentProposalClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MemoryConsentProposal = append(c.inters.MemoryConsentProposal, interceptors...)
+}
+
+// Create returns a builder for creating a MemoryConsentProposal entity.
+func (c *MemoryConsentProposalClient) Create() *MemoryConsentProposalCreate {
+	mutation := newMemoryConsentProposalMutation(c.config, OpCreate)
+	return &MemoryConsentProposalCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MemoryConsentProposal entities.
+func (c *MemoryConsentProposalClient) CreateBulk(builders ...*MemoryConsentProposalCreate) *MemoryConsentProposalCreateBulk {
+	return &MemoryConsentProposalCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MemoryConsentProposalClient) MapCreateBulk(slice any, setFunc func(*MemoryConsentProposalCreate, int)) *MemoryConsentProposalCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MemoryConsentProposalCreateBulk{err: fmt.Errorf("calling to MemoryConsentProposalClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MemoryConsentProposalCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MemoryConsentProposalCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MemoryConsentProposal.
+func (c *MemoryConsentProposalClient) Update() *MemoryConsentProposalUpdate {
+	mutation := newMemoryConsentProposalMutation(c.config, OpUpdate)
+	return &MemoryConsentProposalUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MemoryConsentProposalClient) UpdateOne(_m *MemoryConsentProposal) *MemoryConsentProposalUpdateOne {
+	mutation := newMemoryConsentProposalMutation(c.config, OpUpdateOne, withMemoryConsentProposal(_m))
+	return &MemoryConsentProposalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MemoryConsentProposalClient) UpdateOneID(id uuid.UUID) *MemoryConsentProposalUpdateOne {
+	mutation := newMemoryConsentProposalMutation(c.config, OpUpdateOne, withMemoryConsentProposalID(id))
+	return &MemoryConsentProposalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MemoryConsentProposal.
+func (c *MemoryConsentProposalClient) Delete() *MemoryConsentProposalDelete {
+	mutation := newMemoryConsentProposalMutation(c.config, OpDelete)
+	return &MemoryConsentProposalDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MemoryConsentProposalClient) DeleteOne(_m *MemoryConsentProposal) *MemoryConsentProposalDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MemoryConsentProposalClient) DeleteOneID(id uuid.UUID) *MemoryConsentProposalDeleteOne {
+	builder := c.Delete().Where(memoryconsentproposal.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MemoryConsentProposalDeleteOne{builder}
+}
+
+// Query returns a query builder for MemoryConsentProposal.
+func (c *MemoryConsentProposalClient) Query() *MemoryConsentProposalQuery {
+	return &MemoryConsentProposalQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMemoryConsentProposal},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MemoryConsentProposal entity by its id.
+func (c *MemoryConsentProposalClient) Get(ctx context.Context, id uuid.UUID) (*MemoryConsentProposal, error) {
+	return c.Query().Where(memoryconsentproposal.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MemoryConsentProposalClient) GetX(ctx context.Context, id uuid.UUID) *MemoryConsentProposal {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QuerySourceMessage queries the source_message edge of a MemoryConsentProposal.
+func (c *MemoryConsentProposalClient) QuerySourceMessage(_m *MemoryConsentProposal) *MessageQuery {
+	query := (&MessageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryconsentproposal.Table, memoryconsentproposal.FieldID, id),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, memoryconsentproposal.SourceMessageTable, memoryconsentproposal.SourceMessageColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryDeliveryJob queries the delivery_job edge of a MemoryConsentProposal.
+func (c *MemoryConsentProposalClient) QueryDeliveryJob(_m *MemoryConsentProposal) *MessageJobQuery {
+	query := (&MessageJobClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryconsentproposal.Table, memoryconsentproposal.FieldID, id),
+			sqlgraph.To(messagejob.Table, messagejob.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, memoryconsentproposal.DeliveryJobTable, memoryconsentproposal.DeliveryJobColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryGrants queries the grants edge of a MemoryConsentProposal.
+func (c *MemoryConsentProposalClient) QueryGrants(_m *MemoryConsentProposal) *MemoryConsentGrantQuery {
+	query := (&MemoryConsentGrantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryconsentproposal.Table, memoryconsentproposal.FieldID, id),
+			sqlgraph.To(memoryconsentgrant.Table, memoryconsentgrant.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, memoryconsentproposal.GrantsTable, memoryconsentproposal.GrantsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryEvents queries the events edge of a MemoryConsentProposal.
+func (c *MemoryConsentProposalClient) QueryEvents(_m *MemoryConsentProposal) *MemoryConsentEventQuery {
+	query := (&MemoryConsentEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryconsentproposal.Table, memoryconsentproposal.FieldID, id),
+			sqlgraph.To(memoryconsentevent.Table, memoryconsentevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, memoryconsentproposal.EventsTable, memoryconsentproposal.EventsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *MemoryConsentProposalClient) Hooks() []Hook {
+	return c.hooks.MemoryConsentProposal
+}
+
+// Interceptors returns the client interceptors.
+func (c *MemoryConsentProposalClient) Interceptors() []Interceptor {
+	return c.inters.MemoryConsentProposal
+}
+
+func (c *MemoryConsentProposalClient) mutate(ctx context.Context, m *MemoryConsentProposalMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MemoryConsentProposalCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MemoryConsentProposalUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MemoryConsentProposalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MemoryConsentProposalDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MemoryConsentProposal mutation op: %q", m.Op())
+	}
+}
+
 // MemoryExtractionCursorClient is a client for the MemoryExtractionCursor schema.
 type MemoryExtractionCursorClient struct {
 	config
@@ -4655,6 +5192,22 @@ func (c *MessageJobClient) QueryIncomingMessageIDRef(_m *MessageJob) *MessageQue
 	return query
 }
 
+// QueryConsentProposal queries the consent_proposal edge of a MessageJob.
+func (c *MessageJobClient) QueryConsentProposal(_m *MessageJob) *MemoryConsentProposalQuery {
+	query := (&MemoryConsentProposalClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(messagejob.Table, messagejob.FieldID, id),
+			sqlgraph.To(memoryconsentproposal.Table, memoryconsentproposal.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, messagejob.ConsentProposalTable, messagejob.ConsentProposalColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryIntentDecisionsJobID queries the intent_decisions_job_id edge of a MessageJob.
 func (c *MessageJobClient) QueryIntentDecisionsJobID(_m *MessageJob) *IntentDecisionQuery {
 	query := (&IntentDecisionClient{config: c.config}).Query()
@@ -5316,6 +5869,7 @@ type (
 		GroupMember, InboundAttachment, IntentDecision, IntentDecisionSnapshot,
 		IntentDecisionStep, IntentPromptVersion, IntentReplayEvaluation,
 		IntentRuleActivation, IntentRuleEntry, IntentRuleset, Memory,
+		MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
 		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
 		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
 		SystemSetting []ent.Hook
@@ -5326,6 +5880,7 @@ type (
 		GroupMember, InboundAttachment, IntentDecision, IntentDecisionSnapshot,
 		IntentDecisionStep, IntentPromptVersion, IntentReplayEvaluation,
 		IntentRuleActivation, IntentRuleEntry, IntentRuleset, Memory,
+		MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
 		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
 		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
 		SystemSetting []ent.Interceptor

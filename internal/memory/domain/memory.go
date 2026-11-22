@@ -90,25 +90,27 @@ func (s Status) Valid() bool {
 // Memory is one long-term memory entry.
 // Memory 是一条长期记忆。
 type Memory struct {
-	ID              string
-	BotID           int64
-	Visibility      Visibility
-	OwnerKey        string
-	Content         string
-	SourceMessageID int64
-	Source          string
-	SourceSenderID  int64
-	Origin          Origin
-	SubjectType     SubjectType
-	SubjectID       string
-	DedupeKey       string
-	ReviewReason    string
-	Confidence      float64
-	Status          Status
-	ApprovedBy      string
-	ExpiresAt       time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	AuthorizationVersion int64  `json:"authorization_version"`
+	ConsentIdentity      string `json:"-"`
+	ID                   string
+	BotID                int64
+	Visibility           Visibility
+	OwnerKey             string
+	Content              string
+	SourceMessageID      int64
+	Source               string
+	SourceSenderID       int64
+	Origin               Origin
+	SubjectType          SubjectType
+	SubjectID            string
+	DedupeKey            string
+	ReviewReason         string
+	Confidence           float64
+	Status               Status
+	ApprovedBy           string
+	ExpiresAt            time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // Validate checks visibility, owner and content requirements.
@@ -204,7 +206,13 @@ func (m Memory) VisibleTo(kind string, targetID int64, conversationID string) bo
 // "private" and ConversationID optionally widens to one conversation's memories.
 // SearchRequest 是经可见性过滤的检索输入；Kind 为 "group" 或 "private"，
 // ConversationID 可选地扩展到单会话记忆。
+type ReplyJob struct {
+	ID    int64
+	Claim string
+}
+
 type SearchRequest struct {
+	ReplyJob       ReplyJob
 	BotID          int64
 	Kind           string
 	TargetID       int64

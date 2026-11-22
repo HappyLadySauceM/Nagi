@@ -42,6 +42,20 @@ func (_c *MessageCreate) SetBotID(v int64) *MessageCreate {
 	return _c
 }
 
+// SetControlKind sets the "control_kind" field.
+func (_c *MessageCreate) SetControlKind(v string) *MessageCreate {
+	_c.mutation.SetControlKind(v)
+	return _c
+}
+
+// SetNillableControlKind sets the "control_kind" field if the given value is not nil.
+func (_c *MessageCreate) SetNillableControlKind(v *string) *MessageCreate {
+	if v != nil {
+		_c.SetControlKind(*v)
+	}
+	return _c
+}
+
 // SetDirection sets the "direction" field.
 func (_c *MessageCreate) SetDirection(v string) *MessageCreate {
 	_c.mutation.SetDirection(v)
@@ -277,6 +291,10 @@ func (_c *MessageCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *MessageCreate) defaults() {
+	if _, ok := _c.mutation.ControlKind(); !ok {
+		v := message.DefaultControlKind
+		_c.mutation.SetControlKind(v)
+	}
 	if _, ok := _c.mutation.TextContent(); !ok {
 		v := message.DefaultTextContent
 		_c.mutation.SetTextContent(v)
@@ -343,6 +361,10 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 	if id, ok := _c.mutation.ID(); ok {
 		_node.ID = id
 		_spec.ID.Value = id
+	}
+	if value, ok := _c.mutation.ControlKind(); ok {
+		_spec.SetField(message.FieldControlKind, field.TypeString, value)
+		_node.ControlKind = value
 	}
 	if value, ok := _c.mutation.Direction(); ok {
 		_spec.SetField(message.FieldDirection, field.TypeString, value)
@@ -552,6 +574,18 @@ func (u *MessageUpsert) SetBotID(v int64) *MessageUpsert {
 // UpdateBotID sets the "bot_id" field to the value that was provided on create.
 func (u *MessageUpsert) UpdateBotID() *MessageUpsert {
 	u.SetExcluded(message.FieldBotID)
+	return u
+}
+
+// SetControlKind sets the "control_kind" field.
+func (u *MessageUpsert) SetControlKind(v string) *MessageUpsert {
+	u.Set(message.FieldControlKind, v)
+	return u
+}
+
+// UpdateControlKind sets the "control_kind" field to the value that was provided on create.
+func (u *MessageUpsert) UpdateControlKind() *MessageUpsert {
+	u.SetExcluded(message.FieldControlKind)
 	return u
 }
 
@@ -796,6 +830,20 @@ func (u *MessageUpsertOne) SetBotID(v int64) *MessageUpsertOne {
 func (u *MessageUpsertOne) UpdateBotID() *MessageUpsertOne {
 	return u.Update(func(s *MessageUpsert) {
 		s.UpdateBotID()
+	})
+}
+
+// SetControlKind sets the "control_kind" field.
+func (u *MessageUpsertOne) SetControlKind(v string) *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.SetControlKind(v)
+	})
+}
+
+// UpdateControlKind sets the "control_kind" field to the value that was provided on create.
+func (u *MessageUpsertOne) UpdateControlKind() *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.UpdateControlKind()
 	})
 }
 
@@ -1234,6 +1282,20 @@ func (u *MessageUpsertBulk) SetBotID(v int64) *MessageUpsertBulk {
 func (u *MessageUpsertBulk) UpdateBotID() *MessageUpsertBulk {
 	return u.Update(func(s *MessageUpsert) {
 		s.UpdateBotID()
+	})
+}
+
+// SetControlKind sets the "control_kind" field.
+func (u *MessageUpsertBulk) SetControlKind(v string) *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.SetControlKind(v)
+	})
+}
+
+// UpdateControlKind sets the "control_kind" field to the value that was provided on create.
+func (u *MessageUpsertBulk) UpdateControlKind() *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.UpdateControlKind()
 	})
 }
 

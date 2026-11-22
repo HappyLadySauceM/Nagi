@@ -23,6 +23,7 @@ import (
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
@@ -55,7 +56,7 @@ func (f *fakeRuntime) Run(ctx context.Context, req agentcontracts.Request) (agen
 	f.calls++
 	f.req = req
 	if f.suppress {
-		observability.SuppressContent(ctx)
+		observability.SuppressCredentials(ctx)
 	}
 	if f.onRun != nil {
 		f.onRun(req)
@@ -1463,5 +1464,43 @@ func TestRecallSubjectUsesFirstPersonAndRejectsConflicts(t *testing.T) {
 	got = recallRequest(task, nil)
 	if got.SubjectType != "group" || got.SubjectSource != "explicit_group" {
 		t.Fatalf("group subject: %+v", got)
+	}
+}
+
+type replyMediaFixture struct{ imageFiles []string }
+
+func (f *replyMediaFixture) Parts(_ context.Context, _ int64, _ string, parts []obdomain.Segment, _ string) ([]media.Part, error) {
+	for _, part := range parts {
+		if part.Type == obdomain.SegImage {
+			f.imageFiles = append(f.imageFiles, part.Data["file"])
+		}
+	}
+	return nil, nil
+}
+
+func TestReplierLoadsAuthorizedHistoryImages(t *testing.T) {
+	r := newReplier(t, &fakeRuntime{text: "收到"}, &fakeSender{msgID: 1}, &fakeRecorder{}, enabledGroupPolicy())
+	mediaReader := &replyMediaFixture{}
+	r.media = mediaReader
+	task := groupTaskForAgent()
+	task.Segments = []obdomain.Segment{obdomain.Image("current")}
+	history := []intentdomain.Message{
+		{MessageID: 873, Text: "可读取历史", Segments: []obdomain.Segment{obdomain.Image("stale-history")}},
+		{MessageID: 874, Text: "不可读取历史图片", Segments: []obdomain.Segment{obdomain.Image("unavailable-history")}},
+	}
+	r.historyImages = func(_ context.Context, bot int64, conversation, kind string, group, message int64) ([]obdomain.Segment, error) {
+		if bot != task.BotID || conversation != task.ConversationID || kind != task.Kind || group != task.TargetID {
+			t.Fatalf("unexpected media scope: %d %q %s %d", bot, conversation, kind, group)
+		}
+		if message == 873 {
+			return []obdomain.Segment{obdomain.Image("stored-history")}, nil
+		}
+		return nil, errors.New("history permission unavailable")
+	}
+	if err := r.ExecuteReply(context.Background(), task, history); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(mediaReader.imageFiles, ","); got != "current,stored-history" {
+		t.Fatalf("image adapter received %s", got)
 	}
 }

@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"io"
 	"mime/multipart"
 	"net"
@@ -87,7 +89,14 @@ func NewService(models models.Resolver, accounts Accounts, cache string) *Servic
 		return nil
 	}}}
 }
+
+var errHistoryImageUnavailable = errors.New("history image unavailable")
+
 func (s *Service) fetch(ctx context.Context, raw string, limit int64, headers map[string]string) ([]byte, error) {
+	return s.fetchChecked(ctx, raw, limit, headers, nil)
+}
+
+func (s *Service) fetchChecked(ctx context.Context, raw string, limit int64, headers map[string]string, check func(context.Context) bool) ([]byte, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 		return nil, fmt.Errorf("invalid media URL")
@@ -99,8 +108,32 @@ func (s *Service) fetch(ctx context.Context, raw string, limit int64, headers ma
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := s.HTTP.Do(req)
+	client := s.HTTP
+	if check != nil {
+		redirect := *client
+		redirect.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+			if client.CheckRedirect != nil {
+				if err := client.CheckRedirect(next, via); err != nil {
+					return err
+				}
+			} else if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			if !check(next.Context()) {
+				return errHistoryImageUnavailable
+			}
+			return nil
+		}
+		client = &redirect
+		if !check(ctx) {
+			return nil, errHistoryImageUnavailable
+		}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
+		if errors.Is(err, errHistoryImageUnavailable) {
+			return nil, errHistoryImageUnavailable
+		}
 		return nil, fmt.Errorf("media download failed")
 	}
 	defer resp.Body.Close()
@@ -131,6 +164,7 @@ func (s *Service) Parts(ctx context.Context, bot int64, conversation string, seg
 	}
 	out := []media.Part{{Text: prefix}}
 	images := 0
+	historyCheck := media.HistoryImageCheck(ctx)
 	for index, seg := range segments {
 		switch seg.Type {
 		case ob.SegText:
@@ -141,9 +175,16 @@ func (s *Service) Parts(ctx context.Context, bot int64, conversation string, seg
 				out = append(out, media.Part{Text: "[图片数量超过上限]", PictureSegment: &index})
 				continue
 			}
+			var check func(context.Context) bool
+			if historyCheck != nil {
+				check = func(call context.Context) bool { return historyCheck(call, index, seg) }
+			}
 			raw := seg.Data["url"]
 			if raw == "" && s.Accounts != nil {
 				if reader, ok := s.Accounts.MediaReader(bot); ok {
+					if check != nil && !check(ctx) {
+						continue
+					}
 					info, err := reader.GetImage(ctx, seg.Data["file"])
 					if err == nil {
 						raw = info.URL
@@ -157,13 +198,19 @@ func (s *Service) Parts(ctx context.Context, bot int64, conversation string, seg
 			var err error
 			inline := strings.TrimPrefix(seg.Data["file"], "base64://")
 			if strings.HasPrefix(seg.Data["file"], "base64://") {
+				if check != nil && !check(ctx) {
+					continue
+				}
 				if len(inline) > maxImageBytes*4/3+4 {
 					err = fmt.Errorf("image too large")
 				} else {
 					b, err = base64.StdEncoding.DecodeString(inline)
 				}
 			} else {
-				b, err = s.fetch(ctx, raw, maxImageBytes, nil)
+				b, err = s.fetchChecked(ctx, raw, maxImageBytes, nil, check)
+			}
+			if errors.Is(err, errHistoryImageUnavailable) {
+				continue
 			}
 			if err != nil {
 				out = append(out, media.Part{Text: "[图片读取失败]", PictureSegment: &index})
@@ -324,6 +371,9 @@ func (s *Service) transcribeAudio(ctx context.Context, audio []byte) (transcript
 }
 
 func (s *Service) Synthesize(ctx context.Context, text string) (audio []byte, err error) {
+	if memory.CrossGroupReadUsed(ctx) {
+		return nil, memory.ErrReadChanged
+	}
 	if s.Models == nil {
 		return nil, fmt.Errorf("TTS model is not configured")
 	}
@@ -401,6 +451,9 @@ func (s *Service) archiveSynthesis(ctx context.Context, auditEvent *auditdomain.
 }
 
 func (s *Service) archive(ctx context.Context, request media.ArchiveRequest) (media.ArchiveReference, error) {
+	if memory.CrossGroupReadUsed(ctx) {
+		return media.ArchiveReference{}, nil
+	}
 	if s.Archiver == nil {
 		return media.ArchiveReference{}, nil
 	}

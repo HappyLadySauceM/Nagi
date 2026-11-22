@@ -210,10 +210,10 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if rt.Scope, err = buildScope(pool); err != nil {
 			return nil, err
 		}
-		if rt.Conversation, err = buildConversation(pool, logger, cfg.Observability.MediaArchive.Enabled); err != nil {
+		if rt.Conversation, err = buildConversation(pool, logger, cfg.Observability.MediaArchive.Enabled, cfg.Memory.CrossGroupConsentWrite); err != nil {
 			return nil, err
 		}
-		if rt.Memory, err = buildMemory(pool, rt.Scope); err != nil {
+		if rt.Memory, err = buildMemory(pool, rt.Scope, cfg.Memory.CrossGroupConsentRead); err != nil {
 			return nil, err
 		}
 		if rt.Audit, err = auditinfra.NewRecorder(pool); err != nil {
@@ -372,7 +372,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			return nil
 		}
 		publicOptions.AuthorizeTarget = authorizeTarget
-		providers = append(providers, builtin.NewPublicProvider(builtin.PublicOptions{Account: publicAccount, AuthorizeTarget: authorizeTarget, GroupRole: func(ctx context.Context, botID, groupID int64) (string, error) {
+		providers = append(providers, builtin.NewPublicProvider(builtin.PublicOptions{Account: publicAccount, StoredMessage: attachmentRepo.StoredPublicMessage, AuthorizeTarget: authorizeTarget, GroupRole: func(ctx context.Context, botID, groupID int64) (string, error) {
 			if rt.Directory == nil {
 				return "", nil
 			}
@@ -472,7 +472,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			"providers", len(toolRegistry.Manifests()))
 		mediaService.Models = settingsService
 		toolsResolver = buildToolsResolver(settingsProvider, toolRegistry, rt.Scope)
-		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, settingsService, promptService, mediaService, rt.Scope, rt.Conversation, rt.Memory, registry, callbacks, sensitiveCallbacks, ledger,
+		executor, executorErr := buildReplyExecutor(cfg, logger, pool, settingsProvider, settingsService, promptService, mediaService, attachmentRepo, rt.Scope, rt.Conversation, rt.Memory, registry, callbacks, sensitiveCallbacks, ledger,
 			func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits {
 				limits, err := sendingLimitsFor(ctx, policiesRepo, settingsProvider.Settings(), botID, kind, targetID)
 				if err != nil {
@@ -497,7 +497,13 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 				return handler.Shutdown(ctx)
 			}
 		}
-		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, promptService, rt.Scope, rt.Conversation, rt.Registry, executor, identities, rt.Rulesets, rt.AIAudit)
+		consentRepo, consentErr := memoryinfra.NewRepo(pool)
+		if consentErr != nil {
+			return nil, consentErr
+		}
+		outboundRepo.SetConsentGate(memoryinfra.ConsentSendGate{Enabled: cfg.Memory.CrossGroupConsentWrite, ReadEnabled: cfg.Memory.CrossGroupConsentRead})
+		consentProcessor := consentPromptProcessor(cfg.Memory.CrossGroupConsentWrite, consentRepo, registry, rt.Scope, ledger, policiesRepo, settingsProvider)
+		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, promptService, rt.Scope, rt.Conversation, rt.Registry, executor, identities, rt.Rulesets, rt.AIAudit, consentProcessor)
 		if workerErr != nil {
 			return nil, workerErr
 		}
@@ -536,12 +542,16 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 
 // buildConversation binds the pgx repository to the conversation service.
 // buildConversation 将 pgx 仓库绑定到会话服务。
-func buildConversation(pool *db.Pool, logger *slog.Logger, archiveEnabled bool) (*conversationapp.Service, error) {
+func buildConversation(pool *db.Pool, logger *slog.Logger, archiveEnabled, consentEnabled bool) (*conversationapp.Service, error) {
 	scopeRepo, err := scopeinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
 	}
-	opts := []conversationinfra.RepoOption{conversationinfra.WithMemoryAuthorizationStamper(scopeRepo)}
+	memoryRepo, err := memoryinfra.NewRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	opts := []conversationinfra.RepoOption{conversationinfra.WithMemoryAuthorizationStamper(scopeRepo), conversationinfra.WithConsentIngress(memoryRepo, consentEnabled)}
 	if archiveEnabled {
 		opts = append(opts, conversationinfra.WithInboundAttachments(30*24*time.Hour))
 	}
@@ -554,7 +564,7 @@ func buildConversation(pool *db.Pool, logger *slog.Logger, archiveEnabled bool) 
 
 // buildMemory binds the pgx repository to the memory service.
 // buildMemory 将 pgx 仓库绑定到记忆服务。
-func buildMemory(pool *db.Pool, scopeService *scopeapp.Service) (*memoryapp.Service, error) {
+func buildMemory(pool *db.Pool, scopeService *scopeapp.Service, crossGroupConsent ...bool) (*memoryapp.Service, error) {
 	repo, err := memoryinfra.NewRepo(pool)
 	if err != nil {
 		return nil, err
@@ -562,6 +572,9 @@ func buildMemory(pool *db.Pool, scopeService *scopeapp.Service) (*memoryapp.Serv
 	service, err := memoryapp.NewService(repo)
 	if err != nil {
 		return nil, err
+	}
+	if len(crossGroupConsent) > 0 {
+		service.SetCrossGroupConsentRead(crossGroupConsent[0])
 	}
 	if scopeService != nil {
 		service.SetMemoryAuthorizer(scopeService)
@@ -699,7 +712,7 @@ func sendingLimitsFor(ctx context.Context, policies *outboundinfra.PoliciesRepo,
 		}
 	}
 	return outbounddomain.Limits{
-		MinIntervalMS:      700,
+		MinIntervalMS:      outboundinfra.DefaultMessageIntervalMS,
 		MaxMessages:        live.Agent.Sending.MaxMessagesPerRun,
 		MaxCharsPerMessage: live.Agent.Sending.MaxCharsPerMessage,
 		MaxTotalChars:      live.Agent.Sending.MaxTotalCharsPerRun,
