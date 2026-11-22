@@ -20,8 +20,33 @@ type DeliveryLedger interface {
 // Deliver settles a platform attempt even when its caller's deadline expires.
 // Deliver 即使调用方期限结束也会落定平台投递尝试。
 func Deliver(ctx context.Context, ledger DeliveryLedger, id string, send func(context.Context) (int64, error), claim ...string) (Outcome, error) {
-	if err := ledger.MarkSending(ctx, id, claim...); err != nil {
-		return Outcome{}, err
+	return DeliverWithRecheck(ctx, ledger, id, nil, send, claim...)
+}
+
+// DeliverWithRecheck repeats the caller's authorization after a policy-mandated wait.
+// DeliverWithRecheck 在策略要求的等待结束后重新核对调用方授权。
+func DeliverWithRecheck(ctx context.Context, ledger DeliveryLedger, id string, recheck func() error, send func(context.Context) (int64, error), claim ...string) (Outcome, error) {
+	for {
+		err := ledger.MarkSending(ctx, id, claim...)
+		if err == nil {
+			break
+		}
+		var wait *domain.IntervalWait
+		if !errors.As(err, &wait) {
+			return Outcome{}, err
+		}
+		timer := time.NewTimer(wait.Remaining)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return Outcome{}, ctx.Err()
+		case <-timer.C:
+		}
+		if recheck != nil {
+			if err := recheck(); err != nil {
+				return Outcome{}, err
+			}
+		}
 	}
 	messageID, sendErr := send(ctx)
 	result := Outcome{Status: domain.StatusSent, PlatformMessageID: messageID}

@@ -76,6 +76,11 @@ func Content(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldEQ(FieldContent, v))
 }
 
+// AuthorizationVersion applies equality check predicate on the "authorization_version" field. It's identical to AuthorizationVersionEQ.
+func AuthorizationVersion(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldAuthorizationVersion, v))
+}
+
 // SourceMessageID applies equality check predicate on the "source_message_id" field. It's identical to SourceMessageIDEQ.
 func SourceMessageID(v int64) predicate.Memory {
 	return predicate.Memory(sql.FieldEQ(FieldSourceMessageID, v))
@@ -359,6 +364,46 @@ func ContentEqualFold(v string) predicate.Memory {
 // ContentContainsFold applies the ContainsFold predicate on the "content" field.
 func ContentContainsFold(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldContainsFold(FieldContent, v))
+}
+
+// AuthorizationVersionEQ applies the EQ predicate on the "authorization_version" field.
+func AuthorizationVersionEQ(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldAuthorizationVersion, v))
+}
+
+// AuthorizationVersionNEQ applies the NEQ predicate on the "authorization_version" field.
+func AuthorizationVersionNEQ(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldAuthorizationVersion, v))
+}
+
+// AuthorizationVersionIn applies the In predicate on the "authorization_version" field.
+func AuthorizationVersionIn(vs ...int64) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldAuthorizationVersion, vs...))
+}
+
+// AuthorizationVersionNotIn applies the NotIn predicate on the "authorization_version" field.
+func AuthorizationVersionNotIn(vs ...int64) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldAuthorizationVersion, vs...))
+}
+
+// AuthorizationVersionGT applies the GT predicate on the "authorization_version" field.
+func AuthorizationVersionGT(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldAuthorizationVersion, v))
+}
+
+// AuthorizationVersionGTE applies the GTE predicate on the "authorization_version" field.
+func AuthorizationVersionGTE(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldAuthorizationVersion, v))
+}
+
+// AuthorizationVersionLT applies the LT predicate on the "authorization_version" field.
+func AuthorizationVersionLT(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldAuthorizationVersion, v))
+}
+
+// AuthorizationVersionLTE applies the LTE predicate on the "authorization_version" field.
+func AuthorizationVersionLTE(v int64) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldAuthorizationVersion, v))
 }
 
 // SourceMessageIDEQ applies the EQ predicate on the "source_message_id" field.

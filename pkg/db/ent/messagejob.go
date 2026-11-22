@@ -9,6 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/google/uuid"
@@ -20,7 +21,13 @@ type MessageJob struct {
 	// ID of the ent.
 	ID int64 `json:"id,omitempty"`
 	// IncomingMessageID holds the value of the "incoming_message_id" field.
-	IncomingMessageID int64 `json:"incoming_message_id,omitempty"`
+	IncomingMessageID *int64 `json:"incoming_message_id,omitempty"`
+	// IncomingDirection holds the value of the "incoming_direction" field.
+	IncomingDirection string `json:"incoming_direction,omitempty"`
+	// SourceKind holds the value of the "source_kind" field.
+	SourceKind string `json:"source_kind,omitempty"`
+	// ConsentProposalID holds the value of the "consent_proposal_id" field.
+	ConsentProposalID *uuid.UUID `json:"consent_proposal_id,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// Attempts holds the value of the "attempts" field.
@@ -55,6 +62,8 @@ type MessageJob struct {
 type MessageJobEdges struct {
 	// IncomingMessageIDRef holds the value of the incoming_message_id_ref edge.
 	IncomingMessageIDRef *Message `json:"incoming_message_id_ref,omitempty"`
+	// ConsentProposal holds the value of the consent_proposal edge.
+	ConsentProposal *MemoryConsentProposal `json:"consent_proposal,omitempty"`
 	// IntentDecisionsJobID holds the value of the intent_decisions_job_id edge.
 	IntentDecisionsJobID []*IntentDecision `json:"intent_decisions_job_id,omitempty"`
 	// AgentRunBudgetsJobID holds the value of the agent_run_budgets_job_id edge.
@@ -63,7 +72,7 @@ type MessageJobEdges struct {
 	AgentOutboundMessagesJobID []*AgentOutboundMessage `json:"agent_outbound_messages_job_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
 }
 
 // IncomingMessageIDRefOrErr returns the IncomingMessageIDRef value or an error if the edge
@@ -77,10 +86,21 @@ func (e MessageJobEdges) IncomingMessageIDRefOrErr() (*Message, error) {
 	return nil, &NotLoadedError{edge: "incoming_message_id_ref"}
 }
 
+// ConsentProposalOrErr returns the ConsentProposal value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e MessageJobEdges) ConsentProposalOrErr() (*MemoryConsentProposal, error) {
+	if e.ConsentProposal != nil {
+		return e.ConsentProposal, nil
+	} else if e.loadedTypes[1] {
+		return nil, &NotFoundError{label: memoryconsentproposal.Label}
+	}
+	return nil, &NotLoadedError{edge: "consent_proposal"}
+}
+
 // IntentDecisionsJobIDOrErr returns the IntentDecisionsJobID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageJobEdges) IntentDecisionsJobIDOrErr() ([]*IntentDecision, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.IntentDecisionsJobID, nil
 	}
 	return nil, &NotLoadedError{edge: "intent_decisions_job_id"}
@@ -89,7 +109,7 @@ func (e MessageJobEdges) IntentDecisionsJobIDOrErr() ([]*IntentDecision, error) 
 // AgentRunBudgetsJobIDOrErr returns the AgentRunBudgetsJobID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageJobEdges) AgentRunBudgetsJobIDOrErr() ([]*AgentRunBudget, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.AgentRunBudgetsJobID, nil
 	}
 	return nil, &NotLoadedError{edge: "agent_run_budgets_job_id"}
@@ -98,7 +118,7 @@ func (e MessageJobEdges) AgentRunBudgetsJobIDOrErr() ([]*AgentRunBudget, error) 
 // AgentOutboundMessagesJobIDOrErr returns the AgentOutboundMessagesJobID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageJobEdges) AgentOutboundMessagesJobIDOrErr() ([]*AgentOutboundMessage, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.AgentOutboundMessagesJobID, nil
 	}
 	return nil, &NotLoadedError{edge: "agent_outbound_messages_job_id"}
@@ -109,11 +129,11 @@ func (*MessageJob) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case messagejob.FieldClaimToken:
+		case messagejob.FieldConsentProposalID, messagejob.FieldClaimToken:
 			values[i] = &sql.NullScanner{S: new(uuid.UUID)}
 		case messagejob.FieldID, messagejob.FieldIncomingMessageID, messagejob.FieldAttempts, messagejob.FieldDeniedCount:
 			values[i] = new(sql.NullInt64)
-		case messagejob.FieldStatus, messagejob.FieldLastErrorCode, messagejob.FieldTraceparent, messagejob.FieldTracestate, messagejob.FieldDeliveryOutcome, messagejob.FieldDeliveryReason:
+		case messagejob.FieldIncomingDirection, messagejob.FieldSourceKind, messagejob.FieldStatus, messagejob.FieldLastErrorCode, messagejob.FieldTraceparent, messagejob.FieldTracestate, messagejob.FieldDeliveryOutcome, messagejob.FieldDeliveryReason:
 			values[i] = new(sql.NullString)
 		case messagejob.FieldNextRunAt, messagejob.FieldUpdatedAt, messagejob.FieldLeaseExpiresAt:
 			values[i] = new(sql.NullTime)
@@ -142,7 +162,27 @@ func (_m *MessageJob) assignValues(columns []string, values []any) error {
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field incoming_message_id", values[i])
 			} else if value.Valid {
-				_m.IncomingMessageID = value.Int64
+				_m.IncomingMessageID = new(int64)
+				*_m.IncomingMessageID = value.Int64
+			}
+		case messagejob.FieldIncomingDirection:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field incoming_direction", values[i])
+			} else if value.Valid {
+				_m.IncomingDirection = value.String
+			}
+		case messagejob.FieldSourceKind:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field source_kind", values[i])
+			} else if value.Valid {
+				_m.SourceKind = value.String
+			}
+		case messagejob.FieldConsentProposalID:
+			if value, ok := values[i].(*sql.NullScanner); !ok {
+				return fmt.Errorf("unexpected type %T for field consent_proposal_id", values[i])
+			} else if value.Valid {
+				_m.ConsentProposalID = new(uuid.UUID)
+				*_m.ConsentProposalID = *value.S.(*uuid.UUID)
 			}
 		case messagejob.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -237,6 +277,11 @@ func (_m *MessageJob) QueryIncomingMessageIDRef() *MessageQuery {
 	return NewMessageJobClient(_m.config).QueryIncomingMessageIDRef(_m)
 }
 
+// QueryConsentProposal queries the "consent_proposal" edge of the MessageJob entity.
+func (_m *MessageJob) QueryConsentProposal() *MemoryConsentProposalQuery {
+	return NewMessageJobClient(_m.config).QueryConsentProposal(_m)
+}
+
 // QueryIntentDecisionsJobID queries the "intent_decisions_job_id" edge of the MessageJob entity.
 func (_m *MessageJob) QueryIntentDecisionsJobID() *IntentDecisionQuery {
 	return NewMessageJobClient(_m.config).QueryIntentDecisionsJobID(_m)
@@ -275,8 +320,21 @@ func (_m *MessageJob) String() string {
 	var builder strings.Builder
 	builder.WriteString("MessageJob(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
-	builder.WriteString("incoming_message_id=")
-	builder.WriteString(fmt.Sprintf("%v", _m.IncomingMessageID))
+	if v := _m.IncomingMessageID; v != nil {
+		builder.WriteString("incoming_message_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("incoming_direction=")
+	builder.WriteString(_m.IncomingDirection)
+	builder.WriteString(", ")
+	builder.WriteString("source_kind=")
+	builder.WriteString(_m.SourceKind)
+	builder.WriteString(", ")
+	if v := _m.ConsentProposalID; v != nil {
+		builder.WriteString("consent_proposal_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)

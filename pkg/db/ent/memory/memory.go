@@ -22,6 +22,8 @@ const (
 	FieldOwnerKey = "owner_key"
 	// FieldContent holds the string denoting the content field in the database.
 	FieldContent = "content"
+	// FieldAuthorizationVersion holds the string denoting the authorization_version field in the database.
+	FieldAuthorizationVersion = "authorization_version"
 	// FieldSourceMessageID holds the string denoting the source_message_id field in the database.
 	FieldSourceMessageID = "source_message_id"
 	// FieldSource holds the string denoting the source field in the database.
@@ -83,6 +85,7 @@ var Columns = []string{
 	FieldVisibility,
 	FieldOwnerKey,
 	FieldContent,
+	FieldAuthorizationVersion,
 	FieldSourceMessageID,
 	FieldSource,
 	FieldSourceSenderID,
@@ -112,6 +115,8 @@ func ValidColumn(column string) bool {
 var (
 	// DefaultOwnerKey holds the default value on creation for the "owner_key" field.
 	DefaultOwnerKey string
+	// DefaultAuthorizationVersion holds the default value on creation for the "authorization_version" field.
+	DefaultAuthorizationVersion int64
 	// DefaultSource holds the default value on creation for the "source" field.
 	DefaultSource string
 	// DefaultOrigin holds the default value on creation for the "origin" field.
@@ -156,6 +161,11 @@ func ByOwnerKey(opts ...sql.OrderTermOption) OrderOption {
 // ByContent orders the results by the content field.
 func ByContent(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldContent, opts...).ToFunc()
+}
+
+// ByAuthorizationVersion orders the results by the authorization_version field.
+func ByAuthorizationVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAuthorizationVersion, opts...).ToFunc()
 }
 
 // BySourceMessageID orders the results by the source_message_id field.

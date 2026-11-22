@@ -56,6 +56,12 @@ type Tx struct {
 	IntentRuleset *IntentRulesetClient
 	// Memory is the client for interacting with the Memory builders.
 	Memory *MemoryClient
+	// MemoryConsentEvent is the client for interacting with the MemoryConsentEvent builders.
+	MemoryConsentEvent *MemoryConsentEventClient
+	// MemoryConsentGrant is the client for interacting with the MemoryConsentGrant builders.
+	MemoryConsentGrant *MemoryConsentGrantClient
+	// MemoryConsentProposal is the client for interacting with the MemoryConsentProposal builders.
+	MemoryConsentProposal *MemoryConsentProposalClient
 	// MemoryExtractionCursor is the client for interacting with the MemoryExtractionCursor builders.
 	MemoryExtractionCursor *MemoryExtractionCursorClient
 	// MemoryExtractionJob is the client for interacting with the MemoryExtractionJob builders.
@@ -226,6 +232,9 @@ func (tx *Tx) init() {
 	tx.IntentRuleEntry = NewIntentRuleEntryClient(tx.config)
 	tx.IntentRuleset = NewIntentRulesetClient(tx.config)
 	tx.Memory = NewMemoryClient(tx.config)
+	tx.MemoryConsentEvent = NewMemoryConsentEventClient(tx.config)
+	tx.MemoryConsentGrant = NewMemoryConsentGrantClient(tx.config)
+	tx.MemoryConsentProposal = NewMemoryConsentProposalClient(tx.config)
 	tx.MemoryExtractionCursor = NewMemoryExtractionCursorClient(tx.config)
 	tx.MemoryExtractionJob = NewMemoryExtractionJobClient(tx.config)
 	tx.MemoryReplacement = NewMemoryReplacementClient(tx.config)

@@ -261,6 +261,42 @@ func (f MemoryFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, erro
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryMutation", m)
 }
 
+// The MemoryConsentEventFunc type is an adapter to allow the use of ordinary
+// function as MemoryConsentEvent mutator.
+type MemoryConsentEventFunc func(context.Context, *ent.MemoryConsentEventMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MemoryConsentEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MemoryConsentEventMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryConsentEventMutation", m)
+}
+
+// The MemoryConsentGrantFunc type is an adapter to allow the use of ordinary
+// function as MemoryConsentGrant mutator.
+type MemoryConsentGrantFunc func(context.Context, *ent.MemoryConsentGrantMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MemoryConsentGrantFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MemoryConsentGrantMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryConsentGrantMutation", m)
+}
+
+// The MemoryConsentProposalFunc type is an adapter to allow the use of ordinary
+// function as MemoryConsentProposal mutator.
+type MemoryConsentProposalFunc func(context.Context, *ent.MemoryConsentProposalMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MemoryConsentProposalFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MemoryConsentProposalMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MemoryConsentProposalMutation", m)
+}
+
 // The MemoryExtractionCursorFunc type is an adapter to allow the use of ordinary
 // function as MemoryExtractionCursor mutator.
 type MemoryExtractionCursorFunc func(context.Context, *ent.MemoryExtractionCursorMutation) (ent.Value, error)

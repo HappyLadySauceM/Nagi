@@ -59,7 +59,7 @@ func TestPublicSendSharesBudgetDeduplicatesAndRecordsTarget(t *testing.T) {
 	var targetKind, source string
 	var targetID int64
 	var segments string
-	if err := f.pool.QueryRow(ctx, `SELECT c.kind,c.target_id,m.segments::text,o.conversation_id::text FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agent_outbound_messages o ON o.id=m.outbound_id WHERE o.job_id=$1 AND o.tool_call_id='public-one'`, f.jobID).Scan(&targetKind, &targetID, &segments, &source); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT c.kind,c.target_id,m.segments::text,o.conversation_id::text FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN agent_outbound_messages o ON o.id=m.outbound_id WHERE o.job_id=$1 AND o.sequence=2 AND o.tool_call_id LIKE 'explicit:v1:%'`, f.jobID).Scan(&targetKind, &targetID, &segments, &source); err != nil {
 		t.Fatal(err)
 	}
 	if targetKind != "private" || targetID != int64(c.UserID) || source != f.conversationID || !strings.Contains(segments, "image") {

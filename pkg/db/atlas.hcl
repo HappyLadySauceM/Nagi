@@ -4,6 +4,6 @@ env "nagi" {
   migration {
     dir = "file://migrations/nagi"
     format = golang-migrate
-    exclude = ["schema_migrations"]
+    exclude = ["schema_migrations", "memory_consent_grants.memory_consent_grant_bound_proposal[type=fk]", "message_jobs.message_jobs_bound_incoming[type=fk]"]
   }
 }

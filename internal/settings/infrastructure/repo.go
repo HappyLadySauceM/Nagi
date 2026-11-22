@@ -36,8 +36,19 @@ func (r *Repo) Insert(ctx context.Context, settings settingsdomain.Settings, act
 	if err != nil {
 		return settingsdomain.Revision{}, err
 	}
-	err = r.pool.Client.SystemSetting.Create().SetID(1).SetPayload(payload).SetVersion(1).SetUpdatedBy(actor).OnConflict(entsql.ConflictColumns("id")).Ignore().Exec(ctx)
+	tx, err := r.pool.Client.Tx(ctx)
 	if err != nil {
+		return settingsdomain.Revision{}, err
+	}
+	defer tx.Rollback()
+	client := tx.Client()
+	if _, err = client.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('settings:bootstrap',0))"); err != nil {
+		return settingsdomain.Revision{}, err
+	}
+	if err = client.SystemSetting.Create().SetID(1).SetPayload(payload).SetVersion(1).SetUpdatedBy(actor).OnConflict(entsql.ConflictColumns("id")).Ignore().Exec(ctx); err != nil {
+		return settingsdomain.Revision{}, err
+	}
+	if err = tx.Commit(); err != nil {
 		return settingsdomain.Revision{}, err
 	}
 	out, _, err := r.Load(ctx)

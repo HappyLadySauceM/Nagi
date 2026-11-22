@@ -10,6 +10,8 @@ import (
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"log/slog"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,8 +78,9 @@ type OutboundRecorder interface {
 type Options struct {
 	// CanSend resolves the live sending grant, including configured defaults.
 	// CanSend 解析包含配置默认值的实时发送授权。
-	CanSend func(map[string]bool) bool
-	Media   media.MessageReader
+	CanSend       func(map[string]bool) bool
+	Media         media.MessageReader
+	HistoryImages func(context.Context, int64, string, string, int64, int64) ([]obdomain.Segment, error)
 	// Memory supplies approved long-term memories; nil disables recall.
 	// Memory 提供已批准的长期记忆；nil 表示不召回。
 	Memory   memorycontracts.Reader
@@ -108,6 +111,7 @@ type Options struct {
 type Replier struct {
 	canSend       func(map[string]bool) bool
 	media         media.MessageReader
+	historyImages func(context.Context, int64, string, string, int64, int64) ([]obdomain.Segment, error)
 	memory        memorycontracts.Reader
 	runtime       agentcontracts.Runtime
 	scopes        scopecontracts.Authorizer
@@ -135,7 +139,7 @@ func NewReplier(opts Options) (*Replier, error) {
 		opts.MaxTokens = 400
 	}
 	return &Replier{
-		canSend: opts.CanSend, media: opts.Media, memory: opts.Memory, runtime: opts.Runtime, scopes: opts.Scopes, senders: opts.Senders,
+		canSend: opts.CanSend, media: opts.Media, historyImages: opts.HistoryImages, memory: opts.Memory, runtime: opts.Runtime, scopes: opts.Scopes, senders: opts.Senders,
 		recorder: opts.Recorder, outbound: opts.Outbound, sending: opts.Sending, sendingLimits: opts.SendingLimits,
 		botName: opts.BotName, maxTokens: opts.MaxTokens, prompts: opts.Prompts,
 		botNameNow: opts.BotNameProvider, maxTokensNow: opts.MaxTokensProvider,
@@ -185,6 +189,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	ctx, cancelMedia := context.WithTimeout(ctx, 180*time.Second)
 	defer cancelMedia()
 	ctx = observability.WithContentState(ctx)
+	ctx = memorycontracts.WithReplyJob(ctx, task.JobID, task.ClaimToken)
 	policy, err := r.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
 	if err != nil {
 		return fmt.Errorf("agent: resolve policy: %w", err)
@@ -207,12 +212,30 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return auditErr
 	}
 	memories := r.recallMemories(ctx, task, policy, history)
+	for _, item := range memories {
+		if item.ConsentIdentity != "" {
+			observability.SuppressContent(ctx)
+			break
+		}
+	}
+	ctx = memorycontracts.WithRunReads(ctx)
+	reader, _ := r.memory.(memorycontracts.DetailReader)
+	for _, item := range memories {
+		memorycontracts.TrackVersionedRead(ctx, reader, memorycontracts.DetailRequest{
+			BotID: task.BotID, Kind: task.Kind, TargetID: task.TargetID, ConversationID: task.ConversationID,
+			SenderID: task.Message.SenderID, MemoryID: item.MemoryID,
+		}, memorycontracts.Memory{
+			UpdatedAt: item.UpdatedAt, AuthorizationVersion: item.AuthorizationVersion, ConsentIdentity: item.ConsentIdentity,
+			SourceMessageID: item.SourceMessageID, SourceSenderID: item.SourceSenderID,
+		}, nil)
+	}
+
 	messages, replyPrompt := r.buildMessages(ctx, task, history, memories)
 	runtimeMessages := toRuntimeMessages(messages)
 	runtimeMessages[len(messages)-1].CurrentInbound = true
-	if r.media != nil {
+	if r.media != nil && !memorycontracts.CrossGroupReadUsed(ctx) {
 		remaining := 8
-		prepare := func(segments []obdomain.Segment, text string) ([]media.Part, error) {
+		prepare := func(mediaCtx context.Context, segments []obdomain.Segment, text string) ([]media.Part, error) {
 			bounded := make([]obdomain.Segment, 0, len(segments))
 			limited := make(map[int]bool)
 			for index, seg := range segments {
@@ -226,7 +249,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 				}
 				bounded = append(bounded, seg)
 			}
-			parts, err := r.media.Parts(ctx, task.BotID, task.ConversationID, bounded, text)
+			parts, err := r.media.Parts(mediaCtx, task.BotID, task.ConversationID, bounded, text)
 			for i := range parts {
 				if parts[i].SourceSegment != nil && limited[*parts[i].SourceSegment] {
 					parts[i].PictureSegment = parts[i].SourceSegment
@@ -234,7 +257,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			}
 			return parts, err
 		}
-		parts, prepareErr := prepare(task.Segments, messages[len(messages)-1].Content)
+		parts, prepareErr := prepare(ctx, task.Segments, messages[len(messages)-1].Content)
 		if prepareErr != nil {
 			if err := auditcontracts.FinishEvent(ctx, contextEvent, "failed", "current_media_failed", nil); err != nil {
 				return err
@@ -248,8 +271,20 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			if task.Message.MessageID != 0 && m.MessageID == task.Message.MessageID {
 				continue
 			}
-			if !m.IsBot {
-				parts, prepareErr := prepare(m.Segments, messages[index].Content)
+			if !m.IsBot && r.historyImages != nil && slices.ContainsFunc(m.Segments, func(seg obdomain.Segment) bool {
+				return seg.Type == obdomain.SegImage
+			}) {
+				segments, err := r.historyImages(ctx, task.BotID, task.ConversationID, task.Kind, task.TargetID, m.MessageID)
+				if err != nil || len(segments) == 0 {
+					index--
+					continue
+				}
+				historyCtx := media.WithHistoryImageCheck(ctx, func(checkCtx context.Context, ordinal int, candidate obdomain.Segment) bool {
+					current, err := r.historyImages(checkCtx, task.BotID, task.ConversationID, task.Kind, task.TargetID, m.MessageID)
+					return err == nil && ordinal >= 0 && ordinal < len(current) &&
+						current[ordinal].Type == obdomain.SegImage && maps.Equal(current[ordinal].Data, candidate.Data)
+				})
+				parts, prepareErr := prepare(historyCtx, segments, messages[index].Content)
 				if prepareErr != nil {
 					if err := auditcontracts.FinishEvent(ctx, contextEvent, "failed", "history_media_failed", nil); err != nil {
 						return err
@@ -283,14 +318,6 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	}
 	promptTrace.Record(genSpan, false)
 	genCtx = observability.WithPromptTrace(genCtx, promptTrace)
-	genCtx = memorycontracts.WithRunReads(genCtx)
-	reader, _ := r.memory.(memorycontracts.DetailReader)
-	for _, item := range memories {
-		memorycontracts.TrackRead(genCtx, reader, memorycontracts.DetailRequest{
-			BotID: task.BotID, Kind: task.Kind, TargetID: task.TargetID, ConversationID: task.ConversationID,
-			SenderID: task.Message.SenderID, MemoryID: item.MemoryID,
-		}, item.UpdatedAt, nil)
-	}
 
 	if len(memories) > 0 {
 		genSpan.SetAttributes(
@@ -373,6 +400,10 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			toolMu.Unlock()
 		},
 	})
+	ctx = genCtx
+	if err == nil {
+		err = memorycontracts.ValidateCrossGroupOutput(ctx)
+	}
 	if observability.ContentSuppressed(ctx) {
 		observability.RecordObservationSecure(ctx, genSpan, "langfuse.observation.input", nil)
 	}
@@ -538,7 +569,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	// dropped and recorded rather than sent.
 	// 接触过凭证的运行不把凭证写入追踪；同样不应写入聊天，因此自动回复直接
 	// 丢弃并记录，而不是发送。
-	if observability.ContentSuppressed(ctx) {
+	if observability.CredentialsUsed(ctx) {
 		r.logger.Info("reply dropped: sensitive run", "job_id", task.JobID)
 		return r.recordDenied(ctx, task.JobID, "output_rejected", task.ClaimToken)
 	}
@@ -615,20 +646,33 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 			return ctx.Err()
 		}
 	}
-	latest, err = r.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
-	if err != nil {
-		return err
-	}
-	if !latest.Enabled || !latest.StoreMessages || latest.ReplyMode == scopedomain.ModeObserveOnly || !r.sendingAllowed(latest) {
-		return r.recordDenied(ctx, task.JobID, "authorization_revoked", task.ClaimToken)
-	}
-	if validator, ok := r.outbound.(interface {
-		ValidateReserved(context.Context, string, outbounddomain.Limits) error
-	}); ok {
-		if err := validator.ValidateReserved(ctx, record.ID, r.limitsFor(ctx, task)); err != nil {
-			_ = r.recordDenied(ctx, task.JobID, "budget_changed", task.ClaimToken)
+	authorizationRevoked := errors.New("agent: reply authorization revoked")
+	recheck := func() error {
+		current, err := r.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
+		if err != nil {
 			return err
 		}
+		if !current.Enabled || !current.StoreMessages || current.ReplyMode == scopedomain.ModeObserveOnly || !r.sendingAllowed(current) {
+			if err := r.recordDenied(ctx, task.JobID, "authorization_revoked", task.ClaimToken); err != nil {
+				return err
+			}
+			return authorizationRevoked
+		}
+		if validator, ok := r.outbound.(interface {
+			ValidateReserved(context.Context, string, outbounddomain.Limits) error
+		}); ok {
+			if err := validator.ValidateReserved(ctx, record.ID, r.limitsFor(ctx, task)); err != nil {
+				_ = r.recordDenied(ctx, task.JobID, "budget_changed", task.ClaimToken)
+				return err
+			}
+		}
+		return memorycontracts.ValidateCrossGroupOutput(ctx)
+	}
+	if err := recheck(); err != nil {
+		if errors.Is(err, authorizationRevoked) {
+			return nil
+		}
+		return err
 	}
 	// The delivery ledger is the authoritative record for an external side
 	// effect. Persist an audit start fact after the reservation is valid but
@@ -649,7 +693,10 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if auditErr != nil {
 		return auditErr
 	}
-	outcome, deliveryErr := outboundapp.Deliver(ctx, r.outbound, record.ID, func(sendCtx context.Context) (int64, error) {
+	if err := memorycontracts.ValidateCrossGroupOutput(ctx); err != nil {
+		return err
+	}
+	outcome, deliveryErr := outboundapp.DeliverWithRecheck(ctx, r.outbound, record.ID, recheck, func(sendCtx context.Context) (int64, error) {
 		sendCtx, sendSpan := tracer.Start(sendCtx, "nagi.onebot.send")
 		defer sendSpan.End()
 		auditcontracts.MarkSideEffect(sendCtx)
@@ -671,10 +718,23 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	}, record.ClaimToken)
 	status, messageID := outcome.Status, outcome.PlatformMessageID
 	if !status.Settleable() {
-		if auditErr := auditcontracts.FinishEvent(ctx, deliveryEvent, "failed", "delivery_unsettled", map[string]any{
+		code := "delivery_unsettled"
+		if errors.Is(deliveryErr, authorizationRevoked) {
+			code = "authorization_revoked"
+		}
+		if errors.Is(deliveryErr, outbounddomain.ErrBudgetExceeded) {
+			code = "budget_changed"
+			if err := r.recordDenied(ctx, task.JobID, code, task.ClaimToken); err != nil {
+				return err
+			}
+		}
+		if auditErr := auditcontracts.FinishEvent(ctx, deliveryEvent, "failed", code, map[string]any{
 			"status": status, "error": errorText(deliveryErr),
 		}); auditErr != nil {
 			return auditErr
+		}
+		if errors.Is(deliveryErr, authorizationRevoked) {
+			return nil
 		}
 		return deliveryErr
 	}

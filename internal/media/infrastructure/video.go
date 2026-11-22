@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"io"
 	"math"
 	"net/http"
@@ -61,6 +62,9 @@ type videoInfo struct {
 var bvPattern = regexp.MustCompile(`(?i)^BV[0-9a-z]{10}$`)
 
 func (p *VideoProvider) inspect(ctx context.Context, raw string) (string, error) {
+	if memory.CrossGroupReadUsed(ctx) {
+		return "", plugins.Denied("跨群授权回复不能提交外部媒体工具")
+	}
 	scope, ok := plugins.ScopeFrom(ctx)
 	if !ok {
 		return "", fmt.Errorf("video: scope required")

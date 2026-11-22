@@ -4,6 +4,7 @@ package assembly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
@@ -32,6 +33,7 @@ import (
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
+	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	outboundapp "github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	outbounddomain "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
@@ -80,9 +82,10 @@ func (h historyReader) RecentIntentMessages(ctx context.Context, conversationID 
 // intentProcessor adapts the intent decider to the conversation JobProcessor port.
 // intentProcessor 将意图决策器适配为会话的 JobProcessor 端口。
 type intentProcessor struct {
-	decider  *intentapp.Decider
-	models   models.Snapshotter
-	settings *settingsapp.Provider
+	decider          *intentapp.Decider
+	models           models.Snapshotter
+	settings         *settingsapp.Provider
+	consentProcessor func(context.Context, conversationdomain.Job) error
 }
 
 type runTimeoutKey struct{}
@@ -99,6 +102,12 @@ func executionSettings(ctx context.Context, provider *settingsapp.Provider) sett
 // Process converts the job into an intent task and runs the decision pipeline.
 // Process 将任务转换为意图任务并执行决策流水线。
 func (p intentProcessor) Process(ctx context.Context, job conversationdomain.Job) error {
+	if job.ConsentProposalID != "" {
+		if p.consentProcessor == nil {
+			return errors.New("consent worker unavailable")
+		}
+		return p.consentProcessor(ctx, job)
+	}
 	timeout := 180 * time.Second
 	if fixed, ok := ctx.Value(runTimeoutKey{}).(time.Duration); ok {
 		if fixed > 0 && fixed < timeout {
@@ -266,6 +275,9 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 		budget := int64(live.Agent.MaxToolCalls)
 		wrapped := make([]pluginscontracts.RegisteredTool, 0, len(visible))
 		for _, registered := range visible {
+			if memorycontracts.CrossGroupReadUsed(ctx) && !pluginsapp.ConsentReplyTool(registered.Descriptor.ID) {
+				continue
+			}
 			// A tool that does not apply to the conversation kind never reaches
 			// the model, so it cannot even request it; the execution-time check
 			// inside the tool stays as the second line of defence.
@@ -293,7 +305,8 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 			}
 			guarded := pluginsapp.Guard(scope, registered.Descriptor, registered.Invoke)
 			registered.Invoke = func(ctx context.Context, argumentsInJSON string) (string, error) {
-				if budget > 0 && calls.Add(1) > budget {
+				callNumber := calls.Add(1)
+				if budget > 0 && callNumber > budget {
 					if scope.Record != nil {
 						scope.Record(pluginscontracts.ToolRun{ToolID: registered.Descriptor.ID, Status: pluginsapp.StatusDenied, ErrorCode: "tool_call_budget"})
 					}
@@ -354,6 +367,7 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	catalog *settingsapp.Service,
 	promptService *intentapp.PromptService,
 	mediaService media.MessageReader,
+	attachments *conversationinfra.Repo,
 	scope *scopeapp.Service, conv *conversationapp.Service, memory memorycontracts.Reader, senders agentapp.SenderResolver,
 	handler *langfusecb.CallbackHandler, sensitiveHandler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
 	limits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits,
@@ -370,6 +384,13 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	}
 	live := settings.Settings()
 	runtime := newModelRuntime(settings, catalog, tools, handlers, logger)
+	if cfg.Memory.CrossGroupConsentRead {
+		authority, err := memoryinfra.NewRepo(pool)
+		if err != nil {
+			return nil, err
+		}
+		runtime.consentGeneration = authority.ValidateConsentGeneration
+	}
 	if sensitiveHandler != nil {
 		runtime.sensitiveHandlers = []callbacks.Handler{sensitiveHandler}
 	}
@@ -383,7 +404,7 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 			}
 			return true
 		},
-		Media: mediaService, Memory: memory, Runtime: runtime,
+		Media: mediaService, HistoryImages: attachments.HistoryImages, Memory: memory, Runtime: runtime,
 		Scopes:   scope,
 		Senders:  senders,
 		Recorder: conv,
@@ -452,7 +473,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	mediaService media.Transcriber,
 	promptService *intentapp.PromptService,
 	scope *scopeapp.Service, conv *conversationapp.Service, accounts *svc.Accounts, executor intentcontracts.ReplyExecutor,
-	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder,
+	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder, consentProcessor func(context.Context, conversationdomain.Job) error,
 ) (*conversationinfra.Worker, *intentinfra.DecisionsRepo, intentcontracts.SimulationEvaluator, *intentapp.PromptService, *intentapp.ReplayService, error) {
 	if pool == nil || scope == nil || conv == nil {
 		return nil, nil, nil, nil, nil, nil
@@ -529,7 +550,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider, models: catalog, settings: settings}, conversationinfra.WorkerOptions{
+	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider, models: catalog, settings: settings, consentProcessor: consentProcessor}, conversationinfra.WorkerOptions{
 		Concurrency:  cfg.Worker.Concurrency,
 		MaxPending:   cfg.Worker.MaxPendingJobs,
 		PollInterval: cfg.Worker.PollInterval.D(),

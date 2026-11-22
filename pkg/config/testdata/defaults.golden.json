@@ -48,6 +48,8 @@
     "level": "info"
   },
   "memory": {
+    "cross-group-consent-read": false,
+    "cross-group-consent-write": false,
     "extraction": {
       "batch-max-messages": 10,
       "batch-max-runes": 4000,

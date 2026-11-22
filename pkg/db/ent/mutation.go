@@ -33,6 +33,9 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
@@ -76,6 +79,9 @@ const (
 	TypeIntentRuleEntry               = "IntentRuleEntry"
 	TypeIntentRuleset                 = "IntentRuleset"
 	TypeMemory                        = "Memory"
+	TypeMemoryConsentEvent            = "MemoryConsentEvent"
+	TypeMemoryConsentGrant            = "MemoryConsentGrant"
+	TypeMemoryConsentProposal         = "MemoryConsentProposal"
 	TypeMemoryExtractionCursor        = "MemoryExtractionCursor"
 	TypeMemoryExtractionJob           = "MemoryExtractionJob"
 	TypeMemoryReplacement             = "MemoryReplacement"
@@ -21064,6 +21070,8 @@ type MemoryMutation struct {
 	visibility                   *string
 	owner_key                    *string
 	content                      *string
+	authorization_version        *int64
+	addauthorization_version     *int64
 	source                       *string
 	source_sender_id             *int64
 	addsource_sender_id          *int64
@@ -21335,6 +21343,62 @@ func (m *MemoryMutation) OldContent(ctx context.Context) (v string, err error) {
 // ResetContent resets all changes to the "content" field.
 func (m *MemoryMutation) ResetContent() {
 	m.content = nil
+}
+
+// SetAuthorizationVersion sets the "authorization_version" field.
+func (m *MemoryMutation) SetAuthorizationVersion(i int64) {
+	m.authorization_version = &i
+	m.addauthorization_version = nil
+}
+
+// AuthorizationVersion returns the value of the "authorization_version" field in the mutation.
+func (m *MemoryMutation) AuthorizationVersion() (r int64, exists bool) {
+	v := m.authorization_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthorizationVersion returns the old "authorization_version" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldAuthorizationVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthorizationVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthorizationVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthorizationVersion: %w", err)
+	}
+	return oldValue.AuthorizationVersion, nil
+}
+
+// AddAuthorizationVersion adds i to the "authorization_version" field.
+func (m *MemoryMutation) AddAuthorizationVersion(i int64) {
+	if m.addauthorization_version != nil {
+		*m.addauthorization_version += i
+	} else {
+		m.addauthorization_version = &i
+	}
+}
+
+// AddedAuthorizationVersion returns the value that was added to the "authorization_version" field in this mutation.
+func (m *MemoryMutation) AddedAuthorizationVersion() (r int64, exists bool) {
+	v := m.addauthorization_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAuthorizationVersion resets all changes to the "authorization_version" field.
+func (m *MemoryMutation) ResetAuthorizationVersion() {
+	m.authorization_version = nil
+	m.addauthorization_version = nil
 }
 
 // SetSourceMessageID sets the "source_message_id" field.
@@ -22074,7 +22138,7 @@ func (m *MemoryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MemoryMutation) Fields() []string {
-	fields := make([]string, 0, 18)
+	fields := make([]string, 0, 19)
 	if m.bot_id_ref != nil {
 		fields = append(fields, memory.FieldBotID)
 	}
@@ -22086,6 +22150,9 @@ func (m *MemoryMutation) Fields() []string {
 	}
 	if m.content != nil {
 		fields = append(fields, memory.FieldContent)
+	}
+	if m.authorization_version != nil {
+		fields = append(fields, memory.FieldAuthorizationVersion)
 	}
 	if m.source_message_id_ref != nil {
 		fields = append(fields, memory.FieldSourceMessageID)
@@ -22145,6 +22212,8 @@ func (m *MemoryMutation) Field(name string) (ent.Value, bool) {
 		return m.OwnerKey()
 	case memory.FieldContent:
 		return m.Content()
+	case memory.FieldAuthorizationVersion:
+		return m.AuthorizationVersion()
 	case memory.FieldSourceMessageID:
 		return m.SourceMessageID()
 	case memory.FieldSource:
@@ -22190,6 +22259,8 @@ func (m *MemoryMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldOwnerKey(ctx)
 	case memory.FieldContent:
 		return m.OldContent(ctx)
+	case memory.FieldAuthorizationVersion:
+		return m.OldAuthorizationVersion(ctx)
 	case memory.FieldSourceMessageID:
 		return m.OldSourceMessageID(ctx)
 	case memory.FieldSource:
@@ -22254,6 +22325,13 @@ func (m *MemoryMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetContent(v)
+		return nil
+	case memory.FieldAuthorizationVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthorizationVersion(v)
 		return nil
 	case memory.FieldSourceMessageID:
 		v, ok := value.(int64)
@@ -22361,6 +22439,9 @@ func (m *MemoryMutation) SetField(name string, value ent.Value) error {
 // this mutation.
 func (m *MemoryMutation) AddedFields() []string {
 	var fields []string
+	if m.addauthorization_version != nil {
+		fields = append(fields, memory.FieldAuthorizationVersion)
+	}
 	if m.addsource_sender_id != nil {
 		fields = append(fields, memory.FieldSourceSenderID)
 	}
@@ -22375,6 +22456,8 @@ func (m *MemoryMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *MemoryMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case memory.FieldAuthorizationVersion:
+		return m.AddedAuthorizationVersion()
 	case memory.FieldSourceSenderID:
 		return m.AddedSourceSenderID()
 	case memory.FieldConfidence:
@@ -22388,6 +22471,13 @@ func (m *MemoryMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *MemoryMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case memory.FieldAuthorizationVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAuthorizationVersion(v)
+		return nil
 	case memory.FieldSourceSenderID:
 		v, ok := value.(int64)
 		if !ok {
@@ -22479,6 +22569,9 @@ func (m *MemoryMutation) ResetField(name string) error {
 		return nil
 	case memory.FieldContent:
 		m.ResetContent()
+		return nil
+	case memory.FieldAuthorizationVersion:
+		m.ResetAuthorizationVersion()
 		return nil
 	case memory.FieldSourceMessageID:
 		m.ResetSourceMessageID()
@@ -22616,6 +22709,3457 @@ func (m *MemoryMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Memory edge %s", name)
+}
+
+// MemoryConsentEventMutation represents an operation that mutates the MemoryConsentEvent nodes in the graph.
+type MemoryConsentEventMutation struct {
+	config
+	op                     Op
+	typ                    string
+	id                     *int64
+	bot_id                 *int64
+	addbot_id              *int64
+	conversation_id        *uuid.UUID
+	platform_message_id    *int64
+	addplatform_message_id *int64
+	outcome                *string
+	created_at             *time.Time
+	clearedFields          map[string]struct{}
+	proposal               *uuid.UUID
+	clearedproposal        bool
+	done                   bool
+	oldValue               func(context.Context) (*MemoryConsentEvent, error)
+	predicates             []predicate.MemoryConsentEvent
+}
+
+var _ ent.Mutation = (*MemoryConsentEventMutation)(nil)
+
+// memoryconsenteventOption allows management of the mutation configuration using functional options.
+type memoryconsenteventOption func(*MemoryConsentEventMutation)
+
+// newMemoryConsentEventMutation creates new mutation for the MemoryConsentEvent entity.
+func newMemoryConsentEventMutation(c config, op Op, opts ...memoryconsenteventOption) *MemoryConsentEventMutation {
+	m := &MemoryConsentEventMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMemoryConsentEvent,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMemoryConsentEventID sets the ID field of the mutation.
+func withMemoryConsentEventID(id int64) memoryconsenteventOption {
+	return func(m *MemoryConsentEventMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MemoryConsentEvent
+		)
+		m.oldValue = func(ctx context.Context) (*MemoryConsentEvent, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MemoryConsentEvent.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMemoryConsentEvent sets the old MemoryConsentEvent of the mutation.
+func withMemoryConsentEvent(node *MemoryConsentEvent) memoryconsenteventOption {
+	return func(m *MemoryConsentEventMutation) {
+		m.oldValue = func(context.Context) (*MemoryConsentEvent, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MemoryConsentEventMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MemoryConsentEventMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of MemoryConsentEvent entities.
+func (m *MemoryConsentEventMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MemoryConsentEventMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MemoryConsentEventMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MemoryConsentEvent.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *MemoryConsentEventMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *MemoryConsentEventMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the MemoryConsentEvent entity.
+// If the MemoryConsentEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentEventMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *MemoryConsentEventMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *MemoryConsentEventMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *MemoryConsentEventMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *MemoryConsentEventMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *MemoryConsentEventMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the MemoryConsentEvent entity.
+// If the MemoryConsentEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentEventMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *MemoryConsentEventMutation) ResetConversationID() {
+	m.conversation_id = nil
+}
+
+// SetPlatformMessageID sets the "platform_message_id" field.
+func (m *MemoryConsentEventMutation) SetPlatformMessageID(i int64) {
+	m.platform_message_id = &i
+	m.addplatform_message_id = nil
+}
+
+// PlatformMessageID returns the value of the "platform_message_id" field in the mutation.
+func (m *MemoryConsentEventMutation) PlatformMessageID() (r int64, exists bool) {
+	v := m.platform_message_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatformMessageID returns the old "platform_message_id" field's value of the MemoryConsentEvent entity.
+// If the MemoryConsentEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentEventMutation) OldPlatformMessageID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatformMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatformMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatformMessageID: %w", err)
+	}
+	return oldValue.PlatformMessageID, nil
+}
+
+// AddPlatformMessageID adds i to the "platform_message_id" field.
+func (m *MemoryConsentEventMutation) AddPlatformMessageID(i int64) {
+	if m.addplatform_message_id != nil {
+		*m.addplatform_message_id += i
+	} else {
+		m.addplatform_message_id = &i
+	}
+}
+
+// AddedPlatformMessageID returns the value that was added to the "platform_message_id" field in this mutation.
+func (m *MemoryConsentEventMutation) AddedPlatformMessageID() (r int64, exists bool) {
+	v := m.addplatform_message_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPlatformMessageID resets all changes to the "platform_message_id" field.
+func (m *MemoryConsentEventMutation) ResetPlatformMessageID() {
+	m.platform_message_id = nil
+	m.addplatform_message_id = nil
+}
+
+// SetProposalID sets the "proposal_id" field.
+func (m *MemoryConsentEventMutation) SetProposalID(u uuid.UUID) {
+	m.proposal = &u
+}
+
+// ProposalID returns the value of the "proposal_id" field in the mutation.
+func (m *MemoryConsentEventMutation) ProposalID() (r uuid.UUID, exists bool) {
+	v := m.proposal
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProposalID returns the old "proposal_id" field's value of the MemoryConsentEvent entity.
+// If the MemoryConsentEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentEventMutation) OldProposalID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProposalID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProposalID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProposalID: %w", err)
+	}
+	return oldValue.ProposalID, nil
+}
+
+// ResetProposalID resets all changes to the "proposal_id" field.
+func (m *MemoryConsentEventMutation) ResetProposalID() {
+	m.proposal = nil
+}
+
+// SetOutcome sets the "outcome" field.
+func (m *MemoryConsentEventMutation) SetOutcome(s string) {
+	m.outcome = &s
+}
+
+// Outcome returns the value of the "outcome" field in the mutation.
+func (m *MemoryConsentEventMutation) Outcome() (r string, exists bool) {
+	v := m.outcome
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOutcome returns the old "outcome" field's value of the MemoryConsentEvent entity.
+// If the MemoryConsentEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentEventMutation) OldOutcome(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOutcome is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOutcome requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOutcome: %w", err)
+	}
+	return oldValue.Outcome, nil
+}
+
+// ResetOutcome resets all changes to the "outcome" field.
+func (m *MemoryConsentEventMutation) ResetOutcome() {
+	m.outcome = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *MemoryConsentEventMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *MemoryConsentEventMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the MemoryConsentEvent entity.
+// If the MemoryConsentEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentEventMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *MemoryConsentEventMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// ClearProposal clears the "proposal" edge to the MemoryConsentProposal entity.
+func (m *MemoryConsentEventMutation) ClearProposal() {
+	m.clearedproposal = true
+	m.clearedFields[memoryconsentevent.FieldProposalID] = struct{}{}
+}
+
+// ProposalCleared reports if the "proposal" edge to the MemoryConsentProposal entity was cleared.
+func (m *MemoryConsentEventMutation) ProposalCleared() bool {
+	return m.clearedproposal
+}
+
+// ProposalIDs returns the "proposal" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProposalID instead. It exists only for internal usage by the builders.
+func (m *MemoryConsentEventMutation) ProposalIDs() (ids []uuid.UUID) {
+	if id := m.proposal; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetProposal resets all changes to the "proposal" edge.
+func (m *MemoryConsentEventMutation) ResetProposal() {
+	m.proposal = nil
+	m.clearedproposal = false
+}
+
+// Where appends a list predicates to the MemoryConsentEventMutation builder.
+func (m *MemoryConsentEventMutation) Where(ps ...predicate.MemoryConsentEvent) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MemoryConsentEventMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MemoryConsentEventMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MemoryConsentEvent, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MemoryConsentEventMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MemoryConsentEventMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MemoryConsentEvent).
+func (m *MemoryConsentEventMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MemoryConsentEventMutation) Fields() []string {
+	fields := make([]string, 0, 6)
+	if m.bot_id != nil {
+		fields = append(fields, memoryconsentevent.FieldBotID)
+	}
+	if m.conversation_id != nil {
+		fields = append(fields, memoryconsentevent.FieldConversationID)
+	}
+	if m.platform_message_id != nil {
+		fields = append(fields, memoryconsentevent.FieldPlatformMessageID)
+	}
+	if m.proposal != nil {
+		fields = append(fields, memoryconsentevent.FieldProposalID)
+	}
+	if m.outcome != nil {
+		fields = append(fields, memoryconsentevent.FieldOutcome)
+	}
+	if m.created_at != nil {
+		fields = append(fields, memoryconsentevent.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MemoryConsentEventMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case memoryconsentevent.FieldBotID:
+		return m.BotID()
+	case memoryconsentevent.FieldConversationID:
+		return m.ConversationID()
+	case memoryconsentevent.FieldPlatformMessageID:
+		return m.PlatformMessageID()
+	case memoryconsentevent.FieldProposalID:
+		return m.ProposalID()
+	case memoryconsentevent.FieldOutcome:
+		return m.Outcome()
+	case memoryconsentevent.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MemoryConsentEventMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case memoryconsentevent.FieldBotID:
+		return m.OldBotID(ctx)
+	case memoryconsentevent.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case memoryconsentevent.FieldPlatformMessageID:
+		return m.OldPlatformMessageID(ctx)
+	case memoryconsentevent.FieldProposalID:
+		return m.OldProposalID(ctx)
+	case memoryconsentevent.FieldOutcome:
+		return m.OldOutcome(ctx)
+	case memoryconsentevent.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown MemoryConsentEvent field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryConsentEventMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case memoryconsentevent.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case memoryconsentevent.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case memoryconsentevent.FieldPlatformMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatformMessageID(v)
+		return nil
+	case memoryconsentevent.FieldProposalID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProposalID(v)
+		return nil
+	case memoryconsentevent.FieldOutcome:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOutcome(v)
+		return nil
+	case memoryconsentevent.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentEvent field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MemoryConsentEventMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, memoryconsentevent.FieldBotID)
+	}
+	if m.addplatform_message_id != nil {
+		fields = append(fields, memoryconsentevent.FieldPlatformMessageID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MemoryConsentEventMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case memoryconsentevent.FieldBotID:
+		return m.AddedBotID()
+	case memoryconsentevent.FieldPlatformMessageID:
+		return m.AddedPlatformMessageID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryConsentEventMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case memoryconsentevent.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	case memoryconsentevent.FieldPlatformMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPlatformMessageID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentEvent numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MemoryConsentEventMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MemoryConsentEventMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MemoryConsentEventMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown MemoryConsentEvent nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MemoryConsentEventMutation) ResetField(name string) error {
+	switch name {
+	case memoryconsentevent.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case memoryconsentevent.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case memoryconsentevent.FieldPlatformMessageID:
+		m.ResetPlatformMessageID()
+		return nil
+	case memoryconsentevent.FieldProposalID:
+		m.ResetProposalID()
+		return nil
+	case memoryconsentevent.FieldOutcome:
+		m.ResetOutcome()
+		return nil
+	case memoryconsentevent.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentEvent field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MemoryConsentEventMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.proposal != nil {
+		edges = append(edges, memoryconsentevent.EdgeProposal)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MemoryConsentEventMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case memoryconsentevent.EdgeProposal:
+		if id := m.proposal; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MemoryConsentEventMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MemoryConsentEventMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MemoryConsentEventMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedproposal {
+		edges = append(edges, memoryconsentevent.EdgeProposal)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MemoryConsentEventMutation) EdgeCleared(name string) bool {
+	switch name {
+	case memoryconsentevent.EdgeProposal:
+		return m.clearedproposal
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MemoryConsentEventMutation) ClearEdge(name string) error {
+	switch name {
+	case memoryconsentevent.EdgeProposal:
+		m.ClearProposal()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentEvent unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MemoryConsentEventMutation) ResetEdge(name string) error {
+	switch name {
+	case memoryconsentevent.EdgeProposal:
+		m.ResetProposal()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentEvent edge %s", name)
+}
+
+// MemoryConsentGrantMutation represents an operation that mutates the MemoryConsentGrant nodes in the graph.
+type MemoryConsentGrantMutation struct {
+	config
+	op                          Op
+	typ                         string
+	id                          *int64
+	bot_id                      *int64
+	addbot_id                   *int64
+	memory_id                   *uuid.UUID
+	fact_version                *int64
+	addfact_version             *int64
+	subject_id                  *int64
+	addsubject_id               *int64
+	target_group_id             *int64
+	addtarget_group_id          *int64
+	confirmed_at                *time.Time
+	state_version               *int64
+	addstate_version            *int64
+	revoked_at                  *time.Time
+	revocation_source           *string
+	clearedFields               map[string]struct{}
+	proposal                    *uuid.UUID
+	clearedproposal             bool
+	confirmation_message        *int64
+	clearedconfirmation_message bool
+	done                        bool
+	oldValue                    func(context.Context) (*MemoryConsentGrant, error)
+	predicates                  []predicate.MemoryConsentGrant
+}
+
+var _ ent.Mutation = (*MemoryConsentGrantMutation)(nil)
+
+// memoryconsentgrantOption allows management of the mutation configuration using functional options.
+type memoryconsentgrantOption func(*MemoryConsentGrantMutation)
+
+// newMemoryConsentGrantMutation creates new mutation for the MemoryConsentGrant entity.
+func newMemoryConsentGrantMutation(c config, op Op, opts ...memoryconsentgrantOption) *MemoryConsentGrantMutation {
+	m := &MemoryConsentGrantMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMemoryConsentGrant,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMemoryConsentGrantID sets the ID field of the mutation.
+func withMemoryConsentGrantID(id int64) memoryconsentgrantOption {
+	return func(m *MemoryConsentGrantMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MemoryConsentGrant
+		)
+		m.oldValue = func(ctx context.Context) (*MemoryConsentGrant, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MemoryConsentGrant.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMemoryConsentGrant sets the old MemoryConsentGrant of the mutation.
+func withMemoryConsentGrant(node *MemoryConsentGrant) memoryconsentgrantOption {
+	return func(m *MemoryConsentGrantMutation) {
+		m.oldValue = func(context.Context) (*MemoryConsentGrant, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MemoryConsentGrantMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MemoryConsentGrantMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of MemoryConsentGrant entities.
+func (m *MemoryConsentGrantMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MemoryConsentGrantMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MemoryConsentGrantMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MemoryConsentGrant.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *MemoryConsentGrantMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *MemoryConsentGrantMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *MemoryConsentGrantMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *MemoryConsentGrantMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *MemoryConsentGrantMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetMemoryID sets the "memory_id" field.
+func (m *MemoryConsentGrantMutation) SetMemoryID(u uuid.UUID) {
+	m.memory_id = &u
+}
+
+// MemoryID returns the value of the "memory_id" field in the mutation.
+func (m *MemoryConsentGrantMutation) MemoryID() (r uuid.UUID, exists bool) {
+	v := m.memory_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMemoryID returns the old "memory_id" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldMemoryID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMemoryID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMemoryID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMemoryID: %w", err)
+	}
+	return oldValue.MemoryID, nil
+}
+
+// ResetMemoryID resets all changes to the "memory_id" field.
+func (m *MemoryConsentGrantMutation) ResetMemoryID() {
+	m.memory_id = nil
+}
+
+// SetFactVersion sets the "fact_version" field.
+func (m *MemoryConsentGrantMutation) SetFactVersion(i int64) {
+	m.fact_version = &i
+	m.addfact_version = nil
+}
+
+// FactVersion returns the value of the "fact_version" field in the mutation.
+func (m *MemoryConsentGrantMutation) FactVersion() (r int64, exists bool) {
+	v := m.fact_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFactVersion returns the old "fact_version" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldFactVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFactVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFactVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFactVersion: %w", err)
+	}
+	return oldValue.FactVersion, nil
+}
+
+// AddFactVersion adds i to the "fact_version" field.
+func (m *MemoryConsentGrantMutation) AddFactVersion(i int64) {
+	if m.addfact_version != nil {
+		*m.addfact_version += i
+	} else {
+		m.addfact_version = &i
+	}
+}
+
+// AddedFactVersion returns the value that was added to the "fact_version" field in this mutation.
+func (m *MemoryConsentGrantMutation) AddedFactVersion() (r int64, exists bool) {
+	v := m.addfact_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetFactVersion resets all changes to the "fact_version" field.
+func (m *MemoryConsentGrantMutation) ResetFactVersion() {
+	m.fact_version = nil
+	m.addfact_version = nil
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (m *MemoryConsentGrantMutation) SetSubjectID(i int64) {
+	m.subject_id = &i
+	m.addsubject_id = nil
+}
+
+// SubjectID returns the value of the "subject_id" field in the mutation.
+func (m *MemoryConsentGrantMutation) SubjectID() (r int64, exists bool) {
+	v := m.subject_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubjectID returns the old "subject_id" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldSubjectID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubjectID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubjectID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubjectID: %w", err)
+	}
+	return oldValue.SubjectID, nil
+}
+
+// AddSubjectID adds i to the "subject_id" field.
+func (m *MemoryConsentGrantMutation) AddSubjectID(i int64) {
+	if m.addsubject_id != nil {
+		*m.addsubject_id += i
+	} else {
+		m.addsubject_id = &i
+	}
+}
+
+// AddedSubjectID returns the value that was added to the "subject_id" field in this mutation.
+func (m *MemoryConsentGrantMutation) AddedSubjectID() (r int64, exists bool) {
+	v := m.addsubject_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSubjectID resets all changes to the "subject_id" field.
+func (m *MemoryConsentGrantMutation) ResetSubjectID() {
+	m.subject_id = nil
+	m.addsubject_id = nil
+}
+
+// SetTargetGroupID sets the "target_group_id" field.
+func (m *MemoryConsentGrantMutation) SetTargetGroupID(i int64) {
+	m.target_group_id = &i
+	m.addtarget_group_id = nil
+}
+
+// TargetGroupID returns the value of the "target_group_id" field in the mutation.
+func (m *MemoryConsentGrantMutation) TargetGroupID() (r int64, exists bool) {
+	v := m.target_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTargetGroupID returns the old "target_group_id" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldTargetGroupID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTargetGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTargetGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTargetGroupID: %w", err)
+	}
+	return oldValue.TargetGroupID, nil
+}
+
+// AddTargetGroupID adds i to the "target_group_id" field.
+func (m *MemoryConsentGrantMutation) AddTargetGroupID(i int64) {
+	if m.addtarget_group_id != nil {
+		*m.addtarget_group_id += i
+	} else {
+		m.addtarget_group_id = &i
+	}
+}
+
+// AddedTargetGroupID returns the value that was added to the "target_group_id" field in this mutation.
+func (m *MemoryConsentGrantMutation) AddedTargetGroupID() (r int64, exists bool) {
+	v := m.addtarget_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTargetGroupID resets all changes to the "target_group_id" field.
+func (m *MemoryConsentGrantMutation) ResetTargetGroupID() {
+	m.target_group_id = nil
+	m.addtarget_group_id = nil
+}
+
+// SetProposalID sets the "proposal_id" field.
+func (m *MemoryConsentGrantMutation) SetProposalID(u uuid.UUID) {
+	m.proposal = &u
+}
+
+// ProposalID returns the value of the "proposal_id" field in the mutation.
+func (m *MemoryConsentGrantMutation) ProposalID() (r uuid.UUID, exists bool) {
+	v := m.proposal
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProposalID returns the old "proposal_id" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldProposalID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProposalID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProposalID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProposalID: %w", err)
+	}
+	return oldValue.ProposalID, nil
+}
+
+// ResetProposalID resets all changes to the "proposal_id" field.
+func (m *MemoryConsentGrantMutation) ResetProposalID() {
+	m.proposal = nil
+}
+
+// SetConfirmationMessageID sets the "confirmation_message_id" field.
+func (m *MemoryConsentGrantMutation) SetConfirmationMessageID(i int64) {
+	m.confirmation_message = &i
+}
+
+// ConfirmationMessageID returns the value of the "confirmation_message_id" field in the mutation.
+func (m *MemoryConsentGrantMutation) ConfirmationMessageID() (r int64, exists bool) {
+	v := m.confirmation_message
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfirmationMessageID returns the old "confirmation_message_id" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldConfirmationMessageID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfirmationMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfirmationMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfirmationMessageID: %w", err)
+	}
+	return oldValue.ConfirmationMessageID, nil
+}
+
+// ClearConfirmationMessageID clears the value of the "confirmation_message_id" field.
+func (m *MemoryConsentGrantMutation) ClearConfirmationMessageID() {
+	m.confirmation_message = nil
+	m.clearedFields[memoryconsentgrant.FieldConfirmationMessageID] = struct{}{}
+}
+
+// ConfirmationMessageIDCleared returns if the "confirmation_message_id" field was cleared in this mutation.
+func (m *MemoryConsentGrantMutation) ConfirmationMessageIDCleared() bool {
+	_, ok := m.clearedFields[memoryconsentgrant.FieldConfirmationMessageID]
+	return ok
+}
+
+// ResetConfirmationMessageID resets all changes to the "confirmation_message_id" field.
+func (m *MemoryConsentGrantMutation) ResetConfirmationMessageID() {
+	m.confirmation_message = nil
+	delete(m.clearedFields, memoryconsentgrant.FieldConfirmationMessageID)
+}
+
+// SetConfirmedAt sets the "confirmed_at" field.
+func (m *MemoryConsentGrantMutation) SetConfirmedAt(t time.Time) {
+	m.confirmed_at = &t
+}
+
+// ConfirmedAt returns the value of the "confirmed_at" field in the mutation.
+func (m *MemoryConsentGrantMutation) ConfirmedAt() (r time.Time, exists bool) {
+	v := m.confirmed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConfirmedAt returns the old "confirmed_at" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldConfirmedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConfirmedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConfirmedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConfirmedAt: %w", err)
+	}
+	return oldValue.ConfirmedAt, nil
+}
+
+// ResetConfirmedAt resets all changes to the "confirmed_at" field.
+func (m *MemoryConsentGrantMutation) ResetConfirmedAt() {
+	m.confirmed_at = nil
+}
+
+// SetStateVersion sets the "state_version" field.
+func (m *MemoryConsentGrantMutation) SetStateVersion(i int64) {
+	m.state_version = &i
+	m.addstate_version = nil
+}
+
+// StateVersion returns the value of the "state_version" field in the mutation.
+func (m *MemoryConsentGrantMutation) StateVersion() (r int64, exists bool) {
+	v := m.state_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStateVersion returns the old "state_version" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldStateVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStateVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStateVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStateVersion: %w", err)
+	}
+	return oldValue.StateVersion, nil
+}
+
+// AddStateVersion adds i to the "state_version" field.
+func (m *MemoryConsentGrantMutation) AddStateVersion(i int64) {
+	if m.addstate_version != nil {
+		*m.addstate_version += i
+	} else {
+		m.addstate_version = &i
+	}
+}
+
+// AddedStateVersion returns the value that was added to the "state_version" field in this mutation.
+func (m *MemoryConsentGrantMutation) AddedStateVersion() (r int64, exists bool) {
+	v := m.addstate_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetStateVersion resets all changes to the "state_version" field.
+func (m *MemoryConsentGrantMutation) ResetStateVersion() {
+	m.state_version = nil
+	m.addstate_version = nil
+}
+
+// SetRevokedAt sets the "revoked_at" field.
+func (m *MemoryConsentGrantMutation) SetRevokedAt(t time.Time) {
+	m.revoked_at = &t
+}
+
+// RevokedAt returns the value of the "revoked_at" field in the mutation.
+func (m *MemoryConsentGrantMutation) RevokedAt() (r time.Time, exists bool) {
+	v := m.revoked_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevokedAt returns the old "revoked_at" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldRevokedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevokedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevokedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevokedAt: %w", err)
+	}
+	return oldValue.RevokedAt, nil
+}
+
+// ClearRevokedAt clears the value of the "revoked_at" field.
+func (m *MemoryConsentGrantMutation) ClearRevokedAt() {
+	m.revoked_at = nil
+	m.clearedFields[memoryconsentgrant.FieldRevokedAt] = struct{}{}
+}
+
+// RevokedAtCleared returns if the "revoked_at" field was cleared in this mutation.
+func (m *MemoryConsentGrantMutation) RevokedAtCleared() bool {
+	_, ok := m.clearedFields[memoryconsentgrant.FieldRevokedAt]
+	return ok
+}
+
+// ResetRevokedAt resets all changes to the "revoked_at" field.
+func (m *MemoryConsentGrantMutation) ResetRevokedAt() {
+	m.revoked_at = nil
+	delete(m.clearedFields, memoryconsentgrant.FieldRevokedAt)
+}
+
+// SetRevocationSource sets the "revocation_source" field.
+func (m *MemoryConsentGrantMutation) SetRevocationSource(s string) {
+	m.revocation_source = &s
+}
+
+// RevocationSource returns the value of the "revocation_source" field in the mutation.
+func (m *MemoryConsentGrantMutation) RevocationSource() (r string, exists bool) {
+	v := m.revocation_source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevocationSource returns the old "revocation_source" field's value of the MemoryConsentGrant entity.
+// If the MemoryConsentGrant object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentGrantMutation) OldRevocationSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevocationSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevocationSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevocationSource: %w", err)
+	}
+	return oldValue.RevocationSource, nil
+}
+
+// ResetRevocationSource resets all changes to the "revocation_source" field.
+func (m *MemoryConsentGrantMutation) ResetRevocationSource() {
+	m.revocation_source = nil
+}
+
+// ClearProposal clears the "proposal" edge to the MemoryConsentProposal entity.
+func (m *MemoryConsentGrantMutation) ClearProposal() {
+	m.clearedproposal = true
+	m.clearedFields[memoryconsentgrant.FieldProposalID] = struct{}{}
+}
+
+// ProposalCleared reports if the "proposal" edge to the MemoryConsentProposal entity was cleared.
+func (m *MemoryConsentGrantMutation) ProposalCleared() bool {
+	return m.clearedproposal
+}
+
+// ProposalIDs returns the "proposal" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProposalID instead. It exists only for internal usage by the builders.
+func (m *MemoryConsentGrantMutation) ProposalIDs() (ids []uuid.UUID) {
+	if id := m.proposal; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetProposal resets all changes to the "proposal" edge.
+func (m *MemoryConsentGrantMutation) ResetProposal() {
+	m.proposal = nil
+	m.clearedproposal = false
+}
+
+// ClearConfirmationMessage clears the "confirmation_message" edge to the Message entity.
+func (m *MemoryConsentGrantMutation) ClearConfirmationMessage() {
+	m.clearedconfirmation_message = true
+	m.clearedFields[memoryconsentgrant.FieldConfirmationMessageID] = struct{}{}
+}
+
+// ConfirmationMessageCleared reports if the "confirmation_message" edge to the Message entity was cleared.
+func (m *MemoryConsentGrantMutation) ConfirmationMessageCleared() bool {
+	return m.ConfirmationMessageIDCleared() || m.clearedconfirmation_message
+}
+
+// ConfirmationMessageIDs returns the "confirmation_message" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ConfirmationMessageID instead. It exists only for internal usage by the builders.
+func (m *MemoryConsentGrantMutation) ConfirmationMessageIDs() (ids []int64) {
+	if id := m.confirmation_message; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetConfirmationMessage resets all changes to the "confirmation_message" edge.
+func (m *MemoryConsentGrantMutation) ResetConfirmationMessage() {
+	m.confirmation_message = nil
+	m.clearedconfirmation_message = false
+}
+
+// Where appends a list predicates to the MemoryConsentGrantMutation builder.
+func (m *MemoryConsentGrantMutation) Where(ps ...predicate.MemoryConsentGrant) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MemoryConsentGrantMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MemoryConsentGrantMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MemoryConsentGrant, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MemoryConsentGrantMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MemoryConsentGrantMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MemoryConsentGrant).
+func (m *MemoryConsentGrantMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MemoryConsentGrantMutation) Fields() []string {
+	fields := make([]string, 0, 11)
+	if m.bot_id != nil {
+		fields = append(fields, memoryconsentgrant.FieldBotID)
+	}
+	if m.memory_id != nil {
+		fields = append(fields, memoryconsentgrant.FieldMemoryID)
+	}
+	if m.fact_version != nil {
+		fields = append(fields, memoryconsentgrant.FieldFactVersion)
+	}
+	if m.subject_id != nil {
+		fields = append(fields, memoryconsentgrant.FieldSubjectID)
+	}
+	if m.target_group_id != nil {
+		fields = append(fields, memoryconsentgrant.FieldTargetGroupID)
+	}
+	if m.proposal != nil {
+		fields = append(fields, memoryconsentgrant.FieldProposalID)
+	}
+	if m.confirmation_message != nil {
+		fields = append(fields, memoryconsentgrant.FieldConfirmationMessageID)
+	}
+	if m.confirmed_at != nil {
+		fields = append(fields, memoryconsentgrant.FieldConfirmedAt)
+	}
+	if m.state_version != nil {
+		fields = append(fields, memoryconsentgrant.FieldStateVersion)
+	}
+	if m.revoked_at != nil {
+		fields = append(fields, memoryconsentgrant.FieldRevokedAt)
+	}
+	if m.revocation_source != nil {
+		fields = append(fields, memoryconsentgrant.FieldRevocationSource)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MemoryConsentGrantMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case memoryconsentgrant.FieldBotID:
+		return m.BotID()
+	case memoryconsentgrant.FieldMemoryID:
+		return m.MemoryID()
+	case memoryconsentgrant.FieldFactVersion:
+		return m.FactVersion()
+	case memoryconsentgrant.FieldSubjectID:
+		return m.SubjectID()
+	case memoryconsentgrant.FieldTargetGroupID:
+		return m.TargetGroupID()
+	case memoryconsentgrant.FieldProposalID:
+		return m.ProposalID()
+	case memoryconsentgrant.FieldConfirmationMessageID:
+		return m.ConfirmationMessageID()
+	case memoryconsentgrant.FieldConfirmedAt:
+		return m.ConfirmedAt()
+	case memoryconsentgrant.FieldStateVersion:
+		return m.StateVersion()
+	case memoryconsentgrant.FieldRevokedAt:
+		return m.RevokedAt()
+	case memoryconsentgrant.FieldRevocationSource:
+		return m.RevocationSource()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MemoryConsentGrantMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case memoryconsentgrant.FieldBotID:
+		return m.OldBotID(ctx)
+	case memoryconsentgrant.FieldMemoryID:
+		return m.OldMemoryID(ctx)
+	case memoryconsentgrant.FieldFactVersion:
+		return m.OldFactVersion(ctx)
+	case memoryconsentgrant.FieldSubjectID:
+		return m.OldSubjectID(ctx)
+	case memoryconsentgrant.FieldTargetGroupID:
+		return m.OldTargetGroupID(ctx)
+	case memoryconsentgrant.FieldProposalID:
+		return m.OldProposalID(ctx)
+	case memoryconsentgrant.FieldConfirmationMessageID:
+		return m.OldConfirmationMessageID(ctx)
+	case memoryconsentgrant.FieldConfirmedAt:
+		return m.OldConfirmedAt(ctx)
+	case memoryconsentgrant.FieldStateVersion:
+		return m.OldStateVersion(ctx)
+	case memoryconsentgrant.FieldRevokedAt:
+		return m.OldRevokedAt(ctx)
+	case memoryconsentgrant.FieldRevocationSource:
+		return m.OldRevocationSource(ctx)
+	}
+	return nil, fmt.Errorf("unknown MemoryConsentGrant field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryConsentGrantMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case memoryconsentgrant.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case memoryconsentgrant.FieldMemoryID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMemoryID(v)
+		return nil
+	case memoryconsentgrant.FieldFactVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFactVersion(v)
+		return nil
+	case memoryconsentgrant.FieldSubjectID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubjectID(v)
+		return nil
+	case memoryconsentgrant.FieldTargetGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTargetGroupID(v)
+		return nil
+	case memoryconsentgrant.FieldProposalID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProposalID(v)
+		return nil
+	case memoryconsentgrant.FieldConfirmationMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfirmationMessageID(v)
+		return nil
+	case memoryconsentgrant.FieldConfirmedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConfirmedAt(v)
+		return nil
+	case memoryconsentgrant.FieldStateVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStateVersion(v)
+		return nil
+	case memoryconsentgrant.FieldRevokedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevokedAt(v)
+		return nil
+	case memoryconsentgrant.FieldRevocationSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevocationSource(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentGrant field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MemoryConsentGrantMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, memoryconsentgrant.FieldBotID)
+	}
+	if m.addfact_version != nil {
+		fields = append(fields, memoryconsentgrant.FieldFactVersion)
+	}
+	if m.addsubject_id != nil {
+		fields = append(fields, memoryconsentgrant.FieldSubjectID)
+	}
+	if m.addtarget_group_id != nil {
+		fields = append(fields, memoryconsentgrant.FieldTargetGroupID)
+	}
+	if m.addstate_version != nil {
+		fields = append(fields, memoryconsentgrant.FieldStateVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MemoryConsentGrantMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case memoryconsentgrant.FieldBotID:
+		return m.AddedBotID()
+	case memoryconsentgrant.FieldFactVersion:
+		return m.AddedFactVersion()
+	case memoryconsentgrant.FieldSubjectID:
+		return m.AddedSubjectID()
+	case memoryconsentgrant.FieldTargetGroupID:
+		return m.AddedTargetGroupID()
+	case memoryconsentgrant.FieldStateVersion:
+		return m.AddedStateVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryConsentGrantMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case memoryconsentgrant.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	case memoryconsentgrant.FieldFactVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddFactVersion(v)
+		return nil
+	case memoryconsentgrant.FieldSubjectID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSubjectID(v)
+		return nil
+	case memoryconsentgrant.FieldTargetGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTargetGroupID(v)
+		return nil
+	case memoryconsentgrant.FieldStateVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddStateVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentGrant numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MemoryConsentGrantMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(memoryconsentgrant.FieldConfirmationMessageID) {
+		fields = append(fields, memoryconsentgrant.FieldConfirmationMessageID)
+	}
+	if m.FieldCleared(memoryconsentgrant.FieldRevokedAt) {
+		fields = append(fields, memoryconsentgrant.FieldRevokedAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MemoryConsentGrantMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MemoryConsentGrantMutation) ClearField(name string) error {
+	switch name {
+	case memoryconsentgrant.FieldConfirmationMessageID:
+		m.ClearConfirmationMessageID()
+		return nil
+	case memoryconsentgrant.FieldRevokedAt:
+		m.ClearRevokedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentGrant nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MemoryConsentGrantMutation) ResetField(name string) error {
+	switch name {
+	case memoryconsentgrant.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case memoryconsentgrant.FieldMemoryID:
+		m.ResetMemoryID()
+		return nil
+	case memoryconsentgrant.FieldFactVersion:
+		m.ResetFactVersion()
+		return nil
+	case memoryconsentgrant.FieldSubjectID:
+		m.ResetSubjectID()
+		return nil
+	case memoryconsentgrant.FieldTargetGroupID:
+		m.ResetTargetGroupID()
+		return nil
+	case memoryconsentgrant.FieldProposalID:
+		m.ResetProposalID()
+		return nil
+	case memoryconsentgrant.FieldConfirmationMessageID:
+		m.ResetConfirmationMessageID()
+		return nil
+	case memoryconsentgrant.FieldConfirmedAt:
+		m.ResetConfirmedAt()
+		return nil
+	case memoryconsentgrant.FieldStateVersion:
+		m.ResetStateVersion()
+		return nil
+	case memoryconsentgrant.FieldRevokedAt:
+		m.ResetRevokedAt()
+		return nil
+	case memoryconsentgrant.FieldRevocationSource:
+		m.ResetRevocationSource()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentGrant field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MemoryConsentGrantMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.proposal != nil {
+		edges = append(edges, memoryconsentgrant.EdgeProposal)
+	}
+	if m.confirmation_message != nil {
+		edges = append(edges, memoryconsentgrant.EdgeConfirmationMessage)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MemoryConsentGrantMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case memoryconsentgrant.EdgeProposal:
+		if id := m.proposal; id != nil {
+			return []ent.Value{*id}
+		}
+	case memoryconsentgrant.EdgeConfirmationMessage:
+		if id := m.confirmation_message; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MemoryConsentGrantMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MemoryConsentGrantMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MemoryConsentGrantMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedproposal {
+		edges = append(edges, memoryconsentgrant.EdgeProposal)
+	}
+	if m.clearedconfirmation_message {
+		edges = append(edges, memoryconsentgrant.EdgeConfirmationMessage)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MemoryConsentGrantMutation) EdgeCleared(name string) bool {
+	switch name {
+	case memoryconsentgrant.EdgeProposal:
+		return m.clearedproposal
+	case memoryconsentgrant.EdgeConfirmationMessage:
+		return m.clearedconfirmation_message
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MemoryConsentGrantMutation) ClearEdge(name string) error {
+	switch name {
+	case memoryconsentgrant.EdgeProposal:
+		m.ClearProposal()
+		return nil
+	case memoryconsentgrant.EdgeConfirmationMessage:
+		m.ClearConfirmationMessage()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentGrant unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MemoryConsentGrantMutation) ResetEdge(name string) error {
+	switch name {
+	case memoryconsentgrant.EdgeProposal:
+		m.ResetProposal()
+		return nil
+	case memoryconsentgrant.EdgeConfirmationMessage:
+		m.ResetConfirmationMessage()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentGrant edge %s", name)
+}
+
+// MemoryConsentProposalMutation represents an operation that mutates the MemoryConsentProposal nodes in the graph.
+type MemoryConsentProposalMutation struct {
+	config
+	op                     Op
+	typ                    string
+	id                     *uuid.UUID
+	bot_id                 *int64
+	addbot_id              *int64
+	memory_id              *uuid.UUID
+	fact_version           *int64
+	addfact_version        *int64
+	subject_id             *int64
+	addsubject_id          *int64
+	source_conversation_id *uuid.UUID
+	source_group_id        *int64
+	addsource_group_id     *int64
+	target_groups          *jsontext.Value
+	appendtarget_groups    jsontext.Value
+	display_digest         *string
+	idempotency_key        *string
+	status                 *string
+	state_version          *int64
+	addstate_version       *int64
+	created_at             *time.Time
+	expires_at             *time.Time
+	clearedFields          map[string]struct{}
+	source_message         *int64
+	clearedsource_message  bool
+	delivery_job           map[int64]struct{}
+	removeddelivery_job    map[int64]struct{}
+	cleareddelivery_job    bool
+	grants                 map[int64]struct{}
+	removedgrants          map[int64]struct{}
+	clearedgrants          bool
+	events                 map[int64]struct{}
+	removedevents          map[int64]struct{}
+	clearedevents          bool
+	done                   bool
+	oldValue               func(context.Context) (*MemoryConsentProposal, error)
+	predicates             []predicate.MemoryConsentProposal
+}
+
+var _ ent.Mutation = (*MemoryConsentProposalMutation)(nil)
+
+// memoryconsentproposalOption allows management of the mutation configuration using functional options.
+type memoryconsentproposalOption func(*MemoryConsentProposalMutation)
+
+// newMemoryConsentProposalMutation creates new mutation for the MemoryConsentProposal entity.
+func newMemoryConsentProposalMutation(c config, op Op, opts ...memoryconsentproposalOption) *MemoryConsentProposalMutation {
+	m := &MemoryConsentProposalMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMemoryConsentProposal,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMemoryConsentProposalID sets the ID field of the mutation.
+func withMemoryConsentProposalID(id uuid.UUID) memoryconsentproposalOption {
+	return func(m *MemoryConsentProposalMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MemoryConsentProposal
+		)
+		m.oldValue = func(ctx context.Context) (*MemoryConsentProposal, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MemoryConsentProposal.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMemoryConsentProposal sets the old MemoryConsentProposal of the mutation.
+func withMemoryConsentProposal(node *MemoryConsentProposal) memoryconsentproposalOption {
+	return func(m *MemoryConsentProposalMutation) {
+		m.oldValue = func(context.Context) (*MemoryConsentProposal, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MemoryConsentProposalMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MemoryConsentProposalMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of MemoryConsentProposal entities.
+func (m *MemoryConsentProposalMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MemoryConsentProposalMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MemoryConsentProposalMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MemoryConsentProposal.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *MemoryConsentProposalMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *MemoryConsentProposalMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *MemoryConsentProposalMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *MemoryConsentProposalMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *MemoryConsentProposalMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetMemoryID sets the "memory_id" field.
+func (m *MemoryConsentProposalMutation) SetMemoryID(u uuid.UUID) {
+	m.memory_id = &u
+}
+
+// MemoryID returns the value of the "memory_id" field in the mutation.
+func (m *MemoryConsentProposalMutation) MemoryID() (r uuid.UUID, exists bool) {
+	v := m.memory_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMemoryID returns the old "memory_id" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldMemoryID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMemoryID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMemoryID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMemoryID: %w", err)
+	}
+	return oldValue.MemoryID, nil
+}
+
+// ResetMemoryID resets all changes to the "memory_id" field.
+func (m *MemoryConsentProposalMutation) ResetMemoryID() {
+	m.memory_id = nil
+}
+
+// SetFactVersion sets the "fact_version" field.
+func (m *MemoryConsentProposalMutation) SetFactVersion(i int64) {
+	m.fact_version = &i
+	m.addfact_version = nil
+}
+
+// FactVersion returns the value of the "fact_version" field in the mutation.
+func (m *MemoryConsentProposalMutation) FactVersion() (r int64, exists bool) {
+	v := m.fact_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFactVersion returns the old "fact_version" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldFactVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFactVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFactVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFactVersion: %w", err)
+	}
+	return oldValue.FactVersion, nil
+}
+
+// AddFactVersion adds i to the "fact_version" field.
+func (m *MemoryConsentProposalMutation) AddFactVersion(i int64) {
+	if m.addfact_version != nil {
+		*m.addfact_version += i
+	} else {
+		m.addfact_version = &i
+	}
+}
+
+// AddedFactVersion returns the value that was added to the "fact_version" field in this mutation.
+func (m *MemoryConsentProposalMutation) AddedFactVersion() (r int64, exists bool) {
+	v := m.addfact_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetFactVersion resets all changes to the "fact_version" field.
+func (m *MemoryConsentProposalMutation) ResetFactVersion() {
+	m.fact_version = nil
+	m.addfact_version = nil
+}
+
+// SetSubjectID sets the "subject_id" field.
+func (m *MemoryConsentProposalMutation) SetSubjectID(i int64) {
+	m.subject_id = &i
+	m.addsubject_id = nil
+}
+
+// SubjectID returns the value of the "subject_id" field in the mutation.
+func (m *MemoryConsentProposalMutation) SubjectID() (r int64, exists bool) {
+	v := m.subject_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubjectID returns the old "subject_id" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldSubjectID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubjectID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubjectID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubjectID: %w", err)
+	}
+	return oldValue.SubjectID, nil
+}
+
+// AddSubjectID adds i to the "subject_id" field.
+func (m *MemoryConsentProposalMutation) AddSubjectID(i int64) {
+	if m.addsubject_id != nil {
+		*m.addsubject_id += i
+	} else {
+		m.addsubject_id = &i
+	}
+}
+
+// AddedSubjectID returns the value that was added to the "subject_id" field in this mutation.
+func (m *MemoryConsentProposalMutation) AddedSubjectID() (r int64, exists bool) {
+	v := m.addsubject_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSubjectID resets all changes to the "subject_id" field.
+func (m *MemoryConsentProposalMutation) ResetSubjectID() {
+	m.subject_id = nil
+	m.addsubject_id = nil
+}
+
+// SetSourceConversationID sets the "source_conversation_id" field.
+func (m *MemoryConsentProposalMutation) SetSourceConversationID(u uuid.UUID) {
+	m.source_conversation_id = &u
+}
+
+// SourceConversationID returns the value of the "source_conversation_id" field in the mutation.
+func (m *MemoryConsentProposalMutation) SourceConversationID() (r uuid.UUID, exists bool) {
+	v := m.source_conversation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceConversationID returns the old "source_conversation_id" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldSourceConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceConversationID: %w", err)
+	}
+	return oldValue.SourceConversationID, nil
+}
+
+// ResetSourceConversationID resets all changes to the "source_conversation_id" field.
+func (m *MemoryConsentProposalMutation) ResetSourceConversationID() {
+	m.source_conversation_id = nil
+}
+
+// SetSourceGroupID sets the "source_group_id" field.
+func (m *MemoryConsentProposalMutation) SetSourceGroupID(i int64) {
+	m.source_group_id = &i
+	m.addsource_group_id = nil
+}
+
+// SourceGroupID returns the value of the "source_group_id" field in the mutation.
+func (m *MemoryConsentProposalMutation) SourceGroupID() (r int64, exists bool) {
+	v := m.source_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceGroupID returns the old "source_group_id" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldSourceGroupID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceGroupID: %w", err)
+	}
+	return oldValue.SourceGroupID, nil
+}
+
+// AddSourceGroupID adds i to the "source_group_id" field.
+func (m *MemoryConsentProposalMutation) AddSourceGroupID(i int64) {
+	if m.addsource_group_id != nil {
+		*m.addsource_group_id += i
+	} else {
+		m.addsource_group_id = &i
+	}
+}
+
+// AddedSourceGroupID returns the value that was added to the "source_group_id" field in this mutation.
+func (m *MemoryConsentProposalMutation) AddedSourceGroupID() (r int64, exists bool) {
+	v := m.addsource_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSourceGroupID resets all changes to the "source_group_id" field.
+func (m *MemoryConsentProposalMutation) ResetSourceGroupID() {
+	m.source_group_id = nil
+	m.addsource_group_id = nil
+}
+
+// SetSourceMessageID sets the "source_message_id" field.
+func (m *MemoryConsentProposalMutation) SetSourceMessageID(i int64) {
+	m.source_message = &i
+}
+
+// SourceMessageID returns the value of the "source_message_id" field in the mutation.
+func (m *MemoryConsentProposalMutation) SourceMessageID() (r int64, exists bool) {
+	v := m.source_message
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceMessageID returns the old "source_message_id" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldSourceMessageID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceMessageID: %w", err)
+	}
+	return oldValue.SourceMessageID, nil
+}
+
+// ClearSourceMessageID clears the value of the "source_message_id" field.
+func (m *MemoryConsentProposalMutation) ClearSourceMessageID() {
+	m.source_message = nil
+	m.clearedFields[memoryconsentproposal.FieldSourceMessageID] = struct{}{}
+}
+
+// SourceMessageIDCleared returns if the "source_message_id" field was cleared in this mutation.
+func (m *MemoryConsentProposalMutation) SourceMessageIDCleared() bool {
+	_, ok := m.clearedFields[memoryconsentproposal.FieldSourceMessageID]
+	return ok
+}
+
+// ResetSourceMessageID resets all changes to the "source_message_id" field.
+func (m *MemoryConsentProposalMutation) ResetSourceMessageID() {
+	m.source_message = nil
+	delete(m.clearedFields, memoryconsentproposal.FieldSourceMessageID)
+}
+
+// SetTargetGroups sets the "target_groups" field.
+func (m *MemoryConsentProposalMutation) SetTargetGroups(j jsontext.Value) {
+	m.target_groups = &j
+	m.appendtarget_groups = nil
+}
+
+// TargetGroups returns the value of the "target_groups" field in the mutation.
+func (m *MemoryConsentProposalMutation) TargetGroups() (r jsontext.Value, exists bool) {
+	v := m.target_groups
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTargetGroups returns the old "target_groups" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldTargetGroups(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTargetGroups is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTargetGroups requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTargetGroups: %w", err)
+	}
+	return oldValue.TargetGroups, nil
+}
+
+// AppendTargetGroups adds j to the "target_groups" field.
+func (m *MemoryConsentProposalMutation) AppendTargetGroups(j jsontext.Value) {
+	m.appendtarget_groups = append(m.appendtarget_groups, j...)
+}
+
+// AppendedTargetGroups returns the list of values that were appended to the "target_groups" field in this mutation.
+func (m *MemoryConsentProposalMutation) AppendedTargetGroups() (jsontext.Value, bool) {
+	if len(m.appendtarget_groups) == 0 {
+		return nil, false
+	}
+	return m.appendtarget_groups, true
+}
+
+// ResetTargetGroups resets all changes to the "target_groups" field.
+func (m *MemoryConsentProposalMutation) ResetTargetGroups() {
+	m.target_groups = nil
+	m.appendtarget_groups = nil
+}
+
+// SetDisplayDigest sets the "display_digest" field.
+func (m *MemoryConsentProposalMutation) SetDisplayDigest(s string) {
+	m.display_digest = &s
+}
+
+// DisplayDigest returns the value of the "display_digest" field in the mutation.
+func (m *MemoryConsentProposalMutation) DisplayDigest() (r string, exists bool) {
+	v := m.display_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDisplayDigest returns the old "display_digest" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldDisplayDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDisplayDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDisplayDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDisplayDigest: %w", err)
+	}
+	return oldValue.DisplayDigest, nil
+}
+
+// ResetDisplayDigest resets all changes to the "display_digest" field.
+func (m *MemoryConsentProposalMutation) ResetDisplayDigest() {
+	m.display_digest = nil
+}
+
+// SetIdempotencyKey sets the "idempotency_key" field.
+func (m *MemoryConsentProposalMutation) SetIdempotencyKey(s string) {
+	m.idempotency_key = &s
+}
+
+// IdempotencyKey returns the value of the "idempotency_key" field in the mutation.
+func (m *MemoryConsentProposalMutation) IdempotencyKey() (r string, exists bool) {
+	v := m.idempotency_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIdempotencyKey returns the old "idempotency_key" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldIdempotencyKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIdempotencyKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIdempotencyKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIdempotencyKey: %w", err)
+	}
+	return oldValue.IdempotencyKey, nil
+}
+
+// ResetIdempotencyKey resets all changes to the "idempotency_key" field.
+func (m *MemoryConsentProposalMutation) ResetIdempotencyKey() {
+	m.idempotency_key = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *MemoryConsentProposalMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *MemoryConsentProposalMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *MemoryConsentProposalMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetStateVersion sets the "state_version" field.
+func (m *MemoryConsentProposalMutation) SetStateVersion(i int64) {
+	m.state_version = &i
+	m.addstate_version = nil
+}
+
+// StateVersion returns the value of the "state_version" field in the mutation.
+func (m *MemoryConsentProposalMutation) StateVersion() (r int64, exists bool) {
+	v := m.state_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStateVersion returns the old "state_version" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldStateVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStateVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStateVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStateVersion: %w", err)
+	}
+	return oldValue.StateVersion, nil
+}
+
+// AddStateVersion adds i to the "state_version" field.
+func (m *MemoryConsentProposalMutation) AddStateVersion(i int64) {
+	if m.addstate_version != nil {
+		*m.addstate_version += i
+	} else {
+		m.addstate_version = &i
+	}
+}
+
+// AddedStateVersion returns the value that was added to the "state_version" field in this mutation.
+func (m *MemoryConsentProposalMutation) AddedStateVersion() (r int64, exists bool) {
+	v := m.addstate_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetStateVersion resets all changes to the "state_version" field.
+func (m *MemoryConsentProposalMutation) ResetStateVersion() {
+	m.state_version = nil
+	m.addstate_version = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *MemoryConsentProposalMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *MemoryConsentProposalMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *MemoryConsentProposalMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *MemoryConsentProposalMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *MemoryConsentProposalMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the MemoryConsentProposal entity.
+// If the MemoryConsentProposal object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryConsentProposalMutation) OldExpiresAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *MemoryConsentProposalMutation) ResetExpiresAt() {
+	m.expires_at = nil
+}
+
+// ClearSourceMessage clears the "source_message" edge to the Message entity.
+func (m *MemoryConsentProposalMutation) ClearSourceMessage() {
+	m.clearedsource_message = true
+	m.clearedFields[memoryconsentproposal.FieldSourceMessageID] = struct{}{}
+}
+
+// SourceMessageCleared reports if the "source_message" edge to the Message entity was cleared.
+func (m *MemoryConsentProposalMutation) SourceMessageCleared() bool {
+	return m.SourceMessageIDCleared() || m.clearedsource_message
+}
+
+// SourceMessageIDs returns the "source_message" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// SourceMessageID instead. It exists only for internal usage by the builders.
+func (m *MemoryConsentProposalMutation) SourceMessageIDs() (ids []int64) {
+	if id := m.source_message; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetSourceMessage resets all changes to the "source_message" edge.
+func (m *MemoryConsentProposalMutation) ResetSourceMessage() {
+	m.source_message = nil
+	m.clearedsource_message = false
+}
+
+// AddDeliveryJobIDs adds the "delivery_job" edge to the MessageJob entity by ids.
+func (m *MemoryConsentProposalMutation) AddDeliveryJobIDs(ids ...int64) {
+	if m.delivery_job == nil {
+		m.delivery_job = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.delivery_job[ids[i]] = struct{}{}
+	}
+}
+
+// ClearDeliveryJob clears the "delivery_job" edge to the MessageJob entity.
+func (m *MemoryConsentProposalMutation) ClearDeliveryJob() {
+	m.cleareddelivery_job = true
+}
+
+// DeliveryJobCleared reports if the "delivery_job" edge to the MessageJob entity was cleared.
+func (m *MemoryConsentProposalMutation) DeliveryJobCleared() bool {
+	return m.cleareddelivery_job
+}
+
+// RemoveDeliveryJobIDs removes the "delivery_job" edge to the MessageJob entity by IDs.
+func (m *MemoryConsentProposalMutation) RemoveDeliveryJobIDs(ids ...int64) {
+	if m.removeddelivery_job == nil {
+		m.removeddelivery_job = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.delivery_job, ids[i])
+		m.removeddelivery_job[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedDeliveryJob returns the removed IDs of the "delivery_job" edge to the MessageJob entity.
+func (m *MemoryConsentProposalMutation) RemovedDeliveryJobIDs() (ids []int64) {
+	for id := range m.removeddelivery_job {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// DeliveryJobIDs returns the "delivery_job" edge IDs in the mutation.
+func (m *MemoryConsentProposalMutation) DeliveryJobIDs() (ids []int64) {
+	for id := range m.delivery_job {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetDeliveryJob resets all changes to the "delivery_job" edge.
+func (m *MemoryConsentProposalMutation) ResetDeliveryJob() {
+	m.delivery_job = nil
+	m.cleareddelivery_job = false
+	m.removeddelivery_job = nil
+}
+
+// AddGrantIDs adds the "grants" edge to the MemoryConsentGrant entity by ids.
+func (m *MemoryConsentProposalMutation) AddGrantIDs(ids ...int64) {
+	if m.grants == nil {
+		m.grants = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.grants[ids[i]] = struct{}{}
+	}
+}
+
+// ClearGrants clears the "grants" edge to the MemoryConsentGrant entity.
+func (m *MemoryConsentProposalMutation) ClearGrants() {
+	m.clearedgrants = true
+}
+
+// GrantsCleared reports if the "grants" edge to the MemoryConsentGrant entity was cleared.
+func (m *MemoryConsentProposalMutation) GrantsCleared() bool {
+	return m.clearedgrants
+}
+
+// RemoveGrantIDs removes the "grants" edge to the MemoryConsentGrant entity by IDs.
+func (m *MemoryConsentProposalMutation) RemoveGrantIDs(ids ...int64) {
+	if m.removedgrants == nil {
+		m.removedgrants = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.grants, ids[i])
+		m.removedgrants[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedGrants returns the removed IDs of the "grants" edge to the MemoryConsentGrant entity.
+func (m *MemoryConsentProposalMutation) RemovedGrantsIDs() (ids []int64) {
+	for id := range m.removedgrants {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// GrantsIDs returns the "grants" edge IDs in the mutation.
+func (m *MemoryConsentProposalMutation) GrantsIDs() (ids []int64) {
+	for id := range m.grants {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetGrants resets all changes to the "grants" edge.
+func (m *MemoryConsentProposalMutation) ResetGrants() {
+	m.grants = nil
+	m.clearedgrants = false
+	m.removedgrants = nil
+}
+
+// AddEventIDs adds the "events" edge to the MemoryConsentEvent entity by ids.
+func (m *MemoryConsentProposalMutation) AddEventIDs(ids ...int64) {
+	if m.events == nil {
+		m.events = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.events[ids[i]] = struct{}{}
+	}
+}
+
+// ClearEvents clears the "events" edge to the MemoryConsentEvent entity.
+func (m *MemoryConsentProposalMutation) ClearEvents() {
+	m.clearedevents = true
+}
+
+// EventsCleared reports if the "events" edge to the MemoryConsentEvent entity was cleared.
+func (m *MemoryConsentProposalMutation) EventsCleared() bool {
+	return m.clearedevents
+}
+
+// RemoveEventIDs removes the "events" edge to the MemoryConsentEvent entity by IDs.
+func (m *MemoryConsentProposalMutation) RemoveEventIDs(ids ...int64) {
+	if m.removedevents == nil {
+		m.removedevents = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.events, ids[i])
+		m.removedevents[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedEvents returns the removed IDs of the "events" edge to the MemoryConsentEvent entity.
+func (m *MemoryConsentProposalMutation) RemovedEventsIDs() (ids []int64) {
+	for id := range m.removedevents {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// EventsIDs returns the "events" edge IDs in the mutation.
+func (m *MemoryConsentProposalMutation) EventsIDs() (ids []int64) {
+	for id := range m.events {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetEvents resets all changes to the "events" edge.
+func (m *MemoryConsentProposalMutation) ResetEvents() {
+	m.events = nil
+	m.clearedevents = false
+	m.removedevents = nil
+}
+
+// Where appends a list predicates to the MemoryConsentProposalMutation builder.
+func (m *MemoryConsentProposalMutation) Where(ps ...predicate.MemoryConsentProposal) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MemoryConsentProposalMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MemoryConsentProposalMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MemoryConsentProposal, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MemoryConsentProposalMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MemoryConsentProposalMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MemoryConsentProposal).
+func (m *MemoryConsentProposalMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MemoryConsentProposalMutation) Fields() []string {
+	fields := make([]string, 0, 14)
+	if m.bot_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldBotID)
+	}
+	if m.memory_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldMemoryID)
+	}
+	if m.fact_version != nil {
+		fields = append(fields, memoryconsentproposal.FieldFactVersion)
+	}
+	if m.subject_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldSubjectID)
+	}
+	if m.source_conversation_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldSourceConversationID)
+	}
+	if m.source_group_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldSourceGroupID)
+	}
+	if m.source_message != nil {
+		fields = append(fields, memoryconsentproposal.FieldSourceMessageID)
+	}
+	if m.target_groups != nil {
+		fields = append(fields, memoryconsentproposal.FieldTargetGroups)
+	}
+	if m.display_digest != nil {
+		fields = append(fields, memoryconsentproposal.FieldDisplayDigest)
+	}
+	if m.idempotency_key != nil {
+		fields = append(fields, memoryconsentproposal.FieldIdempotencyKey)
+	}
+	if m.status != nil {
+		fields = append(fields, memoryconsentproposal.FieldStatus)
+	}
+	if m.state_version != nil {
+		fields = append(fields, memoryconsentproposal.FieldStateVersion)
+	}
+	if m.created_at != nil {
+		fields = append(fields, memoryconsentproposal.FieldCreatedAt)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, memoryconsentproposal.FieldExpiresAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MemoryConsentProposalMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case memoryconsentproposal.FieldBotID:
+		return m.BotID()
+	case memoryconsentproposal.FieldMemoryID:
+		return m.MemoryID()
+	case memoryconsentproposal.FieldFactVersion:
+		return m.FactVersion()
+	case memoryconsentproposal.FieldSubjectID:
+		return m.SubjectID()
+	case memoryconsentproposal.FieldSourceConversationID:
+		return m.SourceConversationID()
+	case memoryconsentproposal.FieldSourceGroupID:
+		return m.SourceGroupID()
+	case memoryconsentproposal.FieldSourceMessageID:
+		return m.SourceMessageID()
+	case memoryconsentproposal.FieldTargetGroups:
+		return m.TargetGroups()
+	case memoryconsentproposal.FieldDisplayDigest:
+		return m.DisplayDigest()
+	case memoryconsentproposal.FieldIdempotencyKey:
+		return m.IdempotencyKey()
+	case memoryconsentproposal.FieldStatus:
+		return m.Status()
+	case memoryconsentproposal.FieldStateVersion:
+		return m.StateVersion()
+	case memoryconsentproposal.FieldCreatedAt:
+		return m.CreatedAt()
+	case memoryconsentproposal.FieldExpiresAt:
+		return m.ExpiresAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MemoryConsentProposalMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case memoryconsentproposal.FieldBotID:
+		return m.OldBotID(ctx)
+	case memoryconsentproposal.FieldMemoryID:
+		return m.OldMemoryID(ctx)
+	case memoryconsentproposal.FieldFactVersion:
+		return m.OldFactVersion(ctx)
+	case memoryconsentproposal.FieldSubjectID:
+		return m.OldSubjectID(ctx)
+	case memoryconsentproposal.FieldSourceConversationID:
+		return m.OldSourceConversationID(ctx)
+	case memoryconsentproposal.FieldSourceGroupID:
+		return m.OldSourceGroupID(ctx)
+	case memoryconsentproposal.FieldSourceMessageID:
+		return m.OldSourceMessageID(ctx)
+	case memoryconsentproposal.FieldTargetGroups:
+		return m.OldTargetGroups(ctx)
+	case memoryconsentproposal.FieldDisplayDigest:
+		return m.OldDisplayDigest(ctx)
+	case memoryconsentproposal.FieldIdempotencyKey:
+		return m.OldIdempotencyKey(ctx)
+	case memoryconsentproposal.FieldStatus:
+		return m.OldStatus(ctx)
+	case memoryconsentproposal.FieldStateVersion:
+		return m.OldStateVersion(ctx)
+	case memoryconsentproposal.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case memoryconsentproposal.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown MemoryConsentProposal field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryConsentProposalMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case memoryconsentproposal.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case memoryconsentproposal.FieldMemoryID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMemoryID(v)
+		return nil
+	case memoryconsentproposal.FieldFactVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFactVersion(v)
+		return nil
+	case memoryconsentproposal.FieldSubjectID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubjectID(v)
+		return nil
+	case memoryconsentproposal.FieldSourceConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceConversationID(v)
+		return nil
+	case memoryconsentproposal.FieldSourceGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceGroupID(v)
+		return nil
+	case memoryconsentproposal.FieldSourceMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceMessageID(v)
+		return nil
+	case memoryconsentproposal.FieldTargetGroups:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTargetGroups(v)
+		return nil
+	case memoryconsentproposal.FieldDisplayDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDisplayDigest(v)
+		return nil
+	case memoryconsentproposal.FieldIdempotencyKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIdempotencyKey(v)
+		return nil
+	case memoryconsentproposal.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case memoryconsentproposal.FieldStateVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStateVersion(v)
+		return nil
+	case memoryconsentproposal.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case memoryconsentproposal.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentProposal field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MemoryConsentProposalMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldBotID)
+	}
+	if m.addfact_version != nil {
+		fields = append(fields, memoryconsentproposal.FieldFactVersion)
+	}
+	if m.addsubject_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldSubjectID)
+	}
+	if m.addsource_group_id != nil {
+		fields = append(fields, memoryconsentproposal.FieldSourceGroupID)
+	}
+	if m.addstate_version != nil {
+		fields = append(fields, memoryconsentproposal.FieldStateVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MemoryConsentProposalMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case memoryconsentproposal.FieldBotID:
+		return m.AddedBotID()
+	case memoryconsentproposal.FieldFactVersion:
+		return m.AddedFactVersion()
+	case memoryconsentproposal.FieldSubjectID:
+		return m.AddedSubjectID()
+	case memoryconsentproposal.FieldSourceGroupID:
+		return m.AddedSourceGroupID()
+	case memoryconsentproposal.FieldStateVersion:
+		return m.AddedStateVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryConsentProposalMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case memoryconsentproposal.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	case memoryconsentproposal.FieldFactVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddFactVersion(v)
+		return nil
+	case memoryconsentproposal.FieldSubjectID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSubjectID(v)
+		return nil
+	case memoryconsentproposal.FieldSourceGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSourceGroupID(v)
+		return nil
+	case memoryconsentproposal.FieldStateVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddStateVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentProposal numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MemoryConsentProposalMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(memoryconsentproposal.FieldSourceMessageID) {
+		fields = append(fields, memoryconsentproposal.FieldSourceMessageID)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MemoryConsentProposalMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MemoryConsentProposalMutation) ClearField(name string) error {
+	switch name {
+	case memoryconsentproposal.FieldSourceMessageID:
+		m.ClearSourceMessageID()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentProposal nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MemoryConsentProposalMutation) ResetField(name string) error {
+	switch name {
+	case memoryconsentproposal.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case memoryconsentproposal.FieldMemoryID:
+		m.ResetMemoryID()
+		return nil
+	case memoryconsentproposal.FieldFactVersion:
+		m.ResetFactVersion()
+		return nil
+	case memoryconsentproposal.FieldSubjectID:
+		m.ResetSubjectID()
+		return nil
+	case memoryconsentproposal.FieldSourceConversationID:
+		m.ResetSourceConversationID()
+		return nil
+	case memoryconsentproposal.FieldSourceGroupID:
+		m.ResetSourceGroupID()
+		return nil
+	case memoryconsentproposal.FieldSourceMessageID:
+		m.ResetSourceMessageID()
+		return nil
+	case memoryconsentproposal.FieldTargetGroups:
+		m.ResetTargetGroups()
+		return nil
+	case memoryconsentproposal.FieldDisplayDigest:
+		m.ResetDisplayDigest()
+		return nil
+	case memoryconsentproposal.FieldIdempotencyKey:
+		m.ResetIdempotencyKey()
+		return nil
+	case memoryconsentproposal.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case memoryconsentproposal.FieldStateVersion:
+		m.ResetStateVersion()
+		return nil
+	case memoryconsentproposal.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case memoryconsentproposal.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentProposal field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MemoryConsentProposalMutation) AddedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.source_message != nil {
+		edges = append(edges, memoryconsentproposal.EdgeSourceMessage)
+	}
+	if m.delivery_job != nil {
+		edges = append(edges, memoryconsentproposal.EdgeDeliveryJob)
+	}
+	if m.grants != nil {
+		edges = append(edges, memoryconsentproposal.EdgeGrants)
+	}
+	if m.events != nil {
+		edges = append(edges, memoryconsentproposal.EdgeEvents)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MemoryConsentProposalMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case memoryconsentproposal.EdgeSourceMessage:
+		if id := m.source_message; id != nil {
+			return []ent.Value{*id}
+		}
+	case memoryconsentproposal.EdgeDeliveryJob:
+		ids := make([]ent.Value, 0, len(m.delivery_job))
+		for id := range m.delivery_job {
+			ids = append(ids, id)
+		}
+		return ids
+	case memoryconsentproposal.EdgeGrants:
+		ids := make([]ent.Value, 0, len(m.grants))
+		for id := range m.grants {
+			ids = append(ids, id)
+		}
+		return ids
+	case memoryconsentproposal.EdgeEvents:
+		ids := make([]ent.Value, 0, len(m.events))
+		for id := range m.events {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MemoryConsentProposalMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.removeddelivery_job != nil {
+		edges = append(edges, memoryconsentproposal.EdgeDeliveryJob)
+	}
+	if m.removedgrants != nil {
+		edges = append(edges, memoryconsentproposal.EdgeGrants)
+	}
+	if m.removedevents != nil {
+		edges = append(edges, memoryconsentproposal.EdgeEvents)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MemoryConsentProposalMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case memoryconsentproposal.EdgeDeliveryJob:
+		ids := make([]ent.Value, 0, len(m.removeddelivery_job))
+		for id := range m.removeddelivery_job {
+			ids = append(ids, id)
+		}
+		return ids
+	case memoryconsentproposal.EdgeGrants:
+		ids := make([]ent.Value, 0, len(m.removedgrants))
+		for id := range m.removedgrants {
+			ids = append(ids, id)
+		}
+		return ids
+	case memoryconsentproposal.EdgeEvents:
+		ids := make([]ent.Value, 0, len(m.removedevents))
+		for id := range m.removedevents {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MemoryConsentProposalMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.clearedsource_message {
+		edges = append(edges, memoryconsentproposal.EdgeSourceMessage)
+	}
+	if m.cleareddelivery_job {
+		edges = append(edges, memoryconsentproposal.EdgeDeliveryJob)
+	}
+	if m.clearedgrants {
+		edges = append(edges, memoryconsentproposal.EdgeGrants)
+	}
+	if m.clearedevents {
+		edges = append(edges, memoryconsentproposal.EdgeEvents)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MemoryConsentProposalMutation) EdgeCleared(name string) bool {
+	switch name {
+	case memoryconsentproposal.EdgeSourceMessage:
+		return m.clearedsource_message
+	case memoryconsentproposal.EdgeDeliveryJob:
+		return m.cleareddelivery_job
+	case memoryconsentproposal.EdgeGrants:
+		return m.clearedgrants
+	case memoryconsentproposal.EdgeEvents:
+		return m.clearedevents
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MemoryConsentProposalMutation) ClearEdge(name string) error {
+	switch name {
+	case memoryconsentproposal.EdgeSourceMessage:
+		m.ClearSourceMessage()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentProposal unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MemoryConsentProposalMutation) ResetEdge(name string) error {
+	switch name {
+	case memoryconsentproposal.EdgeSourceMessage:
+		m.ResetSourceMessage()
+		return nil
+	case memoryconsentproposal.EdgeDeliveryJob:
+		m.ResetDeliveryJob()
+		return nil
+	case memoryconsentproposal.EdgeGrants:
+		m.ResetGrants()
+		return nil
+	case memoryconsentproposal.EdgeEvents:
+		m.ResetEvents()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryConsentProposal edge %s", name)
 }
 
 // MemoryExtractionCursorMutation represents an operation that mutates the MemoryExtractionCursor nodes in the graph.
@@ -25873,6 +29417,7 @@ type MessageMutation struct {
 	op                                       Op
 	typ                                      string
 	id                                       *int64
+	control_kind                             *string
 	direction                                *string
 	platform_message_id                      *int64
 	addplatform_message_id                   *int64
@@ -26082,6 +29627,42 @@ func (m *MessageMutation) OldBotID(ctx context.Context) (v int64, err error) {
 // ResetBotID resets all changes to the "bot_id" field.
 func (m *MessageMutation) ResetBotID() {
 	m.bot_id_ref = nil
+}
+
+// SetControlKind sets the "control_kind" field.
+func (m *MessageMutation) SetControlKind(s string) {
+	m.control_kind = &s
+}
+
+// ControlKind returns the value of the "control_kind" field in the mutation.
+func (m *MessageMutation) ControlKind() (r string, exists bool) {
+	v := m.control_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldControlKind returns the old "control_kind" field's value of the Message entity.
+// If the Message object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageMutation) OldControlKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldControlKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldControlKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldControlKind: %w", err)
+	}
+	return oldValue.ControlKind, nil
+}
+
+// ResetControlKind resets all changes to the "control_kind" field.
+func (m *MessageMutation) ResetControlKind() {
+	m.control_kind = nil
 }
 
 // SetDirection sets the "direction" field.
@@ -26918,12 +30499,15 @@ func (m *MessageMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MessageMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.conversation_id_ref != nil {
 		fields = append(fields, message.FieldConversationID)
 	}
 	if m.bot_id_ref != nil {
 		fields = append(fields, message.FieldBotID)
+	}
+	if m.control_kind != nil {
+		fields = append(fields, message.FieldControlKind)
 	}
 	if m.direction != nil {
 		fields = append(fields, message.FieldDirection)
@@ -26967,6 +30551,8 @@ func (m *MessageMutation) Field(name string) (ent.Value, bool) {
 		return m.ConversationID()
 	case message.FieldBotID:
 		return m.BotID()
+	case message.FieldControlKind:
+		return m.ControlKind()
 	case message.FieldDirection:
 		return m.Direction()
 	case message.FieldPlatformMessageID:
@@ -27000,6 +30586,8 @@ func (m *MessageMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldConversationID(ctx)
 	case message.FieldBotID:
 		return m.OldBotID(ctx)
+	case message.FieldControlKind:
+		return m.OldControlKind(ctx)
 	case message.FieldDirection:
 		return m.OldDirection(ctx)
 	case message.FieldPlatformMessageID:
@@ -27042,6 +30630,13 @@ func (m *MessageMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetBotID(v)
+		return nil
+	case message.FieldControlKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetControlKind(v)
 		return nil
 	case message.FieldDirection:
 		v, ok := value.(string)
@@ -27239,6 +30834,9 @@ func (m *MessageMutation) ResetField(name string) error {
 		return nil
 	case message.FieldBotID:
 		m.ResetBotID()
+		return nil
+	case message.FieldControlKind:
+		m.ResetControlKind()
 		return nil
 	case message.FieldDirection:
 		m.ResetDirection()
@@ -27470,6 +31068,8 @@ type MessageJobMutation struct {
 	op                                    Op
 	typ                                   string
 	id                                    *int64
+	incoming_direction                    *string
+	source_kind                           *string
 	status                                *string
 	attempts                              *int
 	addattempts                           *int
@@ -27487,6 +31087,8 @@ type MessageJobMutation struct {
 	clearedFields                         map[string]struct{}
 	incoming_message_id_ref               *int64
 	clearedincoming_message_id_ref        bool
+	consent_proposal                      *uuid.UUID
+	clearedconsent_proposal               bool
 	intent_decisions_job_id               map[int64]struct{}
 	removedintent_decisions_job_id        map[int64]struct{}
 	clearedintent_decisions_job_id        bool
@@ -27622,7 +31224,7 @@ func (m *MessageJobMutation) IncomingMessageID() (r int64, exists bool) {
 // OldIncomingMessageID returns the old "incoming_message_id" field's value of the MessageJob entity.
 // If the MessageJob object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *MessageJobMutation) OldIncomingMessageID(ctx context.Context) (v int64, err error) {
+func (m *MessageJobMutation) OldIncomingMessageID(ctx context.Context) (v *int64, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldIncomingMessageID is only allowed on UpdateOne operations")
 	}
@@ -27636,9 +31238,143 @@ func (m *MessageJobMutation) OldIncomingMessageID(ctx context.Context) (v int64,
 	return oldValue.IncomingMessageID, nil
 }
 
+// ClearIncomingMessageID clears the value of the "incoming_message_id" field.
+func (m *MessageJobMutation) ClearIncomingMessageID() {
+	m.incoming_message_id_ref = nil
+	m.clearedFields[messagejob.FieldIncomingMessageID] = struct{}{}
+}
+
+// IncomingMessageIDCleared returns if the "incoming_message_id" field was cleared in this mutation.
+func (m *MessageJobMutation) IncomingMessageIDCleared() bool {
+	_, ok := m.clearedFields[messagejob.FieldIncomingMessageID]
+	return ok
+}
+
 // ResetIncomingMessageID resets all changes to the "incoming_message_id" field.
 func (m *MessageJobMutation) ResetIncomingMessageID() {
 	m.incoming_message_id_ref = nil
+	delete(m.clearedFields, messagejob.FieldIncomingMessageID)
+}
+
+// SetIncomingDirection sets the "incoming_direction" field.
+func (m *MessageJobMutation) SetIncomingDirection(s string) {
+	m.incoming_direction = &s
+}
+
+// IncomingDirection returns the value of the "incoming_direction" field in the mutation.
+func (m *MessageJobMutation) IncomingDirection() (r string, exists bool) {
+	v := m.incoming_direction
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIncomingDirection returns the old "incoming_direction" field's value of the MessageJob entity.
+// If the MessageJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageJobMutation) OldIncomingDirection(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIncomingDirection is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIncomingDirection requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIncomingDirection: %w", err)
+	}
+	return oldValue.IncomingDirection, nil
+}
+
+// ResetIncomingDirection resets all changes to the "incoming_direction" field.
+func (m *MessageJobMutation) ResetIncomingDirection() {
+	m.incoming_direction = nil
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (m *MessageJobMutation) SetSourceKind(s string) {
+	m.source_kind = &s
+}
+
+// SourceKind returns the value of the "source_kind" field in the mutation.
+func (m *MessageJobMutation) SourceKind() (r string, exists bool) {
+	v := m.source_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceKind returns the old "source_kind" field's value of the MessageJob entity.
+// If the MessageJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageJobMutation) OldSourceKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceKind: %w", err)
+	}
+	return oldValue.SourceKind, nil
+}
+
+// ResetSourceKind resets all changes to the "source_kind" field.
+func (m *MessageJobMutation) ResetSourceKind() {
+	m.source_kind = nil
+}
+
+// SetConsentProposalID sets the "consent_proposal_id" field.
+func (m *MessageJobMutation) SetConsentProposalID(u uuid.UUID) {
+	m.consent_proposal = &u
+}
+
+// ConsentProposalID returns the value of the "consent_proposal_id" field in the mutation.
+func (m *MessageJobMutation) ConsentProposalID() (r uuid.UUID, exists bool) {
+	v := m.consent_proposal
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConsentProposalID returns the old "consent_proposal_id" field's value of the MessageJob entity.
+// If the MessageJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageJobMutation) OldConsentProposalID(ctx context.Context) (v *uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConsentProposalID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConsentProposalID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConsentProposalID: %w", err)
+	}
+	return oldValue.ConsentProposalID, nil
+}
+
+// ClearConsentProposalID clears the value of the "consent_proposal_id" field.
+func (m *MessageJobMutation) ClearConsentProposalID() {
+	m.consent_proposal = nil
+	m.clearedFields[messagejob.FieldConsentProposalID] = struct{}{}
+}
+
+// ConsentProposalIDCleared returns if the "consent_proposal_id" field was cleared in this mutation.
+func (m *MessageJobMutation) ConsentProposalIDCleared() bool {
+	_, ok := m.clearedFields[messagejob.FieldConsentProposalID]
+	return ok
+}
+
+// ResetConsentProposalID resets all changes to the "consent_proposal_id" field.
+func (m *MessageJobMutation) ResetConsentProposalID() {
+	m.consent_proposal = nil
+	delete(m.clearedFields, messagejob.FieldConsentProposalID)
 }
 
 // SetStatus sets the "status" field.
@@ -28165,7 +31901,7 @@ func (m *MessageJobMutation) ClearIncomingMessageIDRef() {
 
 // IncomingMessageIDRefCleared reports if the "incoming_message_id_ref" edge to the Message entity was cleared.
 func (m *MessageJobMutation) IncomingMessageIDRefCleared() bool {
-	return m.clearedincoming_message_id_ref
+	return m.IncomingMessageIDCleared() || m.clearedincoming_message_id_ref
 }
 
 // IncomingMessageIDRefID returns the "incoming_message_id_ref" edge ID in the mutation.
@@ -28190,6 +31926,33 @@ func (m *MessageJobMutation) IncomingMessageIDRefIDs() (ids []int64) {
 func (m *MessageJobMutation) ResetIncomingMessageIDRef() {
 	m.incoming_message_id_ref = nil
 	m.clearedincoming_message_id_ref = false
+}
+
+// ClearConsentProposal clears the "consent_proposal" edge to the MemoryConsentProposal entity.
+func (m *MessageJobMutation) ClearConsentProposal() {
+	m.clearedconsent_proposal = true
+	m.clearedFields[messagejob.FieldConsentProposalID] = struct{}{}
+}
+
+// ConsentProposalCleared reports if the "consent_proposal" edge to the MemoryConsentProposal entity was cleared.
+func (m *MessageJobMutation) ConsentProposalCleared() bool {
+	return m.ConsentProposalIDCleared() || m.clearedconsent_proposal
+}
+
+// ConsentProposalIDs returns the "consent_proposal" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ConsentProposalID instead. It exists only for internal usage by the builders.
+func (m *MessageJobMutation) ConsentProposalIDs() (ids []uuid.UUID) {
+	if id := m.consent_proposal; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetConsentProposal resets all changes to the "consent_proposal" edge.
+func (m *MessageJobMutation) ResetConsentProposal() {
+	m.consent_proposal = nil
+	m.clearedconsent_proposal = false
 }
 
 // AddIntentDecisionsJobIDIDs adds the "intent_decisions_job_id" edge to the IntentDecision entity by ids.
@@ -28388,9 +32151,18 @@ func (m *MessageJobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MessageJobMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 16)
 	if m.incoming_message_id_ref != nil {
 		fields = append(fields, messagejob.FieldIncomingMessageID)
+	}
+	if m.incoming_direction != nil {
+		fields = append(fields, messagejob.FieldIncomingDirection)
+	}
+	if m.source_kind != nil {
+		fields = append(fields, messagejob.FieldSourceKind)
+	}
+	if m.consent_proposal != nil {
+		fields = append(fields, messagejob.FieldConsentProposalID)
 	}
 	if m.status != nil {
 		fields = append(fields, messagejob.FieldStatus)
@@ -28438,6 +32210,12 @@ func (m *MessageJobMutation) Field(name string) (ent.Value, bool) {
 	switch name {
 	case messagejob.FieldIncomingMessageID:
 		return m.IncomingMessageID()
+	case messagejob.FieldIncomingDirection:
+		return m.IncomingDirection()
+	case messagejob.FieldSourceKind:
+		return m.SourceKind()
+	case messagejob.FieldConsentProposalID:
+		return m.ConsentProposalID()
 	case messagejob.FieldStatus:
 		return m.Status()
 	case messagejob.FieldAttempts:
@@ -28473,6 +32251,12 @@ func (m *MessageJobMutation) OldField(ctx context.Context, name string) (ent.Val
 	switch name {
 	case messagejob.FieldIncomingMessageID:
 		return m.OldIncomingMessageID(ctx)
+	case messagejob.FieldIncomingDirection:
+		return m.OldIncomingDirection(ctx)
+	case messagejob.FieldSourceKind:
+		return m.OldSourceKind(ctx)
+	case messagejob.FieldConsentProposalID:
+		return m.OldConsentProposalID(ctx)
 	case messagejob.FieldStatus:
 		return m.OldStatus(ctx)
 	case messagejob.FieldAttempts:
@@ -28512,6 +32296,27 @@ func (m *MessageJobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIncomingMessageID(v)
+		return nil
+	case messagejob.FieldIncomingDirection:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIncomingDirection(v)
+		return nil
+	case messagejob.FieldSourceKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceKind(v)
+		return nil
+	case messagejob.FieldConsentProposalID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConsentProposalID(v)
 		return nil
 	case messagejob.FieldStatus:
 		v, ok := value.(string)
@@ -28654,6 +32459,12 @@ func (m *MessageJobMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *MessageJobMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(messagejob.FieldIncomingMessageID) {
+		fields = append(fields, messagejob.FieldIncomingMessageID)
+	}
+	if m.FieldCleared(messagejob.FieldConsentProposalID) {
+		fields = append(fields, messagejob.FieldConsentProposalID)
+	}
 	if m.FieldCleared(messagejob.FieldLastErrorCode) {
 		fields = append(fields, messagejob.FieldLastErrorCode)
 	}
@@ -28677,6 +32488,12 @@ func (m *MessageJobMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *MessageJobMutation) ClearField(name string) error {
 	switch name {
+	case messagejob.FieldIncomingMessageID:
+		m.ClearIncomingMessageID()
+		return nil
+	case messagejob.FieldConsentProposalID:
+		m.ClearConsentProposalID()
+		return nil
 	case messagejob.FieldLastErrorCode:
 		m.ClearLastErrorCode()
 		return nil
@@ -28696,6 +32513,15 @@ func (m *MessageJobMutation) ResetField(name string) error {
 	switch name {
 	case messagejob.FieldIncomingMessageID:
 		m.ResetIncomingMessageID()
+		return nil
+	case messagejob.FieldIncomingDirection:
+		m.ResetIncomingDirection()
+		return nil
+	case messagejob.FieldSourceKind:
+		m.ResetSourceKind()
+		return nil
+	case messagejob.FieldConsentProposalID:
+		m.ResetConsentProposalID()
 		return nil
 	case messagejob.FieldStatus:
 		m.ResetStatus()
@@ -28739,9 +32565,12 @@ func (m *MessageJobMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *MessageJobMutation) AddedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.incoming_message_id_ref != nil {
 		edges = append(edges, messagejob.EdgeIncomingMessageIDRef)
+	}
+	if m.consent_proposal != nil {
+		edges = append(edges, messagejob.EdgeConsentProposal)
 	}
 	if m.intent_decisions_job_id != nil {
 		edges = append(edges, messagejob.EdgeIntentDecisionsJobID)
@@ -28761,6 +32590,10 @@ func (m *MessageJobMutation) AddedIDs(name string) []ent.Value {
 	switch name {
 	case messagejob.EdgeIncomingMessageIDRef:
 		if id := m.incoming_message_id_ref; id != nil {
+			return []ent.Value{*id}
+		}
+	case messagejob.EdgeConsentProposal:
+		if id := m.consent_proposal; id != nil {
 			return []ent.Value{*id}
 		}
 	case messagejob.EdgeIntentDecisionsJobID:
@@ -28787,7 +32620,7 @@ func (m *MessageJobMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MessageJobMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.removedintent_decisions_job_id != nil {
 		edges = append(edges, messagejob.EdgeIntentDecisionsJobID)
 	}
@@ -28828,9 +32661,12 @@ func (m *MessageJobMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *MessageJobMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.clearedincoming_message_id_ref {
 		edges = append(edges, messagejob.EdgeIncomingMessageIDRef)
+	}
+	if m.clearedconsent_proposal {
+		edges = append(edges, messagejob.EdgeConsentProposal)
 	}
 	if m.clearedintent_decisions_job_id {
 		edges = append(edges, messagejob.EdgeIntentDecisionsJobID)
@@ -28850,6 +32686,8 @@ func (m *MessageJobMutation) EdgeCleared(name string) bool {
 	switch name {
 	case messagejob.EdgeIncomingMessageIDRef:
 		return m.clearedincoming_message_id_ref
+	case messagejob.EdgeConsentProposal:
+		return m.clearedconsent_proposal
 	case messagejob.EdgeIntentDecisionsJobID:
 		return m.clearedintent_decisions_job_id
 	case messagejob.EdgeAgentRunBudgetsJobID:
@@ -28867,6 +32705,9 @@ func (m *MessageJobMutation) ClearEdge(name string) error {
 	case messagejob.EdgeIncomingMessageIDRef:
 		m.ClearIncomingMessageIDRef()
 		return nil
+	case messagejob.EdgeConsentProposal:
+		m.ClearConsentProposal()
+		return nil
 	}
 	return fmt.Errorf("unknown MessageJob unique edge %s", name)
 }
@@ -28877,6 +32718,9 @@ func (m *MessageJobMutation) ResetEdge(name string) error {
 	switch name {
 	case messagejob.EdgeIncomingMessageIDRef:
 		m.ResetIncomingMessageIDRef()
+		return nil
+	case messagejob.EdgeConsentProposal:
+		m.ResetConsentProposal()
 		return nil
 	case messagejob.EdgeIntentDecisionsJobID:
 		m.ResetIntentDecisionsJobID()

@@ -8,6 +8,20 @@
       "owner": "reviewed versioned SQL",
       "exclude": "schema_migrations",
       "purpose": "Bytebase-applied schema version; applications only read it"
+    },
+    {
+      "name": "memory_consent_grant_bound_proposal",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "memory_consent_grants.memory_consent_grant_bound_proposal[type=fk]",
+      "purpose": "Bind a grant to the complete proposal identity"
+    },
+    {
+      "name": "message_jobs_bound_incoming",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "message_jobs.message_jobs_bound_incoming[type=fk]",
+      "purpose": "Ordinary jobs reference only incoming messages"
     }
   ],
   "expression_indexes": [],

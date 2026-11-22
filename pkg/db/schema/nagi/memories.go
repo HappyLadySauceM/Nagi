@@ -20,6 +20,7 @@ func (Memory) Fields() []ent.Field {
 		field.String("visibility").SchemaType(map[string]string{"postgres": "text"}),
 		field.String("owner_key").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.String("content").SchemaType(map[string]string{"postgres": "text"}),
+		field.Int64("authorization_version").Default(1).Annotations(entsql.DefaultExpr("1")),
 		field.Int64("source_message_id").SchemaType(map[string]string{"postgres": "bigint"}).Optional().Nillable(),
 		field.String("source").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.Int64("source_sender_id").SchemaType(map[string]string{"postgres": "bigint"}).Optional().Nillable(),

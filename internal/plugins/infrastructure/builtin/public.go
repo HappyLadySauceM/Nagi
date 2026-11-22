@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	pa "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
@@ -17,6 +18,9 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 	scope, ok := pa.ScopeFrom(ctx)
 	if !ok {
 		return "", fmt.Errorf("public tool: missing scope")
+	}
+	if memory.CrossGroupReadUsed(ctx) && !pa.ConsentReplyTool(d.ID) {
+		return "", pa.Denied("跨群授权回复不能调用此 OneBot 动作")
 	}
 	var args map[string]json.RawMessage
 	if len(raw) > 65536 {
@@ -199,6 +203,10 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 			}
 			c.Segments = segments
 		}
+		if c.Text != nil && memory.CrossGroupReadUsed(ctx) {
+			c.Segments = []ob.Segment{ob.Text(*c.Text)}
+			c.Text = nil
+		}
 		if _, err := pa.CheckMessageContent(ctx, c); err != nil {
 			return "", err
 		}
@@ -229,6 +237,20 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 		if !pc.GroupRoleSatisfies(role, d.RequiresGroupRole) {
 			return "error: 机器人不是群管理员，无法执行该操作", nil
 		}
+	}
+	switch s.name {
+	case ob.ActionGetForwardMessage, ob.ActionGetImage, ob.ActionGetRecord:
+		return "", pa.Denied("无法核验平台资源的完整消息来源")
+	case ob.ActionGetMessage:
+		if p.opts.StoredMessage == nil {
+			return "", pa.Denied("无法核验消息来源")
+		}
+		data, err := p.opts.StoredMessage(ctx, scope.BotID, scope.ConversationID, int64(c.MessageID))
+		if err != nil {
+			return "", pa.Denied("无法核验消息来源")
+		}
+		value, err := json.Marshal(map[string]any{"status": "ok", "data": data})
+		return string(value), err
 	}
 	var result ob.PublicResult
 	var err error

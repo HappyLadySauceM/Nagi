@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	botcontracts "github.com/HappyLadySauceM/Nagi/internal/bot/contracts"
+	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
@@ -162,7 +163,9 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		return nil
 	}
 
+	_, control, _ := memorydomain.ParseConsentCommand(botID, event.Segments, event.Text())
 	input := domain.IngestInput{
+		ConsentControl:    !archiveOnly && control,
 		ArchiveOnly:       archiveOnly,
 		BotID:             botID,
 		Kind:              domain.Kind(scopeType),

@@ -16,9 +16,11 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // MessageJobQuery is the builder for querying MessageJob entities.
@@ -29,6 +31,7 @@ type MessageJobQuery struct {
 	inters                         []Interceptor
 	predicates                     []predicate.MessageJob
 	withIncomingMessageIDRef       *MessageQuery
+	withConsentProposal            *MemoryConsentProposalQuery
 	withIntentDecisionsJobID       *IntentDecisionQuery
 	withAgentRunBudgetsJobID       *AgentRunBudgetQuery
 	withAgentOutboundMessagesJobID *AgentOutboundMessageQuery
@@ -84,6 +87,28 @@ func (_q *MessageJobQuery) QueryIncomingMessageIDRef() *MessageQuery {
 			sqlgraph.From(messagejob.Table, messagejob.FieldID, selector),
 			sqlgraph.To(message.Table, message.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, messagejob.IncomingMessageIDRefTable, messagejob.IncomingMessageIDRefColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryConsentProposal chains the current query on the "consent_proposal" edge.
+func (_q *MessageJobQuery) QueryConsentProposal() *MemoryConsentProposalQuery {
+	query := (&MemoryConsentProposalClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(messagejob.Table, messagejob.FieldID, selector),
+			sqlgraph.To(memoryconsentproposal.Table, memoryconsentproposal.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, messagejob.ConsentProposalTable, messagejob.ConsentProposalColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -350,6 +375,7 @@ func (_q *MessageJobQuery) Clone() *MessageJobQuery {
 		inters:                         append([]Interceptor{}, _q.inters...),
 		predicates:                     append([]predicate.MessageJob{}, _q.predicates...),
 		withIncomingMessageIDRef:       _q.withIncomingMessageIDRef.Clone(),
+		withConsentProposal:            _q.withConsentProposal.Clone(),
 		withIntentDecisionsJobID:       _q.withIntentDecisionsJobID.Clone(),
 		withAgentRunBudgetsJobID:       _q.withAgentRunBudgetsJobID.Clone(),
 		withAgentOutboundMessagesJobID: _q.withAgentOutboundMessagesJobID.Clone(),
@@ -367,6 +393,17 @@ func (_q *MessageJobQuery) WithIncomingMessageIDRef(opts ...func(*MessageQuery))
 		opt(query)
 	}
 	_q.withIncomingMessageIDRef = query
+	return _q
+}
+
+// WithConsentProposal tells the query-builder to eager-load the nodes that are connected to
+// the "consent_proposal" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MessageJobQuery) WithConsentProposal(opts ...func(*MemoryConsentProposalQuery)) *MessageJobQuery {
+	query := (&MemoryConsentProposalClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withConsentProposal = query
 	return _q
 }
 
@@ -481,8 +518,9 @@ func (_q *MessageJobQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*M
 	var (
 		nodes       = []*MessageJob{}
 		_spec       = _q.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [5]bool{
 			_q.withIncomingMessageIDRef != nil,
+			_q.withConsentProposal != nil,
 			_q.withIntentDecisionsJobID != nil,
 			_q.withAgentRunBudgetsJobID != nil,
 			_q.withAgentOutboundMessagesJobID != nil,
@@ -512,6 +550,12 @@ func (_q *MessageJobQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*M
 	if query := _q.withIncomingMessageIDRef; query != nil {
 		if err := _q.loadIncomingMessageIDRef(ctx, query, nodes, nil,
 			func(n *MessageJob, e *Message) { n.Edges.IncomingMessageIDRef = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withConsentProposal; query != nil {
+		if err := _q.loadConsentProposal(ctx, query, nodes, nil,
+			func(n *MessageJob, e *MemoryConsentProposal) { n.Edges.ConsentProposal = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -549,7 +593,10 @@ func (_q *MessageJobQuery) loadIncomingMessageIDRef(ctx context.Context, query *
 	ids := make([]int64, 0, len(nodes))
 	nodeids := make(map[int64][]*MessageJob)
 	for i := range nodes {
-		fk := nodes[i].IncomingMessageID
+		if nodes[i].IncomingMessageID == nil {
+			continue
+		}
+		fk := *nodes[i].IncomingMessageID
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -567,6 +614,38 @@ func (_q *MessageJobQuery) loadIncomingMessageIDRef(ctx context.Context, query *
 		nodes, ok := nodeids[n.ID]
 		if !ok {
 			return fmt.Errorf(`unexpected foreign-key "incoming_message_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
+func (_q *MessageJobQuery) loadConsentProposal(ctx context.Context, query *MemoryConsentProposalQuery, nodes []*MessageJob, init func(*MessageJob), assign func(*MessageJob, *MemoryConsentProposal)) error {
+	ids := make([]uuid.UUID, 0, len(nodes))
+	nodeids := make(map[uuid.UUID][]*MessageJob)
+	for i := range nodes {
+		if nodes[i].ConsentProposalID == nil {
+			continue
+		}
+		fk := *nodes[i].ConsentProposalID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(memoryconsentproposal.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "consent_proposal_id" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
@@ -695,6 +774,9 @@ func (_q *MessageJobQuery) querySpec() *sqlgraph.QuerySpec {
 		}
 		if _q.withIncomingMessageIDRef != nil {
 			_spec.Node.AddColumnOnce(messagejob.FieldIncomingMessageID)
+		}
+		if _q.withConsentProposal != nil {
+			_spec.Node.AddColumnOnce(messagejob.FieldConsentProposalID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {

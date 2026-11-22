@@ -19,6 +19,8 @@ const (
 	FieldConversationID = "conversation_id"
 	// FieldBotID holds the string denoting the bot_id field in the database.
 	FieldBotID = "bot_id"
+	// FieldControlKind holds the string denoting the control_kind field in the database.
+	FieldControlKind = "control_kind"
 	// FieldDirection holds the string denoting the direction field in the database.
 	FieldDirection = "direction"
 	// FieldPlatformMessageID holds the string denoting the platform_message_id field in the database.
@@ -106,6 +108,7 @@ var Columns = []string{
 	FieldID,
 	FieldConversationID,
 	FieldBotID,
+	FieldControlKind,
 	FieldDirection,
 	FieldPlatformMessageID,
 	FieldSenderID,
@@ -129,6 +132,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// DefaultControlKind holds the default value on creation for the "control_kind" field.
+	DefaultControlKind string
 	// DefaultTextContent holds the default value on creation for the "text_content" field.
 	DefaultTextContent string
 	// DefaultSegments holds the default value on creation for the "segments" field.
@@ -153,6 +158,11 @@ func ByConversationID(opts ...sql.OrderTermOption) OrderOption {
 // ByBotID orders the results by the bot_id field.
 func ByBotID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBotID, opts...).ToFunc()
+}
+
+// ByControlKind orders the results by the control_kind field.
+func ByControlKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldControlKind, opts...).ToFunc()
 }
 
 // ByDirection orders the results by the direction field.

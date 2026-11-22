@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,9 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	plugins "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
@@ -315,5 +318,31 @@ func TestVideoTranscriptionStopsWhenRevokedBetweenSegments(t *testing.T) {
 	}
 	if audio.calls != 1 || strings.Contains(raw, "private-first-segment") {
 		t.Fatalf("revoked transcript returned or second segment called: %d", audio.calls)
+	}
+}
+
+type countingConsentArchive struct{ calls int }
+
+func (a *countingConsentArchive) Archive(context.Context, media.ArchiveRequest) (media.ArchiveReference, error) {
+	a.calls++
+	return media.ArchiveReference{}, nil
+}
+
+func TestConsentDerivedSpeechAndArchiveDoNotDispatch(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); _, _ = w.Write([]byte("isolated")) }))
+	defer server.Close()
+	archiver := &countingConsentArchive{}
+	svc := &Service{Models: testModels{server.URL}, Archiver: archiver}
+	ctx := memory.WithRunReads(context.Background())
+	memory.TrackVersionedRead(ctx, nil, memory.DetailRequest{}, memory.Memory{ConsentIdentity: "synthetic"}, nil)
+	if _, err := svc.Synthesize(ctx, "synthetic derived audio"); !errors.Is(err, memory.ErrReadChanged) {
+		t.Fatal(err)
+	}
+	if _, err := svc.archive(ctx, media.ArchiveRequest{Kind: "audio.outbound.synthesized", Data: []byte("synthetic")}); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 0 || archiver.calls != 0 {
+		t.Fatalf("TTS requests=%d archive calls=%d", requests.Load(), archiver.calls)
 	}
 }

@@ -31,10 +31,10 @@ WITH current AS (
 	LEFT JOIN message_jobs reply_job ON reply_job.id = o.job_id
 	LEFT JOIN messages origin ON origin.id = reply_job.incoming_message_id
 		AND origin.conversation_id = c.conversation_id AND origin.bot_id = c.bot_id
-	WHERE (p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id))
+	WHERE p.control_kind = '' AND ((p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id))
 		OR (p.direction = 'outgoing' AND p.sent_status = 'sent' AND
 			(CASE WHEN origin.id IS NULL THEN (p.created_at, p.id) < (c.created_at, c.id)
-				ELSE (origin.created_at, origin.id) < (c.created_at, c.id) END))
+				ELSE (origin.created_at, origin.id) < (c.created_at, c.id) END)))
 	ORDER BY p.created_at DESC, p.id DESC LIMIT 1
 ), quoted AS (
 	SELECT x.bot, x.message_id, COALESCE((s.input->'TopicChange'->>'ID')::bigint, 0) AS topic_id
@@ -48,13 +48,14 @@ WITH current AS (
 		(s.input->'TopicChange'->>'ID')::bigint AS topic_id, s.input->'TopicChange' AS change
 	FROM current c
 	JOIN messages p ON p.conversation_id = c.conversation_id AND p.bot_id = c.bot_id
-		AND p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id)
+		AND p.direction = 'incoming' AND p.control_kind = '' AND (p.created_at, p.id) < (c.created_at, c.id)
 		AND p.created_at >= c.created_at - interval '1 hour'
 	JOIN message_jobs j ON j.incoming_message_id = p.id
 	JOIN LATERAL (SELECT id FROM intent_decisions WHERE job_id = j.id ORDER BY id DESC LIMIT 1) d ON true
 	JOIN intent_decision_snapshots s ON s.decision_id = d.id AND s.input ? 'TopicChange'
 	WHERE j.status = 'done' OR EXISTS (
 		SELECT 1 FROM agent_outbound_messages o WHERE o.job_id = j.id AND o.status = 'sent'
+			AND NOT (o.payload @> '{"cross_group_fact":true}'::jsonb)
 	)
 ), latest AS (
 	SELECT DISTINCT ON (topic_id) topic_id, created_at, change
@@ -101,7 +102,7 @@ LEFT JOIN LATERAL (
 			) recent
 			JOIN agent_outbound_messages o ON o.job_id = recent.job_id AND o.status = 'sent'
 			JOIN messages m ON m.outbound_id = o.id AND m.conversation_id = c.conversation_id
-			WHERE (m.created_at, m.id) < (c.created_at, c.id)
+			WHERE m.control_kind = '' AND (m.created_at, m.id) < (c.created_at, c.id)
 			ORDER BY m.created_at DESC, m.id DESC LIMIT 3
 		) outbound
 		UNION

@@ -16,6 +16,12 @@ const (
 	FieldID = "id"
 	// FieldIncomingMessageID holds the string denoting the incoming_message_id field in the database.
 	FieldIncomingMessageID = "incoming_message_id"
+	// FieldIncomingDirection holds the string denoting the incoming_direction field in the database.
+	FieldIncomingDirection = "incoming_direction"
+	// FieldSourceKind holds the string denoting the source_kind field in the database.
+	FieldSourceKind = "source_kind"
+	// FieldConsentProposalID holds the string denoting the consent_proposal_id field in the database.
+	FieldConsentProposalID = "consent_proposal_id"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldAttempts holds the string denoting the attempts field in the database.
@@ -42,6 +48,8 @@ const (
 	FieldLeaseExpiresAt = "lease_expires_at"
 	// EdgeIncomingMessageIDRef holds the string denoting the incoming_message_id_ref edge name in mutations.
 	EdgeIncomingMessageIDRef = "incoming_message_id_ref"
+	// EdgeConsentProposal holds the string denoting the consent_proposal edge name in mutations.
+	EdgeConsentProposal = "consent_proposal"
 	// EdgeIntentDecisionsJobID holds the string denoting the intent_decisions_job_id edge name in mutations.
 	EdgeIntentDecisionsJobID = "intent_decisions_job_id"
 	// EdgeAgentRunBudgetsJobID holds the string denoting the agent_run_budgets_job_id edge name in mutations.
@@ -57,6 +65,13 @@ const (
 	IncomingMessageIDRefInverseTable = "messages"
 	// IncomingMessageIDRefColumn is the table column denoting the incoming_message_id_ref relation/edge.
 	IncomingMessageIDRefColumn = "incoming_message_id"
+	// ConsentProposalTable is the table that holds the consent_proposal relation/edge.
+	ConsentProposalTable = "message_jobs"
+	// ConsentProposalInverseTable is the table name for the MemoryConsentProposal entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryconsentproposal" package.
+	ConsentProposalInverseTable = "memory_consent_proposals"
+	// ConsentProposalColumn is the table column denoting the consent_proposal relation/edge.
+	ConsentProposalColumn = "consent_proposal_id"
 	// IntentDecisionsJobIDTable is the table that holds the intent_decisions_job_id relation/edge.
 	IntentDecisionsJobIDTable = "intent_decisions"
 	// IntentDecisionsJobIDInverseTable is the table name for the IntentDecision entity.
@@ -84,6 +99,9 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldIncomingMessageID,
+	FieldIncomingDirection,
+	FieldSourceKind,
+	FieldConsentProposalID,
 	FieldStatus,
 	FieldAttempts,
 	FieldNextRunAt,
@@ -109,6 +127,10 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// DefaultIncomingDirection holds the default value on creation for the "incoming_direction" field.
+	DefaultIncomingDirection string
+	// DefaultSourceKind holds the default value on creation for the "source_kind" field.
+	DefaultSourceKind string
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// DefaultAttempts holds the default value on creation for the "attempts" field.
@@ -140,6 +162,21 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // ByIncomingMessageID orders the results by the incoming_message_id field.
 func ByIncomingMessageID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIncomingMessageID, opts...).ToFunc()
+}
+
+// ByIncomingDirection orders the results by the incoming_direction field.
+func ByIncomingDirection(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldIncomingDirection, opts...).ToFunc()
+}
+
+// BySourceKind orders the results by the source_kind field.
+func BySourceKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourceKind, opts...).ToFunc()
+}
+
+// ByConsentProposalID orders the results by the consent_proposal_id field.
+func ByConsentProposalID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldConsentProposalID, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.
@@ -209,6 +246,13 @@ func ByIncomingMessageIDRefField(field string, opts ...sql.OrderTermOption) Orde
 	}
 }
 
+// ByConsentProposalField orders the results by consent_proposal field.
+func ByConsentProposalField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newConsentProposalStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByIntentDecisionsJobIDCount orders the results by intent_decisions_job_id count.
 func ByIntentDecisionsJobIDCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -255,6 +299,13 @@ func newIncomingMessageIDRefStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(IncomingMessageIDRefInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, IncomingMessageIDRefTable, IncomingMessageIDRefColumn),
+	)
+}
+func newConsentProposalStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ConsentProposalInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, ConsentProposalTable, ConsentProposalColumn),
 	)
 }
 func newIntentDecisionsJobIDStep() *sqlgraph.Step {

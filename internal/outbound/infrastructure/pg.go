@@ -8,9 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	eo "github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
-	"reflect"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,8 +25,19 @@ import (
 // Repo is the Ent-backed delivery ledger.
 // Repo 是基于 Ent 的投递台账。
 type Repo struct {
-	pool *db.Pool
+	pool        *db.Pool
+	consentGate ConsentGate
 }
+
+// ConsentGate locks consent state and validates a control dispatch inside MarkSending.
+// ConsentGate 在 MarkSending 事务中锁定授权状态并核验控制投递。
+type ConsentGate interface {
+	LockConsentSend(context.Context, *db.Tx, int64) error
+	ValidateConsentSend(context.Context, *db.Tx, int64, string) error
+	ValidateConsentReply(context.Context, *db.Tx, int64, string, []memory.ConsentRead) error
+}
+
+func (r *Repo) SetConsentGate(gate ConsentGate) { r.consentGate = gate }
 
 // NewRepo builds the repository; the pool must not be nil.
 // NewRepo 构建仓库；pool 不能为 nil。
@@ -56,14 +68,46 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var conversation string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM conversations WHERE id=$1 FOR UPDATE`, in.ConversationID).Scan(&conversation); err != nil {
+	reads := memory.ConsentReads(ctx)
+	strict := len(reads) > 0 || in.ToolCallID == "memory_consent_prompt"
+	if strict {
+		if r.consentGate == nil || in.ToolCallID == "" {
+			return domain.Record{}, domain.ErrConsentSendDenied
+		}
+		if err := r.consentGate.LockConsentSend(ctx, tx, in.BotID); err != nil {
+			return domain.Record{}, err
+		}
+	}
+	proposals := make([]string, 0, len(reads))
+	for _, read := range reads {
+		parts := strings.Split(read.Identity, ":")
+		if len(parts) != 4 || read.BotID != in.BotID || read.JobID != in.JobID || read.Claim != in.ClaimToken || read.ConversationID != in.ConversationID {
+			return domain.Record{}, domain.ErrConsentSendDenied
+		}
+		proposals = append(proposals, parts[2])
+	}
+	proposalIDs, _ := json.Marshal(proposals)
+	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE c.id=$1::uuid OR (c.bot_id=$2 AND c.id IN (SELECT source_conversation_id FROM memory_consent_proposals WHERE bot_id=$2 AND id::text IN(SELECT value FROM jsonb_array_elements_text($3::jsonb)))) ORDER BY c.id FOR UPDATE`, in.ConversationID, in.BotID, proposalIDs)
+	if err != nil {
 		return domain.Record{}, err
 	}
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return domain.Record{}, err
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return domain.Record{}, err
+	}
+	rows.Close()
 	var jobID int64
+	var source string
 	if err := tx.QueryRow(ctx,
-		`SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE j.id=$1 AND m.bot_id=$2 AND m.conversation_id=$3 AND j.claim_token=$4::uuid AND j.status='processing' AND j.lease_expires_at>clock_timestamp() FOR UPDATE OF j`, in.JobID, in.BotID, in.ConversationID, in.ClaimToken,
-	).Scan(&jobID); err != nil {
+		`SELECT j.id,j.source_kind FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE j.id=$1 AND COALESCE(m.bot_id,p.bot_id)=$2 AND COALESCE(m.conversation_id,p.source_conversation_id)=$3 AND j.claim_token=$4::uuid AND j.status='processing' AND j.lease_expires_at>clock_timestamp() FOR UPDATE OF j`, in.JobID, in.BotID, in.ConversationID, in.ClaimToken,
+	).Scan(&jobID, &source); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Record{}, fmt.Errorf("outbound: reserve job %d: %w", in.JobID, domain.ErrRecordNotFound)
 		}
@@ -79,6 +123,9 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 		in.TargetKind = sourceKind
 		in.TargetID = sourceTarget
 	}
+	if source == "memory_consent_prompt" && (sourceKind != "group" || in.TargetKind != sourceKind || in.TargetID != sourceTarget || in.ToolCallID != "memory_consent_prompt") {
+		return domain.Record{}, fmt.Errorf("outbound: invalid consent prompt target")
+	}
 	if (in.TargetKind != "group" && in.TargetKind != "private") || in.TargetID <= 0 {
 		return domain.Record{}, fmt.Errorf("outbound: invalid target")
 	}
@@ -92,27 +139,59 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	if !json.Valid([]byte(in.Payload)) || len(in.Payload) > 65536 {
 		return domain.Record{}, fmt.Errorf("outbound: invalid payload")
 	}
+	// The repository alone can add recovery evidence to the stored payload.
+	// 换手凭据只由仓储追加到持久化载荷。
+	var object map[string]json.RawMessage
+	if json.Unmarshal([]byte(in.Payload), &object) == nil {
+		if _, reserved := object["lease_recoveries"]; reserved {
+			return domain.Record{}, fmt.Errorf("outbound: invalid payload metadata")
+		}
+	}
 	if in.ChargeChars == 0 {
 		in.ChargeChars = len([]rune(in.Text))
 	}
 	if in.ChargeChars < 0 {
 		return domain.Record{}, fmt.Errorf("outbound: invalid cost")
 	}
+	var changedSlot bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_outbound_messages old WHERE old.job_id=$1 AND old.claim_token IS DISTINCT FROM $2::uuid AND (
+ (old.tool_call_id LIKE 'explicit:v1:%' OR (COALESCE(old.tool_call_id,'') NOT IN ('final','memory_consent_prompt') AND (old.payload ? 'params' OR old.action='qq.send_voice_current')))
+ OR (old.payload @> '{"cross_group_fact":true}'::jsonb AND (NOT $4 OR NOT EXISTS(SELECT 1 FROM agent_outbound_messages slot WHERE slot.job_id=$1 AND slot.tool_call_id=$3 AND slot.payload @> '{"cross_group_fact":true}'::jsonb)))
+ OR (old.status IN ('sending','sent','unknown') AND $4)))`, in.JobID, in.ClaimToken, in.ToolCallID, len(reads) > 0).Scan(&changedSlot); err != nil {
+		return domain.Record{}, err
+	}
+	if changedSlot {
+		return domain.Record{}, domain.ErrConsentSendDenied
+	}
 	var reusable *domain.Record
+	var previousClaim string
 	if in.ToolCallID != "" {
 		var old domain.Record
-		var status string
-		err := tx.QueryRow(ctx, `SELECT id::text,sequence,text_content,status,COALESCE(platform_message_id,0),target_kind,target_id,action,payload::text,charge_chars FROM agent_outbound_messages WHERE job_id=$1 AND tool_call_id=$2`, in.JobID, in.ToolCallID).Scan(&old.ID, &old.Sequence, &old.Text, &status, &old.PlatformMessageID, &old.TargetKind, &old.TargetID, &old.Action, &old.Payload, &old.ChargeChars)
+		var status, reason string
+		var samePayload bool
+		err := tx.QueryRow(ctx, `SELECT id::text,sequence,text_content,status,COALESCE(platform_message_id,0),target_kind,target_id,action,payload::text,
+ CASE WHEN jsonb_typeof(payload)='object' THEN payload-'lease_recoveries' ELSE payload END = $3::jsonb,
+ charge_chars,claim_token::text,COALESCE(error_code,'') FROM agent_outbound_messages WHERE job_id=$1 AND tool_call_id=$2 FOR UPDATE`,
+			in.JobID, in.ToolCallID, in.Payload).Scan(&old.ID, &old.Sequence, &old.Text, &status, &old.PlatformMessageID, &old.TargetKind, &old.TargetID, &old.Action, &old.Payload, &samePayload, &old.ChargeChars, &previousClaim, &reason)
 		if err == nil {
-			var oldPayload, newPayload any
-			_ = json.Unmarshal([]byte(old.Payload), &oldPayload)
-			_ = json.Unmarshal([]byte(in.Payload), &newPayload)
-			if old.Text != in.Text || old.TargetKind != in.TargetKind || old.TargetID != in.TargetID || old.Action != in.Action || !reflect.DeepEqual(oldPayload, newPayload) || old.ChargeChars != in.ChargeChars {
+			if old.Text != in.Text || old.TargetKind != in.TargetKind || old.TargetID != in.TargetID || old.Action != in.Action || !samePayload || old.ChargeChars != in.ChargeChars {
 				return domain.Record{}, fmt.Errorf("outbound: conflicting tool call")
 			}
 			if status == string(domain.StatusCancelled) {
+				if strict || strings.HasPrefix(in.ToolCallID, "explicit:v1:") {
+					var refundable bool
+					if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_run_budgets b WHERE b.job_id=$1 AND b.reserved_messages=(SELECT count(*) FROM agent_outbound_messages WHERE job_id=$1 AND status<>'cancelled') AND b.reserved_chars=(SELECT COALESCE(sum(charge_chars),0) FROM agent_outbound_messages WHERE job_id=$1 AND status<>'cancelled')) AND NOT EXISTS(SELECT 1 FROM messages WHERE outbound_id=$2)`, in.JobID, old.ID).Scan(&refundable); err != nil {
+						return domain.Record{}, err
+					}
+					if previousClaim == in.ClaimToken || reason != "lease_expired_prepared_refunded" || old.PlatformMessageID != 0 || !refundable {
+						return domain.Record{}, domain.ErrConsentSendDenied
+					}
+				}
 				reusable = &old
 			} else {
+				if strict && previousClaim != in.ClaimToken {
+					return domain.Record{}, domain.ErrConsentSendDenied
+				}
 				if in.Limits.MinIntervalMS > 0 {
 					var last time.Time
 					if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(updated_at),'0001-01-01'::timestamptz) FROM agent_outbound_messages WHERE conversation_id=$1 AND id<>$2 AND status IN ('sent','unknown')`, in.ConversationID, old.ID).Scan(&last); err != nil {
@@ -136,6 +215,15 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return domain.Record{}, err
+		}
+	}
+	if reusable != nil {
+		in.Limits, err = lockCurrentLimits(ctx, tx, in.BotID, sourceKind, sourceTarget, in.Limits)
+		if err != nil {
+			return domain.Record{}, err
+		}
+		if source == "memory_consent_prompt" {
+			in.Limits.MaxMessages = 1
 		}
 	}
 	var stopped bool
@@ -191,8 +279,29 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	if reusable != nil {
 		record.ID = reusable.ID
 		record.Sequence = reusable.Sequence
-		if _, err := tx.Exec(ctx, "UPDATE agent_outbound_messages SET status='prepared',platform_message_id=NULL,error_code=NULL,run_id=$2,claim_token=$3::uuid,created_at=now(),updated_at=now() WHERE id=$1 AND status='cancelled'", record.ID, record.RunID, in.ClaimToken); err != nil {
+		updated, err := tx.Exec(ctx, `UPDATE agent_outbound_messages o
+ SET status='prepared',platform_message_id=NULL,error_code=NULL,run_id=$2,claim_token=$3::uuid,
+     created_at=statement_timestamp(),updated_at=statement_timestamp(),
+     payload=CASE WHEN $5 THEN jsonb_set(o.payload,'{lease_recoveries}',
+         COALESCE(o.payload->'lease_recoveries','[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+             'reason',o.error_code,'refunded_at',o.updated_at,'reserved_at',statement_timestamp(),
+             'messages',1,'chars',o.charge_chars,'new_attempt',j.attempts))) ELSE o.payload END
+ FROM message_jobs j
+ WHERE o.id=$1 AND o.status='cancelled' AND o.claim_token=$4::uuid AND j.id=o.job_id
+   AND j.status='processing' AND j.claim_token=$3::uuid AND j.lease_expires_at>clock_timestamp()
+   AND (NOT $5 OR (o.error_code='lease_expired_prepared_refunded' AND o.platform_message_id IS NULL
+        AND jsonb_typeof(o.payload)='object' AND jsonb_typeof(COALESCE(o.payload->'lease_recoveries','[]'::jsonb))='array'))`,
+			record.ID, record.RunID, in.ClaimToken, previousClaim, strict)
+		if err != nil {
 			return domain.Record{}, err
+		}
+		if updated.RowsAffected() != 1 {
+			return domain.Record{}, ErrLeaseLost
+		}
+		if source == "memory_consent_prompt" {
+			if err := r.consentGate.ValidateConsentSend(ctx, tx, in.BotID, record.ID); err != nil {
+				return domain.Record{}, err
+			}
 		}
 	} else {
 		if _, err := tx.Exec(ctx, `
@@ -205,6 +314,12 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 			return domain.Record{}, fmt.Errorf("outbound: insert record: %w", err)
 		}
 
+	}
+
+	if len(reads) > 0 {
+		if err := r.consentGate.ValidateConsentReply(ctx, tx, in.BotID, record.ID, reads); err != nil {
+			return domain.Record{}, err
+		}
 	}
 
 	if in.Limits.MinIntervalMS > 0 {
@@ -254,8 +369,77 @@ func (r *Repo) MarkSending(ctx context.Context, id string, claim ...string) erro
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
+	var botID int64
+	var proposal string
+	var derived bool
+	if err := tx.QueryRow(ctx, `SELECT o.bot_id,COALESCE(j.consent_proposal_id::text,''),o.payload @> '{"cross_group_fact":true}'::jsonb FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id WHERE o.id=$1`, id).Scan(&botID, &proposal, &derived); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrRecordNotFound
+		}
 		return err
+	}
+	reads := memory.ConsentReads(ctx)
+	if derived != (len(reads) > 0) {
+		return domain.ErrConsentSendDenied
+	}
+	if proposal != "" || derived {
+		if r.consentGate == nil {
+			return domain.ErrConsentSendDenied
+		}
+		if err := r.consentGate.LockConsentSend(ctx, tx, botID); err != nil {
+			return err
+		}
+	}
+	if err := lockDispatch(ctx, tx, id, claim[0], reads); err != nil {
+		return err
+	}
+	var sourceKind string
+	var sourceTarget int64
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT c.kind,c.target_id,o.status FROM agent_outbound_messages o JOIN conversations c ON c.id=o.conversation_id WHERE o.id=$1`, id).Scan(&sourceKind, &sourceTarget, &status); err != nil {
+		return err
+	}
+	if domain.Status(status) != domain.StatusPrepared {
+		return &domain.TransitionError{RecordID: id, From: domain.Status(status), To: domain.StatusSending}
+	}
+	limits, err := lockCurrentLimits(ctx, tx, botID, sourceKind, sourceTarget, domain.Limits{MinIntervalMS: DefaultMessageIntervalMS})
+	if err != nil {
+		return err
+	}
+	if proposal != "" {
+		limits.MaxMessages = 1
+		var replyInterval int
+		if err := tx.QueryRow(ctx, `SELECT min_reply_interval_ms FROM scope_policies
+ WHERE bot_id=$1 AND scope_type=$2 AND scope_id IN ($3,0) ORDER BY scope_id DESC LIMIT 1`, botID, sourceKind, sourceTarget).Scan(&replyInterval); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		limits.MinIntervalMS = max(limits.MinIntervalMS, replyInterval)
+	}
+	if err := validateReserved(ctx, tx, id, limits); err != nil {
+		return err
+	}
+	if derived {
+		if err := r.consentGate.ValidateConsentReply(ctx, tx, botID, id, reads); err != nil {
+			return err
+		}
+	}
+	if proposal != "" {
+		if err := r.consentGate.ValidateConsentSend(ctx, tx, botID, id); err != nil {
+			return err
+		}
+	}
+	if limits.MinIntervalMS > 0 {
+		var remainingUS int64
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(ceil(extract(epoch FROM (
+  max(prior.updated_at) + $2::integer * interval '1 millisecond' - clock_timestamp())) * 1000000),0)::bigint
+ FROM agent_outbound_messages slot JOIN agent_outbound_messages prior
+ ON prior.conversation_id=slot.conversation_id AND prior.id<>slot.id AND prior.status IN ('sent','unknown')
+ WHERE slot.id=$1`, id, limits.MinIntervalMS).Scan(&remainingUS); err != nil {
+			return err
+		}
+		if remainingUS > 0 {
+			return &domain.IntervalWait{Remaining: time.Duration(remainingUS) * time.Microsecond}
+		}
 	}
 	result, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status='sending',updated_at=clock_timestamp() WHERE id=$1 AND status='prepared' AND claim_token=$2::uuid AND EXISTS(SELECT 1 FROM message_jobs j WHERE j.id=agent_outbound_messages.job_id AND j.status='processing' AND j.claim_token=agent_outbound_messages.claim_token AND j.lease_expires_at>clock_timestamp())`, id, claim[0])
 	if err != nil {
@@ -310,7 +494,7 @@ func (r *Repo) Settle(ctx context.Context, id string, outcome application.Outcom
 	// History follows the target conversation's own policy: a disabled or
 	// non-storing target must not receive the text or an activity timestamp.
 	// 历史写入沿用目标会话自己的策略：停用或不留存的会话不接收正文与活跃时间。
-	_, err = tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,segments,sent_status,outbound_id,created_at) SELECT c.id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,COALESCE(o.payload->'segments','[]'::jsonb),o.status,o.id,o.updated_at FROM agent_outbound_messages o JOIN conversations c ON c.bot_id=o.bot_id AND c.kind=o.target_kind AND c.target_id=o.target_id JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages WHERE o.id=$1 ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, id)
+	_, err = tx.Exec(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,segments,sent_status,outbound_id,created_at,control_kind) SELECT c.id,o.bot_id,'outgoing',o.platform_message_id,o.bot_id,o.text_content,COALESCE(o.payload->'segments','[]'::jsonb),o.status,o.id,o.updated_at,CASE WHEN j.source_kind='memory_consent_prompt' THEN j.source_kind WHEN o.payload @> '{"cross_group_fact":true}'::jsonb THEN 'memory_consent_reply' ELSE '' END FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN conversations c ON c.bot_id=o.bot_id AND c.kind=o.target_kind AND c.target_id=o.target_id JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages WHERE o.id=$1 ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, id)
 	if err != nil {
 		return err
 	}
@@ -429,7 +613,7 @@ func (r *Repo) Cancel(ctx context.Context, id string, claim ...string) error {
 // OwnsJob 在暴露投递内容前检查账号边界。
 func (r *Repo) OwnsJob(ctx context.Context, botID, jobID int64) (bool, error) {
 	var owns bool
-	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE j.id=$1 AND m.bot_id=$2)`, jobID, botID).Scan(&owns)
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE j.id=$1 AND COALESCE(m.bot_id,p.bot_id)=$2)`, jobID, botID).Scan(&owns)
 	return owns, err
 }
 
@@ -481,8 +665,14 @@ func (r *Repo) RunOutcome(ctx context.Context, jobID int64) (string, string, int
 // ValidateReserved prevents lowered limits from being bypassed during a wait.
 // ValidateReserved 防止等待期间下调的额度被旧预留绕过。
 func (r *Repo) ValidateReserved(ctx context.Context, id string, limits domain.Limits) error {
+	return validateReserved(ctx, r.pool, id, limits)
+}
+
+func validateReserved(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) *sql.Row
+}, id string, limits domain.Limits) error {
 	var sequence, chars, total int
-	err := r.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),o.charge_chars,COALESCE((SELECT sum(p.charge_chars) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),0) FROM agent_outbound_messages o WHERE o.id=$1 AND o.status='prepared'`, id).Scan(&sequence, &chars, &total)
+	err := q.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),o.charge_chars,COALESCE((SELECT sum(p.charge_chars) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),0) FROM agent_outbound_messages o WHERE o.id=$1 AND o.status='prepared'`, id).Scan(&sequence, &chars, &total)
 	if err != nil {
 		return err
 	}
@@ -499,7 +689,7 @@ func (r *Repo) ValidateReserved(ctx context.Context, id string, limits domain.Li
 	}
 	if limits.MaxPerHour > 0 {
 		var hourly int
-		err := r.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.conversation_id=o.conversation_id AND p.created_at>now()-interval '1 hour' AND p.status IN ('prepared','sending','sent','unknown')) + (SELECT count(*) FROM messages m WHERE m.conversation_id=o.conversation_id AND m.direction='outgoing' AND m.outbound_id IS NULL AND m.sent_status IN ('sent','unknown') AND m.created_at>now()-interval '1 hour') FROM agent_outbound_messages o WHERE o.id=$1`, id).Scan(&hourly)
+		err := q.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.conversation_id=o.conversation_id AND p.created_at>now()-interval '1 hour' AND p.status IN ('prepared','sending','sent','unknown')) + (SELECT count(*) FROM messages m WHERE m.conversation_id=o.conversation_id AND m.direction='outgoing' AND m.outbound_id IS NULL AND m.sent_status IN ('sent','unknown') AND m.created_at>now()-interval '1 hour') FROM agent_outbound_messages o WHERE o.id=$1`, id).Scan(&hourly)
 		if err != nil {
 			return err
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -44,6 +45,60 @@ func (_u *MessageJobUpdate) SetNillableIncomingMessageID(v *int64) *MessageJobUp
 	if v != nil {
 		_u.SetIncomingMessageID(*v)
 	}
+	return _u
+}
+
+// ClearIncomingMessageID clears the value of the "incoming_message_id" field.
+func (_u *MessageJobUpdate) ClearIncomingMessageID() *MessageJobUpdate {
+	_u.mutation.ClearIncomingMessageID()
+	return _u
+}
+
+// SetIncomingDirection sets the "incoming_direction" field.
+func (_u *MessageJobUpdate) SetIncomingDirection(v string) *MessageJobUpdate {
+	_u.mutation.SetIncomingDirection(v)
+	return _u
+}
+
+// SetNillableIncomingDirection sets the "incoming_direction" field if the given value is not nil.
+func (_u *MessageJobUpdate) SetNillableIncomingDirection(v *string) *MessageJobUpdate {
+	if v != nil {
+		_u.SetIncomingDirection(*v)
+	}
+	return _u
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (_u *MessageJobUpdate) SetSourceKind(v string) *MessageJobUpdate {
+	_u.mutation.SetSourceKind(v)
+	return _u
+}
+
+// SetNillableSourceKind sets the "source_kind" field if the given value is not nil.
+func (_u *MessageJobUpdate) SetNillableSourceKind(v *string) *MessageJobUpdate {
+	if v != nil {
+		_u.SetSourceKind(*v)
+	}
+	return _u
+}
+
+// SetConsentProposalID sets the "consent_proposal_id" field.
+func (_u *MessageJobUpdate) SetConsentProposalID(v uuid.UUID) *MessageJobUpdate {
+	_u.mutation.SetConsentProposalID(v)
+	return _u
+}
+
+// SetNillableConsentProposalID sets the "consent_proposal_id" field if the given value is not nil.
+func (_u *MessageJobUpdate) SetNillableConsentProposalID(v *uuid.UUID) *MessageJobUpdate {
+	if v != nil {
+		_u.SetConsentProposalID(*v)
+	}
+	return _u
+}
+
+// ClearConsentProposalID clears the value of the "consent_proposal_id" field.
+func (_u *MessageJobUpdate) ClearConsentProposalID() *MessageJobUpdate {
+	_u.mutation.ClearConsentProposalID()
 	return _u
 }
 
@@ -253,9 +308,22 @@ func (_u *MessageJobUpdate) SetIncomingMessageIDRefID(id int64) *MessageJobUpdat
 	return _u
 }
 
+// SetNillableIncomingMessageIDRefID sets the "incoming_message_id_ref" edge to the Message entity by ID if the given value is not nil.
+func (_u *MessageJobUpdate) SetNillableIncomingMessageIDRefID(id *int64) *MessageJobUpdate {
+	if id != nil {
+		_u = _u.SetIncomingMessageIDRefID(*id)
+	}
+	return _u
+}
+
 // SetIncomingMessageIDRef sets the "incoming_message_id_ref" edge to the Message entity.
 func (_u *MessageJobUpdate) SetIncomingMessageIDRef(v *Message) *MessageJobUpdate {
 	return _u.SetIncomingMessageIDRefID(v.ID)
+}
+
+// SetConsentProposal sets the "consent_proposal" edge to the MemoryConsentProposal entity.
+func (_u *MessageJobUpdate) SetConsentProposal(v *MemoryConsentProposal) *MessageJobUpdate {
+	return _u.SetConsentProposalID(v.ID)
 }
 
 // AddIntentDecisionsJobIDIDs adds the "intent_decisions_job_id" edge to the IntentDecision entity by IDs.
@@ -311,6 +379,12 @@ func (_u *MessageJobUpdate) Mutation() *MessageJobMutation {
 // ClearIncomingMessageIDRef clears the "incoming_message_id_ref" edge to the Message entity.
 func (_u *MessageJobUpdate) ClearIncomingMessageIDRef() *MessageJobUpdate {
 	_u.mutation.ClearIncomingMessageIDRef()
+	return _u
+}
+
+// ClearConsentProposal clears the "consent_proposal" edge to the MemoryConsentProposal entity.
+func (_u *MessageJobUpdate) ClearConsentProposal() *MessageJobUpdate {
+	_u.mutation.ClearConsentProposal()
 	return _u
 }
 
@@ -404,18 +478,7 @@ func (_u *MessageJobUpdate) ExecX(ctx context.Context) {
 	}
 }
 
-// check runs all checks and user-defined validators on the builder.
-func (_u *MessageJobUpdate) check() error {
-	if _u.mutation.IncomingMessageIDRefCleared() && len(_u.mutation.IncomingMessageIDRefIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "MessageJob.incoming_message_id_ref"`)
-	}
-	return nil
-}
-
 func (_u *MessageJobUpdate) sqlSave(ctx context.Context) (_node int, err error) {
-	if err := _u.check(); err != nil {
-		return _node, err
-	}
 	_spec := sqlgraph.NewUpdateSpec(messagejob.Table, messagejob.Columns, sqlgraph.NewFieldSpec(messagejob.FieldID, field.TypeInt64))
 	if ps := _u.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -423,6 +486,12 @@ func (_u *MessageJobUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.IncomingDirection(); ok {
+		_spec.SetField(messagejob.FieldIncomingDirection, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SourceKind(); ok {
+		_spec.SetField(messagejob.FieldSourceKind, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(messagejob.FieldStatus, field.TypeString, value)
@@ -497,6 +566,35 @@ func (_u *MessageJobUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ConsentProposalCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   messagejob.ConsentProposalTable,
+			Columns: []string{messagejob.ConsentProposalColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryconsentproposal.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ConsentProposalIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   messagejob.ConsentProposalTable,
+			Columns: []string{messagejob.ConsentProposalColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryconsentproposal.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {
@@ -670,6 +768,60 @@ func (_u *MessageJobUpdateOne) SetNillableIncomingMessageID(v *int64) *MessageJo
 	if v != nil {
 		_u.SetIncomingMessageID(*v)
 	}
+	return _u
+}
+
+// ClearIncomingMessageID clears the value of the "incoming_message_id" field.
+func (_u *MessageJobUpdateOne) ClearIncomingMessageID() *MessageJobUpdateOne {
+	_u.mutation.ClearIncomingMessageID()
+	return _u
+}
+
+// SetIncomingDirection sets the "incoming_direction" field.
+func (_u *MessageJobUpdateOne) SetIncomingDirection(v string) *MessageJobUpdateOne {
+	_u.mutation.SetIncomingDirection(v)
+	return _u
+}
+
+// SetNillableIncomingDirection sets the "incoming_direction" field if the given value is not nil.
+func (_u *MessageJobUpdateOne) SetNillableIncomingDirection(v *string) *MessageJobUpdateOne {
+	if v != nil {
+		_u.SetIncomingDirection(*v)
+	}
+	return _u
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (_u *MessageJobUpdateOne) SetSourceKind(v string) *MessageJobUpdateOne {
+	_u.mutation.SetSourceKind(v)
+	return _u
+}
+
+// SetNillableSourceKind sets the "source_kind" field if the given value is not nil.
+func (_u *MessageJobUpdateOne) SetNillableSourceKind(v *string) *MessageJobUpdateOne {
+	if v != nil {
+		_u.SetSourceKind(*v)
+	}
+	return _u
+}
+
+// SetConsentProposalID sets the "consent_proposal_id" field.
+func (_u *MessageJobUpdateOne) SetConsentProposalID(v uuid.UUID) *MessageJobUpdateOne {
+	_u.mutation.SetConsentProposalID(v)
+	return _u
+}
+
+// SetNillableConsentProposalID sets the "consent_proposal_id" field if the given value is not nil.
+func (_u *MessageJobUpdateOne) SetNillableConsentProposalID(v *uuid.UUID) *MessageJobUpdateOne {
+	if v != nil {
+		_u.SetConsentProposalID(*v)
+	}
+	return _u
+}
+
+// ClearConsentProposalID clears the value of the "consent_proposal_id" field.
+func (_u *MessageJobUpdateOne) ClearConsentProposalID() *MessageJobUpdateOne {
+	_u.mutation.ClearConsentProposalID()
 	return _u
 }
 
@@ -879,9 +1031,22 @@ func (_u *MessageJobUpdateOne) SetIncomingMessageIDRefID(id int64) *MessageJobUp
 	return _u
 }
 
+// SetNillableIncomingMessageIDRefID sets the "incoming_message_id_ref" edge to the Message entity by ID if the given value is not nil.
+func (_u *MessageJobUpdateOne) SetNillableIncomingMessageIDRefID(id *int64) *MessageJobUpdateOne {
+	if id != nil {
+		_u = _u.SetIncomingMessageIDRefID(*id)
+	}
+	return _u
+}
+
 // SetIncomingMessageIDRef sets the "incoming_message_id_ref" edge to the Message entity.
 func (_u *MessageJobUpdateOne) SetIncomingMessageIDRef(v *Message) *MessageJobUpdateOne {
 	return _u.SetIncomingMessageIDRefID(v.ID)
+}
+
+// SetConsentProposal sets the "consent_proposal" edge to the MemoryConsentProposal entity.
+func (_u *MessageJobUpdateOne) SetConsentProposal(v *MemoryConsentProposal) *MessageJobUpdateOne {
+	return _u.SetConsentProposalID(v.ID)
 }
 
 // AddIntentDecisionsJobIDIDs adds the "intent_decisions_job_id" edge to the IntentDecision entity by IDs.
@@ -937,6 +1102,12 @@ func (_u *MessageJobUpdateOne) Mutation() *MessageJobMutation {
 // ClearIncomingMessageIDRef clears the "incoming_message_id_ref" edge to the Message entity.
 func (_u *MessageJobUpdateOne) ClearIncomingMessageIDRef() *MessageJobUpdateOne {
 	_u.mutation.ClearIncomingMessageIDRef()
+	return _u
+}
+
+// ClearConsentProposal clears the "consent_proposal" edge to the MemoryConsentProposal entity.
+func (_u *MessageJobUpdateOne) ClearConsentProposal() *MessageJobUpdateOne {
+	_u.mutation.ClearConsentProposal()
 	return _u
 }
 
@@ -1043,18 +1214,7 @@ func (_u *MessageJobUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
-// check runs all checks and user-defined validators on the builder.
-func (_u *MessageJobUpdateOne) check() error {
-	if _u.mutation.IncomingMessageIDRefCleared() && len(_u.mutation.IncomingMessageIDRefIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "MessageJob.incoming_message_id_ref"`)
-	}
-	return nil
-}
-
 func (_u *MessageJobUpdateOne) sqlSave(ctx context.Context) (_node *MessageJob, err error) {
-	if err := _u.check(); err != nil {
-		return _node, err
-	}
 	_spec := sqlgraph.NewUpdateSpec(messagejob.Table, messagejob.Columns, sqlgraph.NewFieldSpec(messagejob.FieldID, field.TypeInt64))
 	id, ok := _u.mutation.ID()
 	if !ok {
@@ -1079,6 +1239,12 @@ func (_u *MessageJobUpdateOne) sqlSave(ctx context.Context) (_node *MessageJob, 
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.IncomingDirection(); ok {
+		_spec.SetField(messagejob.FieldIncomingDirection, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.SourceKind(); ok {
+		_spec.SetField(messagejob.FieldSourceKind, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(messagejob.FieldStatus, field.TypeString, value)
@@ -1153,6 +1319,35 @@ func (_u *MessageJobUpdateOne) sqlSave(ctx context.Context) (_node *MessageJob, 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ConsentProposalCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   messagejob.ConsentProposalTable,
+			Columns: []string{messagejob.ConsentProposalColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryconsentproposal.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ConsentProposalIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   messagejob.ConsentProposalTable,
+			Columns: []string{messagejob.ConsentProposalColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryconsentproposal.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {

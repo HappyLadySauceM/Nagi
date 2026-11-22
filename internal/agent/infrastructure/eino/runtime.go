@@ -11,7 +11,10 @@ import (
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,6 +119,10 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.MaxOutputTokens <= 0 && !cfg.ProviderDefaultOutput {
 		cfg.MaxOutputTokens = 400
 	}
+	endpoint, err := url.Parse(cfg.BaseURL)
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.Fragment != "" || endpoint.RawQuery != "" {
+		endpoint = nil
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableKeepAlives = true
 	observedTransport := audit.ModelMediaTransport{
@@ -127,6 +134,9 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 			return memorycontracts.ValidateRunReads(request.Context())
 		},
 	}
+	derivedTransport := observedTransport
+	derivedTransport.Base = guardedModelTransport{endpoint: endpoint, model: cfg.Model, dial: (&net.Dialer{}).DialContext}
+	modelTransport := consentAwareModelTransport{ordinary: observedTransport, derived: derivedTransport}
 	builder := func(ctx context.Context, maxTokens int) (model.BaseModel[*einoschema.Message], error) {
 		effort := cfg.ReasoningEffort
 		if !cfg.Thinking {
@@ -140,8 +150,8 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 		}
 		chat, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 			ReasoningEffort: openai.ReasoningEffortLevel(effort),
-			HTTPClient:      modelhttp.Client(&http.Client{Timeout: cfg.HTTPTimeout, Transport: observedTransport}, cfg.HTTPHeaders),
-			BaseURL:         cfg.BaseURL,
+			HTTPClient:      modelhttp.Client(&http.Client{Timeout: cfg.HTTPTimeout, Transport: modelTransport}, cfg.HTTPHeaders),
+			BaseURL:         strings.TrimRight(cfg.BaseURL, "/"),
 			APIKey:          cfg.APIKey,
 			Model:           cfg.Model,
 			Timeout:         cfg.HTTPTimeout,
@@ -188,6 +198,32 @@ func (r *Runtime) modelFor(ctx context.Context, maxTokens int) (model.BaseModel[
 	}
 	r.mu.Unlock()
 	return built, nil
+}
+
+// validateSendCallIDs requires each logical send in the model transcript to have a distinct call ID.
+// validateSendCallIDs 要求模型会话中的各次逻辑发送拥有独立的调用标识。
+func validateSendCallIDs(messages []*einoschema.Message) error {
+	if len(messages) == 0 || messages[len(messages)-1] == nil {
+		return nil
+	}
+	calls := make(map[string]int)
+	for _, message := range messages {
+		if message == nil || message.Role != einoschema.Assistant {
+			continue
+		}
+		for _, call := range message.ToolCalls {
+			calls[call.ID]++
+		}
+	}
+	for _, call := range messages[len(messages)-1].ToolCalls {
+		switch call.Function.Name {
+		case "qq_send_msg", "qq_send_private_msg", "qq_send_group_msg", "qq_send_voice_current":
+			if strings.TrimSpace(call.ID) == "" || calls[call.ID] != 1 {
+				return fmt.Errorf("agent: missing or ambiguous send tool call identity")
+			}
+		}
+	}
+	return nil
 }
 
 // Run executes one reply. The event iterator is always drained to its terminal
@@ -248,7 +284,19 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 		Model:         chatModel,
 		ToolsConfig:   toolsConfig,
 		MaxIterations: steps,
-		Middlewares: []adk.AgentMiddleware{{BeforeChatModel: func(ctx context.Context, state *adk.ChatModelAgentState) error {
+		Middlewares: []adk.AgentMiddleware{{AfterChatModel: func(_ context.Context, state *adk.ChatModelAgentState) error {
+			return validateSendCallIDs(state.Messages)
+		}, BeforeChatModel: func(ctx context.Context, state *adk.ChatModelAgentState) error {
+			if memorycontracts.CrossGroupReadUsed(ctx) {
+				allowed := make([]*einoschema.ToolInfo, 0, 2)
+				for _, info := range state.ToolInfos {
+					if info.Name == "qq_send_msg" || info.Name == "qq_send_group_msg" {
+						allowed = append(allowed, info)
+					}
+				}
+				state.ToolInfos = allowed
+				state.DeferredToolInfos = nil
+			}
 			if err := memorycontracts.ValidateRunReads(ctx); err != nil {
 				return err
 			}
@@ -282,7 +330,7 @@ func (r *Runtime) Run(ctx context.Context, req contracts.Request) (contracts.Res
 	// Sensitive runs keep metrics while their model and tool contents stay redacted.
 	// 敏感运行继续记录指标，但隐藏模型及工具内容。
 	handlers := r.cfg.Handlers
-	if credentialTools || hasImages {
+	if credentialTools || hasImages || memorycontracts.CrossGroupReadUsed(ctx) || req.AllowMemoryRead && exposed > 0 {
 		handlers = make([]callbacks.Handler, len(r.cfg.SensitiveHandlers))
 		for i, h := range r.cfg.SensitiveHandlers {
 			handlers[i] = privateErrorHandler{h}

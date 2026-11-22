@@ -19,6 +19,7 @@ func (Message) Fields() []ent.Field {
 		field.Int64("id").SchemaType(map[string]string{"postgres": "bigint"}),
 		field.UUID("conversation_id", uuid.UUID{}),
 		field.Int64("bot_id").SchemaType(map[string]string{"postgres": "bigint"}),
+		field.String("control_kind").SchemaType(map[string]string{"postgres": "text"}).Default("").Annotations(entsql.DefaultExpr("''::text")),
 		field.String("direction").SchemaType(map[string]string{"postgres": "text"}),
 		field.Int64("platform_message_id").SchemaType(map[string]string{"postgres": "bigint"}).Optional().Nillable(),
 		field.Int64("sender_id").SchemaType(map[string]string{"postgres": "bigint"}),
@@ -32,10 +33,10 @@ func (Message) Fields() []ent.Field {
 	}
 }
 func (Message) Annotations() []schema.Annotation {
-	return []schema.Annotation{entsql.Annotation{Table: "messages", Checks: map[string]string{"messages_direction_check": "((direction = ANY (ARRAY['incoming'::text, 'outgoing'::text])))", "messages_sent_status_check": "(((sent_status IS NULL) OR (sent_status = ANY (ARRAY['sent'::text, 'failed'::text, 'unknown'::text]))))"}}}
+	return []schema.Annotation{entsql.Annotation{Table: "messages", Checks: map[string]string{"messages_control_kind_check": "((control_kind = '') OR (control_kind = 'memory_consent_command' AND direction = 'incoming') OR (control_kind IN ('memory_consent_prompt','memory_consent_reply') AND direction = 'outgoing'))", "messages_direction_check": "((direction = ANY (ARRAY['incoming'::text, 'outgoing'::text])))", "messages_sent_status_check": "(((sent_status IS NULL) OR (sent_status = ANY (ARRAY['sent'::text, 'failed'::text, 'unknown'::text]))))"}}}
 }
 func (Message) Indexes() []ent.Index {
-	return []ent.Index{index.Fields("bot_id", "conversation_id", "platform_message_id").Unique().StorageKey("messages_incoming_event_uniq").Annotations(entsql.IndexWhere("((direction = 'incoming'::text) AND (platform_message_id IS NOT NULL))")), index.Fields("conversation_id", "created_at", "id").StorageKey("messages_conversation_timeline"), index.Fields("bot_id", "conversation_id", "memory_authorization_event_id").StorageKey("messages_memory_authorization_event"), index.Fields("outbound_id").Unique().StorageKey("messages_outbound_unique").Annotations(entsql.IndexWhere("(outbound_id IS NOT NULL)")), index.Fields("created_at").StorageKey("messages_created_at")}
+	return []ent.Index{index.Fields("id", "direction").Unique().StorageKey("messages_bound_direction"), index.Fields("bot_id", "conversation_id", "platform_message_id").Unique().StorageKey("messages_incoming_event_uniq").Annotations(entsql.IndexWhere("((direction = 'incoming'::text) AND (platform_message_id IS NOT NULL))")), index.Fields("conversation_id", "created_at", "id").StorageKey("messages_conversation_timeline"), index.Fields("bot_id", "conversation_id", "memory_authorization_event_id").StorageKey("messages_memory_authorization_event"), index.Fields("outbound_id").Unique().StorageKey("messages_outbound_unique").Annotations(entsql.IndexWhere("(outbound_id IS NOT NULL)")), index.Fields("created_at").StorageKey("messages_created_at")}
 }
 
 func (Message) Edges() []ent.Edge {

@@ -396,7 +396,26 @@ func (s *Service) ResolveModel(ctx context.Context, usage string, bot int64, kin
 	if err := ctx.Err(); err != nil {
 		return models.Resolved{}, err
 	}
-	c := s.modelCatalog(ctx)
+	return s.resolveModel(s.modelCatalog(ctx), usage, bot, kind, target)
+}
+
+// ResolveLiveModel reads the durable catalogue without a run snapshot.
+// ResolveLiveModel 跳过运行快照，从持久化配置读取当前模型。
+func (s *Service) ResolveLiveModel(ctx context.Context, usage string, bot int64, kind string, target int64) (models.Resolved, error) {
+	if s.repo == nil {
+		return models.Resolved{}, fmt.Errorf("live model catalogue unavailable")
+	}
+	revision, found, err := s.repo.Load(ctx)
+	if err != nil {
+		return models.Resolved{}, err
+	}
+	if !found {
+		return models.Resolved{}, fmt.Errorf("live model catalogue unavailable")
+	}
+	return s.resolveModel(revision.Settings.Models, usage, bot, kind, target)
+}
+
+func (s *Service) resolveModel(c models.Catalog, usage string, bot int64, kind string, target int64) (models.Resolved, error) {
 	id := c.Defaults[usage]
 	if usage == "generation" {
 		if ref := c.Selections[modelScopeKey(bot, kind, 0)]; ref != "" {

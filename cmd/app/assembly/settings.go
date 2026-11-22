@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	mediainfra "github.com/HappyLadySauceM/Nagi/internal/media/infrastructure"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	modelinfra "github.com/HappyLadySauceM/Nagi/internal/models/infrastructure"
 	"log/slog"
@@ -110,6 +111,7 @@ func buildSettings(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 type modelRuntime struct {
 	mu                sync.Mutex
 	settings          *settingsapp.Provider
+	consentGeneration func(context.Context, models.Profile, memorycontracts.GenerationDispatch) error
 	models            models.Resolver
 	tools             func(context.Context, agentcontracts.Request) []tool.BaseTool
 	handlers          []callbacks.Handler
@@ -139,6 +141,12 @@ func (r *modelRuntime) Run(ctx context.Context, req agentcontracts.Request) (age
 		return agentcontracts.Result{}, err
 	}
 	p := resolved.Profile
+	ctx = memorycontracts.WithConsentDestination(ctx, func(call context.Context, dispatch memorycontracts.GenerationDispatch) error {
+		if r.consentGeneration == nil {
+			return memorycontracts.ErrReadChanged
+		}
+		return r.consentGeneration(call, p, dispatch)
+	})
 	live.AI.BaseURL = p.BaseURL
 	live.AI.Model = p.Model
 	live.AI.MaxOutputTokens = p.MaxOutputTokens

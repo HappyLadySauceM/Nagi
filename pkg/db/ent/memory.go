@@ -28,6 +28,8 @@ type Memory struct {
 	OwnerKey string `json:"owner_key,omitempty"`
 	// Content holds the value of the "content" field.
 	Content string `json:"content,omitempty"`
+	// AuthorizationVersion holds the value of the "authorization_version" field.
+	AuthorizationVersion int64 `json:"authorization_version,omitempty"`
 	// SourceMessageID holds the value of the "source_message_id" field.
 	SourceMessageID *int64 `json:"source_message_id,omitempty"`
 	// Source holds the value of the "source" field.
@@ -102,7 +104,7 @@ func (*Memory) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case memory.FieldConfidence:
 			values[i] = new(sql.NullFloat64)
-		case memory.FieldBotID, memory.FieldSourceMessageID, memory.FieldSourceSenderID:
+		case memory.FieldBotID, memory.FieldAuthorizationVersion, memory.FieldSourceMessageID, memory.FieldSourceSenderID:
 			values[i] = new(sql.NullInt64)
 		case memory.FieldVisibility, memory.FieldOwnerKey, memory.FieldContent, memory.FieldSource, memory.FieldOrigin, memory.FieldSubjectType, memory.FieldSubjectID, memory.FieldDedupeKey, memory.FieldReviewReason, memory.FieldStatus, memory.FieldApprovedBy:
 			values[i] = new(sql.NullString)
@@ -154,6 +156,12 @@ func (_m *Memory) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field content", values[i])
 			} else if value.Valid {
 				_m.Content = value.String
+			}
+		case memory.FieldAuthorizationVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field authorization_version", values[i])
+			} else if value.Valid {
+				_m.AuthorizationVersion = value.Int64
 			}
 		case memory.FieldSourceMessageID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -302,6 +310,9 @@ func (_m *Memory) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("content=")
 	builder.WriteString(_m.Content)
+	builder.WriteString(", ")
+	builder.WriteString("authorization_version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AuthorizationVersion))
 	builder.WriteString(", ")
 	if v := _m.SourceMessageID; v != nil {
 		builder.WriteString("source_message_id=")

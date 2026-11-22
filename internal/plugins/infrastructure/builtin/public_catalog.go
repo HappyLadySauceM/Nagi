@@ -10,8 +10,9 @@ import (
 // PublicOptions binds public tools to the source account and delivery ledger.
 // PublicOptions 将公开工具绑定到来源账号与投递台账。
 type PublicOptions struct {
-	Account func(int64) (contracts.PublicAPI, bool)
-	Send    func(context.Context, ob.PublicCommand) (pc.SendReceipt, error)
+	Account       func(int64) (contracts.PublicAPI, bool)
+	Send          func(context.Context, ob.PublicCommand) (pc.SendReceipt, error)
+	StoredMessage func(context.Context, int64, string, int64) (map[string]any, error)
 	// AuthorizeTarget validates a cross-conversation group before a destructive
 	// action runs, so a disabled target cannot be administered.
 	// AuthorizeTarget 在破坏性动作执行前校验跨会话群，停用目标不会被操作。

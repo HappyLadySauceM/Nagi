@@ -4,9 +4,12 @@ package eino
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
+	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	einoTools "github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/eino"
@@ -16,9 +19,12 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -372,5 +378,91 @@ func TestSensitiveRuntimeFailureKeepsSafeGenerationTrace(t *testing.T) {
 	}
 	if !generation {
 		t.Fatal("generation observation missing")
+	}
+}
+
+type consentTransportReader struct {
+	version memory.Memory
+	revoked atomic.Bool
+}
+
+func (r *consentTransportReader) RecallDetail(context.Context, memory.DetailRequest) (memory.Memory, bool, error) {
+	return r.version, !r.revoked.Load(), nil
+}
+
+func TestGenerationConsentChecksFirstApplicationWrite(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		for _, revoke := range []bool{false, true} {
+			t.Run(fmt.Sprintf("tls=%v/revoke=%v", secure, revoke), func(t *testing.T) {
+				var hits atomic.Int32
+				server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					if req.ProtoMajor != 1 {
+						t.Errorf("uncontrolled protocol: %s", req.Proto)
+					}
+					hits.Add(1)
+					w.WriteHeader(http.StatusNoContent)
+				}))
+				if secure {
+					server.EnableHTTP2 = true
+					server.StartTLS()
+				} else {
+					server.Start()
+				}
+				defer server.Close()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				ctx = memory.WithConsentDestination(memory.WithRunReads(ctx), func(ctx context.Context, _ memory.GenerationDispatch) error { return memory.ValidateRunReads(ctx) })
+				v := memory.Memory{UpdatedAt: time.Now(), AuthorizationVersion: 1, ConsentIdentity: "synthetic"}
+				reader := &consentTransportReader{version: v}
+				memory.TrackVersionedRead(ctx, reader, memory.DetailRequest{}, v, nil)
+				endpoint, _ := url.Parse(server.URL)
+				transport := guardedModelTransport{endpoint: endpoint, model: "fixture", dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+					conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+					if !secure && revoke {
+						reader.revoked.Store(true)
+					}
+					return conn, err
+				}}
+				if secure {
+					transport.tlsConfig = server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+					transport.tlsConfig.VerifyConnection = func(tls.ConnectionState) error {
+						if revoke {
+							reader.revoked.Store(true)
+						}
+						return nil
+					}
+				}
+				req, _ := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/chat/completions", strings.NewReader(`{"model":"fixture","messages":[{"content":"synthetic fact"}]}`))
+				res, err := transport.RoundTrip(req)
+				if res != nil {
+					_ = res.Body.Close()
+				}
+				if revoke && (!errors.Is(err, memory.ErrReadChanged) || hits.Load() != 0) || !revoke && (err != nil || hits.Load() != 1) {
+					t.Fatalf("requests=%d err=%v", hits.Load(), err)
+				}
+				t.Logf("physical HTTP requests=%d", hits.Load())
+			})
+		}
+	}
+}
+
+func TestValidateSendCallIDsRequiresUniqueIdentity(t *testing.T) {
+	call := func(id string) *schema.Message {
+		return schema.AssistantMessage("", []schema.ToolCall{{ID: id, Function: schema.FunctionCall{Name: "qq_send_msg"}}})
+	}
+	for _, tc := range []struct {
+		name     string
+		messages []*schema.Message
+		accept   bool
+	}{
+		{"distinct", []*schema.Message{call("first"), call("second")}, true},
+		{"missing", []*schema.Message{call("")}, false},
+		{"ambiguous", []*schema.Message{call("same"), call("same")}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateSendCallIDs(tc.messages); (err == nil) != tc.accept {
+				t.Fatalf("call identity validation: %v", err)
+			}
+		})
 	}
 }

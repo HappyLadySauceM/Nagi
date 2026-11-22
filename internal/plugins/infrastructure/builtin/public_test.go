@@ -133,6 +133,18 @@ func TestPublicToolsStandardFrames(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			switch c.name {
+			case "get_msg", "get_forward_msg", "get_image", "get_record":
+				if !strings.Contains(result, "无法核验") {
+					t.Fatalf("unmapped resource did not close: %s", result)
+				}
+				select {
+				case <-frames:
+					t.Fatal("unmapped resource reached platform")
+				default:
+				}
+				return
+			}
 			var frame map[string]json.RawMessage
 			select {
 			case frame = <-frames:

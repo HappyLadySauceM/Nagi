@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
+	mc "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"strings"
 	"time"
 
@@ -123,6 +124,9 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 		deny("invalid_arguments")
 		return "", fmt.Errorf("reply tool: invalid arguments")
 	}
+	if p.opts.Speech != nil && mc.CrossGroupReadUsed(ctx) {
+		return "", pluginsapp.Denied("跨群授权事实不能用于语音回复")
+	}
 	if p.opts.Speech != nil {
 		for _, permission := range []string{"media.voice.send", "qq.reply.current", "qq.content.media"} {
 			if err := pluginsapp.RequirePermission(ctx, permission); err != nil {
@@ -150,6 +154,10 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 			return "", err
 		}
 	}
+	slot, err := explicitSlot(ctx, scope)
+	if err != nil {
+		return "", err
+	}
 	var audio []byte
 	payload := ""
 	action := ""
@@ -170,7 +178,7 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 		Text:           text,
 		Limits:         limits,
 		RunID:          fmt.Sprintf("job-%d", scope.JobID),
-		ToolCallID:     pluginsapp.ToolCallID(ctx),
+		ToolCallID:     slot,
 	})
 	if err != nil {
 		var budget *outbounddomain.BudgetError
@@ -207,21 +215,29 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 			return "", ctx.Err()
 		}
 	}
-	if p.opts.Authorize != nil {
-		if limits, err = p.opts.Authorize(ctx, scope); err != nil {
-			deny("authorization_revoked")
-			return "", err
+	recheck := func() error {
+		current := limits
+		if p.opts.Authorize != nil {
+			var err error
+			if current, err = p.opts.Authorize(ctx, scope); err != nil {
+				deny("authorization_revoked")
+				return err
+			}
 		}
-	}
-	if validator, ok := p.opts.Ledger.(interface {
-		ValidateReserved(context.Context, string, outbounddomain.Limits) error
-	}); ok {
-		if err := validator.ValidateReserved(ctx, record.ID, limits); err != nil {
-			deny("budget_changed")
-			return "", err
+		if validator, ok := p.opts.Ledger.(interface {
+			ValidateReserved(context.Context, string, outbounddomain.Limits) error
+		}); ok {
+			if err := validator.ValidateReserved(ctx, record.ID, current); err != nil {
+				deny("budget_changed")
+				return err
+			}
 		}
+		return mc.ValidateCrossGroupOutput(ctx)
 	}
-	outcome, sendErr := outboundapp.Deliver(ctx, p.opts.Ledger, record.ID, func(sendCtx context.Context) (int64, error) {
+	if err := recheck(); err != nil {
+		return "", err
+	}
+	outcome, sendErr := outboundapp.DeliverWithRecheck(ctx, p.opts.Ledger, record.ID, recheck, func(sendCtx context.Context) (int64, error) {
 		platformStarted = true
 		if p.opts.Speech != nil {
 			for _, permission := range []string{"media.voice.send", "qq.reply.current", "qq.content.media"} {
@@ -239,6 +255,9 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	}, record.ClaimToken)
 	status, errorCode, messageID := outcome.Status, outcome.ErrorCode, outcome.PlatformMessageID
 	if !status.Settleable() {
+		if errors.Is(sendErr, outbounddomain.ErrBudgetExceeded) {
+			deny("budget_changed")
+		}
 		return "", sendErr
 	}
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
