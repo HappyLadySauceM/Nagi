@@ -3,6 +3,10 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"fmt"
+	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
+	auditpg "github.com/HappyLadySauceM/Nagi/internal/audit/infrastructure"
 	"os"
 	"sync"
 	"testing"
@@ -287,5 +291,98 @@ func TestPurgePreservesProcessingConversation(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE id=$1)", v.MessageID).Scan(&exists); err != nil || exists {
 		t.Fatalf("completed history retained unexpectedly: %v %v", exists, err)
+	}
+}
+
+func TestRecoveryHonorsPersistedAuditStartFailureForOriginalClaim(t *testing.T) {
+	pool := dbtest.Open(t)
+	repo, _ := NewRepo(pool)
+	audits, err := auditpg.NewAIRecorder(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name           string
+		mark, old      bool
+		decision, bind bool
+		want           string
+	}{
+		{name: "active claim terminal evidence", mark: true, want: "failed"},
+		{name: "old claim terminal evidence", mark: true, old: true, want: "pending"},
+		{name: "orphan start event", want: "pending"},
+		{name: "committed decision before audit finish", decision: true, bind: true, want: "failed"},
+		{name: "decision bound to old claim", decision: true, bind: true, old: true, want: "pending"},
+		{name: "decision without worker run binding", decision: true, want: "pending"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seed := time.Now().UnixNano()
+			const botID = 998822
+			v, err := repo.Ingest(ctx, domain.IngestInput{BotID: botID, Kind: domain.KindGroup, TargetID: seed, PlatformMessageID: seed, SenderID: 2, Text: "fixture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM message_jobs WHERE id=$1", v.JobID) })
+			jobs, err := repo.ClaimReadyJobs(ctx, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var claim string
+			for _, job := range jobs {
+				if job.ID == v.JobID {
+					claim = job.ClaimToken
+				}
+			}
+			if claim == "" {
+				t.Fatal("missing live claim")
+			}
+			if tc.old {
+				claim = uuid.NewString()
+			}
+			run, err := audits.StartRun(ctx, auditdomain.AIRun{JobID: v.JobID, BotID: botID, ConversationID: v.ConversationID, OperationID: fmt.Sprintf("job:%d:claim:%s", v.JobID, claim)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stage := "intent.media_request"
+			if tc.mark {
+				stage = "intent.decision"
+			}
+			event, err := audits.RecordEvent(ctx, auditdomain.AIEvent{RunID: run.ID, OperationID: stage, Stage: stage})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.mark {
+				if err := audits.FinishEvent(ctx, event.ID, "failed", audit.ModelMediaStartFailureCode, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.decision {
+				var id int64
+				err := pool.QueryRow(ctx, "INSERT INTO intent_decisions(job_id,provider,decision,reason_code) VALUES($1,'fixture','silent',$2) RETURNING id", v.JobID, audit.ModelMediaStartFailureCode).Scan(&id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				binding := ""
+				if tc.bind {
+					binding = run.ID
+				}
+				if _, err := pool.Exec(ctx, "INSERT INTO intent_decision_snapshots(decision_id,input) VALUES($1,jsonb_build_object('WorkerAuditRunID',$2::text))", id, binding); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := pool.Exec(ctx, "UPDATE message_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", v.JobID); err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.RecoverStaleJobs(ctx, domain.RecoveryPolicy{MaxAttempts: 3}); err != nil {
+				t.Fatal(err)
+			}
+			var status, code string
+			if err := pool.QueryRow(ctx, "SELECT status,last_error_code FROM message_jobs WHERE id=$1", v.JobID).Scan(&status, &code); err != nil {
+				t.Fatal(err)
+			}
+			if status != tc.want || (code == audit.ModelMediaStartFailureCode) != (tc.want == "failed") {
+				t.Fatalf("status=%s code=%s want=%s", status, code, tc.want)
+			}
+		})
 	}
 }

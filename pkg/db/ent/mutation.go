@@ -25881,6 +25881,8 @@ type MessageMutation struct {
 	text_content                             *string
 	segments                                 *jsontext.Value
 	appendsegments                           jsontext.Value
+	inbound_media_summary                    *jsontext.Value
+	appendinbound_media_summary              jsontext.Value
 	sent_status                              *string
 	created_at                               *time.Time
 	memory_authorization_event_id            *int64
@@ -26329,6 +26331,71 @@ func (m *MessageMutation) AppendedSegments() (jsontext.Value, bool) {
 func (m *MessageMutation) ResetSegments() {
 	m.segments = nil
 	m.appendsegments = nil
+}
+
+// SetInboundMediaSummary sets the "inbound_media_summary" field.
+func (m *MessageMutation) SetInboundMediaSummary(j jsontext.Value) {
+	m.inbound_media_summary = &j
+	m.appendinbound_media_summary = nil
+}
+
+// InboundMediaSummary returns the value of the "inbound_media_summary" field in the mutation.
+func (m *MessageMutation) InboundMediaSummary() (r jsontext.Value, exists bool) {
+	v := m.inbound_media_summary
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInboundMediaSummary returns the old "inbound_media_summary" field's value of the Message entity.
+// If the Message object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageMutation) OldInboundMediaSummary(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInboundMediaSummary is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInboundMediaSummary requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInboundMediaSummary: %w", err)
+	}
+	return oldValue.InboundMediaSummary, nil
+}
+
+// AppendInboundMediaSummary adds j to the "inbound_media_summary" field.
+func (m *MessageMutation) AppendInboundMediaSummary(j jsontext.Value) {
+	m.appendinbound_media_summary = append(m.appendinbound_media_summary, j...)
+}
+
+// AppendedInboundMediaSummary returns the list of values that were appended to the "inbound_media_summary" field in this mutation.
+func (m *MessageMutation) AppendedInboundMediaSummary() (jsontext.Value, bool) {
+	if len(m.appendinbound_media_summary) == 0 {
+		return nil, false
+	}
+	return m.appendinbound_media_summary, true
+}
+
+// ClearInboundMediaSummary clears the value of the "inbound_media_summary" field.
+func (m *MessageMutation) ClearInboundMediaSummary() {
+	m.inbound_media_summary = nil
+	m.appendinbound_media_summary = nil
+	m.clearedFields[message.FieldInboundMediaSummary] = struct{}{}
+}
+
+// InboundMediaSummaryCleared returns if the "inbound_media_summary" field was cleared in this mutation.
+func (m *MessageMutation) InboundMediaSummaryCleared() bool {
+	_, ok := m.clearedFields[message.FieldInboundMediaSummary]
+	return ok
+}
+
+// ResetInboundMediaSummary resets all changes to the "inbound_media_summary" field.
+func (m *MessageMutation) ResetInboundMediaSummary() {
+	m.inbound_media_summary = nil
+	m.appendinbound_media_summary = nil
+	delete(m.clearedFields, message.FieldInboundMediaSummary)
 }
 
 // SetSentStatus sets the "sent_status" field.
@@ -26851,7 +26918,7 @@ func (m *MessageMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MessageMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 12)
 	if m.conversation_id_ref != nil {
 		fields = append(fields, message.FieldConversationID)
 	}
@@ -26872,6 +26939,9 @@ func (m *MessageMutation) Fields() []string {
 	}
 	if m.segments != nil {
 		fields = append(fields, message.FieldSegments)
+	}
+	if m.inbound_media_summary != nil {
+		fields = append(fields, message.FieldInboundMediaSummary)
 	}
 	if m.sent_status != nil {
 		fields = append(fields, message.FieldSentStatus)
@@ -26907,6 +26977,8 @@ func (m *MessageMutation) Field(name string) (ent.Value, bool) {
 		return m.TextContent()
 	case message.FieldSegments:
 		return m.Segments()
+	case message.FieldInboundMediaSummary:
+		return m.InboundMediaSummary()
 	case message.FieldSentStatus:
 		return m.SentStatus()
 	case message.FieldCreatedAt:
@@ -26938,6 +27010,8 @@ func (m *MessageMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldTextContent(ctx)
 	case message.FieldSegments:
 		return m.OldSegments(ctx)
+	case message.FieldInboundMediaSummary:
+		return m.OldInboundMediaSummary(ctx)
 	case message.FieldSentStatus:
 		return m.OldSentStatus(ctx)
 	case message.FieldCreatedAt:
@@ -27003,6 +27077,13 @@ func (m *MessageMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetSegments(v)
+		return nil
+	case message.FieldInboundMediaSummary:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInboundMediaSummary(v)
 		return nil
 	case message.FieldSentStatus:
 		v, ok := value.(string)
@@ -27104,6 +27185,9 @@ func (m *MessageMutation) ClearedFields() []string {
 	if m.FieldCleared(message.FieldPlatformMessageID) {
 		fields = append(fields, message.FieldPlatformMessageID)
 	}
+	if m.FieldCleared(message.FieldInboundMediaSummary) {
+		fields = append(fields, message.FieldInboundMediaSummary)
+	}
 	if m.FieldCleared(message.FieldSentStatus) {
 		fields = append(fields, message.FieldSentStatus)
 	}
@@ -27129,6 +27213,9 @@ func (m *MessageMutation) ClearField(name string) error {
 	switch name {
 	case message.FieldPlatformMessageID:
 		m.ClearPlatformMessageID()
+		return nil
+	case message.FieldInboundMediaSummary:
+		m.ClearInboundMediaSummary()
 		return nil
 	case message.FieldSentStatus:
 		m.ClearSentStatus()
@@ -27167,6 +27254,9 @@ func (m *MessageMutation) ResetField(name string) error {
 		return nil
 	case message.FieldSegments:
 		m.ResetSegments()
+		return nil
+	case message.FieldInboundMediaSummary:
+		m.ResetInboundMediaSummary()
 		return nil
 	case message.FieldSentStatus:
 		m.ResetSentStatus()

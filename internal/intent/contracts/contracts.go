@@ -5,6 +5,7 @@ package contracts
 import (
 	"context"
 	"encoding/json"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
@@ -232,6 +233,12 @@ type InboundRecord struct {
 	SegmentTypes                                              []string
 	DecisionIDs                                               []int64
 	ReceivedAt                                                time.Time
+}
+
+// MediaReader reads the account-scoped evidence for one retained inbound.
+// MediaReader 读取指定账号的一条已留存入站媒体证据。
+type MediaReader interface {
+	InboundMedia(context.Context, int64, int64, []int64) (media.InboundMedia, error)
 }
 
 type InboundReader interface {

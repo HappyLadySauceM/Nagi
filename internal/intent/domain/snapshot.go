@@ -5,6 +5,7 @@ package domain
 
 import (
 	"errors"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"time"
 
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
@@ -28,6 +29,11 @@ const (
 // SnapshotInput is the exact decision input needed by the replay paths.
 // SnapshotInput 是回放路径所需的精确决策输入。
 type SnapshotInput struct {
+	Pictures             *media.PictureSummary `json:",omitempty"`
+	WorkerAuditRunID     string                `json:",omitempty"`
+	GenerationEligible   bool                  `json:",omitempty"`
+	IntentAsked          bool                  `json:",omitempty"`
+	MediaEvidenceVersion int                   `json:",omitempty"`
 	Task                 Task
 	BotName              string        `json:",omitempty"`
 	CallIdentity         *CallIdentity `json:",omitempty"`

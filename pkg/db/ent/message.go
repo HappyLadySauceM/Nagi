@@ -37,6 +37,8 @@ type Message struct {
 	TextContent string `json:"text_content,omitempty"`
 	// Segments holds the value of the "segments" field.
 	Segments jsontext.Value `json:"segments,omitempty"`
+	// InboundMediaSummary holds the value of the "inbound_media_summary" field.
+	InboundMediaSummary jsontext.Value `json:"inbound_media_summary,omitempty"`
 	// SentStatus holds the value of the "sent_status" field.
 	SentStatus *string `json:"sent_status,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
@@ -137,7 +139,7 @@ func (*Message) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case message.FieldOutboundID:
 			values[i] = &sql.NullScanner{S: new(uuid.UUID)}
-		case message.FieldSegments:
+		case message.FieldSegments, message.FieldInboundMediaSummary:
 			values[i] = new([]byte)
 		case message.FieldID, message.FieldBotID, message.FieldPlatformMessageID, message.FieldSenderID, message.FieldMemoryAuthorizationEventID:
 			values[i] = new(sql.NullInt64)
@@ -211,6 +213,14 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 			} else if value != nil && len(*value) > 0 {
 				if err := json.Unmarshal(*value, &_m.Segments); err != nil {
 					return fmt.Errorf("unmarshal field segments: %w", err)
+				}
+			}
+		case message.FieldInboundMediaSummary:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field inbound_media_summary", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.InboundMediaSummary); err != nil {
+					return fmt.Errorf("unmarshal field inbound_media_summary: %w", err)
 				}
 			}
 		case message.FieldSentStatus:
@@ -328,6 +338,9 @@ func (_m *Message) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("segments=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Segments))
+	builder.WriteString(", ")
+	builder.WriteString("inbound_media_summary=")
+	builder.WriteString(fmt.Sprintf("%v", _m.InboundMediaSummary))
 	builder.WriteString(", ")
 	if v := _m.SentStatus; v != nil {
 		builder.WriteString("sent_status=")

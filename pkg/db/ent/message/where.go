@@ -366,6 +366,16 @@ func TextContentContainsFold(v string) predicate.Message {
 	return predicate.Message(sql.FieldContainsFold(FieldTextContent, v))
 }
 
+// InboundMediaSummaryIsNil applies the IsNil predicate on the "inbound_media_summary" field.
+func InboundMediaSummaryIsNil() predicate.Message {
+	return predicate.Message(sql.FieldIsNull(FieldInboundMediaSummary))
+}
+
+// InboundMediaSummaryNotNil applies the NotNil predicate on the "inbound_media_summary" field.
+func InboundMediaSummaryNotNil() predicate.Message {
+	return predicate.Message(sql.FieldNotNull(FieldInboundMediaSummary))
+}
+
 // SentStatusEQ applies the EQ predicate on the "sent_status" field.
 func SentStatusEQ(v string) predicate.Message {
 	return predicate.Message(sql.FieldEQ(FieldSentStatus, v))

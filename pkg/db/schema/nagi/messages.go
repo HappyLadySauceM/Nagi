@@ -24,6 +24,7 @@ func (Message) Fields() []ent.Field {
 		field.Int64("sender_id").SchemaType(map[string]string{"postgres": "bigint"}),
 		field.String("text_content").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.JSON("segments", json.RawMessage{}).Annotations(entsql.DefaultExpr("'[]'::jsonb")).Default(json.RawMessage("[]")),
+		field.JSON("inbound_media_summary", json.RawMessage{}).Optional(),
 		field.String("sent_status").SchemaType(map[string]string{"postgres": "text"}).Optional().Nillable(),
 		field.Time("created_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 		field.UUID("outbound_id", uuid.UUID{}).Optional().Nillable(),

@@ -4,6 +4,7 @@ package v1
 
 import (
 	"encoding/json"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"time"
 
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
@@ -93,6 +94,7 @@ type DecisionDetail struct {
 // MessageIngress describes the stored message that created a decision job.
 // MessageIngress 描述创建决策任务的已存入站消息。
 type MessageIngress struct {
+	Media             *media.InboundMedia `json:",omitempty"`
 	MessageID         int64
 	PlatformMessageID int64
 	SenderID          int64

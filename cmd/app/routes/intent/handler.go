@@ -148,6 +148,14 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 				SenderID: msg.SenderID, Text: boundContextText(text), SegmentTypes: segmentTypes,
 				ReceivedAt: msg.CreatedAt, JobStatus: ingress.Status,
 			}
+			if reader, ok := h.svcCtx.Decisions.(intentcontracts.MediaReader); ok {
+				value, err := reader.InboundMedia(r.Context(), record.BotID, msg.ID, []int64{record.ID})
+				if err != nil {
+					common.WriteFailure(w, http.StatusInternalServerError, "读取入站媒体证据失败")
+					return
+				}
+				detail.Ingress.Media = &value
+			}
 			traceContext := observability.TraceContext{TraceParent: ingress.TraceParent}
 			if traceContext.Valid() {
 				detail.Ingress.TraceID = trace.SpanContextFromContext(traceContext.Restore(r.Context())).TraceID().String()

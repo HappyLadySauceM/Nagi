@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 	"io"
 	"log/slog"
@@ -159,9 +161,10 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 		)
 		recordSystemOneQuestions(span, wireQuestions)
 	}
+	state, shape := c.buildState(in)
 	payload := map[string]any{
 		"model":     c.cfg.Model,
-		"state":     c.buildState(in),
+		"state":     state,
 		"questions": wireQuestions,
 	}
 	body, err := json.Marshal(payload)
@@ -177,7 +180,10 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 	}
 	req.GetBody = nil
-	resp, err := modelhttp.Client(c.client, c.cfg.HTTPHeaders).Do(req)
+	resp, err := intentMediaClient(c.client, c.cfg.HTTPHeaders).Do(req.WithContext(audit.WithModelMedia(ctx, "intent.media_request", shape)))
+	if errors.Is(err, audit.ErrModelMediaStart) {
+		return domain.SemanticAnswer{}, audit.ErrModelMediaStart
+	}
 	attempt := domain.SemanticAnswer{ExternalRequests: 1}
 	if err != nil {
 		return attempt, fmt.Errorf("jev: call: %w", err)
@@ -272,7 +278,7 @@ func questionsFromSpecs(specs map[string]domain.PromptQuestion) map[string]jevQu
 
 // buildState maps the decision input into the documented state shape.
 // buildState 将决策输入映射为文档定义的状态形态。
-func (c *JevClient) buildState(in domain.Input) map[string]any {
+func (c *JevClient) buildState(in domain.Input) (map[string]any, media.ModelMediaAttempt) {
 	history, currentTime := in.HistoryBeforeCurrent()
 	if currentTime.IsZero() {
 		currentTime = in.Now
@@ -297,9 +303,10 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	if botLastSpoke < 0 {
 		botLastSpoke = -1
 	}
+	text, shape := renderIntentMessage(in.Task, true)
 	state := map[string]any{
 		"channel":                    in.Task.Kind,
-		"current_message":            map[string]any{"sender": sender, "text": semanticText(in.Task.Message.Text)},
+		"current_message":            map[string]any{"sender": sender, "text": text},
 		"recent_messages":            recent,
 		"bot_last_spoke_seconds_ago": botLastSpoke,
 		"mentions_bot":               in.MentionsBot(),
@@ -310,7 +317,7 @@ func (c *JevClient) buildState(in domain.Input) map[string]any {
 	}
 	addCallIdentityState(state, in, c.cfg.BotName)
 	addTopicState(state, in.Topics)
-	return state
+	return state, shape
 }
 
 func addCallIdentityState(state map[string]any, in domain.Input, configuredName string) {
@@ -361,6 +368,52 @@ func semanticText(text string) string {
 		}
 	}
 	return out.String()
+}
+
+func intentMediaClient(client *http.Client, headers map[string]string) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	observed := *client
+	observed.Transport = audit.ModelMediaTransport{Base: client.Transport}
+	return modelhttp.Client(&observed, headers)
+}
+
+func renderIntentMessage(task domain.Task, jev bool) (string, media.ModelMediaAttempt) {
+	shape := media.ModelMediaAttempt{Shape: media.MediaTextOnly}
+	text := task.Message.Text
+	if len(task.Segments) > 0 && ob.PlainText(task.Segments) == "" {
+		for _, segment := range task.Segments {
+			if segment.Type == ob.SegImage {
+				// Only bridge fallback text is replaced. A current transcription remains text.
+				// 仅替换桥接回退文本。当前语音转写仍保留为文字。
+				if allImages(task.Segments) || strings.TrimSpace(text) == "" {
+					shape.Shape = media.MediaHint
+					return "[图片]", shape
+				}
+				for _, part := range ob.ParseCQ(text) {
+					if part.Type == ob.SegImage {
+						shape.Shape = media.MediaHint
+						return semanticText(text), shape
+					}
+				}
+				break
+			}
+		}
+	}
+	if jev {
+		text = semanticText(text)
+	}
+	return text, shape
+}
+
+func allImages(segments []ob.Segment) bool {
+	for _, segment := range segments {
+		if segment.Type != ob.SegImage {
+			return false
+		}
+	}
+	return true
 }
 
 // parseAnswers extracts one answer per configured question; missing, malformed

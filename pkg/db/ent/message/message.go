@@ -29,6 +29,8 @@ const (
 	FieldTextContent = "text_content"
 	// FieldSegments holds the string denoting the segments field in the database.
 	FieldSegments = "segments"
+	// FieldInboundMediaSummary holds the string denoting the inbound_media_summary field in the database.
+	FieldInboundMediaSummary = "inbound_media_summary"
 	// FieldSentStatus holds the string denoting the sent_status field in the database.
 	FieldSentStatus = "sent_status"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
@@ -109,6 +111,7 @@ var Columns = []string{
 	FieldSenderID,
 	FieldTextContent,
 	FieldSegments,
+	FieldInboundMediaSummary,
 	FieldSentStatus,
 	FieldCreatedAt,
 	FieldOutboundID,

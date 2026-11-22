@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 )
@@ -30,7 +31,7 @@ func registerInboundAttachments(ctx context.Context, client *ent.Client, message
 				source[key] = value
 			}
 		}
-		if source["url"] == "" && source["file"] == "" && source["file_id"] == "" {
+		if !media.HasDownloadSource(segment) {
 			task.SetStatus("unavailable").SetFailureCode("no_download_source")
 		} else {
 			payload, err := json.Marshal(source)

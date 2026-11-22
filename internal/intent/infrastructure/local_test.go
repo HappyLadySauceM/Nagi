@@ -3,6 +3,9 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
@@ -173,4 +176,30 @@ func TestLocalReusesFirstRequestForThreeWayCall(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLocalStartFailureBlocksParallelQuestions(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	client := &LocalClient{Config: JevConfig{Endpoint: server.URL, Model: "fixture", Timeout: time.Second}, Client: server.Client()}
+	recorder := &localStartFailureRecorder{}
+	ctx := audit.WithRun(context.Background(), recorder, "fixture-run")
+	answer, err := client.Decide(ctx, testInput())
+	if !errors.Is(err, audit.ErrModelMediaStart) || answer.Available || answer.ExternalRequests != 0 || recorder.starts.Load() != 1 || requests.Load() != 0 {
+		t.Fatalf("answer=%+v error=%v audit starts=%d received requests=%d", answer, err, recorder.starts.Load(), requests.Load())
+	}
+}
+
+type localStartFailureRecorder struct {
+	audit.AIRecorder
+	starts atomic.Int32
+}
+
+func (r *localStartFailureRecorder) RecordEvent(context.Context, auditdomain.AIEvent) (auditdomain.AIEvent, error) {
+	r.starts.Add(1)
+	return auditdomain.AIEvent{}, context.DeadlineExceeded
 }

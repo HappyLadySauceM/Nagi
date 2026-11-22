@@ -153,6 +153,24 @@ func (_u *MessageUpdate) AppendSegments(v jsontext.Value) *MessageUpdate {
 	return _u
 }
 
+// SetInboundMediaSummary sets the "inbound_media_summary" field.
+func (_u *MessageUpdate) SetInboundMediaSummary(v jsontext.Value) *MessageUpdate {
+	_u.mutation.SetInboundMediaSummary(v)
+	return _u
+}
+
+// AppendInboundMediaSummary appends value to the "inbound_media_summary" field.
+func (_u *MessageUpdate) AppendInboundMediaSummary(v jsontext.Value) *MessageUpdate {
+	_u.mutation.AppendInboundMediaSummary(v)
+	return _u
+}
+
+// ClearInboundMediaSummary clears the value of the "inbound_media_summary" field.
+func (_u *MessageUpdate) ClearInboundMediaSummary() *MessageUpdate {
+	_u.mutation.ClearInboundMediaSummary()
+	return _u
+}
+
 // SetSentStatus sets the "sent_status" field.
 func (_u *MessageUpdate) SetSentStatus(v string) *MessageUpdate {
 	_u.mutation.SetSentStatus(v)
@@ -484,6 +502,17 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, message.FieldSegments, value)
 		})
+	}
+	if value, ok := _u.mutation.InboundMediaSummary(); ok {
+		_spec.SetField(message.FieldInboundMediaSummary, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedInboundMediaSummary(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, message.FieldInboundMediaSummary, value)
+		})
+	}
+	if _u.mutation.InboundMediaSummaryCleared() {
+		_spec.ClearField(message.FieldInboundMediaSummary, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.SentStatus(); ok {
 		_spec.SetField(message.FieldSentStatus, field.TypeString, value)
@@ -861,6 +890,24 @@ func (_u *MessageUpdateOne) AppendSegments(v jsontext.Value) *MessageUpdateOne {
 	return _u
 }
 
+// SetInboundMediaSummary sets the "inbound_media_summary" field.
+func (_u *MessageUpdateOne) SetInboundMediaSummary(v jsontext.Value) *MessageUpdateOne {
+	_u.mutation.SetInboundMediaSummary(v)
+	return _u
+}
+
+// AppendInboundMediaSummary appends value to the "inbound_media_summary" field.
+func (_u *MessageUpdateOne) AppendInboundMediaSummary(v jsontext.Value) *MessageUpdateOne {
+	_u.mutation.AppendInboundMediaSummary(v)
+	return _u
+}
+
+// ClearInboundMediaSummary clears the value of the "inbound_media_summary" field.
+func (_u *MessageUpdateOne) ClearInboundMediaSummary() *MessageUpdateOne {
+	_u.mutation.ClearInboundMediaSummary()
+	return _u
+}
+
 // SetSentStatus sets the "sent_status" field.
 func (_u *MessageUpdateOne) SetSentStatus(v string) *MessageUpdateOne {
 	_u.mutation.SetSentStatus(v)
@@ -1222,6 +1269,17 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, message.FieldSegments, value)
 		})
+	}
+	if value, ok := _u.mutation.InboundMediaSummary(); ok {
+		_spec.SetField(message.FieldInboundMediaSummary, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedInboundMediaSummary(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, message.FieldInboundMediaSummary, value)
+		})
+	}
+	if _u.mutation.InboundMediaSummaryCleared() {
+		_spec.ClearField(message.FieldInboundMediaSummary, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.SentStatus(); ok {
 		_spec.SetField(message.FieldSentStatus, field.TypeString, value)
