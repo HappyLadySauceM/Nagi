@@ -1074,9 +1074,8 @@ func memoryHitsJSON(items []memorycontracts.RecallItem) string {
 	return string(payload)
 }
 
-// send delivers the reply and returns the assigned platform message id;
-// groups prepend an at segment to the sender.
-// send 投递回复并返回分配的 platform message id；群聊在开头附加对发送者的 @ 段。
+// send delivers an automatic text reply and returns its platform message ID.
+// send 投递自动文字回复并返回平台消息 ID。
 func (r *Replier) send(ctx context.Context, task intentdomain.Task, reply string) (int64, error) {
 	sender, ok := r.senders.ReceiptSender(task.BotID)
 	if !ok {
@@ -1085,8 +1084,7 @@ func (r *Replier) send(ctx context.Context, task intentdomain.Task, reply string
 		return 0, fmt.Errorf("agent: bot %d is not connected", task.BotID)
 	}
 	if task.Kind == "group" {
-		return sender.SendGroupMessageReceipt(ctx, obdomain.GroupID(task.TargetID),
-			obdomain.At(obdomain.UserID(task.Message.SenderID)), obdomain.Text(reply))
+		return sender.SendGroupMessageReceipt(ctx, obdomain.GroupID(task.TargetID), obdomain.Text(reply))
 	}
 	return sender.SendPrivateMessageReceipt(ctx, obdomain.UserID(task.TargetID), obdomain.Text(reply))
 }
