@@ -72,16 +72,18 @@ func (f *fakeRuntime) Run(ctx context.Context, req agentcontracts.Request) (agen
 // fakeSender records outgoing sends and reports a canned message id.
 // fakeSender 记录出站发送并回报预置消息 ID。
 type fakeSender struct {
-	group   []obdomain.GroupID
-	private []obdomain.UserID
-	texts   []string
-	botIDs  []int64
-	err     error
-	msgID   int64
+	group         []obdomain.GroupID
+	private       []obdomain.UserID
+	groupSegments [][]obdomain.Segment
+	texts         []string
+	botIDs        []int64
+	err           error
+	msgID         int64
 }
 
 func (f *fakeSender) SendGroupMessageReceipt(_ context.Context, to obdomain.GroupID, segments ...obdomain.Segment) (int64, error) {
 	f.group = append(f.group, to)
+	f.groupSegments = append(f.groupSegments, obdomain.CloneSegments(segments))
 	f.texts = append(f.texts, obdomain.PlainText(segments))
 	if f.err != nil {
 		return 0, f.err
@@ -289,9 +291,9 @@ func memoryReadGroupPolicy() map[string]scopedomain.Policy {
 	return policies
 }
 
-// TestReplierSendsAndRecordsGroupReply verifies generation, at-segment delivery
+// TestReplierSendsAndRecordsGroupReply verifies text-only automatic group delivery
 // and the outbound record.
-// TestReplierSendsAndRecordsGroupReply 验证生成、带 @ 段的群发与出站回写。
+// TestReplierSendsAndRecordsGroupReply 验证自动群回复只发送文字并回写出站记录。
 func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 	fake := &fakeRuntime{text: "  适合，看你要做什么。 "}
 	sender := &fakeSender{}
@@ -327,8 +329,9 @@ func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
 	if len(sender.botIDs) != 1 || sender.botIDs[0] != 100 {
 		t.Fatalf("reply routed through accounts %v, want [100]", sender.botIDs)
 	}
-	if !strings.Contains(sender.texts[0], "适合，看你要做什么。") {
-		t.Fatalf("sent text = %q", sender.texts[0])
+	segments := sender.groupSegments[0]
+	if len(segments) != 1 || segments[0].Type != obdomain.SegText || segments[0].Data["text"] != "适合，看你要做什么。" {
+		t.Fatalf("group reply segments = %+v, want one text segment", segments)
 	}
 	if len(rec.statuses) != 1 || rec.statuses[0] != "sent" || rec.conversations[0] != "conv-1" {
 		t.Fatalf("records = %+v", rec)
