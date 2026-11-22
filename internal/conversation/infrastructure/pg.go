@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	entsql "entgo.io/ent/dialect/sql"
+	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	ec "github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
@@ -124,7 +125,11 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 			authorizationEventID = &id
 		}
 	}
-	messageCreate := c.Message.Create().SetConversationID(conv).SetBotID(in.BotID).SetDirection("incoming").SetPlatformMessageID(in.PlatformMessageID).SetSenderID(in.SenderID).SetTextContent(in.Text).SetSegments(segments)
+	summary, err := json.Marshal(media.InboundPictures(in.Segments, r.attachmentRetention > 0))
+	if err != nil {
+		return domain.IngestResult{}, err
+	}
+	messageCreate := c.Message.Create().SetInboundMediaSummary(summary).SetConversationID(conv).SetBotID(in.BotID).SetDirection("incoming").SetPlatformMessageID(in.PlatformMessageID).SetSenderID(in.SenderID).SetTextContent(in.Text).SetSegments(segments)
 	if authorizationEventID != nil {
 		messageCreate.SetMemoryAuthorizationEventID(*authorizationEventID)
 	}
@@ -485,7 +490,38 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context, policies ...domain.Recovery
 		return err
 	}
 	encoded, _ := json.Marshal(ids)
-	_, err = tx.Exec(ctx, `WITH expired AS MATERIALIZED(SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id WHERE m.conversation_id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb)) AND j.status='processing' AND j.lease_expires_at<=clock_timestamp() FOR UPDATE OF j),cancelled AS(UPDATE agent_outbound_messages o SET status='cancelled',updated_at=clock_timestamp() WHERE o.job_id IN(SELECT id FROM expired) AND o.status='prepared' RETURNING job_id,charge_chars chars),refund AS(SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id),budgets AS(UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars) FROM refund r WHERE b.job_id=r.job_id),uncertain AS(UPDATE agent_outbound_messages o SET status='unknown',error_code='lease_expired',updated_at=clock_timestamp() WHERE o.job_id IN(SELECT id FROM expired) AND o.status='sending' RETURNING job_id) UPDATE message_jobs j SET status=CASE WHEN EXISTS(SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status IN('sent','unknown','sending','failed')) OR j.delivery_outcome='blocked' OR j.attempts+1>=$2 THEN 'failed' ELSE 'pending' END,last_error_code=CASE WHEN EXISTS(SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status IN('sent','unknown','sending','failed')) THEN 'partial' ELSE 'lease_expired' END,attempts=j.attempts+1,next_run_at=clock_timestamp()+make_interval(secs=>$3),claim_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp() WHERE j.id IN(SELECT id FROM expired)`, encoded, policy.MaxAttempts, policy.RetryBackoff.Seconds())
+	_, err = tx.Exec(ctx, `WITH expired AS MATERIALIZED (
+ SELECT j.id, EXISTS (
+  SELECT 1 FROM ai_audit_runs r WHERE r.job_id=j.id AND r.bot_id=m.bot_id AND r.conversation_id=m.conversation_id
+   AND r.operation_id='job:'||j.id::text||':claim:'||j.claim_token::text
+   AND (r.error_code=$4 OR EXISTS (SELECT 1 FROM ai_audit_events e
+    WHERE e.run_id=r.id AND e.stage IN ('worker.process','intent.decision','agent.generation')
+     AND e.status='failed' AND e.error_code=$4)
+    OR EXISTS (SELECT 1 FROM intent_decisions d JOIN intent_decision_snapshots s ON s.decision_id=d.id
+     WHERE d.job_id=j.id AND d.decision='silent' AND d.reason_code=$4
+      AND s.input->>'WorkerAuditRunID'=r.id::text))
+ ) AS audit_start_failed
+ FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
+ WHERE m.conversation_id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
+ AND j.status='processing' AND j.lease_expires_at<=clock_timestamp() FOR UPDATE OF j
+ ),cancelled AS (
+ UPDATE agent_outbound_messages o SET status='cancelled',updated_at=clock_timestamp()
+ WHERE o.job_id IN(SELECT id FROM expired) AND o.status='prepared' RETURNING job_id,charge_chars chars
+ ),refund AS (SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id),budgets AS (
+ UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars)
+ FROM refund r WHERE b.job_id=r.job_id
+ ),uncertain AS (
+ UPDATE agent_outbound_messages o SET status='unknown',error_code='lease_expired',updated_at=clock_timestamp()
+ WHERE o.job_id IN(SELECT id FROM expired) AND o.status='sending' RETURNING job_id
+ ),outcomes AS (
+ SELECT e.id,e.audit_start_failed,EXISTS(SELECT 1 FROM agent_outbound_messages o
+  WHERE o.job_id=e.id AND o.status IN('sent','unknown','sending','failed')) AS partial
+ FROM expired e
+ ) UPDATE message_jobs j SET
+ status=CASE WHEN o.partial OR o.audit_start_failed OR j.delivery_outcome='blocked' OR j.attempts+1>=$2 THEN 'failed' ELSE 'pending' END,
+ last_error_code=CASE WHEN o.partial THEN 'partial' WHEN o.audit_start_failed THEN $4 ELSE 'lease_expired' END,
+ attempts=j.attempts+1,next_run_at=clock_timestamp()+make_interval(secs=>$3),claim_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp()
+ FROM outcomes o WHERE j.id=o.id`, encoded, policy.MaxAttempts, policy.RetryBackoff.Seconds(), audit.ModelMediaStartFailureCode)
 	if err != nil {
 		return err
 	}

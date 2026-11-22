@@ -204,6 +204,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			} else {
 				for _, job := range jobs {
 					jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+					jobCtx = auditcontracts.WithMediaRepairContext(jobCtx, ctx)
 					mu.Lock()
 					active[job.ClaimToken] = cancel
 					mu.Unlock()
@@ -290,6 +291,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		if w.opts.Audit == nil || auditRun.ID == "" {
 			return nil
 		}
+		auditcontracts.FinishPendingModelMedia(jobCtx)
 		output, err := json.Marshal(map[string]any{"status": status, "error_code": code})
 		if err != nil {
 			return fmt.Errorf("encode audit output: %w", err)
@@ -374,7 +376,10 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		failureCode := "process_error"
 		maxAttempts := w.opts.MaxAttempts
 		var uncertain *auditcontracts.SideEffectUncertainError
-		if errors.As(err, &uncertain) || auditcontracts.SideEffectOccurred(jobCtx) {
+		if errors.Is(err, auditcontracts.ErrModelMediaStart) {
+			failureCode = auditcontracts.ModelMediaStartFailureCode
+			maxAttempts = 1
+		} else if errors.As(err, &uncertain) || auditcontracts.SideEffectOccurred(jobCtx) {
 			failureCode = "side_effect_audit_unknown"
 			maxAttempts = 1
 		}
@@ -384,6 +389,11 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 			"status": "failed",
 		})
+		if errors.Is(err, auditcontracts.ErrModelMediaStart) {
+			finishCtx, cancel := context.WithTimeout(context.WithoutCancel(jobCtx), 5*time.Second)
+			defer cancel()
+			jobCtx = finishCtx
+		}
 		if auditErr := finishAudit("failed", failureCode); auditErr != nil {
 			span.RecordError(auditErr)
 			span.SetStatus(codes.Error, "audit_finish_failed")

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
@@ -96,19 +97,6 @@ func newRuntimeWithModel(cfg Config, chatModel model.BaseModel[*einoschema.Messa
 	return &Runtime{model: chatModel, cfg: cfg}
 }
 
-type guardedModelTransport struct{ base http.RoundTripper }
-
-func (t guardedModelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := memorycontracts.ValidateRunReads(req.Context()); err != nil {
-		return nil, err
-	}
-	// Disable transport replay of the generation body within a single RoundTrip.
-	// 禁止传输层在一次 RoundTrip 内重放生成请求体。
-	request := req.Clone(req.Context())
-	request.GetBody = nil
-	return t.base.RoundTrip(request)
-}
-
 // NewRuntime validates the configuration and builds the chat model once; the
 // model is stateless per request and safe to reuse.
 // NewRuntime 校验配置并只构建一次聊天模型；模型按请求无状态，可安全复用。
@@ -130,6 +118,15 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableKeepAlives = true
+	observedTransport := audit.ModelMediaTransport{
+		Base: transport,
+		BeforeDispatch: func(request *http.Request) error {
+			// Disable transport replay before handing the guarded body to the native transport.
+			// 将受守卫的请求体交给原生传输前，禁止传输层重放。
+			request.GetBody = nil
+			return memorycontracts.ValidateRunReads(request.Context())
+		},
+	}
 	builder := func(ctx context.Context, maxTokens int) (model.BaseModel[*einoschema.Message], error) {
 		effort := cfg.ReasoningEffort
 		if !cfg.Thinking {
@@ -141,15 +138,19 @@ func NewRuntime(ctx context.Context, cfg Config) (*Runtime, error) {
 		if cfg.ProviderDefaultOutput && maxTokens <= 0 {
 			tokenLimit = nil
 		}
-		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
+		chat, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 			ReasoningEffort: openai.ReasoningEffortLevel(effort),
-			HTTPClient:      modelhttp.Client(&http.Client{Timeout: cfg.HTTPTimeout, Transport: guardedModelTransport{base: transport}}, cfg.HTTPHeaders),
+			HTTPClient:      modelhttp.Client(&http.Client{Timeout: cfg.HTTPTimeout, Transport: observedTransport}, cfg.HTTPHeaders),
 			BaseURL:         cfg.BaseURL,
 			APIKey:          cfg.APIKey,
 			Model:           cfg.Model,
 			Timeout:         cfg.HTTPTimeout,
 			MaxTokens:       tokenLimit,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return mediaChatModel{chat}, nil
 	}
 	chatModel, err := builder(ctx, cfg.MaxOutputTokens)
 	if err != nil {
@@ -388,11 +389,15 @@ func toSchemaMessages(messages []contracts.Message) []*einoschema.Message {
 		if len(message.Parts) > 0 {
 			converted.Content = ""
 			for _, p := range message.Parts {
+				var extra map[string]any
+				if message.CurrentInbound && p.PictureSegment != nil {
+					extra = map[string]any{inboundPictureTag: *p.PictureSegment}
+				}
 				if p.Base64 != "" {
 					data := p.Base64
-					converted.UserInputMultiContent = append(converted.UserInputMultiContent, einoschema.MessageInputPart{Type: einoschema.ChatMessagePartTypeImageURL, Image: &einoschema.MessageInputImage{MessagePartCommon: einoschema.MessagePartCommon{MIMEType: p.MIME, Base64Data: &data}}})
+					converted.UserInputMultiContent = append(converted.UserInputMultiContent, einoschema.MessageInputPart{Type: einoschema.ChatMessagePartTypeImageURL, Extra: extra, Image: &einoschema.MessageInputImage{MessagePartCommon: einoschema.MessagePartCommon{MIMEType: p.MIME, Base64Data: &data}}})
 				} else {
-					converted.UserInputMultiContent = append(converted.UserInputMultiContent, einoschema.MessageInputPart{Type: einoschema.ChatMessagePartTypeText, Text: p.Text})
+					converted.UserInputMultiContent = append(converted.UserInputMultiContent, einoschema.MessageInputPart{Type: einoschema.ChatMessagePartTypeText, Extra: extra, Text: p.Text})
 				}
 			}
 		}
@@ -441,6 +446,9 @@ func normalizeToolImages(ctx context.Context, state *adk.ChatModelAgentState) er
 // privateRuntimeError keeps upstream response bodies out of application spans and logs.
 // privateRuntimeError 防止上游响应正文进入应用追踪和日志。
 func privateRuntimeError(err error) error {
+	if errors.Is(err, audit.ErrModelMediaStart) {
+		return audit.ErrModelMediaStart
+	}
 	if errors.Is(err, memorycontracts.ErrReadChanged) {
 		return memorycontracts.ErrReadChanged
 	}

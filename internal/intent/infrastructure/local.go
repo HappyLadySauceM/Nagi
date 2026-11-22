@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
+	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	"io"
 	"math"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 )
 
 // LocalClient scores fixed labels through an OpenAI-compatible endpoint.
@@ -37,12 +39,14 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 	if in.Prompt.OpenAI != nil && strings.TrimSpace(in.Prompt.OpenAI.UserTemplate) != "" {
 		userTemplate = in.Prompt.OpenAI.UserTemplate
 	}
-	recent := make([]map[string]any, 0, len(in.Recent))
-	for _, m := range in.Recent {
+	history, _ := in.HistoryBeforeCurrent()
+	recent := make([]map[string]any, 0, len(history))
+	for _, m := range history {
 		recent = append(recent, map[string]any{"MessageID": m.MessageID, "SenderID": m.SenderID, "IsBot": m.IsBot, "Text": m.Text, "CreatedAt": m.CreatedAt})
 	}
 	var state bytes.Buffer
-	payload := map[string]any{"channel": in.Task.Kind, "message": in.Task.Message.Text, "recent": recent}
+	current, shape := renderIntentMessage(in.Task, false)
+	payload := map[string]any{"channel": in.Task.Kind, "message": current, "recent": recent}
 	addCallIdentityState(payload, in, c.Config.BotName)
 	if in.Policy.AllowHistoryRead && in.AwaitedRequest != nil {
 		payload["awaited_request"] = semanticText(in.AwaitedRequest.Text)
@@ -67,6 +71,7 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var first error
+	var startFailed bool
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -91,10 +96,11 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 				labels = []string{"A", "B", "C"}
 				q = callQuestion.Instructions + " A=" + callQuestion.Criteria["yes"] + " B=" + callQuestion.Criteria["no"] + " C=" + callQuestion.Criteria["uncertain"]
 			}
-			probs, err := c.score(ctx, systemPrompt, state.String(), q, labels, userTemplate, &requests)
+			probs, err := c.score(ctx, systemPrompt, state.String(), q, labels, userTemplate, shape, &requests)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
+				startFailed = startFailed || errors.Is(err, audit.ErrModelMediaStart)
 				if first == nil {
 					first = err
 				}
@@ -117,6 +123,9 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 		}(i)
 	}
 	wg.Wait()
+	if startFailed {
+		return domain.SemanticAnswer{ExternalRequests: int(requests.Load())}, audit.ErrModelMediaStart
+	}
 	if first != nil && callResult == "" {
 		return domain.SemanticAnswer{ExternalRequests: int(requests.Load())}, first
 	}
@@ -125,13 +134,15 @@ func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.Seman
 		answer.FailureCode = "decision_questions_degraded"
 	}
 	if in.Topics != nil && len(in.Topics.Candidates) > 0 {
-		c.scoreTopic(ctx, in.Topics, systemPrompt, state.String(), userTemplate, &answer, &requests)
+		if err := c.scoreTopic(ctx, in.Topics, systemPrompt, state.String(), userTemplate, shape, &answer, &requests); errors.Is(err, audit.ErrModelMediaStart) {
+			return domain.SemanticAnswer{ExternalRequests: int(requests.Load())}, audit.ErrModelMediaStart
+		}
 	}
 	answer.ExternalRequests = int(requests.Load())
 	return answer, nil
 }
 
-func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContext, systemPrompt, state, userTemplate string, answer *domain.SemanticAnswer, requests *atomic.Int32) {
+func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContext, systemPrompt, state, userTemplate string, shape media.ModelMediaAttempt, answer *domain.SemanticAnswer, requests *atomic.Int32) error {
 	actions := []string{domain.TopicFollowUp, domain.TopicContribution, domain.TopicLeave, domain.TopicClose}
 	labels := []string{"A"}
 	question := strings.Builder{}
@@ -147,11 +158,11 @@ func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContex
 	case c.gate <- struct{}{}:
 		defer func() { <-c.gate }()
 	case <-ctx.Done():
-		return
+		return ctx.Err()
 	}
-	values, err := c.score(ctx, systemPrompt, state, question.String(), labels, userTemplate, requests)
+	values, err := c.score(ctx, systemPrompt, state, question.String(), labels, userTemplate, shape, requests)
 	if err != nil {
-		return
+		return err
 	}
 	best := 0
 	answer.TopicJudgments = make([]domain.TopicJudgment, len(topics.Candidates))
@@ -167,9 +178,10 @@ func (c *LocalClient) scoreTopic(ctx context.Context, topics *domain.TopicContex
 	if best > 0 && values[best] >= .80 {
 		answer.TopicJudgments[(best-1)/len(actions)].Action = actions[(best-1)%len(actions)]
 	}
+	return nil
 }
 
-func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question string, labels []string, userTemplate string, requests *atomic.Int32) ([]float64, error) {
+func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question string, labels []string, userTemplate string, shape media.ModelMediaAttempt, requests *atomic.Int32) ([]float64, error) {
 	effort := "none"
 	if c.Config.Thinking {
 		effort = c.Config.ReasoningEffort
@@ -187,6 +199,10 @@ func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question s
 	if c.Config.ContextWindow > 0 && len(state)+len(question)+maxTokens > c.Config.ContextWindow {
 		return nil, fmt.Errorf("intent context budget exceeded")
 	}
+	if !strings.Contains(userTemplate, "{{state}}") {
+		shape = media.ModelMediaAttempt{Shape: media.MediaTextOnly}
+	}
+	ctx = audit.WithModelMedia(ctx, "intent.media_request", shape)
 	userPrompt := strings.NewReplacer("{{state}}", state, "{{question}}", question).Replace(userTemplate)
 	body := map[string]any{"model": c.Config.Model, "messages": []map[string]string{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userPrompt}}, "max_tokens": maxTokens, "temperature": 0, "reasoning_effort": effort, "logprobs": true, "top_logprobs": 20, "stream": false}
 	data, err := json.Marshal(body)
@@ -202,8 +218,11 @@ func (c *LocalClient) score(ctx context.Context, systemPrompt, state, question s
 		req.Header.Set("Authorization", "Bearer "+c.Config.APIKey)
 	}
 	req.GetBody = nil
+	resp, err := intentMediaClient(c.Client, c.Config.HTTPHeaders).Do(req)
+	if errors.Is(err, audit.ErrModelMediaStart) {
+		return nil, audit.ErrModelMediaStart
+	}
 	requests.Add(1)
-	resp, err := modelhttp.Client(c.Client, c.Config.HTTPHeaders).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("local semantic service unavailable: %w", err)
 	}

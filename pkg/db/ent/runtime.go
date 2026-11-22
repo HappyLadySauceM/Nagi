@@ -632,7 +632,7 @@ func init() {
 	// message.DefaultSegments holds the default value on creation for the segments field.
 	message.DefaultSegments = messageDescSegments.Default.(jsontext.Value)
 	// messageDescCreatedAt is the schema descriptor for created_at field.
-	messageDescCreatedAt := messageFields[9].Descriptor()
+	messageDescCreatedAt := messageFields[10].Descriptor()
 	// message.DefaultCreatedAt holds the default value on creation for the created_at field.
 	message.DefaultCreatedAt = messageDescCreatedAt.Default.(func() time.Time)
 	messagejobFields := nagi.MessageJob{}.Fields()

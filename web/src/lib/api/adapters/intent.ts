@@ -3,6 +3,9 @@ import type {
   DecisionEntry,
   DecisionStepEntry,
   IntentDecisionKind,
+  InboundMediaEvidence,
+  ModelMediaEvidence,
+  PictureEvidence,
 } from '../contracts'
 import { asArray, asRecord, contractError, readNumber, readOptionalString, readOptionalTime, readString } from './guard'
 import { toIntentRun } from './flow'
@@ -65,6 +68,7 @@ export function toDecisionDetail(raw: unknown): DecisionDetailEntry {
       receivedAt: readOptionalTime(ingress, 'ReceivedAt', DECISIONS_ENDPOINT),
       traceId: readString(ingress, 'TraceID', DECISIONS_ENDPOINT, ''),
       jobStatus: readString(ingress, 'JobStatus', DECISIONS_ENDPOINT, ''),
+      media: toInboundMedia(ingress.Media),
     },
     scores: toScores(record.Scores),
     steps: asArray(record.Steps ?? [], DECISIONS_ENDPOINT, 'Steps').map(toStep),
@@ -125,6 +129,7 @@ export function toInboundMessage(raw: unknown) {
     traceId: readString(record, 'TraceID', INBOUND_ENDPOINT, ''),
     segmentTypes: asArray(record.SegmentTypes ?? [], INBOUND_ENDPOINT, 'SegmentTypes')
       .filter((value): value is string => typeof value === 'string' && value !== 'text'),
+    media: toInboundMedia(record.Media),
     attachments: asArray(record.Attachments ?? [], INBOUND_ENDPOINT, 'Attachments').map(value => {
       const attachment = asRecord(value, INBOUND_ENDPOINT, 'attachment')
       return {
@@ -137,6 +142,69 @@ export function toInboundMessage(raw: unknown) {
       }
     }),
     receivedAt: readOptionalTime(record, 'ReceivedAt', INBOUND_ENDPOINT),
+  }
+}
+
+function toPictures(raw: unknown): PictureEvidence {
+  const record = asRecord(raw, INBOUND_ENDPOINT, 'pictures')
+  return {
+    imageCount: readNumber(record, 'ImageCount', INBOUND_ENDPOINT),
+    images: asArray(record.Images ?? [], INBOUND_ENDPOINT, 'Images').map(value => {
+      const image = asRecord(value, INBOUND_ENDPOINT, 'picture')
+      return {
+        segmentIndex: readNumber(image, 'SegmentIndex', INBOUND_ENDPOINT),
+        status: readString(image, 'Status', INBOUND_ENDPOINT),
+      }
+    }),
+  }
+}
+
+function toModelMedia(raw: unknown): ModelMediaEvidence {
+  const record = asRecord(raw, INBOUND_ENDPOINT, 'model media')
+  const indexes = (raw: unknown) => asArray(raw ?? [], INBOUND_ENDPOINT, 'segment indexes')
+    .filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0)
+  return {
+    state: readString(record, 'State', INBOUND_ENDPOINT),
+    ...(record.StartFailed === true ? { startFailed: true } : {}),
+    calls: asArray(record.Calls ?? [], INBOUND_ENDPOINT, 'Calls').map(value => {
+      const call = asRecord(value, INBOUND_ENDPOINT, 'call')
+      return {
+        outcome: readString(call, 'Outcome', INBOUND_ENDPOINT),
+        reason: readOptionalString(call, 'Reason', INBOUND_ENDPOINT),
+        attemptCountUnknown: call.AttemptCountUnknown === true,
+        httpStatus: call.HTTPStatus == null ? undefined : readNumber(call, 'HTTPStatus', INBOUND_ENDPOINT),
+        responseBody: readOptionalString(call, 'ResponseBody', INBOUND_ENDPOINT),
+        attempts: asArray(call.Attempts ?? [], INBOUND_ENDPOINT, 'Attempts').map(value => {
+          const attempt = asRecord(value, INBOUND_ENDPOINT, 'attempt')
+          return {
+            shape: readString(attempt, 'Shape', INBOUND_ENDPOINT),
+            state: readString(attempt, 'State', INBOUND_ENDPOINT),
+            images: indexes(attempt.Images),
+            hints: indexes(attempt.Hints),
+            httpStatus: attempt.HTTPStatus == null ? undefined : readNumber(attempt, 'HTTPStatus', INBOUND_ENDPOINT),
+            responseBody: readOptionalString(attempt, 'ResponseBody', INBOUND_ENDPOINT),
+          }
+        }),
+      }
+    }),
+  }
+}
+
+function toInboundMedia(raw: unknown): InboundMediaEvidence | undefined {
+  if (raw == null) return undefined
+  const record = asRecord(raw, INBOUND_ENDPOINT, 'Media')
+  return {
+    atIngress: record.AtIngress == null ? undefined : toPictures(record.AtIngress),
+    current: toPictures(record.Current),
+    decisions: asArray(record.Decisions ?? [], INBOUND_ENDPOINT, 'Decisions').map(value => {
+      const decision = asRecord(value, INBOUND_ENDPOINT, 'decision media')
+      return {
+        decisionId: readNumber(decision, 'DecisionID', INBOUND_ENDPOINT),
+        atDecision: decision.AtDecision == null ? undefined : toPictures(decision.AtDecision),
+        intent: toModelMedia(decision.Intent),
+        generation: toModelMedia(decision.Generation),
+      }
+    }),
   }
 }
 

@@ -891,6 +891,7 @@ var (
 		{Name: "sender_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "text_content", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "segments", Type: field.TypeJSON, Default: schema.Expr("'[]'::jsonb")},
+		{Name: "inbound_media_summary", Type: field.TypeJSON, Nullable: true},
 		{Name: "sent_status", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "memory_authorization_event_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
@@ -906,19 +907,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "messages_agent_outbound_messages_messages_outbound_id",
-				Columns:    []*schema.Column{MessagesColumns[9]},
+				Columns:    []*schema.Column{MessagesColumns[10]},
 				RefColumns: []*schema.Column{AgentOutboundMessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "messages_bot_accounts_messages_bot_id",
-				Columns:    []*schema.Column{MessagesColumns[10]},
+				Columns:    []*schema.Column{MessagesColumns[11]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "messages_conversations_messages_conversation_id",
-				Columns:    []*schema.Column{MessagesColumns[11]},
+				Columns:    []*schema.Column{MessagesColumns[12]},
 				RefColumns: []*schema.Column{ConversationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -927,7 +928,7 @@ var (
 			{
 				Name:    "messages_incoming_event_uniq",
 				Unique:  true,
-				Columns: []*schema.Column{MessagesColumns[10], MessagesColumns[11], MessagesColumns[2]},
+				Columns: []*schema.Column{MessagesColumns[11], MessagesColumns[12], MessagesColumns[2]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "((direction = 'incoming'::text) AND (platform_message_id IS NOT NULL))",
 				},
@@ -935,17 +936,17 @@ var (
 			{
 				Name:    "messages_conversation_timeline",
 				Unique:  false,
-				Columns: []*schema.Column{MessagesColumns[11], MessagesColumns[7], MessagesColumns[0]},
+				Columns: []*schema.Column{MessagesColumns[12], MessagesColumns[8], MessagesColumns[0]},
 			},
 			{
 				Name:    "messages_memory_authorization_event",
 				Unique:  false,
-				Columns: []*schema.Column{MessagesColumns[10], MessagesColumns[11], MessagesColumns[8]},
+				Columns: []*schema.Column{MessagesColumns[11], MessagesColumns[12], MessagesColumns[9]},
 			},
 			{
 				Name:    "messages_outbound_unique",
 				Unique:  true,
-				Columns: []*schema.Column{MessagesColumns[9]},
+				Columns: []*schema.Column{MessagesColumns[10]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "(outbound_id IS NOT NULL)",
 				},
@@ -953,7 +954,7 @@ var (
 			{
 				Name:    "messages_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{MessagesColumns[7]},
+				Columns: []*schema.Column{MessagesColumns[8]},
 			},
 		},
 	}

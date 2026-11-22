@@ -358,11 +358,27 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	prompt = withCallQuestionLayer(in, rule, prompt)
 	prompt.ConversationID = task.ConversationID
 	in.Prompt = prompt
+	var pictures *media.PictureSummary
+	if reader, ok := d.recorder.(interface {
+		DecisionPictures(context.Context, int64, int64) (media.PictureSummary, error)
+	}); ok {
+		measured, mediaErr := reader.DecisionPictures(ctx, task.BotID, task.JobID)
+		if mediaErr == nil {
+			pictures = &measured
+		}
+	}
 	semantic := initialCallAddressing(in, rule)
 	var latency int64
 	asked := shouldAskSemantic(in, rule) && d.semantic != nil
 	if asked {
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
+	}
+	startFailed := semantic.FailureCode == auditcontracts.ModelMediaStartFailureCode
+	errOrStartFailure := func(err error) error {
+		if startFailed {
+			return auditcontracts.ErrModelMediaStart
+		}
+		return err
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	decision.RulesetVersion = rulesetVersion
@@ -371,7 +387,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
 		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
 	}
 
@@ -392,31 +408,40 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		"ruleset_version": rulesetVersion,
 	})
 	if err != nil {
-		return err
+		return errOrStartFailure(err)
 	}
 	if err := d.recorder.Record(ctx, task.JobID, decision, task.ClaimToken); err != nil {
 		if finishErr := auditcontracts.FinishEvent(ctx, auditEvent, "failed", "decision_record_failed", map[string]any{"error": err.Error()}); finishErr != nil {
-			return finishErr
+			return errOrStartFailure(finishErr)
 		}
-		return fmt.Errorf("intent: record decision: %w", err)
+		return errOrStartFailure(fmt.Errorf("intent: record decision: %w", err))
 	}
 	// Audit keeps only decision facts. Snapshot.Input contains message bodies,
 	// so the audit projection deliberately omits the snapshot and raw steps.
 	// 审计只保留决策事实；Snapshot.Input 含消息正文，因此审计投影不包含快照与原始步骤。
 	auditDecision := map[string]any{
-		"Decision":       string(decision.Decision),
-		"ReasonCode":     decision.ReasonCode,
-		"Provider":       decision.Provider,
-		"Model":          decision.Model,
-		"Scores":         decision.Scores,
-		"LatencyMS":      decision.LatencyMS,
-		"RulesetVersion": decision.RulesetVersion,
-		"RunID":          decision.RunID,
-		"FlowVersion":    decision.FlowVersion,
-		"CallAddressing": callAddressingAudit(in, semantic),
+		"Decision":             string(decision.Decision),
+		"ReasonCode":           decision.ReasonCode,
+		"Provider":             decision.Provider,
+		"Model":                decision.Model,
+		"Scores":               decision.Scores,
+		"LatencyMS":            decision.LatencyMS,
+		"RulesetVersion":       decision.RulesetVersion,
+		"RunID":                decision.RunID,
+		"FlowVersion":          decision.FlowVersion,
+		"CallAddressing":       callAddressingAudit(in, semantic),
+		"Pictures":             pictures,
+		"MediaEvidenceVersion": media.ModelMediaVersion,
+		"IntentAsked":          asked,
 	}
 	if decision.Topic != nil {
 		auditDecision["Topic"] = decision.Topic
+	}
+	if startFailed {
+		if err := auditcontracts.FinishEvent(ctx, auditEvent, "failed", auditcontracts.ModelMediaStartFailureCode, map[string]any{"decision": auditDecision}); err != nil {
+			d.logger.Warn("record model audit start failure failed", "job_id", task.JobID)
+		}
+		return auditcontracts.ErrModelMediaStart
 	}
 	if err := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", map[string]any{"decision": auditDecision}); err != nil {
 		return err
@@ -954,6 +979,9 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 		span.SetAttributes(attribute.Bool("nagi.jev_degraded", true))
 		unavailable := initialCallAddressing(in, rule)
 		unavailable.FailureCode = "semantic_unavailable"
+		if errors.Is(err, auditcontracts.ErrModelMediaStart) {
+			unavailable.FailureCode = auditcontracts.ModelMediaStartFailureCode
+		}
 		unavailable.ExternalRequests = answer.ExternalRequests
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 			"degraded": true, "latency_ms": latency, "call_addressing": callAddressingAudit(in, unavailable),
@@ -994,7 +1022,12 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 ) domain.FinalDecision {
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
-	decision := evaluateTopicDecision(in, rule, semantic)
+	var decision domain.FinalDecision
+	if semantic.FailureCode == auditcontracts.ModelMediaStartFailureCode {
+		decision = silent(auditcontracts.ModelMediaStartFailureCode)
+	} else {
+		decision = evaluateTopicDecision(in, rule, semantic)
+	}
 	if decision.Topic != nil {
 		decision.Topic.ParticipantID = in.Task.Message.SenderID
 	}

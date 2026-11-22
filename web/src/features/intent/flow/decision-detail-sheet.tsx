@@ -10,7 +10,7 @@ import { formatDateTime } from '../../../lib/format'
 import { Select } from '../../../components/ui/select'
 import { Card } from '../../../components/ui/card'
 import type { toInboundMessage } from '../../../lib/api/adapters/intent'
-import type { DecisionDetailEntry } from '../../../lib/api/contracts'
+import type { DecisionDetailEntry, ModelMediaEvidence, PictureEvidence } from '../../../lib/api/contracts'
 import { DeliveryPanel } from './delivery-panel'
 import { ReplayControls } from './replay-controls'
 import { FlowRunView } from './flow-run-view'
@@ -75,7 +75,7 @@ export function DecisionDetailSheet({
           />
         ) : detail.data ? (
           <div className="space-y-4">
-            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} botId={inbound?.botId} />
+            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} botId={inbound?.botId} decisionId={detail.data.id} />
             {detail.data.run && detail.data.run.snapshotStatus !== 'legacy' ? (
               <FlowRunView run={detail.data.run} showDelivery={false} showReplay={false} />
             ) : (
@@ -113,11 +113,14 @@ const attachmentStatuses: Record<string, string> = {
   unavailable: '无法归档', failed: '归档失败', purging: '待清理',
 }
 
-function IngressPanel({ ingress, jobId, botId }: {
+function IngressPanel({ ingress, jobId, botId, decisionId }: {
   ingress: (NonNullable<DecisionDetailEntry['ingress']> & Partial<Pick<ReturnType<typeof toInboundMessage>, 'attachments' | 'jobError'>>) | undefined
   jobId: number
   botId?: number
+  decisionId?: number
 }) {
+  const media = ingress?.media
+  const decision = media?.decisions.find(item => item.decisionId === decisionId)
   return <Card className="space-y-2 p-5 text-sm">
     <h3 className="font-semibold">QQ 入站消息</h3>
     {ingress ? <>
@@ -131,8 +134,18 @@ function IngressPanel({ ingress, jobId, botId }: {
       <p className="text-muted-foreground">
         已入库 · 消息 {ingress.messageId}
         {jobId > 0 ? ` · 任务 ${jobId} · ${ingress.jobError === 'archive_only' ? '仅归档' : jobStatus[ingress.jobStatus] ?? ingress.jobStatus}` : ' · 无任务记录'}
-        {ingress.jobError && ingress.jobError !== 'archive_only' ? ` · ${ingress.jobError}` : ''}
+        {ingress.jobError && ingress.jobError !== 'archive_only' ? ` · ${ingress.jobError === 'model_media_audit_start_failed' ? '模型请求因审计启动失败被拦截' : ingress.jobError}` : ''}
       </p>
+      {media ? <div className="space-y-1" aria-label="图片与模型输入">
+        <p>图片段 {media.current.imageCount} 个</p>
+        <PictureStates label="入站时" evidence={media.atIngress} />
+        <PictureStates label="当前附件" evidence={media.current} />
+        {decision && <>
+          <PictureStates label="决策时" evidence={decision.atDecision} />
+          <ModelMediaStates label="意图模型" evidence={decision.intent} />
+          <ModelMediaStates label="生成模型" evidence={decision.generation} />
+        </>}
+      </div> : ingress.segmentTypes.includes('image') && <p>历史图片状态未知</p>}
       {botId && ingress.attachments && ingress.attachments.length > 0 && (
         <ul className="space-y-1" aria-label="已登记的附件">
           {ingress.attachments.map(attachment => (
@@ -150,4 +163,58 @@ function IngressPanel({ ingress, jobId, botId }: {
       <p className="break-all font-mono text-xs">{ingress.traceId ? `入站 Trace ${ingress.traceId}` : '无入站 Trace 记录'}</p>
     </> : <p className="text-muted-foreground">入站记录不可用 · 任务 {jobId}</p>}
   </Card>
+}
+
+const pictureStates: Record<string, string> = {
+  unknown: '证据未知', archive_disabled: '归档关闭', unregistered: '未注册',
+  pending: '待处理', unavailable: '无法归档', no_download_source: '缺少下载来源',
+  uploaded: '已上传', expired: '已过期',
+}
+
+function PictureStates({ label, evidence }: { label: string; evidence?: PictureEvidence }) {
+  return <p>{label}{' · '}{evidence ? evidence.images.map(image =>
+    `第 ${image.segmentIndex + 1} 段 ${pictureStates[image.status] ?? '证据未知'}`,
+  ).join('、') || '无图片' : '证据未知'}</p>
+}
+
+const modelMediaLabels: Record<string, string> = {
+  unknown: '证据未知', not_called: '未调用', started: '进行中', text_only: '仅文字',
+  presence_hint: '仅图片存在性提示', image_submitted: '已提交图像',
+}
+
+const responseBodyLabels: Record<string, string> = {
+  unknown: '响应体结束状态未知', complete: '响应体完整读取',
+  response_body_read_failed: '响应体读取失败', closed_unknown: '响应体已关闭，完整性未知',
+  closed_early: '响应体提前关闭',
+}
+
+function ModelMediaStates({ label, evidence }: { label: string; evidence: ModelMediaEvidence }) {
+  return <div>
+    <span>{label}{' · '}{modelMediaLabels[evidence.state] ?? (evidence.calls.length ? `${evidence.calls.length} 次调用` : '证据未知')}</span>
+    {evidence.startFailed && <p>{evidence.calls.length ? '有一次请求因审计启动失败未派发' : '审计启动失败，未调用模型'}</p>}
+    {evidence.calls.map((call, index) => {
+      const count = call.attempts.filter(attempt => attempt.state === 'written' && attempt.shape === 'image_submitted').length
+      const result = call.outcome === 'failed' ? '调用失败' : call.outcome === 'succeeded' ? '调用成功' : modelMediaLabels[call.outcome] ?? '证据未知'
+      return <div key={index} className="pl-4">
+        <p>{result}
+          {call.httpStatus ? ` · HTTP ${call.httpStatus}` : ''}
+          {call.attemptCountUnknown ? ' · 物理尝试总数未知' : ''}
+          {call.reason === 'transport_attempt_unattributed' ? ' · 最终错误的逐笔归属未知' : ''}
+          {call.reason === 'failed_before_write' ? ' · 写出前失败' : ''}
+          {call.responseBody ? ` · ${responseBodyLabels[call.responseBody] ?? responseBodyLabels.unknown}` : ''}
+          {call.attemptCountUnknown && count > 0 ? ` · 至少 ${count} 笔已提交图像` : ''}
+        </p>
+        {call.attempts.length > 0 && <ul className="pl-4">
+          {call.attempts.map((attempt, attemptIndex) => <li key={attemptIndex}>
+            {!call.attemptCountUnknown ? `第 ${attemptIndex + 1} 笔 · ` : ''}
+            {attempt.state === 'written' ? modelMediaLabels[attempt.shape] ?? '证据未知' : attempt.state === 'partial_write' ? '部分写出' : '写出未知'}
+            {attempt.images.length > 0 ? `（${attempt.images.map(index => `第 ${index + 1} 段`).join('、')}）` : ''}
+            {attempt.hints.length > 0 ? ` · 图片提示 ${attempt.hints.map(index => `第 ${index + 1} 段`).join('、')}` : ''}
+            {attempt.httpStatus ? ` · HTTP ${attempt.httpStatus}` : ''}
+            {attempt.responseBody ? ` · ${responseBodyLabels[attempt.responseBody] ?? responseBodyLabels.unknown}` : ''}
+          </li>)}
+        </ul>}
+      </div>
+    })}
+  </div>
 }

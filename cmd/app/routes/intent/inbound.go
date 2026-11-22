@@ -111,6 +111,14 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item := items[0]
+	if reader, ok := h.svcCtx.Decisions.(intentcontracts.MediaReader); ok {
+		value, err := reader.InboundMedia(r.Context(), botID, q.MessageID, item.DecisionIDs)
+		if err != nil {
+			common.WriteFailure(w, http.StatusInternalServerError, "read inbound media evidence failed")
+			return
+		}
+		item.Media = &value
+	}
 	if archive := h.svcCtx.InboundArchive; archive != nil {
 		attachments, err := archive.List(r.Context(), botID, q.MessageID)
 		if err != nil && !errors.Is(err, mediacontracts.ErrAttachmentNotFound) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/HappyLadySauceM/Nagi/internal/audit/domain"
@@ -17,6 +18,12 @@ type RunContext struct {
 	recorder AIRecorder
 	runID    string
 	next     atomic.Int64
+
+	mediaStartMu     sync.Mutex
+	mediaStartFailed bool
+	mediaMu          sync.Mutex
+	mediaPending     map[string]func(string) mediaSettlement
+	mediaEnded       bool
 }
 
 type runContextKey struct{}

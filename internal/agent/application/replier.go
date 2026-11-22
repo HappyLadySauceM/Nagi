@@ -209,13 +209,16 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	memories := r.recallMemories(ctx, task, policy, history)
 	messages, replyPrompt := r.buildMessages(ctx, task, history, memories)
 	runtimeMessages := toRuntimeMessages(messages)
+	runtimeMessages[len(messages)-1].CurrentInbound = true
 	if r.media != nil {
 		remaining := 8
 		prepare := func(segments []obdomain.Segment, text string) ([]media.Part, error) {
 			bounded := make([]obdomain.Segment, 0, len(segments))
-			for _, seg := range segments {
+			limited := make(map[int]bool)
+			for index, seg := range segments {
 				if seg.Type == obdomain.SegImage {
 					if remaining == 0 {
+						limited[index] = true
 						bounded = append(bounded, obdomain.Text("[图片超出本轮上限]"))
 						continue
 					}
@@ -223,7 +226,13 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 				}
 				bounded = append(bounded, seg)
 			}
-			return r.media.Parts(ctx, task.BotID, task.ConversationID, bounded, text)
+			parts, err := r.media.Parts(ctx, task.BotID, task.ConversationID, bounded, text)
+			for i := range parts {
+				if parts[i].SourceSegment != nil && limited[*parts[i].SourceSegment] {
+					parts[i].PictureSegment = parts[i].SourceSegment
+				}
+			}
+			return parts, err
 		}
 		parts, prepareErr := prepare(task.Segments, messages[len(messages)-1].Content)
 		if prepareErr != nil {
@@ -370,6 +379,14 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 	if err != nil {
 		genSpan.RecordError(err)
 		genSpan.End()
+		if errors.Is(err, auditcontracts.ErrModelMediaStart) {
+			auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			if finishErr := auditcontracts.FinishEvent(auditCtx, auditEvent, "failed", auditcontracts.ModelMediaStartFailureCode, nil); finishErr != nil {
+				r.logger.Warn("record model audit start failure failed", "job_id", task.JobID)
+			}
+			return auditcontracts.ErrModelMediaStart
+		}
 		if auditErr := auditcontracts.FinishEvent(ctx, auditEvent, "failed", "generation_failed", map[string]any{"error": err.Error()}); auditErr != nil {
 			return auditErr
 		}

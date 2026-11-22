@@ -628,6 +628,35 @@ export interface DecisionEntry {
   createdAt?: string
 }
 
+export interface PictureEvidence {
+  imageCount: number
+  images: { segmentIndex: number; status: string }[]
+}
+
+export interface ModelMediaEvidence {
+  state: string
+  startFailed?: boolean
+  calls: {
+    outcome: string
+    reason?: string
+    attemptCountUnknown: boolean
+    httpStatus?: number
+    responseBody?: string
+    attempts: { shape: string; state: string; images: number[]; hints: number[]; httpStatus?: number; responseBody?: string }[]
+  }[]
+}
+
+export interface InboundMediaEvidence {
+  atIngress?: PictureEvidence
+  current: PictureEvidence
+  decisions: {
+    decisionId: number
+    atDecision?: PictureEvidence
+    intent: ModelMediaEvidence
+    generation: ModelMediaEvidence
+  }[]
+}
+
 export interface DecisionDetailEntry extends DecisionEntry {
   scores: Record<string, number>
   steps: DecisionStepEntry[]
@@ -637,6 +666,7 @@ export interface DecisionDetailEntry extends DecisionEntry {
     senderId: number
     text: string
     segmentTypes: string[]
+    media?: InboundMediaEvidence
     receivedAt?: string
     traceId: string
     jobStatus: string

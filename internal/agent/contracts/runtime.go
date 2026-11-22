@@ -14,9 +14,10 @@ import (
 // Message is one chat turn handed to the runtime, including the system prompt.
 // Message 是交给运行时的一轮对话，包含系统提示。
 type Message struct {
-	Parts   []media.Part
-	Role    string
-	Content string
+	CurrentInbound bool `json:"-"`
+	Parts          []media.Part
+	Role           string
+	Content        string
 }
 
 // Request is one reply generation request scoped to a single message.

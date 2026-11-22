@@ -131,14 +131,14 @@ func (s *Service) Parts(ctx context.Context, bot int64, conversation string, seg
 	}
 	out := []media.Part{{Text: prefix}}
 	images := 0
-	for _, seg := range segments {
+	for index, seg := range segments {
 		switch seg.Type {
 		case ob.SegText:
-			out = append(out, media.Part{Text: seg.Data["text"]})
+			out = append(out, media.Part{Text: seg.Data["text"], SourceSegment: &index})
 		case ob.SegImage:
 			images++
 			if images > 8 {
-				out = append(out, media.Part{Text: "[图片数量超过上限]"})
+				out = append(out, media.Part{Text: "[图片数量超过上限]", PictureSegment: &index})
 				continue
 			}
 			raw := seg.Data["url"]
@@ -166,18 +166,18 @@ func (s *Service) Parts(ctx context.Context, bot int64, conversation string, seg
 				b, err = s.fetch(ctx, raw, maxImageBytes, nil)
 			}
 			if err != nil {
-				out = append(out, media.Part{Text: "[图片读取失败]"})
+				out = append(out, media.Part{Text: "[图片读取失败]", PictureSegment: &index})
 				continue
 			}
 			mime := http.DetectContentType(b)
 			if mime != "image/jpeg" && mime != "image/png" && mime != "image/gif" && mime != "image/webp" {
-				out = append(out, media.Part{Text: "[不支持的图片格式]"})
+				out = append(out, media.Part{Text: "[不支持的图片格式]", PictureSegment: &index})
 				continue
 			}
 			if _, err := s.archive(ctx, media.ArchiveRequest{Kind: "image.inbound", ContentType: mime, Data: b}); err != nil {
 				return nil, err
 			}
-			out = append(out, media.Part{MIME: mime, Base64: base64.StdEncoding.EncodeToString(b)})
+			out = append(out, media.Part{MIME: mime, Base64: base64.StdEncoding.EncodeToString(b), PictureSegment: &index})
 		case ob.SegVideo:
 			out = append(out, media.Part{Text: "[视频附件，请调用 media_video_inspect，source 使用 attachment:current]"})
 		}

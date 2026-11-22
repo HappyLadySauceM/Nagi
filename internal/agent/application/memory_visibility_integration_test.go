@@ -17,6 +17,9 @@ import (
 
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
 	agentruntime "github.com/HappyLadySauceM/Nagi/internal/agent/infrastructure/eino"
+	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
+	auditpg "github.com/HappyLadySauceM/Nagi/internal/audit/infrastructure"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
@@ -414,6 +417,62 @@ func TestHAP52MemoryVisibilityAtGeneration(t *testing.T) {
 		}
 	}
 	assertLegacyReads(true)
+	for _, clear := range []bool{false, true} {
+		var messageID, jobID int64
+		if err := pool.QueryRow(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,sender_id,text_content) VALUES($1,$2,'incoming',10101,'隔离提交闸门') RETURNING id`, conversations[origin], bot).Scan(&messageID); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `INSERT INTO message_jobs(incoming_message_id,status) VALUES($1,'done') RETURNING id`, messageID).Scan(&jobID); err != nil {
+			t.Fatal(err)
+		}
+		recorder, err := auditpg.NewAIRecorder(pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auditRun, err := recorder.StartRun(ctx, auditdomain.AIRun{OperationID: fmt.Sprintf("hap55-guard-%d", jobID), JobID: jobID, BotID: bot, ConversationID: conversations[origin]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		arrived, release := make(chan struct{}), make(chan struct{})
+		gate := &auditStartGate{AIRecorder: recorder, arrived: arrived, release: release}
+		call, cancel := context.WithTimeout(audit.WithRun(ctx, gate, auditRun.ID), 5*time.Second)
+		result := make(chan error, 1)
+		reset(nil)
+		go func() {
+			result <- reply.ExecuteReply(call, intentdomain.Task{JobID: jobID, BotID: bot, Kind: "group", TargetID: groupA, ConversationID: conversations[origin], Message: intentdomain.Message{MessageID: messageID, SenderID: 10101, Text: "我叫苍紫"}}, nil)
+		}()
+		select {
+		case <-arrived:
+		case <-call.Done():
+			cancel()
+			t.Fatal("media audit start barrier was not reached")
+		}
+		var clearErr error
+		if clear {
+			_, clearErr = pool.Exec(ctx, `DELETE FROM messages WHERE id=$1`, sourceID)
+		}
+		close(release)
+		err = <-result
+		cancel()
+		if clearErr != nil {
+			t.Fatal(clearErr)
+		}
+		requests := readWire()
+		if clear {
+			if !errors.Is(err, contracts.ErrReadChanged) || len(requests) != 0 {
+				t.Fatalf("audit-wait source cleanup err=%v requests=%d", err, len(requests))
+			}
+		} else if err != nil || len(requests) != 1 || !strings.Contains(requests[0], texts["legacy_shared"]) {
+			t.Fatalf("authorized original scope err=%v requests=%d", err, len(requests))
+		}
+		t.Logf("audit start barrier source_cleared=%t actual_model_requests=%d", clear, len(requests))
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO messages(conversation_id,bot_id,direction,sender_id,text_content) VALUES($1,$2,'incoming',10101,'synthetic source restored') RETURNING id`, conversations[origin], bot).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE memories SET source_message_id=$1 WHERE memory_id=$2`, sourceID, legacyID); err != nil {
+		t.Fatal(err)
+	}
 	localID := ids["local"]
 	ids["local"] = legacyID
 	invoked.Store(0)
@@ -461,4 +520,22 @@ func TestHAP52MemoryVisibilityAtGeneration(t *testing.T) {
 	if wire := readWire(); len(wire) != 1 || strings.Contains(wire[0], texts["correction"]) {
 		t.Fatal("deleted memory leaked on retry")
 	}
+}
+
+type auditStartGate struct {
+	audit.AIRecorder
+	arrived chan struct{}
+	release chan struct{}
+}
+
+func (g *auditStartGate) RecordEvent(ctx context.Context, event auditdomain.AIEvent) (auditdomain.AIEvent, error) {
+	if event.Stage == "generation.media_request" {
+		close(g.arrived)
+		select {
+		case <-g.release:
+		case <-ctx.Done():
+			return auditdomain.AIEvent{}, ctx.Err()
+		}
+	}
+	return g.AIRecorder.RecordEvent(ctx, event)
 }

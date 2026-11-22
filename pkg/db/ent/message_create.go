@@ -88,6 +88,12 @@ func (_c *MessageCreate) SetSegments(v jsontext.Value) *MessageCreate {
 	return _c
 }
 
+// SetInboundMediaSummary sets the "inbound_media_summary" field.
+func (_c *MessageCreate) SetInboundMediaSummary(v jsontext.Value) *MessageCreate {
+	_c.mutation.SetInboundMediaSummary(v)
+	return _c
+}
+
 // SetSentStatus sets the "sent_status" field.
 func (_c *MessageCreate) SetSentStatus(v string) *MessageCreate {
 	_c.mutation.SetSentStatus(v)
@@ -358,6 +364,10 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 		_spec.SetField(message.FieldSegments, field.TypeJSON, value)
 		_node.Segments = value
 	}
+	if value, ok := _c.mutation.InboundMediaSummary(); ok {
+		_spec.SetField(message.FieldInboundMediaSummary, field.TypeJSON, value)
+		_node.InboundMediaSummary = value
+	}
 	if value, ok := _c.mutation.SentStatus(); ok {
 		_spec.SetField(message.FieldSentStatus, field.TypeString, value)
 		_node.SentStatus = &value
@@ -623,6 +633,24 @@ func (u *MessageUpsert) UpdateSegments() *MessageUpsert {
 	return u
 }
 
+// SetInboundMediaSummary sets the "inbound_media_summary" field.
+func (u *MessageUpsert) SetInboundMediaSummary(v jsontext.Value) *MessageUpsert {
+	u.Set(message.FieldInboundMediaSummary, v)
+	return u
+}
+
+// UpdateInboundMediaSummary sets the "inbound_media_summary" field to the value that was provided on create.
+func (u *MessageUpsert) UpdateInboundMediaSummary() *MessageUpsert {
+	u.SetExcluded(message.FieldInboundMediaSummary)
+	return u
+}
+
+// ClearInboundMediaSummary clears the value of the "inbound_media_summary" field.
+func (u *MessageUpsert) ClearInboundMediaSummary() *MessageUpsert {
+	u.SetNull(message.FieldInboundMediaSummary)
+	return u
+}
+
 // SetSentStatus sets the "sent_status" field.
 func (u *MessageUpsert) SetSentStatus(v string) *MessageUpsert {
 	u.Set(message.FieldSentStatus, v)
@@ -859,6 +887,27 @@ func (u *MessageUpsertOne) SetSegments(v jsontext.Value) *MessageUpsertOne {
 func (u *MessageUpsertOne) UpdateSegments() *MessageUpsertOne {
 	return u.Update(func(s *MessageUpsert) {
 		s.UpdateSegments()
+	})
+}
+
+// SetInboundMediaSummary sets the "inbound_media_summary" field.
+func (u *MessageUpsertOne) SetInboundMediaSummary(v jsontext.Value) *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.SetInboundMediaSummary(v)
+	})
+}
+
+// UpdateInboundMediaSummary sets the "inbound_media_summary" field to the value that was provided on create.
+func (u *MessageUpsertOne) UpdateInboundMediaSummary() *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.UpdateInboundMediaSummary()
+	})
+}
+
+// ClearInboundMediaSummary clears the value of the "inbound_media_summary" field.
+func (u *MessageUpsertOne) ClearInboundMediaSummary() *MessageUpsertOne {
+	return u.Update(func(s *MessageUpsert) {
+		s.ClearInboundMediaSummary()
 	})
 }
 
@@ -1276,6 +1325,27 @@ func (u *MessageUpsertBulk) SetSegments(v jsontext.Value) *MessageUpsertBulk {
 func (u *MessageUpsertBulk) UpdateSegments() *MessageUpsertBulk {
 	return u.Update(func(s *MessageUpsert) {
 		s.UpdateSegments()
+	})
+}
+
+// SetInboundMediaSummary sets the "inbound_media_summary" field.
+func (u *MessageUpsertBulk) SetInboundMediaSummary(v jsontext.Value) *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.SetInboundMediaSummary(v)
+	})
+}
+
+// UpdateInboundMediaSummary sets the "inbound_media_summary" field to the value that was provided on create.
+func (u *MessageUpsertBulk) UpdateInboundMediaSummary() *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.UpdateInboundMediaSummary()
+	})
+}
+
+// ClearInboundMediaSummary clears the value of the "inbound_media_summary" field.
+func (u *MessageUpsertBulk) ClearInboundMediaSummary() *MessageUpsertBulk {
+	return u.Update(func(s *MessageUpsert) {
+		s.ClearInboundMediaSummary()
 	})
 }
 
