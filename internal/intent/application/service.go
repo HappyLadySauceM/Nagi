@@ -77,6 +77,27 @@ type DecisionRecorder interface {
 // ReplyExecutor 对回复决策执行动作；仅决策部署中为 nil。
 type ReplyExecutor = contracts.ReplyExecutor
 
+// decisionPersistenceError stops automatic replay after a model operation.
+// decisionPersistenceError 在模型操作后阻止工作器自动重放。
+type decisionPersistenceError struct{ cause error }
+
+func (e decisionPersistenceError) Error() string    { return e.cause.Error() }
+func (e decisionPersistenceError) Unwrap() error    { return e.cause }
+func (decisionPersistenceError) StopJobRetry() bool { return true }
+
+type decisionRecoveryJournal interface {
+	SaveDecisionRecovery(context.Context, domain.Task, domain.FinalDecision) error
+	LoadDecisionRecovery(context.Context, domain.Task) (domain.FinalDecision, bool, error)
+	BeginDecisionReply(context.Context, domain.Task, string) (bool, error)
+}
+
+type decisionRunJournal interface {
+	StartDecisionRun(context.Context, domain.Task) (string, bool, error)
+	AppendDecisionStep(context.Context, domain.Task, string, int, string, contracts.LiveDecisionFacts) error
+	RecordDecisionRun(context.Context, int64, domain.FinalDecision, string) error
+	FailDecisionRun(context.Context, domain.Task, string, string, string) error
+}
+
 // Options configure the decider.
 // Options 配置决策器。
 // RulesProvider loads the published ruleset of one scope.
@@ -275,7 +296,7 @@ func (d *Decider) runtime() RuntimeConfig {
 // ProcessTask resolves the policy fresh, applies rules, optionally the semantic
 // decider, records the final decision and dispatches replies.
 // ProcessTask 即时解析策略，应用规则与可选语义判定，记录最终决策并分发回复。
-func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
+func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr error) {
 	runtime := d.runtimeFor(ctx)
 
 	policy, err := d.scopes.Resolve(ctx, task.BotID, scopedomain.ScopeType(task.Kind), task.TargetID)
@@ -283,6 +304,26 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		// Retryable infrastructure failure: hand the error back to the worker.
 		// 可重试的基础设施故障：把错误交还给工作器。
 		return fmt.Errorf("intent: resolve policy: %w", err)
+	}
+	recovery, _ := d.recorder.(decisionRecoveryJournal)
+	if recovery != nil {
+		decision, found, err := recovery.LoadDecisionRecovery(ctx, task)
+		if err != nil {
+			return decisionPersistenceError{cause: err}
+		}
+		if found {
+			if decision.Snapshot == nil || !decision.Snapshot.Input.GenerationEligible || !policy.Enabled || !policy.StoreMessages ||
+				policy.ReplyMode == scopedomain.ModeObserveOnly || decision.ReasonCode == auditcontracts.ModelMediaStartFailureCode {
+				return nil
+			}
+			snapshot := decision.Snapshot.Input
+			in := domain.Input{Task: task, Policy: policy, Topics: snapshot.Topics}
+			history, err := d.recoveredReplyHistory(ctx, in, decision, runtime)
+			if err != nil {
+				return decisionPersistenceError{cause: err}
+			}
+			return d.executeDecidedReply(ctx, task, in, decision, runtime, recovery, history)
+		}
 	}
 	if d.media != nil && policy.PermissionGranted("media.voice.transcribe") && policy.Enabled && policy.StoreMessages && policy.ReplyMode != scopedomain.ModeObserveOnly {
 		text, err := d.media.Transcribe(ctx, task.BotID, task.Segments, task.Message.Text)
@@ -314,6 +355,61 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		// 关闭流水线期间工作器仍消费任务，避免队列堆积；决策本身被跳过。
 		d.logger.Debug("intent pipeline disabled; job skipped", "job_id", task.JobID)
 		return nil
+	}
+	runID := uuid.NewString()
+	journal, _ := d.recorder.(decisionRunJournal)
+	modelReturned := false
+	semanticStarted := false
+	recoverySaved := false
+	persist := func(op func(context.Context) error) error {
+		err := op(ctx)
+		if err == nil || journal == nil || !modelReturned {
+			return err
+		}
+		if ctx.Err() == nil {
+			retryCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+			defer cancel()
+			if retryErr := op(retryCtx); retryErr == nil {
+				return nil
+			}
+		}
+		return decisionPersistenceError{cause: err}
+	}
+	if journal != nil {
+		id, owned, err := journal.StartDecisionRun(ctx, task)
+		if err != nil || !owned {
+			return err
+		}
+		runID = id
+		defer func() {
+			if runErr == nil || recoverySaved {
+				return
+			}
+			state, reason := "failed", "decision_failed"
+			var persistence decisionPersistenceError
+			if errors.As(runErr, &persistence) {
+				reason = "decision_persistence_failed"
+			}
+			if ctx.Err() != nil && reason != "decision_persistence_failed" {
+				state, reason = "interrupted", "decision_cancelled"
+			}
+			if semanticStarted && !recoverySaved && !errors.Is(runErr, auditcontracts.ErrModelMediaStart) {
+				state, reason = "interrupted", "semantic_result_unknown"
+			}
+			finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			if err := journal.FailDecisionRun(finalCtx, task, runID, state, reason); err != nil {
+				d.logger.Warn("close decision run failed", "error", err)
+			}
+		}()
+	}
+	step := func(sequence int, kind string, facts contracts.LiveDecisionFacts) error {
+		if journal == nil {
+			return nil
+		}
+		return persist(func(writeCtx context.Context) error {
+			return journal.AppendDecisionStep(writeCtx, task, runID, sequence, kind, facts)
+		})
 	}
 	var awaited *domain.Message
 	if task.Kind == "group" && policy.AllowHistoryRead && eligibleSupplement(task) {
@@ -351,9 +447,16 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	if err != nil {
 		return err
 	}
-	runID := uuid.NewString()
+	if err := step(2, "context", contracts.LiveDecisionFacts{HistorySkipped: !readHistory, HistoryDegraded: historyDegraded}); err != nil {
+		return err
+	}
 	in := domain.Input{Task: task, CallIdentity: identity, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
-	rule, rulesetVersion, set := d.applyRules(ctx, in)
+	var cooldown domain.CooldownEvent
+	rule, rulesetVersion, set := d.applyRules(ctx, in, &cooldown)
+	if err := step(3, "rules", contracts.LiveDecisionFacts{RuleID: cooldown.RuleID, Branch: cooldown.Branch, ThresholdMS: cooldown.ThresholdMS, ElapsedMS: cooldown.ElapsedMS}); err != nil {
+		return err
+	}
+
 	prompt := ScoreParticipationPrompt(d.participationPrompt(ctx, task, runtime, set, in.CallNameVariable()))
 	prompt = withCallQuestionLayer(in, rule, prompt)
 	prompt.ConversationID = task.ConversationID
@@ -371,7 +474,12 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	var latency int64
 	asked := shouldAskSemantic(in, rule) && d.semantic != nil
 	if asked {
+		semanticStarted = journal != nil
+		if err := step(4, "semantic_started", contracts.LiveDecisionFacts{}); err != nil {
+			return decisionPersistenceError{cause: err}
+		}
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
+		modelReturned = true
 	}
 	startFailed := semantic.FailureCode == auditcontracts.ModelMediaStartFailureCode
 	errOrStartFailure := func(err error) error {
@@ -380,11 +488,22 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		}
 		return err
 	}
-	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
+	if err := step(5, "semantic", contracts.LiveDecisionFacts{Branch: semanticBranch(asked, semantic), LatencyMS: latency}); err != nil {
+		return errOrStartFailure(err)
+	}
+	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime, cooldown.Branch == "deferred")
 	decision.RulesetVersion = rulesetVersion
 	decision.RunID = runID
 	decision.FlowVersion = domain.FlowVersion
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
+	events := cooldownEvents(cooldown, decision)
+	decision.Steps[2].Detail["RuleEvents"] = events
+	if len(events) > 1 {
+		resolution := events[len(events)-1]
+		if err := step(6, "cooldown_resolved", contracts.LiveDecisionFacts{RuleID: resolution.RuleID, Branch: resolution.Branch, ThresholdMS: resolution.ThresholdMS, ElapsedMS: resolution.ElapsedMS}); err != nil {
+			return err
+		}
+	}
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
 		Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
@@ -408,12 +527,32 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		"ruleset_version": rulesetVersion,
 	})
 	if err != nil {
-		return errOrStartFailure(err)
-	}
-	if err := d.recorder.Record(ctx, task.JobID, decision, task.ClaimToken); err != nil {
-		if finishErr := auditcontracts.FinishEvent(ctx, auditEvent, "failed", "decision_record_failed", map[string]any{"error": err.Error()}); finishErr != nil {
-			return errOrStartFailure(finishErr)
+		if startFailed {
+			return auditcontracts.ErrModelMediaStart
 		}
+		if modelReturned && journal != nil {
+			return decisionPersistenceError{cause: err}
+		}
+		return err
+	}
+	if recovery != nil && !startFailed {
+		if err := persist(func(writeCtx context.Context) error {
+			return recovery.SaveDecisionRecovery(writeCtx, task, decision)
+		}); err != nil {
+			return err
+		}
+		recoverySaved = true
+	}
+	var recordErr error
+	if journal != nil {
+		recordErr = persist(func(writeCtx context.Context) error {
+			return journal.RecordDecisionRun(writeCtx, task.JobID, decision, task.ClaimToken)
+		})
+	} else {
+		recordErr = d.recorder.Record(ctx, task.JobID, decision, task.ClaimToken)
+	}
+	if err := recordErr; err != nil {
+		_ = auditcontracts.FinishEvent(ctx, auditEvent, "failed", "decision_record_failed", nil)
 		return errOrStartFailure(fmt.Errorf("intent: record decision: %w", err))
 	}
 	// Audit keeps only decision facts. Snapshot.Input contains message bodies,
@@ -443,7 +582,9 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 		}
 		return auditcontracts.ErrModelMediaStart
 	}
-	if err := auditcontracts.FinishEvent(ctx, auditEvent, "succeeded", "", map[string]any{"decision": auditDecision}); err != nil {
+	if err := persist(func(writeCtx context.Context) error {
+		return auditcontracts.FinishEvent(writeCtx, auditEvent, "succeeded", "", map[string]any{"decision": auditDecision})
+	}); err != nil {
 		return err
 	}
 	d.logger.Info("intent decided",
@@ -453,7 +594,11 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	// A disabled generation model records the decision but never sends: the
 	// console explains that replies need both switches on.
 	// 关闭生成模型时仍记录决策但不发送；控制台的说明是回复需要两个开关同时开启。
-	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled {
+	return d.executeDecidedReply(ctx, task, in, decision, runtime, recovery, topicReplyHistory(in, decision))
+}
+
+func (d *Decider) executeDecidedReply(ctx context.Context, task domain.Task, in domain.Input, decision domain.FinalDecision, runtime RuntimeConfig, recovery decisionRecoveryJournal, history []domain.Message) error {
+	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.Enabled && runtime.AIEnabled {
 		if decision.Topic != nil {
 			if guard, ok := d.recorder.(interface {
 				CheckTopicGeneration(context.Context, domain.Task, int64, int64) error
@@ -467,7 +612,16 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 				}
 			}
 		}
-		return d.executor.ExecuteReply(ctx, task, topicReplyHistory(in, decision))
+		if recovery != nil {
+			started, err := recovery.BeginDecisionReply(ctx, task, decision.RunID)
+			if err != nil {
+				return decisionPersistenceError{cause: err}
+			}
+			if !started {
+				return nil
+			}
+		}
+		return d.executor.ExecuteReply(ctx, task, history)
 	}
 	return nil
 }
@@ -706,6 +860,21 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 	return steps
 }
 
+func cooldownEvents(first domain.CooldownEvent, decision domain.FinalDecision) []domain.CooldownEvent {
+	if first.Branch != "deferred" {
+		return []domain.CooldownEvent{first}
+	}
+	second := first
+	second.Sequence++
+	second.ReasonCode = decision.ReasonCode
+	second.Branch = "not_revisited"
+	if resolution := decision.CooldownResolution; resolution != nil {
+		second.Branch = resolution.Branch
+		second.TopicSource = resolution.TopicSource
+	}
+	return []domain.CooldownEvent{first, second}
+}
+
 func isPolicyBlockReason(reason string) bool {
 	switch reason {
 	case "policy_disabled", "observe_only", "cooldown", "rate_limited", "not_addressed":
@@ -860,11 +1029,14 @@ func semanticSkipReason(rule domain.RuleResult) string {
 
 // applyRules evaluates the deterministic gate and records why it stopped.
 // applyRules 执行确定性规则闸门并记录其结论。
-func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleResult, string, *domain.Ruleset) {
+func (d *Decider) applyRules(ctx context.Context, in domain.Input, capture ...*domain.CooldownEvent) (domain.RuleResult, string, *domain.Ruleset) {
 	_, span := tracer().Start(ctx, "nagi.intent.rules")
 	defer span.End()
-	in, _ = topicRuleInput(in)
-	rule := EvaluateRules(in)
+	reason, cooldown := domain.EvaluateCooldownGate(in, hasTopicCandidates(in))
+	if len(capture) > 0 {
+		*capture[0] = cooldown
+	}
+	rule := evaluateRules(in, reason)
 	version := ""
 	var selected *domain.Ruleset
 	if d.rules != nil {
@@ -880,7 +1052,7 @@ func (d *Decider) applyRules(ctx context.Context, in domain.Input) (domain.RuleR
 			if hasGlobal {
 				globalSet = &global
 			}
-			rule, version = EvaluateRuleChain(in, specificSet, globalSet)
+			rule, version = applyDecisionQuestions(in, rule, specificSet, globalSet)
 			selected = specificSet
 			if selected == nil {
 				selected = globalSet
@@ -1031,7 +1203,7 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 // applyPolicy computes the final decision inside its own span.
 // applyPolicy 在独立 span 内计算最终决策。
 func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.RuleResult,
-	semantic domain.SemanticAnswer, latency int64, runtime RuntimeConfig,
+	semantic domain.SemanticAnswer, latency int64, runtime RuntimeConfig, cooldown ...bool,
 ) domain.FinalDecision {
 	_, span := tracer().Start(ctx, "nagi.intent.policy")
 	defer span.End()
@@ -1039,7 +1211,7 @@ func (d *Decider) applyPolicy(ctx context.Context, in domain.Input, rule domain.
 	if semantic.FailureCode == auditcontracts.ModelMediaStartFailureCode {
 		decision = silent(auditcontracts.ModelMediaStartFailureCode)
 	} else {
-		decision = evaluateTopicDecision(in, rule, semantic)
+		decision = evaluateTopicDecision(in, rule, semantic, cooldown...)
 	}
 	if decision.Topic != nil {
 		decision.Topic.ParticipantID = in.Task.Message.SenderID

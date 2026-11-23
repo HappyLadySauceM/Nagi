@@ -62,6 +62,8 @@ type MessageJob struct {
 
 // MessageJobEdges holds the relations/edges for other nodes in the graph.
 type MessageJobEdges struct {
+	// IntentRuns holds the value of the intent_runs edge.
+	IntentRuns []*IntentDecisionRun `json:"intent_runs,omitempty"`
 	// IncomingMessageIDRef holds the value of the incoming_message_id_ref edge.
 	IncomingMessageIDRef *Message `json:"incoming_message_id_ref,omitempty"`
 	// ConsentProposal holds the value of the consent_proposal edge.
@@ -74,7 +76,16 @@ type MessageJobEdges struct {
 	AgentOutboundMessagesJobID []*AgentOutboundMessage `json:"agent_outbound_messages_job_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
+	loadedTypes [6]bool
+}
+
+// IntentRunsOrErr returns the IntentRuns value or an error if the edge
+// was not loaded in eager-loading.
+func (e MessageJobEdges) IntentRunsOrErr() ([]*IntentDecisionRun, error) {
+	if e.loadedTypes[0] {
+		return e.IntentRuns, nil
+	}
+	return nil, &NotLoadedError{edge: "intent_runs"}
 }
 
 // IncomingMessageIDRefOrErr returns the IncomingMessageIDRef value or an error if the edge
@@ -82,7 +93,7 @@ type MessageJobEdges struct {
 func (e MessageJobEdges) IncomingMessageIDRefOrErr() (*Message, error) {
 	if e.IncomingMessageIDRef != nil {
 		return e.IncomingMessageIDRef, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: message.Label}
 	}
 	return nil, &NotLoadedError{edge: "incoming_message_id_ref"}
@@ -93,7 +104,7 @@ func (e MessageJobEdges) IncomingMessageIDRefOrErr() (*Message, error) {
 func (e MessageJobEdges) ConsentProposalOrErr() (*MemoryConsentProposal, error) {
 	if e.ConsentProposal != nil {
 		return e.ConsentProposal, nil
-	} else if e.loadedTypes[1] {
+	} else if e.loadedTypes[2] {
 		return nil, &NotFoundError{label: memoryconsentproposal.Label}
 	}
 	return nil, &NotLoadedError{edge: "consent_proposal"}
@@ -102,7 +113,7 @@ func (e MessageJobEdges) ConsentProposalOrErr() (*MemoryConsentProposal, error) 
 // IntentDecisionsJobIDOrErr returns the IntentDecisionsJobID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageJobEdges) IntentDecisionsJobIDOrErr() ([]*IntentDecision, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.IntentDecisionsJobID, nil
 	}
 	return nil, &NotLoadedError{edge: "intent_decisions_job_id"}
@@ -111,7 +122,7 @@ func (e MessageJobEdges) IntentDecisionsJobIDOrErr() ([]*IntentDecision, error) 
 // AgentRunBudgetsJobIDOrErr returns the AgentRunBudgetsJobID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageJobEdges) AgentRunBudgetsJobIDOrErr() ([]*AgentRunBudget, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.AgentRunBudgetsJobID, nil
 	}
 	return nil, &NotLoadedError{edge: "agent_run_budgets_job_id"}
@@ -120,7 +131,7 @@ func (e MessageJobEdges) AgentRunBudgetsJobIDOrErr() ([]*AgentRunBudget, error) 
 // AgentOutboundMessagesJobIDOrErr returns the AgentOutboundMessagesJobID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageJobEdges) AgentOutboundMessagesJobIDOrErr() ([]*AgentOutboundMessage, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[5] {
 		return e.AgentOutboundMessagesJobID, nil
 	}
 	return nil, &NotLoadedError{edge: "agent_outbound_messages_job_id"}
@@ -280,6 +291,11 @@ func (_m *MessageJob) assignValues(columns []string, values []any) error {
 // This includes values selected through modifiers, order, etc.
 func (_m *MessageJob) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
+}
+
+// QueryIntentRuns queries the "intent_runs" edge of the MessageJob entity.
+func (_m *MessageJob) QueryIntentRuns() *IntentDecisionRunQuery {
+	return NewMessageJobClient(_m.config).QueryIntentRuns(_m)
 }
 
 // QueryIncomingMessageIDRef queries the "incoming_message_id_ref" edge of the MessageJob entity.

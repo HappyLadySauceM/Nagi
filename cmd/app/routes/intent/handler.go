@@ -18,6 +18,7 @@ import (
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
+	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"go.opentelemetry.io/otel/trace"
@@ -30,13 +31,14 @@ const maxDecisionPageSize = 100
 // Handler serves the decision log endpoints.
 // Handler 提供决策记录接口。
 type Handler struct {
-	svcCtx *svc.ServiceContext
+	svcCtx    *svc.ServiceContext
+	liveSlots chan struct{}
 }
 
 // NewHandler builds the intent handler.
 // NewHandler 构建意图处理器。
 func NewHandler(svcCtx *svc.ServiceContext) *Handler {
-	return &Handler{svcCtx: svcCtx}
+	return &Handler{svcCtx: svcCtx, liveSlots: make(chan struct{}, 12)}
 }
 
 // Register wires routes using Go 1.22 method+path patterns.
@@ -48,6 +50,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/intent/inbound/{message_id}/attachments/backfill", h.BackfillAttachments)
 	mux.HandleFunc("GET /api/v1/intent/overview", h.Overview)
 	mux.HandleFunc("GET /api/v1/intent/flow", h.Flow)
+	mux.HandleFunc("GET /api/v1/intent/decision-runs/snapshot", h.liveSnapshot)
+	mux.HandleFunc("GET /api/v1/intent/decision-runs/stream", h.liveStream)
 	mux.HandleFunc("GET /api/v1/intent/decisions", h.List)
 	mux.HandleFunc("GET /api/v1/intent/decisions/{id}", h.Get)
 	mux.HandleFunc("POST /api/v1/intent/decisions/{id}/recalculate", h.Recalculate)
@@ -64,6 +68,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // List returns the newest decisions of one account.
 // List 返回某账号最新的决策记录。
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	botID, err := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
 	if err != nil || botID <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "bot_id 必填且必须为正整数")
@@ -87,15 +92,25 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		beforeID = parsed
 	}
+	stamp, allowed := h.auditAccountStamp(r.Context(), botID)
+	if !allowed {
+		common.WriteFailure(w, http.StatusNotFound, "decision history unavailable")
+		return
+	}
 	records, err := h.svcCtx.Decisions.List(r.Context(), intentcontracts.DecisionQuery{
-		BotID:          botID,
-		ConversationID: r.URL.Query().Get("conversation_id"),
-		Limit:          limit,
-		BeforeID:       beforeID,
-		ReasonCode:     r.URL.Query().Get("reason_code"),
+		AuditVisibleOnly: stamp != "",
+		BotID:            botID,
+		ConversationID:   r.URL.Query().Get("conversation_id"),
+		Limit:            limit,
+		BeforeID:         beforeID,
+		ReasonCode:       r.URL.Query().Get("reason_code"),
 	})
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取决策记录失败")
+		return
+	}
+	if !h.auditStampCurrent(r.Context(), botID, stamp) {
+		common.WriteFailure(w, http.StatusConflict, "decision history changed")
 		return
 	}
 	items := make([]v1.DecisionInfo, 0, len(records))
@@ -108,6 +123,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // Get returns one decision with its explainable steps.
 // Get 返回一条决策及其可解释步骤。
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "决策 id 无效")
@@ -122,8 +138,38 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取决策详情失败")
 		return
 	}
-	record = attachSnapshotContext(r.Context(), h.svcCtx.Decisions, record)
+	stamp, allowed := h.auditAccountStamp(r.Context(), record.BotID)
+	visible, history := h.auditRecordAccess(r.Context(), record.BotID, record.ConversationID)
+	if !allowed || !visible {
+		common.WriteFailure(w, http.StatusNotFound, "决策记录不存在")
+		return
+	}
+	if stamp != "" {
+		record = projectDecisionSteps(record)
+	}
+	if history {
+		record = attachSnapshotContext(r.Context(), h.svcCtx.Decisions, record, func(messages []map[string]any) []map[string]any {
+			return h.allowedHistorySources(r.Context(), record, messages)
+		})
+	} else {
+		for i := range record.Steps {
+			step := &record.Steps[i]
+			if step.Phase != intentdomain.StepFinal {
+				if step.Phase == intentdomain.StepRules && step.Detail["RuleEvents"] != nil {
+					step.Detail = map[string]any{"RuleEvents": step.Detail["RuleEvents"]}
+				} else {
+					step.Detail = nil
+				}
+				step.Evidence, step.Summary = nil, ""
+			}
+		}
+	}
 	delivery := h.deliveryFor(r.Context(), record.BotID, record.JobID)
+	if !history {
+		for i := range delivery.Items {
+			delivery.Items[i].Text = ""
+		}
+	}
 	detail := v1.DecisionDetail{DecisionInfo: toInfo(record), Scores: record.Scores, Run: intentapp.BuildRunFromRecord(record, delivery)}
 	if h.svcCtx.Conversation != nil {
 		ingress, err := h.svcCtx.Conversation.JobIngress(r.Context(), record.BotID, record.JobID)
@@ -131,7 +177,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 			common.WriteFailure(w, http.StatusInternalServerError, "读取入站消息失败")
 			return
 		}
-		if ingress != nil {
+		if ingress != nil && history && h.auditSourceAllowed(r.Context(), record.BotID, record.ConversationID, ingress.Message.ID) {
 			msg := ingress.Message
 			text := msg.Text
 			var segmentTypes []string
@@ -148,13 +194,17 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 				SenderID: msg.SenderID, Text: boundContextText(text), SegmentTypes: segmentTypes,
 				ReceivedAt: msg.CreatedAt, JobStatus: ingress.Status,
 			}
-			if reader, ok := h.svcCtx.Decisions.(intentcontracts.MediaReader); ok {
-				value, err := reader.InboundMedia(r.Context(), record.BotID, msg.ID, []int64{record.ID})
-				if err != nil {
-					common.WriteFailure(w, http.StatusInternalServerError, "读取入站媒体证据失败")
+			if err := h.attachInboundMedia(r.Context(), detail.Ingress, record.BotID, record.ConversationID, []int64{record.ID}); err != nil {
+				common.WriteFailure(w, http.StatusInternalServerError, "read inbound media failed")
+				return
+			}
+			if archive := h.svcCtx.InboundArchive; archive != nil {
+				attachments, err := archive.List(r.Context(), record.BotID, msg.ID)
+				if err != nil && !errors.Is(err, mediacontracts.ErrAttachmentNotFound) {
+					common.WriteFailure(w, http.StatusInternalServerError, "read attachments failed")
 					return
 				}
-				detail.Ingress.Media = &value
+				detail.Ingress.Attachments = attachments
 			}
 			traceContext := observability.TraceContext{TraceParent: ingress.TraceParent}
 			if traceContext.Valid() {
@@ -167,7 +217,28 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 			Index: step.Index, Phase: step.Phase, ReasonCode: step.ReasonCode, Detail: step.Detail, CreatedAt: step.CreatedAt,
 		})
 	}
+	if !h.auditStampCurrent(r.Context(), record.BotID, stamp) {
+		common.WriteFailure(w, http.StatusNotFound, "决策记录不存在")
+		return
+	}
 	common.WriteSuccess(w, detail)
+}
+
+// projectDecisionSteps removes source-linked fields before retained sources are attached.
+// projectDecisionSteps 先移除来源关联字段，再补入仍留存且获准读取的证据。
+func projectDecisionSteps(record intentcontracts.DecisionRecord) intentcontracts.DecisionRecord {
+	for index := range record.Steps {
+		step := &record.Steps[index]
+		delete(step.Detail, "Messages")
+		delete(step.Detail, "AwaitedRequestMessageID")
+		delete(step.Detail, "TopicCandidates")
+		delete(step.Detail, "Topic")
+		delete(step.Detail, "CallAddressing")
+		if step.Phase == intentdomain.StepContext {
+			step.Evidence, step.Summary = nil, ""
+		}
+	}
+	return record
 }
 
 // snapshotSource loads the immutable decision input when the reader supports it.
@@ -181,7 +252,7 @@ type snapshotSource interface {
 // leaves the step unchanged.
 // attachSnapshotContext 把已保存的历史写入上下文步骤，控制台因此能展示决策当时
 // 使用的消息。没有快照时保持步骤原样。
-func attachSnapshotContext(ctx context.Context, decisions intentcontracts.DecisionReader, record intentcontracts.DecisionRecord) intentcontracts.DecisionRecord {
+func attachSnapshotContext(ctx context.Context, decisions intentcontracts.DecisionReader, record intentcontracts.DecisionRecord, filter ...func([]map[string]any) []map[string]any) intentcontracts.DecisionRecord {
 	source, ok := decisions.(snapshotSource)
 	if !ok {
 		return record
@@ -191,6 +262,9 @@ func attachSnapshotContext(ctx context.Context, decisions intentcontracts.Decisi
 		return record
 	}
 	messages := snapshotContextMessages(snapshot.Input)
+	if len(filter) > 0 {
+		messages = filter[0](messages)
+	}
 	for i := range record.Steps {
 		step := &record.Steps[i]
 		if step.NodeID != intentdomain.NodeContext && step.Phase != intentdomain.StepContext {
@@ -286,21 +360,11 @@ func (h *Handler) Flow(w http.ResponseWriter, r *http.Request) {
 // deliveryFor 读取一条决策任务独立的出站结果。
 func (h *Handler) deliveryFor(ctx context.Context, botID, jobID int64) intentcontracts.Delivery {
 	out := intentcontracts.Delivery{Items: []intentcontracts.DeliveryItem{}}
-	if h.svcCtx.Outbound == nil {
-		return out
-	}
-	owns, err := h.svcCtx.Outbound.OwnsJob(ctx, botID, jobID)
-	if err != nil || !owns {
-		return out
-	}
-	outcome, reason, denied, err := h.svcCtx.Outbound.RunOutcome(ctx, jobID)
-	if err == nil {
-		out.Outcome, out.Reason, out.Denied = outcome, reason, denied
-	}
-	rows, err := h.svcCtx.Outbound.ListByJob(ctx, jobID)
+	rows, summary, err := h.svcCtx.DecisionDelivery(ctx, botID, jobID)
 	if err != nil {
 		return out
 	}
+	out.Outcome, out.Reason, out.Denied = summary.Outcome, summary.Reason, summary.Denied
 	for _, row := range rows {
 		out.Items = append(out.Items, intentcontracts.DeliveryItem{
 			ID: row.ID, Sequence: row.Sequence, Status: string(row.Status), Text: row.Text,
@@ -323,6 +387,7 @@ func (h *Handler) ReplayModel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) replay(w http.ResponseWriter, r *http.Request, model bool) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "决策 id 无效")
@@ -330,6 +395,10 @@ func (h *Handler) replay(w http.ResponseWriter, r *http.Request, model bool) {
 	}
 	if h.svcCtx.IntentReplayer == nil {
 		common.WriteFailure(w, http.StatusServiceUnavailable, "决策回放不可用")
+		return
+	}
+	if !h.auditReplayAllowed(r.Context(), id) {
+		common.WriteFailure(w, http.StatusNotFound, "决策记录不存在")
 		return
 	}
 	if model {
@@ -370,6 +439,7 @@ func (h *Handler) replayError(w http.ResponseWriter, err error) {
 }
 
 func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	botID, err := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
 	if err != nil || botID <= 0 {
 		common.WriteFailure(w, 400, "invalid bot_id")
@@ -383,6 +453,11 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	stamp, allowed := h.svcCtx.DecisionAuditStamp(r.Context(), botID)
+	if !allowed {
+		common.WriteFailure(w, 404, "decision statistics unavailable")
+		return
+	}
 	reader, ok := h.svcCtx.Decisions.(intentcontracts.DecisionStatsReader)
 	if !ok {
 		common.WriteFailure(w, 503, "decision statistics unavailable")
@@ -391,6 +466,10 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	stats, err := reader.Stats(r.Context(), botID, time.Now().Add(-time.Duration(hours)*time.Hour))
 	if err != nil {
 		common.WriteFailure(w, 500, "read decision statistics failed")
+		return
+	}
+	if !h.auditStampCurrent(r.Context(), botID, stamp) {
+		common.WriteFailure(w, http.StatusConflict, "decision statistics changed")
 		return
 	}
 	common.WriteSuccess(w, stats)

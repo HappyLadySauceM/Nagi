@@ -520,6 +520,29 @@ func RulesetVersionContainsFold(v string) predicate.IntentDecision {
 	return predicate.IntentDecision(sql.FieldContainsFold(FieldRulesetVersion, v))
 }
 
+// HasIntentRun applies the HasEdge predicate on the "intent_run" edge.
+func HasIntentRun() predicate.IntentDecision {
+	return predicate.IntentDecision(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, IntentRunTable, IntentRunColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasIntentRunWith applies the HasEdge predicate on the "intent_run" edge with a given conditions (other predicates).
+func HasIntentRunWith(preds ...predicate.IntentDecisionRun) predicate.IntentDecision {
+	return predicate.IntentDecision(func(s *sql.Selector) {
+		step := newIntentRunStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasJobIDRef applies the HasEdge predicate on the "job_id_ref" edge.
 func HasJobIDRef() predicate.IntentDecision {
 	return predicate.IntentDecision(func(s *sql.Selector) {

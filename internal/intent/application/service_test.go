@@ -306,6 +306,11 @@ func TestProcessTaskRateLimitsWithoutHistoryAuthorization(t *testing.T) {
 	if steps[3].Status != domain.NodeStatusSkipped || steps[3].Detail["called"] != false {
 		t.Fatalf("blocked semantic node = %+v", steps[3])
 	}
+	events, ok := steps[2].Detail["RuleEvents"].([]domain.CooldownEvent)
+	if !ok || len(events) != 1 || events[0].Branch != "blocked" || events[0].Sequence != 1 ||
+		events[0].ThresholdMS == nil || *events[0].ThresholdMS != 10000 || events[0].InputSource != "activity_stats" {
+		t.Fatalf("cooldown evidence: %+v", events)
+	}
 }
 
 // TestProcessTaskFailsClosedWhenActivityUnavailable verifies that activity-store

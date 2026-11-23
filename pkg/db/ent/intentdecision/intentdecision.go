@@ -33,6 +33,8 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldRulesetVersion holds the string denoting the ruleset_version field in the database.
 	FieldRulesetVersion = "ruleset_version"
+	// EdgeIntentRun holds the string denoting the intent_run edge name in mutations.
+	EdgeIntentRun = "intent_run"
 	// EdgeJobIDRef holds the string denoting the job_id_ref edge name in mutations.
 	EdgeJobIDRef = "job_id_ref"
 	// EdgeIntentDecisionStepsDecisionID holds the string denoting the intent_decision_steps_decision_id edge name in mutations.
@@ -43,6 +45,13 @@ const (
 	EdgeIntentReplayEvaluationsDecisionID = "intent_replay_evaluations_decision_id"
 	// Table holds the table name of the intentdecision in the database.
 	Table = "intent_decisions"
+	// IntentRunTable is the table that holds the intent_run relation/edge.
+	IntentRunTable = "intent_decision_runs"
+	// IntentRunInverseTable is the table name for the IntentDecisionRun entity.
+	// It exists in this package in order to avoid circular dependency with the "intentdecisionrun" package.
+	IntentRunInverseTable = "intent_decision_runs"
+	// IntentRunColumn is the table column denoting the intent_run relation/edge.
+	IntentRunColumn = "decision_id"
 	// JobIDRefTable is the table that holds the job_id_ref relation/edge.
 	JobIDRefTable = "intent_decisions"
 	// JobIDRefInverseTable is the table name for the MessageJob entity.
@@ -158,6 +167,13 @@ func ByRulesetVersion(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRulesetVersion, opts...).ToFunc()
 }
 
+// ByIntentRunField orders the results by intent_run field.
+func ByIntentRunField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newIntentRunStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByJobIDRefField orders the results by job_id_ref field.
 func ByJobIDRefField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -205,6 +221,13 @@ func ByIntentReplayEvaluationsDecisionID(term sql.OrderTerm, terms ...sql.OrderT
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newIntentReplayEvaluationsDecisionIDStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newIntentRunStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(IntentRunInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, IntentRunTable, IntentRunColumn),
+	)
 }
 func newJobIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

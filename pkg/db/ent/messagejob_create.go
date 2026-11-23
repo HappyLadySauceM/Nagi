@@ -14,6 +14,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
@@ -272,6 +273,21 @@ func (_c *MessageJobCreate) SetID(v int64) *MessageJobCreate {
 	return _c
 }
 
+// AddIntentRunIDs adds the "intent_runs" edge to the IntentDecisionRun entity by IDs.
+func (_c *MessageJobCreate) AddIntentRunIDs(ids ...uuid.UUID) *MessageJobCreate {
+	_c.mutation.AddIntentRunIDs(ids...)
+	return _c
+}
+
+// AddIntentRuns adds the "intent_runs" edges to the IntentDecisionRun entity.
+func (_c *MessageJobCreate) AddIntentRuns(v ...*IntentDecisionRun) *MessageJobCreate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddIntentRunIDs(ids...)
+}
+
 // SetIncomingMessageIDRefID sets the "incoming_message_id_ref" edge to the Message entity by ID.
 func (_c *MessageJobCreate) SetIncomingMessageIDRefID(id int64) *MessageJobCreate {
 	_c.mutation.SetIncomingMessageIDRefID(id)
@@ -523,6 +539,22 @@ func (_c *MessageJobCreate) createSpec() (*MessageJob, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.LeaseExpiresAt(); ok {
 		_spec.SetField(messagejob.FieldLeaseExpiresAt, field.TypeTime, value)
 		_node.LeaseExpiresAt = &value
+	}
+	if nodes := _c.mutation.IntentRunsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   messagejob.IntentRunsTable,
+			Columns: []string{messagejob.IntentRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.IncomingMessageIDRefIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

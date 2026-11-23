@@ -60,6 +60,7 @@ export function toDecisionDetail(raw: unknown): DecisionDetailEntry {
   return {
     ...toDecisionEntry(record),
     ingress: ingress && {
+      attachments: readAttachments(ingress.Attachments),
       messageId: readNumber(ingress, 'MessageID', DECISIONS_ENDPOINT),
       platformMessageId: readNumber(ingress, 'PlatformMessageID', DECISIONS_ENDPOINT),
       senderId: readNumber(ingress, 'SenderID', DECISIONS_ENDPOINT),
@@ -130,7 +131,13 @@ export function toInboundMessage(raw: unknown) {
     segmentTypes: asArray(record.SegmentTypes ?? [], INBOUND_ENDPOINT, 'SegmentTypes')
       .filter((value): value is string => typeof value === 'string' && value !== 'text'),
     media: toInboundMedia(record.Media),
-    attachments: asArray(record.Attachments ?? [], INBOUND_ENDPOINT, 'Attachments').map(value => {
+    attachments: readAttachments(record.Attachments),
+    receivedAt: readOptionalTime(record, 'ReceivedAt', INBOUND_ENDPOINT),
+  }
+}
+
+function readAttachments(raw: unknown) {
+  return asArray(raw ?? [], INBOUND_ENDPOINT, 'Attachments').map(value => {
       const attachment = asRecord(value, INBOUND_ENDPOINT, 'attachment')
       return {
         id: readString(attachment, 'ID', INBOUND_ENDPOINT),
@@ -140,9 +147,7 @@ export function toInboundMessage(raw: unknown) {
         failureCode: readString(attachment, 'FailureCode', INBOUND_ENDPOINT, ''),
         size: readNumber(attachment, 'SizeBytes', INBOUND_ENDPOINT, 0),
       }
-    }),
-    receivedAt: readOptionalTime(record, 'ReceivedAt', INBOUND_ENDPOINT),
-  }
+    })
 }
 
 function toPictures(raw: unknown): PictureEvidence {

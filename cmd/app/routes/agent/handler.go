@@ -3,12 +3,14 @@
 package agent
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
+	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 )
 
 // Handler serves the outbound ledger endpoint.
@@ -31,29 +33,37 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // ListOutbound returns the records of one job in sequence order.
 // ListOutbound 按序号返回某个任务的投递记录。
 func (h *Handler) ListOutbound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	jobID, err := strconv.ParseInt(r.URL.Query().Get("job_id"), 10, 64)
 	if err != nil || jobID <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "job_id 必填且必须为正整数")
 		return
 	}
-	{
-		raw := r.URL.Query().Get("bot_id")
-		botID, e := strconv.ParseInt(raw, 10, 64)
-		if e != nil || botID <= 0 {
-			common.WriteFailure(w, 400, "invalid bot id")
+	botID, e := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
+	if e != nil || botID <= 0 {
+		common.WriteFailure(w, 400, "invalid bot id")
+		return
+	}
+	stamp, allowed := h.svcCtx.DecisionAuditStamp(r.Context(), botID)
+	if !allowed {
+		common.WriteFailure(w, 404, "job not found")
+		return
+	}
+	if repo, live := h.svcCtx.Decisions.(intentcontracts.LiveDecisionReader); live {
+		if !h.svcCtx.DecisionAuditAccount(r.Context(), botID) {
+			common.WriteFailure(w, 404, "job not found")
 			return
 		}
-		owns, e := h.svcCtx.Outbound.OwnsJob(r.Context(), botID, jobID)
-		if e != nil {
-			common.WriteFailure(w, 500, "job unavailable")
-			return
-		}
-		if !owns {
+		if allowed, err := repo.DecisionJobAccess(r.Context(), botID, jobID); err != nil || !allowed {
 			common.WriteFailure(w, 404, "job not found")
 			return
 		}
 	}
-	records, err := h.svcCtx.Outbound.ListByJob(r.Context(), jobID)
+	records, summary, err := h.svcCtx.DecisionDelivery(r.Context(), botID, jobID)
+	if errors.Is(err, svc.ErrDecisionDeliveryJob) {
+		common.WriteFailure(w, http.StatusNotFound, "job not found")
+		return
+	}
 	if err != nil {
 		common.WriteFailure(w, http.StatusInternalServerError, "读取投递记录失败")
 		return
@@ -67,41 +77,9 @@ func (h *Handler) ListOutbound(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 		})
 	}
-	outcome, reason, denied, err := h.svcCtx.Outbound.RunOutcome(r.Context(), jobID)
-	if err != nil {
-		common.WriteFailure(w, 500, "run outcome unavailable")
+	if current, ok := h.svcCtx.DecisionAuditStamp(r.Context(), botID); !ok || current != stamp {
+		common.WriteFailure(w, 404, "job not found")
 		return
 	}
-	jobOutcome := outcome
-	sent, failed, unknown, attempted := 0, 0, 0, 0
-	for _, record := range records {
-		switch string(record.Status) {
-		case "sent":
-			sent++
-			attempted++
-		case "failed":
-			failed++
-			attempted++
-		case "unknown", "sending":
-			unknown++
-			attempted++
-		}
-	}
-	if unknown > 0 {
-		outcome = "unknown"
-	} else if failed > 0 {
-		outcome = "failed"
-	} else if sent > 0 && denied == 0 {
-		outcome = "completed"
-	}
-	if sent > 0 && (failed > 0 || unknown > 0 || denied > 0 || jobOutcome == "failed" || jobOutcome == "blocked") {
-		outcome = "partial"
-	}
-	if jobOutcome == "processing" && failed == 0 && unknown == 0 && denied == 0 {
-		outcome = "processing"
-	}
-	if outcome == "" {
-		outcome = "no_output"
-	}
-	common.WriteSuccess(w, map[string]any{"Items": items, "Summary": map[string]any{"Outcome": outcome, "Reason": reason, "Attempted": attempted, "Sent": sent, "Failed": failed, "Unknown": unknown, "Denied": denied}})
+	common.WriteSuccess(w, map[string]any{"Items": items, "Summary": summary})
 }

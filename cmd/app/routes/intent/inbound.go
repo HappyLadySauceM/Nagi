@@ -19,7 +19,6 @@ import (
 )
 
 type inboundItem struct {
-	Attachments []mediacontracts.InboundAttachment `json:",omitempty"`
 	v1.MessageIngress
 	ConversationID string
 	JobID          int64
@@ -33,13 +32,19 @@ type inboundItem struct {
 
 // Inbound serves the account-scoped ledger by message ID.
 func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	query := r.URL.Query()
 	botID, err := strconv.ParseInt(query.Get("bot_id"), 10, 64)
 	if err != nil || botID <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid bot_id")
 		return
 	}
-	q := intentcontracts.InboundQuery{BotID: botID, Limit: 20, ConversationID: query.Get("conversation_id")}
+	stamp, allowed := h.auditAccountStamp(r.Context(), botID)
+	if !allowed {
+		common.WriteFailure(w, http.StatusNotFound, "inbound ledger unavailable")
+		return
+	}
+	q := intentcontracts.InboundQuery{AuditVisibleOnly: stamp != "", BotID: botID, Limit: 20, ConversationID: query.Get("conversation_id")}
 	if q.ConversationID != "" {
 		id, err := uuid.Parse(q.ConversationID)
 		if err != nil {
@@ -98,6 +103,10 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 			DecisionID: record.DecisionID, DecisionIDs: record.DecisionIDs, Decision: record.Decision, ReasonCode: record.ReasonCode, Model: record.Model,
 		})
 	}
+	if !h.auditStampCurrent(r.Context(), botID, stamp) {
+		common.WriteFailure(w, http.StatusConflict, "inbound ledger changed")
+		return
+	}
 	if q.MessageID == 0 {
 		var blocked uint64
 		if h.svcCtx.Conversation != nil {
@@ -111,15 +120,11 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item := items[0]
-	if reader, ok := h.svcCtx.Decisions.(intentcontracts.MediaReader); ok {
-		value, err := reader.InboundMedia(r.Context(), botID, q.MessageID, item.DecisionIDs)
-		if err != nil {
-			common.WriteFailure(w, http.StatusInternalServerError, "read inbound media evidence failed")
-			return
-		}
-		item.Media = &value
+	if err := h.attachInboundMedia(r.Context(), &item.MessageIngress, botID, item.ConversationID, item.DecisionIDs); err != nil {
+		common.WriteFailure(w, http.StatusInternalServerError, "read inbound media failed")
+		return
 	}
-	if archive := h.svcCtx.InboundArchive; archive != nil {
+	if archive := h.svcCtx.InboundArchive; archive != nil && h.auditSourceAllowed(r.Context(), botID, item.ConversationID, q.MessageID) {
 		attachments, err := archive.List(r.Context(), botID, q.MessageID)
 		if err != nil && !errors.Is(err, mediacontracts.ErrAttachmentNotFound) {
 			common.WriteFailure(w, http.StatusInternalServerError, "read attachments failed")
@@ -127,10 +132,31 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		}
 		item.Attachments = attachments
 	}
+	if !h.auditStampCurrent(r.Context(), botID, stamp) {
+		common.WriteFailure(w, http.StatusNotFound, "inbound message not found")
+		return
+	}
 	common.WriteSuccess(w, item)
 }
 
+// attachInboundMedia uses the shared media projection for retained source evidence.
+// attachInboundMedia 使用共同的媒体投影读取仍留存且获准的来源证据。
+func (h *Handler) attachInboundMedia(ctx context.Context, ingress *v1.MessageIngress, bot int64, conversation string, decisions []int64) error {
+	if !h.auditSourceAllowed(ctx, bot, conversation, ingress.MessageID) {
+		return nil
+	}
+	if repo, ok := h.svcCtx.Decisions.(intentcontracts.MediaReader); ok {
+		media, err := repo.InboundMedia(ctx, bot, ingress.MessageID, decisions)
+		if err != nil {
+			return err
+		}
+		ingress.Media = &media
+	}
+	return nil
+}
+
 func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	botID, botErr := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
 	messageID, msgErr := strconv.ParseInt(r.PathValue("message_id"), 10, 64)
 	attachmentID, idErr := uuid.Parse(r.PathValue("attachment_id"))
@@ -139,7 +165,7 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	archive := h.svcCtx.InboundArchive
-	if archive == nil {
+	if archive == nil || !h.auditSourceAllowed(r.Context(), botID, "", messageID) {
 		common.WriteFailure(w, http.StatusNotFound, "attachment not found")
 		return
 	}
@@ -160,6 +186,10 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer body.Close()
+	if !h.auditSourceAllowed(ctx, botID, "", messageID) {
+		common.WriteFailure(w, http.StatusNotFound, "attachment not found")
+		return
+	}
 	filename := meta.Filename
 	if filename == "" {
 		filename = attachmentID.String()
@@ -174,10 +204,15 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) BackfillAttachments(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	botID, botErr := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
 	messageID, msgErr := strconv.ParseInt(r.PathValue("message_id"), 10, 64)
 	if botErr != nil || msgErr != nil || botID <= 0 || messageID <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "invalid inbound address")
+		return
+	}
+	if !h.auditSourceAllowed(r.Context(), botID, "", messageID) {
+		common.WriteFailure(w, http.StatusNotFound, "inbound message not found")
 		return
 	}
 	archive := h.svcCtx.InboundArchive

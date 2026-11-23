@@ -22,6 +22,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
@@ -29,6 +30,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentstreamhead"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
@@ -359,6 +361,12 @@ func init() {
 	intentdecisionDescRulesetVersion := intentdecisionFields[9].Descriptor()
 	// intentdecision.DefaultRulesetVersion holds the default value on creation for the ruleset_version field.
 	intentdecision.DefaultRulesetVersion = intentdecisionDescRulesetVersion.Default.(string)
+	intentdecisionrunFields := nagi.IntentDecisionRun{}.Fields()
+	_ = intentdecisionrunFields
+	// intentdecisionrunDescReplyStarted is the schema descriptor for reply_started field.
+	intentdecisionrunDescReplyStarted := intentdecisionrunFields[10].Descriptor()
+	// intentdecisionrun.DefaultReplyStarted holds the default value on creation for the reply_started field.
+	intentdecisionrun.DefaultReplyStarted = intentdecisionrunDescReplyStarted.Default.(bool)
 	intentdecisionsnapshotFields := nagi.IntentDecisionSnapshot{}.Fields()
 	_ = intentdecisionsnapshotFields
 	// intentdecisionsnapshotDescRunID is the schema descriptor for run_id field.
@@ -561,6 +569,16 @@ func init() {
 	intentrulesetDescTargets := intentrulesetFields[11].Descriptor()
 	// intentruleset.DefaultTargets holds the default value on creation for the targets field.
 	intentruleset.DefaultTargets = intentrulesetDescTargets.Default.(jsontext.Value)
+	intentstreamheadFields := nagi.IntentStreamHead{}.Fields()
+	_ = intentstreamheadFields
+	// intentstreamheadDescRetainedAfter is the schema descriptor for retained_after field.
+	intentstreamheadDescRetainedAfter := intentstreamheadFields[2].Descriptor()
+	// intentstreamhead.DefaultRetainedAfter holds the default value on creation for the retained_after field.
+	intentstreamhead.DefaultRetainedAfter = intentstreamheadDescRetainedAfter.Default.(int64)
+	// intentstreamheadDescRetentionRevision is the schema descriptor for retention_revision field.
+	intentstreamheadDescRetentionRevision := intentstreamheadFields[3].Descriptor()
+	// intentstreamhead.DefaultRetentionRevision holds the default value on creation for the retention_revision field.
+	intentstreamhead.DefaultRetentionRevision = intentstreamheadDescRetentionRevision.Default.(int64)
 	memoryFields := nagi.Memory{}.Fields()
 	_ = memoryFields
 	// memoryDescOwnerKey is the schema descriptor for owner_key field.

@@ -14,11 +14,13 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // IntentDecisionUpdate is the builder for updating IntentDecision entities.
@@ -165,6 +167,25 @@ func (_u *IntentDecisionUpdate) SetNillableRulesetVersion(v *string) *IntentDeci
 	return _u
 }
 
+// SetIntentRunID sets the "intent_run" edge to the IntentDecisionRun entity by ID.
+func (_u *IntentDecisionUpdate) SetIntentRunID(id uuid.UUID) *IntentDecisionUpdate {
+	_u.mutation.SetIntentRunID(id)
+	return _u
+}
+
+// SetNillableIntentRunID sets the "intent_run" edge to the IntentDecisionRun entity by ID if the given value is not nil.
+func (_u *IntentDecisionUpdate) SetNillableIntentRunID(id *uuid.UUID) *IntentDecisionUpdate {
+	if id != nil {
+		_u = _u.SetIntentRunID(*id)
+	}
+	return _u
+}
+
+// SetIntentRun sets the "intent_run" edge to the IntentDecisionRun entity.
+func (_u *IntentDecisionUpdate) SetIntentRun(v *IntentDecisionRun) *IntentDecisionUpdate {
+	return _u.SetIntentRunID(v.ID)
+}
+
 // SetJobIDRefID sets the "job_id_ref" edge to the MessageJob entity by ID.
 func (_u *IntentDecisionUpdate) SetJobIDRefID(id int64) *IntentDecisionUpdate {
 	_u.mutation.SetJobIDRefID(id)
@@ -224,6 +245,12 @@ func (_u *IntentDecisionUpdate) AddIntentReplayEvaluationsDecisionID(v ...*Inten
 // Mutation returns the IntentDecisionMutation object of the builder.
 func (_u *IntentDecisionUpdate) Mutation() *IntentDecisionMutation {
 	return _u.mutation
+}
+
+// ClearIntentRun clears the "intent_run" edge to the IntentDecisionRun entity.
+func (_u *IntentDecisionUpdate) ClearIntentRun() *IntentDecisionUpdate {
+	_u.mutation.ClearIntentRun()
+	return _u
 }
 
 // ClearJobIDRef clears the "job_id_ref" edge to the MessageJob entity.
@@ -373,6 +400,35 @@ func (_u *IntentDecisionUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if value, ok := _u.mutation.RulesetVersion(); ok {
 		_spec.SetField(intentdecision.FieldRulesetVersion, field.TypeString, value)
+	}
+	if _u.mutation.IntentRunCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   intentdecision.IntentRunTable,
+			Columns: []string{intentdecision.IntentRunColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentRunIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   intentdecision.IntentRunTable,
+			Columns: []string{intentdecision.IntentRunColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.JobIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -689,6 +745,25 @@ func (_u *IntentDecisionUpdateOne) SetNillableRulesetVersion(v *string) *IntentD
 	return _u
 }
 
+// SetIntentRunID sets the "intent_run" edge to the IntentDecisionRun entity by ID.
+func (_u *IntentDecisionUpdateOne) SetIntentRunID(id uuid.UUID) *IntentDecisionUpdateOne {
+	_u.mutation.SetIntentRunID(id)
+	return _u
+}
+
+// SetNillableIntentRunID sets the "intent_run" edge to the IntentDecisionRun entity by ID if the given value is not nil.
+func (_u *IntentDecisionUpdateOne) SetNillableIntentRunID(id *uuid.UUID) *IntentDecisionUpdateOne {
+	if id != nil {
+		_u = _u.SetIntentRunID(*id)
+	}
+	return _u
+}
+
+// SetIntentRun sets the "intent_run" edge to the IntentDecisionRun entity.
+func (_u *IntentDecisionUpdateOne) SetIntentRun(v *IntentDecisionRun) *IntentDecisionUpdateOne {
+	return _u.SetIntentRunID(v.ID)
+}
+
 // SetJobIDRefID sets the "job_id_ref" edge to the MessageJob entity by ID.
 func (_u *IntentDecisionUpdateOne) SetJobIDRefID(id int64) *IntentDecisionUpdateOne {
 	_u.mutation.SetJobIDRefID(id)
@@ -748,6 +823,12 @@ func (_u *IntentDecisionUpdateOne) AddIntentReplayEvaluationsDecisionID(v ...*In
 // Mutation returns the IntentDecisionMutation object of the builder.
 func (_u *IntentDecisionUpdateOne) Mutation() *IntentDecisionMutation {
 	return _u.mutation
+}
+
+// ClearIntentRun clears the "intent_run" edge to the IntentDecisionRun entity.
+func (_u *IntentDecisionUpdateOne) ClearIntentRun() *IntentDecisionUpdateOne {
+	_u.mutation.ClearIntentRun()
+	return _u
 }
 
 // ClearJobIDRef clears the "job_id_ref" edge to the MessageJob entity.
@@ -927,6 +1008,35 @@ func (_u *IntentDecisionUpdateOne) sqlSave(ctx context.Context) (_node *IntentDe
 	}
 	if value, ok := _u.mutation.RulesetVersion(); ok {
 		_spec.SetField(intentdecision.FieldRulesetVersion, field.TypeString, value)
+	}
+	if _u.mutation.IntentRunCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   intentdecision.IntentRunTable,
+			Columns: []string{intentdecision.IntentRunColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentRunIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   intentdecision.IntentRunTable,
+			Columns: []string{intentdecision.IntentRunColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.JobIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -129,6 +129,22 @@ func (s *Service) Ensure(ctx context.Context) error {
 	return s.EnsureModels(ctx)
 }
 
+// CurrentPermissionDefaults reads the committed defaults for audit authorization.
+// CurrentPermissionDefaults 为审计授权读取主库已提交的权限默认值。
+func (s *Service) CurrentPermissionDefaults(ctx context.Context) (map[string]bool, error) {
+	if s.repo == nil {
+		return nil, fmt.Errorf("settings: repository unavailable")
+	}
+	revision, found, err := s.repo.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("settings: committed revision unavailable")
+	}
+	return revision.Settings.Tools.PermissionDefaults, nil
+}
+
 // View returns the current revision together with the defaults baseline.
 // View 返回当前修订以及默认基线。
 func (s *Service) View() View {

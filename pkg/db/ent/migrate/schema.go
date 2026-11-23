@@ -557,6 +557,57 @@ var (
 			},
 		},
 	}
+	// IntentDecisionRunsColumns holds the columns for the "intent_decision_runs" table.
+	IntentDecisionRunsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "bot_id", Type: field.TypeInt64},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "claim_token", Type: field.TypeUUID},
+		{Name: "state", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "started_at", Type: field.TypeTime},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
+		{Name: "recovery_decision", Type: field.TypeJSON, Nullable: true},
+		{Name: "reply_started", Type: field.TypeBool, Default: false},
+		{Name: "decision_id", Type: field.TypeInt64, Unique: true, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
+		{Name: "job_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+	}
+	// IntentDecisionRunsTable holds the schema information for the "intent_decision_runs" table.
+	IntentDecisionRunsTable = &schema.Table{
+		Name:       "intent_decision_runs",
+		Columns:    IntentDecisionRunsColumns,
+		PrimaryKey: []*schema.Column{IntentDecisionRunsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "intent_decision_runs_intent_decisions_intent_run",
+				Columns:    []*schema.Column{IntentDecisionRunsColumns[9]},
+				RefColumns: []*schema.Column{IntentDecisionsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "intent_decision_runs_message_jobs_intent_runs",
+				Columns:    []*schema.Column{IntentDecisionRunsColumns[10]},
+				RefColumns: []*schema.Column{MessageJobsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "intent_decision_runs_claim",
+				Unique:  true,
+				Columns: []*schema.Column{IntentDecisionRunsColumns[10], IntentDecisionRunsColumns[3]},
+			},
+			{
+				Name:    "intent_decision_runs_account",
+				Unique:  false,
+				Columns: []*schema.Column{IntentDecisionRunsColumns[1], IntentDecisionRunsColumns[5], IntentDecisionRunsColumns[0]},
+			},
+			{
+				Name:    "intent_decision_runs_state",
+				Unique:  false,
+				Columns: []*schema.Column{IntentDecisionRunsColumns[4], IntentDecisionRunsColumns[5]},
+			},
+		},
+	}
 	// IntentDecisionSnapshotsColumns holds the columns for the "intent_decision_snapshots" table.
 	IntentDecisionSnapshotsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true, SchemaType: map[string]string{"postgres": "bigint"}},
@@ -811,6 +862,61 @@ var (
 				Columns: []*schema.Column{IntentRulesetsColumns[1], IntentRulesetsColumns[2], IntentRulesetsColumns[3], IntentRulesetsColumns[4]},
 			},
 		},
+	}
+	// IntentRunEventsColumns holds the columns for the "intent_run_events" table.
+	IntentRunEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "bot_id", Type: field.TypeInt64},
+		{Name: "position", Type: field.TypeInt64},
+		{Name: "sequence", Type: field.TypeInt},
+		{Name: "kind", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "data", Type: field.TypeJSON},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "run_id", Type: field.TypeUUID},
+	}
+	// IntentRunEventsTable holds the schema information for the "intent_run_events" table.
+	IntentRunEventsTable = &schema.Table{
+		Name:       "intent_run_events",
+		Columns:    IntentRunEventsColumns,
+		PrimaryKey: []*schema.Column{IntentRunEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "intent_run_events_intent_decision_runs_events",
+				Columns:    []*schema.Column{IntentRunEventsColumns[7]},
+				RefColumns: []*schema.Column{IntentDecisionRunsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "intent_run_events_sequence",
+				Unique:  true,
+				Columns: []*schema.Column{IntentRunEventsColumns[7], IntentRunEventsColumns[3]},
+			},
+			{
+				Name:    "intent_run_events_position",
+				Unique:  true,
+				Columns: []*schema.Column{IntentRunEventsColumns[1], IntentRunEventsColumns[2]},
+			},
+			{
+				Name:    "intent_run_events_time",
+				Unique:  false,
+				Columns: []*schema.Column{IntentRunEventsColumns[1], IntentRunEventsColumns[6], IntentRunEventsColumns[2]},
+			},
+		},
+	}
+	// IntentStreamHeadsColumns holds the columns for the "intent_stream_heads" table.
+	IntentStreamHeadsColumns = []*schema.Column{
+		{Name: "bot_id", Type: field.TypeInt64, Increment: true},
+		{Name: "position", Type: field.TypeInt64},
+		{Name: "retained_after", Type: field.TypeInt64, Default: 0},
+		{Name: "retention_revision", Type: field.TypeInt64, Default: 0},
+	}
+	// IntentStreamHeadsTable holds the schema information for the "intent_stream_heads" table.
+	IntentStreamHeadsTable = &schema.Table{
+		Name:       "intent_stream_heads",
+		Columns:    IntentStreamHeadsColumns,
+		PrimaryKey: []*schema.Column{IntentStreamHeadsColumns[0]},
 	}
 	// MemoriesColumns holds the columns for the "memories" table.
 	MemoriesColumns = []*schema.Column{
@@ -1452,6 +1558,7 @@ var (
 		GroupTopicRouteCandidatesTable,
 		InboundAttachmentsTable,
 		IntentDecisionsTable,
+		IntentDecisionRunsTable,
 		IntentDecisionSnapshotsTable,
 		IntentDecisionStepsTable,
 		IntentPromptVersionsTable,
@@ -1459,6 +1566,8 @@ var (
 		IntentRuleActivationsTable,
 		IntentRuleEntriesTable,
 		IntentRulesetsTable,
+		IntentRunEventsTable,
+		IntentStreamHeadsTable,
 		MemoriesTable,
 		MemoryConsentEventsTable,
 		MemoryConsentGrantsTable,
@@ -1570,6 +1679,11 @@ func init() {
 	IntentDecisionsTable.Annotation.Checks = map[string]string{
 		"intent_decisions_decision_check": "((decision = ANY (ARRAY['reply'::text, 'silent'::text, 'defer'::text])))",
 	}
+	IntentDecisionRunsTable.ForeignKeys[0].RefTable = IntentDecisionsTable
+	IntentDecisionRunsTable.ForeignKeys[1].RefTable = MessageJobsTable
+	IntentDecisionRunsTable.Annotation = &entsql.Annotation{
+		Table: "intent_decision_runs",
+	}
 	IntentDecisionSnapshotsTable.ForeignKeys[0].RefTable = IntentDecisionsTable
 	IntentDecisionSnapshotsTable.Annotation = &entsql.Annotation{
 		Table: "intent_decision_snapshots",
@@ -1614,6 +1728,13 @@ func init() {
 		"intent_rulesets_scope_type_check": "((scope_type = ANY (ARRAY['group'::text, 'private'::text])))",
 		"intent_rulesets_status_check":     "((status = ANY (ARRAY['draft'::text, 'published'::text, 'archived'::text])))",
 		"intent_rulesets_version_check":    "((version > 0))",
+	}
+	IntentRunEventsTable.ForeignKeys[0].RefTable = IntentDecisionRunsTable
+	IntentRunEventsTable.Annotation = &entsql.Annotation{
+		Table: "intent_run_events",
+	}
+	IntentStreamHeadsTable.Annotation = &entsql.Annotation{
+		Table: "intent_stream_heads",
 	}
 	MemoriesTable.ForeignKeys[0].RefTable = BotAccountsTable
 	MemoriesTable.ForeignKeys[1].RefTable = MessagesTable

@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
+	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
@@ -96,6 +98,40 @@ func TestVoiceHTTPContracts(t *testing.T) {
 	}
 	if _, err = svc.fetch(context.Background(), server.URL, 20, nil); err == nil {
 		t.Fatal("private media host accepted")
+	}
+}
+
+type synthesisAuditRecorder struct {
+	auditcontracts.AIRecorder
+	status string
+}
+
+func (r *synthesisAuditRecorder) RecordEvent(_ context.Context, event auditdomain.AIEvent) (auditdomain.AIEvent, error) {
+	event.ID = "synthetic-speech"
+	return event, nil
+}
+
+func (r *synthesisAuditRecorder) FinishEvent(ctx context.Context, _ string, status, _ string, _ []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.status = status
+	return nil
+}
+
+// TestSynthesisFinishesAuditAfterHTTPCleanup covers the caller's live audit context.
+// TestSynthesisFinishesAuditAfterHTTPCleanup 覆盖 HTTP 请求清理后的原运行审计上下文。
+func TestSynthesisFinishesAuditAfterHTTPCleanup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "fixture audio")
+	}))
+	defer server.Close()
+	recorder := &synthesisAuditRecorder{}
+	svc := NewService(testModels{server.URL}, nil, t.TempDir())
+	ctx := auditcontracts.WithRun(context.Background(), recorder, "synthetic-run")
+	audio, err := svc.Synthesize(ctx, "测试语音")
+	if err != nil || string(audio) != "fixture audio" || recorder.status != "succeeded" {
+		t.Fatalf("audio=%q status=%q err=%v", audio, recorder.status, err)
 	}
 }
 

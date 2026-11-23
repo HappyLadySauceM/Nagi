@@ -436,7 +436,7 @@ func (s *Service) Synthesize(ctx context.Context, text string) (audio []byte, er
 	if err != nil || len(audio) == 0 || len(audio) > maxAudioBytes {
 		return nil, fmt.Errorf("invalid TTS audio")
 	}
-	return s.archiveSynthesis(ctx, auditEvent, audio)
+	return s.archiveSynthesis(requestCtx, auditEvent, audio)
 }
 
 func (s *Service) archiveSynthesis(ctx context.Context, auditEvent *auditdomain.AIEvent, audio []byte) ([]byte, error) {

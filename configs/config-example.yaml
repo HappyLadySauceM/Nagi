@@ -24,6 +24,8 @@ onebot:
     max: 30s
 
 server:
+  # 仅在访问已经鉴权、由可信管理代理注入令牌时启用。所有副本使用同一个管理令牌。
+  trusted-decision-audit: false
   # 管理 HTTP API（/livez /readyz /api/v1/status）监听地址，默认仅监听本机
   listen: 127.0.0.1:5080
   enabled: true

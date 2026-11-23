@@ -123,12 +123,17 @@ func quotesOwnWait(in domain.Input) bool {
 	return false
 }
 
-func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic domain.SemanticAnswer) domain.FinalDecision {
+func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic domain.SemanticAnswer, deferred ...bool) domain.FinalDecision {
 	decision := EvaluateReplyPolicy(in, rule, semantic)
 	if in.Topics == nil || !in.Policy.AllowHistoryRead || rule.Blocked {
 		return decision
 	}
-	_, cooldown := topicRuleInput(in)
+	var cooldown bool
+	if len(deferred) > 0 {
+		cooldown = deferred[0]
+	} else {
+		_, cooldown = topicRuleInput(in)
+	}
 	candidate, source := selectTopic(in, semantic)
 	action := ""
 	if candidate != nil && semantic.Available {
@@ -160,12 +165,18 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 				}
 				decision.Topic = &domain.TopicChange{ID: candidate.ID, Action: action, Source: source, CooldownBypassed: cooldown,
 					ExpiresAt: topicExpiry(in)}
+				if cooldown {
+					decision.CooldownResolution = &domain.CooldownEvent{Branch: "bypassed", TopicSource: source}
+				}
 				return decision
 			}
 		}
 		if directed && (in.Topics.QuotedBot || awaitingReply(in)) && decision.Decision == domain.DecisionReply {
 			decision.Topic = &domain.TopicChange{ID: candidate.ID, Action: domain.TopicFollowUp, Source: source,
 				CooldownBypassed: cooldown, ExpiresAt: topicExpiry(in)}
+			if cooldown {
+				decision.CooldownResolution = &domain.CooldownEvent{Branch: "bypassed", TopicSource: source}
+			}
 			return decision
 		}
 	}
@@ -179,7 +190,9 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 		return decision
 	}
 	if cooldown && (decision.Decision == domain.DecisionReply || decision.Decision == domain.DecisionDefer) {
-		return silent("cooldown")
+		decision = silent(domain.CooldownRuleID)
+		decision.CooldownResolution = &domain.CooldownEvent{Branch: "restored"}
+		return decision
 	}
 	if !directed && decision.ReasonCode == "active_thread_continuation" {
 		return withScores(domain.DecisionSilent, "topic_ambiguous", decisionScores(semantic))
@@ -243,6 +256,47 @@ func topicWithoutHistorySegments(topics *domain.TopicContext) *domain.TopicConte
 		copy.Reference = &ref
 	}
 	return &copy
+}
+
+func (d *Decider) recoveredReplyHistory(ctx context.Context, in domain.Input, decision domain.FinalDecision, runtime RuntimeConfig) ([]domain.Message, error) {
+	if !in.Policy.AllowHistoryRead {
+		return nil, nil
+	}
+	original := decision.Snapshot.Input
+	if original.Topics != nil && original.Topics.BoundID != 0 {
+		fresh, err := d.loadTopics(ctx, in, runtime)
+		if err != nil || fresh == nil || fresh.BoundID != original.Topics.BoundID || fresh.BoundVersion != original.Topics.BoundVersion {
+			return nil, err
+		}
+		in.Topics = fresh
+		return topicReplyHistory(in, decision), nil
+	}
+	in.Topics = nil
+	if d.history == nil || original.HistoryWindowSkipped {
+		return nil, nil
+	}
+	fresh, err := d.history.RecentIntentMessages(ctx, in.Task.ConversationID, runtime.HistoryLimit)
+	if err != nil {
+		return nil, err
+	}
+	previous := make(map[int64]struct{}, len(original.Recent)+1)
+	for _, message := range original.Recent {
+		if message.MessageID > 0 {
+			previous[message.MessageID] = struct{}{}
+		}
+	}
+	if original.AwaitedRequest != nil && original.AwaitedRequest.MessageID > 0 {
+		previous[original.AwaitedRequest.MessageID] = struct{}{}
+	}
+	for _, message := range fresh {
+		if _, ok := previous[message.MessageID]; ok {
+			in.Recent = append(in.Recent, message)
+			if original.AwaitedRequest != nil && message.MessageID == original.AwaitedRequest.MessageID {
+				in.AwaitedRequest = &message
+			}
+		}
+	}
+	return replyHistory(in, decision.ReasonCode), nil
 }
 
 func topicReplyHistory(in domain.Input, decision domain.FinalDecision) []domain.Message {

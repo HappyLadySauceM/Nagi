@@ -9,27 +9,17 @@ import { apiRequest } from '../../lib/api/client'
 import { asRecord, readNumber } from '../../lib/api/adapters/guard'
 import { Select } from '../../components/ui/select'
 import { RulesPage } from './rules-page'
-import { FlowWorkbench } from './flow/flow-workbench'
+import { LiveDecisionLog } from './live-decision-log'
+import { useLiveDecisions } from './use-live-decisions'
 import { DecisionDetailSheet } from './flow/decision-detail-sheet'
-import { Input } from '../../components/ui/input'
-import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { FeedbackState } from '../../components/feedback-state'
 import { PageHeader } from '../../components/page-header'
 import { Skeleton } from '../../components/ui/skeleton'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
-import {
-  DECISION_KIND_LABELS,
-  type DecisionEntry,
-} from '../../lib/api/contracts'
-import { formatCount, formatDateTime, formatRelativeTime } from '../../lib/format'
+import { formatCount } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useAccountContext } from '../accounts/account-context'
-import { useDecisions } from './queries'
 
-const KIND_VARIANTS: Record<DecisionEntry['decision'], 'success' | 'secondary' | 'warning'> = {
-  reply: 'success', silent: 'secondary', defer: 'warning',
-}
 const TABS = [
   ['overview', '运行概览'], ['rules', '参与判断'], ['config', '识别配置'],
 ] as const
@@ -41,7 +31,6 @@ export function IntentPage() {
 }
 
 function IntentWorkspace() {
-  const navigate = useNavigate()
   const [tab, setTab] = useState<IntentTab>('overview')
   async function changeTab(next: IntentTab) {
     if (next !== tab && !(await allowWorkspaceChange())) return false
@@ -68,7 +57,7 @@ function IntentWorkspace() {
         ))}
       </div>
       <div role="tabpanel" id={`intent-panel-${tab}`} aria-labelledby={`intent-tab-${tab}`}>
-        {tab === 'overview' ? <IntentOverview onViewAll={() => { void navigate({ to: '/decisions/history' }) }} /> : null}
+        {tab === 'overview' ? <IntentOverview /> : null}
         {tab === 'rules' ? <RulesPage embedded /> : null}
  {tab === 'config' ? <IntentConfig/> : null}
       </div>
@@ -76,20 +65,22 @@ function IntentWorkspace() {
   )
 }
 
-function IntentOverview({ onViewAll }: { onViewAll: () => void }) {
+function IntentOverview() {
  const models=useModels()
   const { selectedBotId, dbConfigured } = useAccountContext()
   const [hours, setHours] = useState('24')
+  const live = useLiveDecisions(selectedBotId ?? 0, undefined, selectedBotId !== undefined && dbConfigured)
+  const authorized = live.view !== null
   const query = useQuery({
     queryKey: ['intent', 'overview', selectedBotId, hours],
-    enabled: selectedBotId !== undefined,
+    enabled: authorized,
     queryFn: async ({ signal }) => {
       const raw = await apiRequest(`/api/v1/intent/overview?bot_id=${selectedBotId}&hours=${hours}`, { signal })
       const row = asRecord(raw, '/api/v1/intent/overview', 'overview')
       return Object.fromEntries(['Total', 'SemanticCalls', 'SemanticSuccess', 'Degraded', 'Replies', 'Silent', 'AverageLatencyMS'].map(key => [key, readNumber(row, key, '/api/v1/intent/overview', 0)]))
     },
   })
-  const value = query.data
+  const value = authorized ? query.data : undefined
   if (selectedBotId === undefined) return <FeedbackState variant="empty" title="先选择机器人账号" description="选择账号后查看它的意图识别数据。" action={<Button asChild variant="outline"><Link to="/accounts">查看账号连接</Link></Button>} />
   if (!dbConfigured) return <FeedbackState variant="unconfigured" title="未配置数据库" description="配置数据库后即可查看意图识别统计与决策记录。" />
   return (
@@ -101,10 +92,10 @@ function IntentOverview({ onViewAll }: { onViewAll: () => void }) {
           <Select aria-label="统计时间范围" containerClassName="w-36" value={hours} onChange={event => setHours(event.target.value)}>
             <option value="24">最近 24 小时</option><option value="168">最近 7 天</option><option value="720">最近 30 天</option>
           </Select>
-          <Button variant="outline" size="icon" aria-label="刷新统计" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw className={cn('size-4', query.isFetching && 'animate-spin')} /></Button>
+          <Button variant="outline" size="icon" aria-label="刷新统计" disabled={!authorized || query.isFetching} onClick={() => void query.refetch()}><RefreshCw className={cn('size-4', query.isFetching && 'animate-spin')} /></Button>
         </div>
       </div>
-      {query.isError ? <FeedbackState variant="error" error={query.error} onRetry={() => void query.refetch()} /> : query.isLoading ? (
+      {!authorized ? live.error ? <FeedbackState variant="error" title="暂无法读取决策摘要" error={live.error} onRetry={live.reset} /> : <p role="status" className="text-sm text-muted-foreground">正在核验决策摘要授权…</p> : query.isError ? <FeedbackState variant="error" error={query.error} onRetry={() => void query.refetch()} /> : query.isLoading ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-28" />)}</div>
       ) : value ? (
         <>
@@ -130,57 +121,22 @@ function IntentOverview({ onViewAll }: { onViewAll: () => void }) {
           </section>
         </>
       ) : null}
-      <FlowWorkbench botId={selectedBotId} onViewAll={onViewAll} />
+      <section className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-medium">最近决策</h2>
+        <Button asChild variant="outline" size="sm"><Link to="/decisions/history">查看决策记录<ArrowRight aria-hidden /></Link></Button>
+      </section>
     </div>
   )
 }
 
-function DecisionLog({ recent = false, onViewAll }: { recent?: boolean; onViewAll?: () => void }) {
-  const { selectedBotId, dbConfigured } = useAccountContext()
-  const [selected, setSelected] = useState<number | null>(null)
-  const [conversation, setConversation] = useState('')
-  const [reason, setReason] = useState('')
-  const [cursor, setCursor] = useState(0)
-  const decisions = useDecisions(selectedBotId, conversation, 20, cursor, reason)
-  const rows = decisions.data?.items ?? []
-  const visibleRows = recent ? rows.slice(0, 7) : rows
-  return (
-    <section className="space-y-4" aria-label={recent ? '最近决策' : '决策记录'}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 className="text-sm font-medium">{recent ? '最近决策' : '决策记录'}</h2><p className="mt-1 text-meta text-muted-foreground">{recent ? '最新记录，不受上方统计时间范围影响。' : '按会话和原因筛选，查看实际判断过程与投递结果。'}</p></div>
-        {recent ? <Button variant="ghost" size="sm" onClick={onViewAll}>查看全部<ArrowRight aria-hidden /></Button> : <Button variant="outline" size="sm" disabled={decisions.isFetching || !dbConfigured || selectedBotId === undefined} onClick={() => void decisions.refetch()}><RefreshCw className={cn(decisions.isFetching && 'animate-spin')} aria-hidden />刷新</Button>}
-      </div>
-      {!recent ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Input className="w-full sm:w-56" aria-label="会话 ID" placeholder="按会话 ID 筛选" value={conversation} onChange={event => { setConversation(event.target.value); setCursor(0); setSelected(null) }} />
-          <Input className="w-full sm:w-56" aria-label="原因码筛选" placeholder="按原因码筛选" value={reason} onChange={event => { setReason(event.target.value); setCursor(0); setSelected(null) }} />
-        </div>
-      ) : null}
-      {selectedBotId === undefined ? <FeedbackState variant="empty" title="先选择机器人账号" description="决策记录属于具体账号。" /> : !dbConfigured ? <FeedbackState variant="unconfigured" title="未配置数据库" description="配置数据库后即可查看决策记录。" /> : decisions.isError ? <FeedbackState variant="error" title="读取决策记录失败" error={decisions.error} onRetry={() => void decisions.refetch()} /> : decisions.isLoading ? <Skeleton className="h-64 w-full" /> : rows.length === 0 ? <FeedbackState variant="empty" title={conversation || reason ? '没有匹配的决策记录' : cursor ? '没有更早的决策记录' : '还没有决策记录'} description="机器人完成意图判定后，可在这里查看它的判断过程。" /> : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <Table label="意图决策记录">
-            <TableHeader><TableRow><TableHead>决策 / 会话</TableHead><TableHead>原因</TableHead><TableHead>模型</TableHead><TableHead>时间</TableHead><TableHead className="text-right">耗时</TableHead></TableRow></TableHeader>
-            <TableBody>{visibleRows.map(entry => (
-              <TableRow key={entry.id} tabIndex={0} aria-haspopup="dialog" aria-label={`查看决策 ${entry.id}`} className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring" onClick={() => setSelected(entry.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(entry.id) } }}>
-                <TableCell><div className="flex flex-col items-start gap-1.5 text-left"><Badge variant={KIND_VARIANTS[entry.decision]}>{DECISION_KIND_LABELS[entry.decision]}</Badge><span className="max-w-56 truncate font-mono text-caption text-muted-foreground">{entry.conversationId || `#${entry.id}`}</span></div></TableCell>
-                <TableCell className="font-mono text-meta">{entry.reasonCode || '—'}</TableCell>
-                <TableCell className="text-meta text-muted-foreground">{entry.model || '未调用语义模型'}</TableCell>
-                <TableCell className="whitespace-nowrap text-meta text-muted-foreground" title={entry.createdAt ? formatDateTime(entry.createdAt) : undefined}>{entry.createdAt ? formatRelativeTime(entry.createdAt) : '—'}</TableCell>
-                <TableCell className="text-right text-meta text-muted-foreground tabular-nums">{entry.latencyMs} ms</TableCell>
-              </TableRow>
-            ))}</TableBody>
-          </Table>
-        </div>
-      )}
-      {!recent ? <div className="flex items-center justify-between gap-2 border-t border-border pt-3"><span className="text-meta text-muted-foreground">{cursor ? '正在查看历史记录' : '最新记录'}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={!cursor || decisions.isFetching} onClick={() => { setSelected(null); setCursor(0) }}>最新记录</Button><Button variant="outline" size="sm" disabled={!rows.length || decisions.isFetching} onClick={() => { setSelected(null); setCursor(rows.at(-1)!.id) }}>更早记录</Button></div></div> : null}
-      <DecisionDetailSheet decisionId={selected} onClose={() => setSelected(null)} />
-    </section>
-  )
-}
-
 export function DecisionHistoryPage() {
-  const { selectedBotId } = useAccountContext()
-  return <div className="space-y-6"><PageHeader title="决策记录" actions={<Button asChild variant="outline"><Link to="/decisions">返回意图概览</Link></Button>} /><FlowWorkbench botId={selectedBotId} history /><DecisionLog key={selectedBotId ?? 'none'} /></div>
+  const { selectedBotId, dbConfigured } = useAccountContext()
+  return <div className="space-y-6">
+    <PageHeader title="决策记录" actions={<Button asChild variant="outline"><Link to="/decisions">返回意图概览</Link></Button>} />
+    {selectedBotId === undefined ? <FeedbackState variant="empty" title="先选择机器人账号" />
+      : !dbConfigured ? <FeedbackState variant="unconfigured" title="未配置数据库" />
+        : <LiveDecisionLog key={selectedBotId} botId={selectedBotId} />}
+  </div>
 }
 
 export function InboundDetailPage() {
@@ -191,5 +147,14 @@ export function InboundDetailPage() {
   if (!Number.isSafeInteger(botId) || botId <= 0 || !Number.isSafeInteger(messageId) || messageId <= 0) {
     return <FeedbackState variant="error" title="入站地址无效" />
   }
-  return <DecisionDetailSheet inbound={{ botId, messageId }} onClose={() => void navigate({ to: '/decisions/history' })} />
+  return <AuthorizedInboundDetail key={`${botId}:${messageId}`} botId={botId} messageId={messageId} onClose={() => void navigate({ to: '/decisions/history' })} />
+}
+
+function AuthorizedInboundDetail({ botId, messageId, onClose }: { botId: number; messageId: number; onClose: () => void }) {
+  const live = useLiveDecisions(botId)
+  if (!live.view) {
+    if (live.error) return <FeedbackState variant="error" title="暂无法读取入站详情" error={live.error} onRetry={live.reset} />
+    return <p role="status" className="text-sm text-muted-foreground">正在核验入站详情授权…</p>
+  }
+  return <DecisionDetailSheet inbound={{ botId, messageId }} onClose={onClose} />
 }

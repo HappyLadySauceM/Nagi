@@ -20,9 +20,14 @@ import (
 // EstimateReplayModel 在付费模型回放前返回服务端费用与 token 估算；
 // 响应携带短期确认令牌。
 func (h *Handler) EstimateReplayModel(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, err := decisionIDFromPath(r)
 	if err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "决策 id 无效")
+		return
+	}
+	if !h.auditReplayAllowed(r.Context(), id) {
+		common.WriteFailure(w, http.StatusNotFound, "决策记录不存在")
 		return
 	}
 	if h.svcCtx.IntentReplayer == nil {
@@ -41,9 +46,14 @@ func (h *Handler) EstimateReplayModel(w http.ResponseWriter, r *http.Request) {
 // replay and persists the result as an independent evaluation record.
 // CreateReplayEvaluation 执行本地重算或已确认的模型回放，并保存为独立评估记录。
 func (h *Handler) CreateReplayEvaluation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, err := decisionIDFromPath(r)
 	if err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "决策 id 无效")
+		return
+	}
+	if !h.auditReplayAllowed(r.Context(), id) {
+		common.WriteFailure(w, http.StatusNotFound, "决策记录不存在")
 		return
 	}
 	if h.svcCtx.IntentReplayer == nil {
@@ -83,6 +93,7 @@ func (h *Handler) CreateReplayEvaluation(w http.ResponseWriter, r *http.Request)
 // ListReplayEvaluations returns saved evaluation summaries for one bot or decision.
 // ListReplayEvaluations 返回某个账号或决策的已保存评估摘要。
 func (h *Handler) ListReplayEvaluations(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if h.svcCtx.IntentReplayer == nil {
 		common.WriteFailure(w, http.StatusServiceUnavailable, "决策回放不可用")
 		return
@@ -126,12 +137,30 @@ func (h *Handler) ListReplayEvaluations(w http.ResponseWriter, r *http.Request) 
 		h.replayEvaluationError(w, err)
 		return
 	}
+	if botID != 0 {
+		if _, ok := h.auditAccountStamp(r.Context(), botID); !ok {
+			common.WriteFailure(w, http.StatusNotFound, "回放评估不存在")
+			return
+		}
+	}
+	if decisionID != 0 && !h.auditReplayAllowed(r.Context(), decisionID) {
+		common.WriteFailure(w, http.StatusNotFound, "回放评估不存在")
+		return
+	}
+	visible := items[:0]
+	for _, item := range items {
+		if h.auditReplayAllowed(r.Context(), item.DecisionID) {
+			visible = append(visible, item)
+		}
+	}
+	items = visible
 	common.WriteSuccess(w, map[string]any{"Items": items, "Limit": limit})
 }
 
 // GetReplayEvaluation returns one saved evaluation with both runs.
 // GetReplayEvaluation 返回一条已保存评估及两次运行。
 func (h *Handler) GetReplayEvaluation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "评估 id 无效")
@@ -146,6 +175,10 @@ func (h *Handler) GetReplayEvaluation(w http.ResponseWriter, r *http.Request) {
 		h.replayEvaluationError(w, err)
 		return
 	}
+	if !h.auditReplayAllowed(r.Context(), evaluation.DecisionID) {
+		common.WriteFailure(w, http.StatusNotFound, "回放评估不存在")
+		return
+	}
 	common.WriteSuccess(w, evaluation)
 }
 
@@ -153,6 +186,7 @@ func (h *Handler) GetReplayEvaluation(w http.ResponseWriter, r *http.Request) {
 // with another saved evaluation.
 // CompareReplayEvaluation 将已保存评估与原始运行或另一条已保存评估对比。
 func (h *Handler) CompareReplayEvaluation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		common.WriteFailure(w, http.StatusBadRequest, "评估 id 无效")
@@ -167,9 +201,20 @@ func (h *Handler) CompareReplayEvaluation(w http.ResponseWriter, r *http.Request
 		common.WriteFailure(w, http.StatusServiceUnavailable, "决策回放不可用")
 		return
 	}
+	if againstID > 0 {
+		other, err := h.svcCtx.IntentReplayer.GetEvaluation(r.Context(), againstID)
+		if err != nil || !h.auditReplayAllowed(r.Context(), other.DecisionID) {
+			common.WriteFailure(w, http.StatusNotFound, "回放评估不存在")
+			return
+		}
+	}
 	comparison, err := h.svcCtx.IntentReplayer.CompareEvaluation(r.Context(), id, againstID)
 	if err != nil {
 		h.replayEvaluationError(w, err)
+		return
+	}
+	if !h.auditReplayAllowed(r.Context(), comparison.DecisionID) {
+		common.WriteFailure(w, http.StatusNotFound, "回放评估不存在")
 		return
 	}
 	common.WriteSuccess(w, comparison)

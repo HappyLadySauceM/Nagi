@@ -14,6 +14,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
@@ -316,6 +317,21 @@ func (_u *MessageJobUpdate) ClearLeaseExpiresAt() *MessageJobUpdate {
 	return _u
 }
 
+// AddIntentRunIDs adds the "intent_runs" edge to the IntentDecisionRun entity by IDs.
+func (_u *MessageJobUpdate) AddIntentRunIDs(ids ...uuid.UUID) *MessageJobUpdate {
+	_u.mutation.AddIntentRunIDs(ids...)
+	return _u
+}
+
+// AddIntentRuns adds the "intent_runs" edges to the IntentDecisionRun entity.
+func (_u *MessageJobUpdate) AddIntentRuns(v ...*IntentDecisionRun) *MessageJobUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIntentRunIDs(ids...)
+}
+
 // SetIncomingMessageIDRefID sets the "incoming_message_id_ref" edge to the Message entity by ID.
 func (_u *MessageJobUpdate) SetIncomingMessageIDRefID(id int64) *MessageJobUpdate {
 	_u.mutation.SetIncomingMessageIDRefID(id)
@@ -388,6 +404,27 @@ func (_u *MessageJobUpdate) AddAgentOutboundMessagesJobID(v ...*AgentOutboundMes
 // Mutation returns the MessageJobMutation object of the builder.
 func (_u *MessageJobUpdate) Mutation() *MessageJobMutation {
 	return _u.mutation
+}
+
+// ClearIntentRuns clears all "intent_runs" edges to the IntentDecisionRun entity.
+func (_u *MessageJobUpdate) ClearIntentRuns() *MessageJobUpdate {
+	_u.mutation.ClearIntentRuns()
+	return _u
+}
+
+// RemoveIntentRunIDs removes the "intent_runs" edge to IntentDecisionRun entities by IDs.
+func (_u *MessageJobUpdate) RemoveIntentRunIDs(ids ...uuid.UUID) *MessageJobUpdate {
+	_u.mutation.RemoveIntentRunIDs(ids...)
+	return _u
+}
+
+// RemoveIntentRuns removes "intent_runs" edges to IntentDecisionRun entities.
+func (_u *MessageJobUpdate) RemoveIntentRuns(v ...*IntentDecisionRun) *MessageJobUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIntentRunIDs(ids...)
 }
 
 // ClearIncomingMessageIDRef clears the "incoming_message_id_ref" edge to the Message entity.
@@ -560,6 +597,51 @@ func (_u *MessageJobUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	}
 	if _u.mutation.LeaseExpiresAtCleared() {
 		_spec.ClearField(messagejob.FieldLeaseExpiresAt, field.TypeTime)
+	}
+	if _u.mutation.IntentRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   messagejob.IntentRunsTable,
+			Columns: []string{messagejob.IntentRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIntentRunsIDs(); len(nodes) > 0 && !_u.mutation.IntentRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   messagejob.IntentRunsTable,
+			Columns: []string{messagejob.IntentRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentRunsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   messagejob.IntentRunsTable,
+			Columns: []string{messagejob.IntentRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.IncomingMessageIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1056,6 +1138,21 @@ func (_u *MessageJobUpdateOne) ClearLeaseExpiresAt() *MessageJobUpdateOne {
 	return _u
 }
 
+// AddIntentRunIDs adds the "intent_runs" edge to the IntentDecisionRun entity by IDs.
+func (_u *MessageJobUpdateOne) AddIntentRunIDs(ids ...uuid.UUID) *MessageJobUpdateOne {
+	_u.mutation.AddIntentRunIDs(ids...)
+	return _u
+}
+
+// AddIntentRuns adds the "intent_runs" edges to the IntentDecisionRun entity.
+func (_u *MessageJobUpdateOne) AddIntentRuns(v ...*IntentDecisionRun) *MessageJobUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddIntentRunIDs(ids...)
+}
+
 // SetIncomingMessageIDRefID sets the "incoming_message_id_ref" edge to the Message entity by ID.
 func (_u *MessageJobUpdateOne) SetIncomingMessageIDRefID(id int64) *MessageJobUpdateOne {
 	_u.mutation.SetIncomingMessageIDRefID(id)
@@ -1128,6 +1225,27 @@ func (_u *MessageJobUpdateOne) AddAgentOutboundMessagesJobID(v ...*AgentOutbound
 // Mutation returns the MessageJobMutation object of the builder.
 func (_u *MessageJobUpdateOne) Mutation() *MessageJobMutation {
 	return _u.mutation
+}
+
+// ClearIntentRuns clears all "intent_runs" edges to the IntentDecisionRun entity.
+func (_u *MessageJobUpdateOne) ClearIntentRuns() *MessageJobUpdateOne {
+	_u.mutation.ClearIntentRuns()
+	return _u
+}
+
+// RemoveIntentRunIDs removes the "intent_runs" edge to IntentDecisionRun entities by IDs.
+func (_u *MessageJobUpdateOne) RemoveIntentRunIDs(ids ...uuid.UUID) *MessageJobUpdateOne {
+	_u.mutation.RemoveIntentRunIDs(ids...)
+	return _u
+}
+
+// RemoveIntentRuns removes "intent_runs" edges to IntentDecisionRun entities.
+func (_u *MessageJobUpdateOne) RemoveIntentRuns(v ...*IntentDecisionRun) *MessageJobUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveIntentRunIDs(ids...)
 }
 
 // ClearIncomingMessageIDRef clears the "incoming_message_id_ref" edge to the Message entity.
@@ -1330,6 +1448,51 @@ func (_u *MessageJobUpdateOne) sqlSave(ctx context.Context) (_node *MessageJob, 
 	}
 	if _u.mutation.LeaseExpiresAtCleared() {
 		_spec.ClearField(messagejob.FieldLeaseExpiresAt, field.TypeTime)
+	}
+	if _u.mutation.IntentRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   messagejob.IntentRunsTable,
+			Columns: []string{messagejob.IntentRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedIntentRunsIDs(); len(nodes) > 0 && !_u.mutation.IntentRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   messagejob.IntentRunsTable,
+			Columns: []string{messagejob.IntentRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.IntentRunsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   messagejob.IntentRunsTable,
+			Columns: []string{messagejob.IntentRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.IncomingMessageIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{

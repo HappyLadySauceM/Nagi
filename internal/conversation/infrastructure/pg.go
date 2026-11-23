@@ -471,7 +471,11 @@ func (r *Repo) failJob(ctx context.Context, jobID int64, code string, retryAfter
 			SELECT j.id, EXISTS (
 				SELECT 1 FROM agent_outbound_messages o
 				WHERE o.job_id = j.id AND o.status IN ('sent', 'unknown', 'sending', 'failed')
-			) OR j.delivery_outcome='blocked' AS has_delivered
+			) OR j.delivery_outcome='blocked' AS has_delivered,
+			j.source_kind='incoming' AND EXISTS (
+				SELECT 1 FROM intent_decision_runs r WHERE r.job_id=j.id AND r.state='completed'
+				AND r.decision_id IS NOT NULL AND (r.claim_token=j.claim_token OR j.last_error_code='decision_resume')
+			) AS decided
 			FROM message_jobs j
 			WHERE j.id = $1 AND j.status = 'processing' AND j.claim_token=$5::uuid AND j.lease_expires_at>clock_timestamp()
 		)
@@ -479,11 +483,11 @@ func (r *Repo) failJob(ctx context.Context, jobID int64, code string, retryAfter
 			claim_token=NULL,lease_expires_at=NULL,attempts = j.attempts + 1,
 			last_error_code = CASE WHEN j.delivery_outcome='blocked' THEN 'blocked' WHEN delivered.has_delivered THEN 'partial' ELSE $2 END,
 			status = CASE
-				WHEN delivered.has_delivered OR j.attempts + 1 >= $3 THEN 'failed'
+				WHEN delivered.has_delivered OR delivered.decided OR j.attempts + 1 >= $3 THEN 'failed'
 				ELSE 'pending'
 			END,
 			next_run_at = CASE
-				WHEN delivered.has_delivered OR j.attempts + 1 >= $3 THEN j.next_run_at
+				WHEN delivered.has_delivered OR delivered.decided OR j.attempts + 1 >= $3 THEN j.next_run_at
 				ELSE now() + make_interval(secs => $4)
 			END,
 			updated_at = now()
@@ -824,6 +828,21 @@ func (r *Repo) PurgeBefore(ctx context.Context, before time.Time, limit int) (in
 		return 0, err
 	}
 	selected, _ := json.Marshal(ids)
+	// Invalidate retained views and advance the resume floor before cascading deletion.
+	// 级联删除前使留存视图失效，并推进续传下界。
+	if _, err := tx.Exec(ctx, `WITH lost AS (
+	 SELECT e.bot_id,MAX(e.position) AS pos FROM intent_run_events e JOIN intent_decision_runs r ON r.id=e.run_id
+	 JOIN message_jobs j ON j.id=r.job_id WHERE j.incoming_message_id IN(SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb)) GROUP BY e.bot_id
+	), accounts AS (
+	 SELECT DISTINCT bot_id FROM messages WHERE id IN(SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb))
+	), changed AS (
+	 INSERT INTO intent_stream_heads(bot_id,position,retained_after,retention_revision)
+	 SELECT a.bot_id,COALESCE(l.pos,0),COALESCE(l.pos,0),1 FROM accounts a LEFT JOIN lost l USING(bot_id) ORDER BY a.bot_id
+	 ON CONFLICT(bot_id) DO UPDATE SET retained_after=GREATEST(intent_stream_heads.retained_after,EXCLUDED.retained_after),
+	 retention_revision=intent_stream_heads.retention_revision+1 RETURNING bot_id
+	) SELECT pg_notify('intent_live',bot_id::text) FROM changed`, selected); err != nil {
+		return 0, err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM message_jobs WHERE incoming_message_id IN(SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb))`, selected); err != nil {
 		return 0, err
 	}

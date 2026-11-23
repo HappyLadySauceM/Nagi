@@ -3,6 +3,7 @@
 package infrastructure
 
 import (
+	entsql "entgo.io/ent/dialect/sql"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	d "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	dsnap "github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
@@ -43,6 +44,14 @@ func NewDecisionsRepo(pool *db.Pool) (*DecisionsRepo, error) {
 // Record 在一个事务内写入决策记录及其可解释步骤，
 // 保证决策不会与原因脱节。
 func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain.FinalDecision, claim ...string) error {
+	return r.record(ctx, jobID, decision, "", claim...)
+}
+
+func (r *DecisionsRepo) RecordDecisionRun(ctx context.Context, jobID int64, decision domain.FinalDecision, claim string) error {
+	return r.record(ctx, jobID, decision, decision.RunID, claim)
+}
+
+func (r *DecisionsRepo) record(ctx context.Context, jobID int64, decision domain.FinalDecision, live string, claim ...string) error {
 	if len(claim) != 1 || claim[0] == "" {
 		return fmt.Errorf("intent: claim required")
 	}
@@ -71,14 +80,19 @@ func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain
 	if err != nil {
 		return err
 	}
-	rows, err = client.QueryContext(ctx, `SELECT id FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp()`, jobID, claim[0])
+	rows, err = client.QueryContext(ctx, `SELECT attempts FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp()`, jobID, claim[0])
 	if err != nil {
 		return err
 	}
-	valid := rows.Next()
-	rows.Close()
-	if !valid {
+	var attempts int
+	if !rows.Next() {
+		rows.Close()
 		return fmt.Errorf("intent: lease lost")
+	}
+	err = rows.Scan(&attempts)
+	rows.Close()
+	if err != nil {
+		return err
 	}
 	if decision.Topic != nil && decision.Topic.Action != "personal_exit" {
 		if err := persistTopicChange(ctx, client, id, jobID, decision.Topic); err != nil {
@@ -89,10 +103,31 @@ func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain
 	if err != nil {
 		return err
 	}
-	valid = rows.Next()
+	valid := rows.Next()
 	rows.Close()
 	if !valid {
 		return fmt.Errorf("intent: lease lost")
+	}
+	var liveBot int64
+	if live != "" {
+		var state string
+		if err := scanLive(ctx, client, `SELECT r.bot_id,r.state FROM intent_decision_runs r JOIN message_jobs j ON j.id=r.job_id
+		 WHERE r.id=$1 AND j.id=$2 AND j.claim_token=$3::uuid
+		 AND (r.claim_token=j.claim_token OR (j.last_error_code='decision_resume' AND r.recovery_decision IS NOT NULL)) FOR UPDATE OF r`, []any{live, jobID, claim[0]}, &liveBot, &state); err != nil {
+			return err
+		}
+		if state == "completed" {
+			return nil
+		}
+		if state != "running" {
+			return fmt.Errorf("intent: run has ended")
+		}
+		if err := lockDecisionHead(ctx, client, liveBot); err != nil {
+			return err
+		}
+		if err := checkDecisionLease(ctx, client, jobID, claim[0]); err != nil {
+			return err
+		}
 	}
 	scores := decision.Scores
 	if scores == nil {
@@ -110,6 +145,17 @@ func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain
 		detail := step.Detail
 		if detail == nil {
 			detail = map[string]any{}
+		} else if events, ok := detail["RuleEvents"].([]domain.CooldownEvent); ok {
+			bound := append([]domain.CooldownEvent(nil), events...)
+			for i := range bound {
+				bound[i].Attempt = attempts + 1
+			}
+			fields := make(map[string]any, len(detail))
+			for key, value := range detail {
+				fields[key] = value
+			}
+			fields["RuleEvents"] = bound
+			detail = fields
 		}
 		data, err := json.Marshal(detail)
 		if err != nil {
@@ -177,7 +223,21 @@ func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain
 	if !valid {
 		return fmt.Errorf("intent: lease lost before commit")
 	}
-	return tx.Commit()
+	if live != "" {
+		if err := finishLiveDecision(ctx, client, liveBot, live, jobID, claim[0], 8, contracts.LiveDecisionFacts{State: "completed", DecisionID: record.ID, Decision: string(decision.Decision), ReasonCode: decision.ReasonCode}); err != nil {
+			return err
+		}
+	}
+	err = tx.Commit()
+	if err != nil && live != "" {
+		probe, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		var exists bool
+		if r.pool.QueryRow(probe, `SELECT EXISTS(SELECT 1 FROM intent_decision_runs WHERE id=$1 AND decision_id=$2 AND state='completed')`, live, record.ID).Scan(&exists) == nil && exists {
+			return nil
+		}
+	}
+	return err
 }
 
 // List returns the newest decisions of one account, optionally narrowed to one
@@ -187,7 +247,15 @@ func (r *DecisionsRepo) List(ctx context.Context, q contracts.DecisionQuery) ([]
 	if q.BotID <= 0 {
 		return nil, fmt.Errorf("intent: list decisions requires bot id")
 	}
-	query := r.pool.Client.IntentDecision.Query().Where(d.HasJobIDRefWith(j.HasIncomingMessageIDRefWith(m.BotID(q.BotID))))
+	messages := m.BotID(q.BotID)
+	query := r.pool.Client.IntentDecision.Query().Where(d.HasJobIDRefWith(j.HasIncomingMessageIDRefWith(messages)))
+	if q.AuditVisibleOnly {
+		query.Where(d.HasJobIDRefWith(j.HasIncomingMessageIDRefWith(func(s *entsql.Selector) {
+			s.Where(entsql.P(func(b *entsql.Builder) {
+				b.Ident(s.C(m.FieldConversationID)).WriteString(" IN (SELECT c.id" + livePolicyJoin).Arg(q.BotID).WriteByte(')')
+			}))
+		})))
+	}
 	if q.ConversationID != "" {
 		id, err := uuid.Parse(q.ConversationID)
 		if err != nil {
@@ -309,14 +377,14 @@ var ErrDecisionNotFound = errors.New("intent: decision not found")
 
 func (r *DecisionsRepo) Stats(ctx context.Context, botID int64, since time.Time) (contracts.DecisionStats, error) {
 	var result contracts.DecisionStats
-	err := r.pool.QueryRow(ctx, `
- WITH decisions AS (
+	err := r.pool.QueryRow(ctx, liveScope+`
+ , decisions AS (
  SELECT d.decision,d.latency_ms,
  EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic') AS called,
  EXISTS(SELECT 1 FROM intent_decision_steps s WHERE s.decision_id=d.id AND s.phase='semantic' AND COALESCE(s.detail->>'Available', s.detail->>'available')='true') AS success
  FROM intent_decisions d
  JOIN message_jobs j ON j.id=d.job_id
- JOIN messages m ON m.id=j.incoming_message_id
+ JOIN messages m ON m.id=j.incoming_message_id JOIN visible v ON v.id=m.conversation_id
  WHERE m.bot_id=$1 AND d.created_at >= $2
  )
  SELECT count(*),count(*) FILTER(WHERE called),count(*) FILTER(WHERE success),
@@ -482,27 +550,28 @@ func (r *DecisionsRepo) AwaitedRequest(ctx context.Context, task domain.Task) (*
 // ListInbound returns one row per stored incoming message, including messages
 // whose jobs have not produced a decision.
 func (r *DecisionsRepo) ListInbound(ctx context.Context, q contracts.InboundQuery) ([]contracts.InboundRecord, error) {
-	rows, err := r.pool.Client.QueryContext(ctx, `
+	rows, err := r.pool.Client.QueryContext(ctx, liveScope+`
 		SELECT m.id, COALESCE(m.platform_message_id, 0), m.sender_id, m.conversation_id::text,
-		       left(m.text_content, 801), m.created_at, jsonb_path_query_array(m.segments, '$[*].type'),
+		       CASE WHEN NOT $6 OR v.allow_history_read THEN left(m.text_content,801) ELSE '' END, m.created_at,
+		       CASE WHEN NOT $6 OR v.allow_history_read THEN jsonb_path_query_array(m.segments, '$[*].type') ELSE '[]'::jsonb END,
 		       COALESCE(j.id, 0), COALESCE(j.traceparent, ''), COALESCE(j.status, ''),
 		       COALESCE(j.last_error_code, ''), COALESCE(d.id, 0), COALESCE(d.decision, ''),
 		       COALESCE(d.reason_code, ''), COALESCE(d.model, ''),
 		       CASE WHEN $4::bigint > 0 THEN to_jsonb(ARRAY(
 		           SELECT id FROM intent_decisions WHERE job_id=j.id ORDER BY id DESC
 		       )) ELSE '[]'::jsonb END
-		FROM messages m
+		FROM messages m LEFT JOIN visible v ON v.id=m.conversation_id
 		LEFT JOIN message_jobs j ON j.incoming_message_id=m.id
 		LEFT JOIN LATERAL (
 		    SELECT id, decision, reason_code, model FROM intent_decisions
 		    WHERE job_id=j.id ORDER BY id DESC LIMIT 1
 		) d ON true
-		WHERE m.bot_id=$1 AND m.direction='incoming'
+		WHERE m.bot_id=$1 AND m.direction='incoming' AND (NOT $6 OR v.id IS NOT NULL)
 		  AND ($2::uuid IS NULL OR m.conversation_id=$2::uuid)
 		  AND ($3::bigint=0 OR m.id<$3)
 		  AND ($4::bigint=0 OR m.id=$4)
 		ORDER BY m.id DESC LIMIT $5
-	`, q.BotID, nullableConversation(q.ConversationID), q.BeforeID, q.MessageID, q.Limit)
+	`, q.BotID, nullableConversation(q.ConversationID), q.BeforeID, q.MessageID, q.Limit, q.AuditVisibleOnly)
 	if err != nil {
 		return nil, err
 	}

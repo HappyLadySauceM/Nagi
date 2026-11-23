@@ -29,6 +29,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
@@ -36,6 +37,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentrunevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentstreamhead"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
@@ -127,6 +130,7 @@ func checkColumn(t, c string) error {
 			grouptopicroutecandidate.Table:      grouptopicroutecandidate.ValidColumn,
 			inboundattachment.Table:             inboundattachment.ValidColumn,
 			intentdecision.Table:                intentdecision.ValidColumn,
+			intentdecisionrun.Table:             intentdecisionrun.ValidColumn,
 			intentdecisionsnapshot.Table:        intentdecisionsnapshot.ValidColumn,
 			intentdecisionstep.Table:            intentdecisionstep.ValidColumn,
 			intentpromptversion.Table:           intentpromptversion.ValidColumn,
@@ -134,6 +138,8 @@ func checkColumn(t, c string) error {
 			intentruleactivation.Table:          intentruleactivation.ValidColumn,
 			intentruleentry.Table:               intentruleentry.ValidColumn,
 			intentruleset.Table:                 intentruleset.ValidColumn,
+			intentrunevent.Table:                intentrunevent.ValidColumn,
+			intentstreamhead.Table:              intentstreamhead.ValidColumn,
 			memory.Table:                        memory.ValidColumn,
 			memoryconsentevent.Table:            memoryconsentevent.ValidColumn,
 			memoryconsentgrant.Table:            memoryconsentgrant.ValidColumn,

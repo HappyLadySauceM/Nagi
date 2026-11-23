@@ -5,10 +5,10 @@ package contracts
 import (
 	"context"
 	"encoding/json"
-	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 )
 
 // SemanticCostEstimate describes a semantic evaluation that may issue more than
@@ -25,7 +25,8 @@ type ReplyExecutor interface {
 // DecisionQuery filters the recorded decisions of one account.
 // DecisionQuery 过滤某个账号的决策记录。
 type DecisionQuery struct {
-	ReasonCode string
+	AuditVisibleOnly bool
+	ReasonCode       string
 	// BotID is required; decisions never span accounts.
 	// BotID 必填；决策不跨账号返回。
 	BotID int64
@@ -219,11 +220,12 @@ type SimulationEvaluator interface {
 }
 
 type InboundQuery struct {
-	BotID          int64
-	ConversationID string
-	BeforeID       int64
-	MessageID      int64
-	Limit          int
+	AuditVisibleOnly bool
+	BotID            int64
+	ConversationID   string
+	BeforeID         int64
+	MessageID        int64
+	Limit            int
 }
 
 type InboundRecord struct {

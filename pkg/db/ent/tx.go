@@ -48,6 +48,8 @@ type Tx struct {
 	InboundAttachment *InboundAttachmentClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
 	IntentDecision *IntentDecisionClient
+	// IntentDecisionRun is the client for interacting with the IntentDecisionRun builders.
+	IntentDecisionRun *IntentDecisionRunClient
 	// IntentDecisionSnapshot is the client for interacting with the IntentDecisionSnapshot builders.
 	IntentDecisionSnapshot *IntentDecisionSnapshotClient
 	// IntentDecisionStep is the client for interacting with the IntentDecisionStep builders.
@@ -62,6 +64,10 @@ type Tx struct {
 	IntentRuleEntry *IntentRuleEntryClient
 	// IntentRuleset is the client for interacting with the IntentRuleset builders.
 	IntentRuleset *IntentRulesetClient
+	// IntentRunEvent is the client for interacting with the IntentRunEvent builders.
+	IntentRunEvent *IntentRunEventClient
+	// IntentStreamHead is the client for interacting with the IntentStreamHead builders.
+	IntentStreamHead *IntentStreamHeadClient
 	// Memory is the client for interacting with the Memory builders.
 	Memory *MemoryClient
 	// MemoryConsentEvent is the client for interacting with the MemoryConsentEvent builders.
@@ -238,6 +244,7 @@ func (tx *Tx) init() {
 	tx.GroupTopicRouteCandidate = NewGroupTopicRouteCandidateClient(tx.config)
 	tx.InboundAttachment = NewInboundAttachmentClient(tx.config)
 	tx.IntentDecision = NewIntentDecisionClient(tx.config)
+	tx.IntentDecisionRun = NewIntentDecisionRunClient(tx.config)
 	tx.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(tx.config)
 	tx.IntentDecisionStep = NewIntentDecisionStepClient(tx.config)
 	tx.IntentPromptVersion = NewIntentPromptVersionClient(tx.config)
@@ -245,6 +252,8 @@ func (tx *Tx) init() {
 	tx.IntentRuleActivation = NewIntentRuleActivationClient(tx.config)
 	tx.IntentRuleEntry = NewIntentRuleEntryClient(tx.config)
 	tx.IntentRuleset = NewIntentRulesetClient(tx.config)
+	tx.IntentRunEvent = NewIntentRunEventClient(tx.config)
+	tx.IntentStreamHead = NewIntentStreamHeadClient(tx.config)
 	tx.Memory = NewMemoryClient(tx.config)
 	tx.MemoryConsentEvent = NewMemoryConsentEventClient(tx.config)
 	tx.MemoryConsentGrant = NewMemoryConsentGrantClient(tx.config)

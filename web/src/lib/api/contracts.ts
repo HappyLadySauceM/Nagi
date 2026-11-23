@@ -661,6 +661,7 @@ export interface DecisionDetailEntry extends DecisionEntry {
   scores: Record<string, number>
   steps: DecisionStepEntry[]
   ingress?: {
+    attachments?: { id: string; kind: string; status: string; filename: string; failureCode: string; size: number }[]
     messageId: number
     platformMessageId: number
     senderId: number

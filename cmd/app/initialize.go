@@ -20,6 +20,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
 	conversationapp "github.com/HappyLadySauceM/Nagi/internal/conversation/application"
+	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
@@ -169,6 +170,10 @@ func Run(ctx context.Context, opts options.Options) error {
 	// runCtx 将内部循环与调用方的信号上下文隔离。
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
+	if cfg.Server.Enabled && cfg.Server.TrustedDecisionAudit && rt.Decisions != nil && strings.TrimSpace(cfg.Database.DSN) != "" {
+		svcCtx.DecisionWakeup = intentinfra.NewLiveWakeup()
+		go svcCtx.DecisionWakeup.Watch(runCtx, cfg.Database.DSN)
+	}
 
 	// Another replica may save settings; the poll keeps this process consistent
 	// without a restart and costs one indexed SELECT per interval.
