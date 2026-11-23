@@ -150,18 +150,23 @@ func (in Input) RepliesToBot() bool {
 // BotLastSpoke 返回机器人在会话中最近发言距今的秒数；从未发言返回 -1。
 // 存储统计优先于授权历史，保证频率闸门不可绕过。
 func (in Input) BotLastSpoke() int64 {
+	since, _ := in.botLastSpoke()
+	return since
+}
+
+func (in Input) botLastSpoke() (int64, string) {
 	if in.Activity.Known {
 		if in.Activity.LastReplyAt.IsZero() {
-			return -1
+			return -1, "activity_stats"
 		}
-		return int64(in.Now.Sub(in.Activity.LastReplyAt).Seconds())
+		return int64(in.Now.Sub(in.Activity.LastReplyAt).Seconds()), "activity_stats"
 	}
 	for i := len(in.Recent) - 1; i >= 0; i-- {
 		if in.Recent[i].IsBot {
-			return int64(in.Now.Sub(in.Recent[i].CreatedAt).Seconds())
+			return int64(in.Now.Sub(in.Recent[i].CreatedAt).Seconds()), "authorized_history"
 		}
 	}
-	return -1
+	return -1, "unavailable"
 }
 
 // BotRepliesLastHour counts bot outgoing messages in the last hour.
@@ -409,13 +414,14 @@ type Step struct {
 // FinalDecision is the pipeline outcome recorded for evaluation.
 // FinalDecision 是流水线输出，记录用于评估。
 type FinalDecision struct {
-	Decision   Decision
-	ReasonCode string
-	Provider   string
-	Model      string
-	Scores     map[string]float64
-	LatencyMS  int64
-	Topic      *TopicChange
+	Decision           Decision
+	ReasonCode         string
+	Provider           string
+	Model              string
+	Scores             map[string]float64
+	LatencyMS          int64
+	Topic              *TopicChange
+	CooldownResolution *CooldownEvent
 	// RulesetVersion identifies the rules that produced the decision; empty
 	// means the built-in ruleset.
 	// RulesetVersion 标识产生该决策的规则版本；空值表示内置规则。

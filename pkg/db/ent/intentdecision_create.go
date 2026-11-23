@@ -13,10 +13,12 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
+	"github.com/google/uuid"
 )
 
 // IntentDecisionCreate is the builder for creating a IntentDecision entity.
@@ -117,6 +119,25 @@ func (_c *IntentDecisionCreate) SetNillableRulesetVersion(v *string) *IntentDeci
 func (_c *IntentDecisionCreate) SetID(v int64) *IntentDecisionCreate {
 	_c.mutation.SetID(v)
 	return _c
+}
+
+// SetIntentRunID sets the "intent_run" edge to the IntentDecisionRun entity by ID.
+func (_c *IntentDecisionCreate) SetIntentRunID(id uuid.UUID) *IntentDecisionCreate {
+	_c.mutation.SetIntentRunID(id)
+	return _c
+}
+
+// SetNillableIntentRunID sets the "intent_run" edge to the IntentDecisionRun entity by ID if the given value is not nil.
+func (_c *IntentDecisionCreate) SetNillableIntentRunID(id *uuid.UUID) *IntentDecisionCreate {
+	if id != nil {
+		_c = _c.SetIntentRunID(*id)
+	}
+	return _c
+}
+
+// SetIntentRun sets the "intent_run" edge to the IntentDecisionRun entity.
+func (_c *IntentDecisionCreate) SetIntentRun(v *IntentDecisionRun) *IntentDecisionCreate {
+	return _c.SetIntentRunID(v.ID)
 }
 
 // SetJobIDRefID sets the "job_id_ref" edge to the MessageJob entity by ID.
@@ -313,6 +334,22 @@ func (_c *IntentDecisionCreate) createSpec() (*IntentDecision, *sqlgraph.CreateS
 	if value, ok := _c.mutation.RulesetVersion(); ok {
 		_spec.SetField(intentdecision.FieldRulesetVersion, field.TypeString, value)
 		_node.RulesetVersion = value
+	}
+	if nodes := _c.mutation.IntentRunIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   intentdecision.IntentRunTable,
+			Columns: []string{intentdecision.IntentRunColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(intentdecisionrun.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.JobIDRefIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

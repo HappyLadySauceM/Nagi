@@ -48,6 +48,8 @@ const (
 	FieldClaimToken = "claim_token"
 	// FieldLeaseExpiresAt holds the string denoting the lease_expires_at field in the database.
 	FieldLeaseExpiresAt = "lease_expires_at"
+	// EdgeIntentRuns holds the string denoting the intent_runs edge name in mutations.
+	EdgeIntentRuns = "intent_runs"
 	// EdgeIncomingMessageIDRef holds the string denoting the incoming_message_id_ref edge name in mutations.
 	EdgeIncomingMessageIDRef = "incoming_message_id_ref"
 	// EdgeConsentProposal holds the string denoting the consent_proposal edge name in mutations.
@@ -60,6 +62,13 @@ const (
 	EdgeAgentOutboundMessagesJobID = "agent_outbound_messages_job_id"
 	// Table holds the table name of the messagejob in the database.
 	Table = "message_jobs"
+	// IntentRunsTable is the table that holds the intent_runs relation/edge.
+	IntentRunsTable = "intent_decision_runs"
+	// IntentRunsInverseTable is the table name for the IntentDecisionRun entity.
+	// It exists in this package in order to avoid circular dependency with the "intentdecisionrun" package.
+	IntentRunsInverseTable = "intent_decision_runs"
+	// IntentRunsColumn is the table column denoting the intent_runs relation/edge.
+	IntentRunsColumn = "job_id"
 	// IncomingMessageIDRefTable is the table that holds the incoming_message_id_ref relation/edge.
 	IncomingMessageIDRefTable = "message_jobs"
 	// IncomingMessageIDRefInverseTable is the table name for the Message entity.
@@ -249,6 +258,20 @@ func ByLeaseExpiresAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLeaseExpiresAt, opts...).ToFunc()
 }
 
+// ByIntentRunsCount orders the results by intent_runs count.
+func ByIntentRunsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newIntentRunsStep(), opts...)
+	}
+}
+
+// ByIntentRuns orders the results by intent_runs terms.
+func ByIntentRuns(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newIntentRunsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByIncomingMessageIDRefField orders the results by incoming_message_id_ref field.
 func ByIncomingMessageIDRefField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -303,6 +326,13 @@ func ByAgentOutboundMessagesJobID(term sql.OrderTerm, terms ...sql.OrderTerm) Or
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newAgentOutboundMessagesJobIDStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newIntentRunsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(IntentRunsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, IntentRunsTable, IntentRunsColumn),
+	)
 }
 func newIncomingMessageIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

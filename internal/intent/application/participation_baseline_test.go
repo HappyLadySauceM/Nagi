@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -475,6 +476,41 @@ func TestGroupTopicParticipation(t *testing.T) {
 						t.Fatalf("mixed parallel histories: %+v", history)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestCooldownResolutionCapturesActualTopicBranches(t *testing.T) {
+	for _, tc := range []struct {
+		name, action, branch string
+		quoted               bool
+		want                 domain.Decision
+	}{
+		{"continuation", domain.TopicFollowUp, "bypassed", true, domain.DecisionReply},
+		{"unrelated", "other", "restored", false, domain.DecisionSilent},
+		{"closed", domain.TopicClose, "not_revisited", true, domain.DecisionSilent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baselineGroupInput("这条呢？", nil)
+			in.Task.JobID = 17
+			in.Policy.AllowHistoryRead = true
+			in.Policy.MinReplyIntervalMS = 6000
+			in.Policy.MaxRepliesPerHour = 0
+			in.Activity = domain.BotActivity{Known: true, LastReplyAt: in.Now.Add(-time.Second)}
+			in.Topics = &domain.TopicContext{IdleSeconds: 300, Candidates: []domain.TopicCandidate{{ID: 9, Active: true}}}
+			if tc.quoted {
+				in.Topics.QuotedID, in.Topics.QuotedBot = 9, true
+			} else {
+				in.Task.Segments = []obdomain.Segment{domainSegmentForTest(strconv.FormatInt(in.Task.BotID, 10))}
+			}
+			answer := domain.SemanticAnswer{Available: true, TopicJudgments: []domain.TopicJudgment{{Action: tc.action}}}
+			reason, first := domain.EvaluateCooldownGate(in, true)
+			decision := evaluateTopicDecision(in, evaluateRules(in, reason), answer, true)
+			events := cooldownEvents(first, decision)
+			if decision.Decision != tc.want || len(events) != 2 || events[0].Branch != "deferred" ||
+				events[1].Sequence != 2 || events[1].Branch != tc.branch || events[1].ElapsedMS == nil || *events[1].ElapsedMS != 1000 {
+				t.Fatalf("decision=%+v events=%+v", decision, events)
 			}
 		})
 	}

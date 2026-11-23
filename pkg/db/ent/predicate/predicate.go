@@ -57,6 +57,9 @@ type InboundAttachment func(*sql.Selector)
 // IntentDecision is the predicate function for intentdecision builders.
 type IntentDecision func(*sql.Selector)
 
+// IntentDecisionRun is the predicate function for intentdecisionrun builders.
+type IntentDecisionRun func(*sql.Selector)
+
 // IntentDecisionSnapshot is the predicate function for intentdecisionsnapshot builders.
 type IntentDecisionSnapshot func(*sql.Selector)
 
@@ -77,6 +80,12 @@ type IntentRuleEntry func(*sql.Selector)
 
 // IntentRuleset is the predicate function for intentruleset builders.
 type IntentRuleset func(*sql.Selector)
+
+// IntentRunEvent is the predicate function for intentrunevent builders.
+type IntentRunEvent func(*sql.Selector)
+
+// IntentStreamHead is the predicate function for intentstreamhead builders.
+type IntentStreamHead func(*sql.Selector)
 
 // Memory is the predicate function for memory builders.
 type Memory func(*sql.Selector)

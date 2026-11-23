@@ -5,6 +5,7 @@ import { Skeleton } from '../../../components/ui/skeleton'
 import { AuditTimeline } from '../audit-timeline'
 import { OutboundTimeline } from '../outbound-timeline'
 import { useDecision, useInboundMessage } from '../queries'
+import { CooldownPlayback } from './cooldown-playback'
 import { DecisionConclusion } from './decision-conclusion'
 import { formatDateTime } from '../../../lib/format'
 import { Select } from '../../../components/ui/select'
@@ -75,12 +76,15 @@ export function DecisionDetailSheet({
           />
         ) : detail.data ? (
           <div className="space-y-4">
-            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} botId={inbound?.botId} decisionId={detail.data.id} />
+            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} botId={detail.data.botId} decisionId={detail.data.id} />
             {detail.data.run && detail.data.run.snapshotStatus !== 'legacy' ? (
               <FlowRunView run={detail.data.run} showDelivery={false} showReplay={false} />
             ) : (
               <>
-                {detail.data.run ? <DecisionConclusion run={detail.data.run} /> : null}
+                {detail.data.run ? <>
+                  <DecisionConclusion run={detail.data.run} />
+                  <CooldownPlayback run={detail.data.run} />
+                </> : null}
                 <LegacyStepTimeline detail={detail.data} />
               </>
             )}

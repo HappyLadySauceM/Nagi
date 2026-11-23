@@ -3,12 +3,41 @@
 package domain
 
 import (
+	"strconv"
+
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
 // BuiltinRulesVersion is the immutable version of the built-in rule catalog.
 // BuiltinRulesVersion 是内置规则目录的不可变版本。
 const BuiltinRulesVersion = "builtin-v1"
+
+const (
+	CooldownRuleID      = "cooldown"
+	CooldownRuleVersion = "cooldown-v1"
+	cooldownOperator    = "<"
+	cooldownScale       = 1000
+)
+
+// CooldownEvent is a decision-local observation of the operands and branch.
+// CooldownEvent 保存本次决策使用的操作数和所走分支。
+type CooldownEvent struct {
+	RuleID          string
+	Version         string
+	Sequence        int
+	Attempt         int `json:",omitempty"`
+	Branch          string
+	Operator        string `json:",omitempty"`
+	ThresholdMS     *int   `json:",omitempty"`
+	ElapsedMS       *int64 `json:",omitempty"`
+	PrecisionMS     int    `json:",omitempty"`
+	InputSource     string `json:",omitempty"`
+	PolicySource    string `json:",omitempty"`
+	PolicyVersion   int64  `json:",omitempty"`
+	TemplateVersion int64  `json:",omitempty"`
+	TopicSource     string `json:",omitempty"`
+	ReasonCode      string `json:",omitempty"`
+}
 
 // BuiltinRuleScope limits where one built-in rule can apply.
 // BuiltinRuleScope 限定单条内置规则的适用会话类型。
@@ -144,18 +173,9 @@ func FixedConstraints() []FixedConstraintDefinition {
 			matches: func(in Input) bool { return in.Policy.ReplyMode == scopedomain.ModeObserveOnly },
 		},
 		{
-			ConstraintID: "cooldown", Order: 30, Title: "回复冷却",
-			Condition: "seconds_since_bot_reply < MinReplyIntervalMS", Action: "silent", ReasonCode: "cooldown",
+			ConstraintID: CooldownRuleID, Order: 30, Title: "回复冷却",
+			Condition: "seconds_since_bot_reply × " + strconv.Itoa(cooldownScale) + " " + cooldownOperator + " MinReplyIntervalMS", Action: "silent", ReasonCode: CooldownRuleID,
 			Editable: false, Source: "server",
-			matches: func(in Input) bool {
-				if in.Policy.MinReplyIntervalMS <= 0 {
-					return false
-				}
-				if since := in.BotLastSpoke(); since >= 0 {
-					return since*1000 < int64(in.Policy.MinReplyIntervalMS)
-				}
-				return false
-			},
 		},
 		{
 			ConstraintID: "hourly_limit", Order: 40, Title: "小时回复额度",
@@ -188,12 +208,62 @@ func BuiltinRuleAppliesToScope(rule BuiltinRuleDefinition, scopeType string) boo
 // catalog order and returns the first matched reason code.
 // EvaluateFixedConstraints 按目录顺序应用意图流水线硬约束，返回首个命中的原因码。
 func EvaluateFixedConstraints(in Input) (string, bool) {
+	reason, _ := EvaluateCooldownGate(in, false)
+	return reason, reason != ""
+}
+
+// EvaluateCooldownGate runs the fixed gates in order and records the cooldown branch.
+// EvaluateCooldownGate 按顺序执行固定闸门，并记录冷却分支。
+func EvaluateCooldownGate(in Input, canDefer bool) (string, CooldownEvent) {
+	event := CooldownEvent{RuleID: CooldownRuleID, Version: CooldownRuleVersion, Sequence: 1, Branch: "not_executed"}
 	for _, constraint := range FixedConstraints() {
+		if constraint.ConstraintID == CooldownRuleID {
+			event = compareCooldown(in, event)
+			if event.Branch == "blocked" {
+				if !canDefer {
+					return constraint.ReasonCode, event
+				}
+				event.Branch = "deferred"
+			}
+			continue
+		}
 		if constraint.matches != nil && constraint.matches(in) {
-			return constraint.ReasonCode, true
+			if event.Branch == "not_executed" {
+				event.ReasonCode = constraint.ReasonCode
+			}
+			return constraint.ReasonCode, event
 		}
 	}
-	return "", false
+	return "", event
+}
+
+func compareCooldown(in Input, event CooldownEvent) CooldownEvent {
+	threshold := in.Policy.MinReplyIntervalMS
+	event.ThresholdMS = &threshold
+	event.Operator, event.PrecisionMS = cooldownOperator, cooldownScale
+	event.PolicySource, event.PolicyVersion = in.Policy.Source, in.Policy.Version
+	event.TemplateVersion = in.Policy.TemplateVersion
+	if threshold <= 0 {
+		event.Branch = "disabled"
+		return event
+	}
+	since, source := in.botLastSpoke()
+	event.InputSource = source
+	if since < 0 {
+		event.Branch = "input_missing"
+		return event
+	}
+	elapsed := since * cooldownScale
+	event.ElapsedMS = &elapsed
+	switch {
+	case elapsed < int64(threshold):
+		event.Branch = "blocked"
+	case elapsed == int64(threshold):
+		event.Branch = "equal"
+	default:
+		event.Branch = "passed"
+	}
+	return event
 }
 
 // EvaluateBuiltinRules applies enabled built-in judgments in catalog order and

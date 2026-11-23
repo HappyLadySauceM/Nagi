@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	botapp "github.com/HappyLadySauceM/Nagi/internal/bot/application"
@@ -81,6 +82,7 @@ type ServiceContext struct {
 	// Decisions reads recorded intent decisions; nil when the pipeline is off.
 	// Decisions 读取已记录的意图决策；流水线关闭时为 nil。
 	Decisions       intentcontracts.DecisionReader
+	DecisionWakeup  *intentinfra.LiveWakeup
 	IntentSimulator intentcontracts.SimulationEvaluator
 	Prompts         *intentapp.PromptService
 	IntentReplayer  *intentapp.ReplayService
@@ -233,4 +235,145 @@ func (s *ServiceContext) StatusSnapshot() map[string]any {
 	snapshot["handlers"] = s.HandlerNames()
 	snapshot["handled_events"] = s.HandledCount()
 	return snapshot
+}
+
+// DecisionAuditAccount verifies the trusted administrator and a known account.
+// DecisionAuditAccount 校验可信管理员和已识别的账号。
+func (s *ServiceContext) DecisionAuditAccount(ctx context.Context, bot int64) bool {
+	cfg := s.Config
+	if cfg == nil || !cfg.Server.TrustedDecisionAudit || cfg.Server.AdminToken == "" || middleware.ActorFrom(ctx) != "admin" || s.Accounts == nil {
+		return false
+	}
+	_, ok := s.Accounts.Lookup(bot)
+	return ok
+}
+
+// DecisionAuditScope returns current metadata and content access for a source.
+// DecisionAuditScope 返回来源当前的元数据与内容权限。
+func (s *ServiceContext) DecisionAuditScope(ctx context.Context, bot int64, conversation string) (bool, bool) {
+	repo, ok := s.Decisions.(intentcontracts.LiveDecisionReader)
+	if !ok {
+		return true, true
+	}
+	if !s.DecisionAuditAccount(ctx, bot) {
+		return false, false
+	}
+	visible, content, err := repo.DecisionAuditAccess(ctx, bot, conversation)
+	if err != nil {
+		return false, false
+	}
+	return visible, content
+}
+
+// DecisionAuditStamp binds an authorized read to the account's current policy and retention state.
+// DecisionAuditStamp 把获准读取绑定到账号当前的策略与留存状态。
+func (s *ServiceContext) DecisionAuditStamp(ctx context.Context, bot int64) (string, bool) {
+	repo, live := s.Decisions.(intentcontracts.LiveDecisionReader)
+	if !live {
+		return "", true
+	}
+	if !s.DecisionAuditAccount(ctx, bot) {
+		return "", false
+	}
+	stamp, err := repo.DecisionScope(ctx, bot)
+	return stamp, err == nil && stamp != ""
+}
+
+// projectDecisionDelivery authorizes both sides before projecting delivery details.
+// projectDecisionDelivery 复核源与目标两侧权限后投影投递详情。
+func (s *ServiceContext) projectDecisionDelivery(ctx context.Context, bot int64, row outbounddomain.Record) (outbounddomain.Record, bool) {
+	if _, live := s.Decisions.(intentcontracts.LiveDecisionReader); !live {
+		return row, true
+	}
+	visible, sourceContent := s.DecisionAuditScope(ctx, bot, row.ConversationID)
+	if !visible || row.BotID != bot {
+		return outbounddomain.Record{}, false
+	}
+	target, ok := s.Decisions.(interface {
+		DecisionDeliveryTargetAccess(context.Context, int64, string, int64) (bool, bool, error)
+	})
+	if !ok || row.TargetID <= 0 || (row.TargetKind != "group" && row.TargetKind != "private") {
+		return outbounddomain.Record{}, false
+	}
+	visible, targetContent, err := target.DecisionDeliveryTargetAccess(ctx, bot, row.TargetKind, row.TargetID)
+	if err != nil || !visible {
+		return outbounddomain.Record{}, false
+	}
+	if !sourceContent || !targetContent {
+		row.Text, row.PlatformMessageID = "", 0
+	}
+	return row, true
+}
+
+// DecisionDeliverySummary contains only facts available to the current audit reader.
+// DecisionDeliverySummary 仅含当前审计读取方获准查看的投递事实。
+type DecisionDeliverySummary struct {
+	Outcome, Reason                          string
+	Attempted, Sent, Failed, Unknown, Denied int
+}
+
+// ErrDecisionDeliveryJob reports that the account does not own the job.
+// ErrDecisionDeliveryJob 表示此任务不属于指定账号。
+var ErrDecisionDeliveryJob = errors.New("decision delivery: job not found")
+
+// DecisionDelivery reads and summarizes one owned job's authorized delivery records.
+// DecisionDelivery 读取并汇总本账号任务中获准查看的投递记录。
+func (s *ServiceContext) DecisionDelivery(ctx context.Context, bot, job int64) ([]outbounddomain.Record, DecisionDeliverySummary, error) {
+	summary := DecisionDeliverySummary{Outcome: "no_output"}
+	if s.Outbound == nil {
+		return nil, summary, nil
+	}
+	owns, err := s.Outbound.OwnsJob(ctx, bot, job)
+	if err != nil {
+		return nil, summary, err
+	}
+	if !owns {
+		return nil, summary, ErrDecisionDeliveryJob
+	}
+	rows, err := s.Outbound.ListByJob(ctx, job)
+	if err != nil {
+		return nil, summary, err
+	}
+	outcome, reason, denied, err := s.Outbound.RunOutcome(ctx, job)
+	if err != nil {
+		return nil, summary, err
+	}
+	records := make([]outbounddomain.Record, 0, len(rows))
+	for _, row := range rows {
+		visible, ok := s.projectDecisionDelivery(ctx, bot, row)
+		if !ok {
+			continue
+		}
+		records = append(records, visible)
+		switch visible.Status {
+		case outbounddomain.StatusSent:
+			summary.Sent++
+		case outbounddomain.StatusFailed:
+			summary.Failed++
+		case outbounddomain.StatusSending, outbounddomain.StatusUnknown:
+			summary.Unknown++
+		}
+	}
+	// Job-wide refusals have no durable target. A visible delivery row cannot authorize them.
+	// 任务级拒绝缺少持久目标归属，不能依据其他可见投递行公开。
+	if _, live := s.Decisions.(intentcontracts.LiveDecisionReader); live && (len(records) != len(rows) || denied > 0 || outcome == "blocked") {
+		outcome, reason, denied = "", "", 0
+	}
+	summary.Attempted = summary.Sent + summary.Failed + summary.Unknown
+	summary.Reason, summary.Denied = reason, denied
+	switch {
+	case summary.Sent > 0 && (summary.Unknown > 0 || summary.Failed > 0 || denied > 0 || outcome == "failed" || outcome == "blocked"):
+		summary.Outcome = "partial"
+	case summary.Unknown > 0:
+		summary.Outcome = "unknown"
+	case summary.Failed > 0:
+		summary.Outcome = "failed"
+	case outcome == "processing" && denied == 0:
+		summary.Outcome = "processing"
+	case summary.Sent > 0 && denied == 0:
+		summary.Outcome = "completed"
+	case outcome != "":
+		summary.Outcome = outcome
+	}
+	return records, summary, nil
 }

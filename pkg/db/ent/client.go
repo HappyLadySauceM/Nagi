@@ -33,6 +33,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
@@ -40,6 +41,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentrunevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentstreamhead"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
@@ -97,6 +100,8 @@ type Client struct {
 	InboundAttachment *InboundAttachmentClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
 	IntentDecision *IntentDecisionClient
+	// IntentDecisionRun is the client for interacting with the IntentDecisionRun builders.
+	IntentDecisionRun *IntentDecisionRunClient
 	// IntentDecisionSnapshot is the client for interacting with the IntentDecisionSnapshot builders.
 	IntentDecisionSnapshot *IntentDecisionSnapshotClient
 	// IntentDecisionStep is the client for interacting with the IntentDecisionStep builders.
@@ -111,6 +116,10 @@ type Client struct {
 	IntentRuleEntry *IntentRuleEntryClient
 	// IntentRuleset is the client for interacting with the IntentRuleset builders.
 	IntentRuleset *IntentRulesetClient
+	// IntentRunEvent is the client for interacting with the IntentRunEvent builders.
+	IntentRunEvent *IntentRunEventClient
+	// IntentStreamHead is the client for interacting with the IntentStreamHead builders.
+	IntentStreamHead *IntentStreamHeadClient
 	// Memory is the client for interacting with the Memory builders.
 	Memory *MemoryClient
 	// MemoryConsentEvent is the client for interacting with the MemoryConsentEvent builders.
@@ -167,6 +176,7 @@ func (c *Client) init() {
 	c.GroupTopicRouteCandidate = NewGroupTopicRouteCandidateClient(c.config)
 	c.InboundAttachment = NewInboundAttachmentClient(c.config)
 	c.IntentDecision = NewIntentDecisionClient(c.config)
+	c.IntentDecisionRun = NewIntentDecisionRunClient(c.config)
 	c.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(c.config)
 	c.IntentDecisionStep = NewIntentDecisionStepClient(c.config)
 	c.IntentPromptVersion = NewIntentPromptVersionClient(c.config)
@@ -174,6 +184,8 @@ func (c *Client) init() {
 	c.IntentRuleActivation = NewIntentRuleActivationClient(c.config)
 	c.IntentRuleEntry = NewIntentRuleEntryClient(c.config)
 	c.IntentRuleset = NewIntentRulesetClient(c.config)
+	c.IntentRunEvent = NewIntentRunEventClient(c.config)
+	c.IntentStreamHead = NewIntentStreamHeadClient(c.config)
 	c.Memory = NewMemoryClient(c.config)
 	c.MemoryConsentEvent = NewMemoryConsentEventClient(c.config)
 	c.MemoryConsentGrant = NewMemoryConsentGrantClient(c.config)
@@ -297,6 +309,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		GroupTopicRouteCandidate:      NewGroupTopicRouteCandidateClient(cfg),
 		InboundAttachment:             NewInboundAttachmentClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
+		IntentDecisionRun:             NewIntentDecisionRunClient(cfg),
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
 		IntentPromptVersion:           NewIntentPromptVersionClient(cfg),
@@ -304,6 +317,8 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
+		IntentRunEvent:                NewIntentRunEventClient(cfg),
+		IntentStreamHead:              NewIntentStreamHeadClient(cfg),
 		Memory:                        NewMemoryClient(cfg),
 		MemoryConsentEvent:            NewMemoryConsentEventClient(cfg),
 		MemoryConsentGrant:            NewMemoryConsentGrantClient(cfg),
@@ -354,6 +369,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		GroupTopicRouteCandidate:      NewGroupTopicRouteCandidateClient(cfg),
 		InboundAttachment:             NewInboundAttachmentClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
+		IntentDecisionRun:             NewIntentDecisionRunClient(cfg),
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
 		IntentDecisionStep:            NewIntentDecisionStepClient(cfg),
 		IntentPromptVersion:           NewIntentPromptVersionClient(cfg),
@@ -361,6 +377,8 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		IntentRuleActivation:          NewIntentRuleActivationClient(cfg),
 		IntentRuleEntry:               NewIntentRuleEntryClient(cfg),
 		IntentRuleset:                 NewIntentRulesetClient(cfg),
+		IntentRunEvent:                NewIntentRunEventClient(cfg),
+		IntentStreamHead:              NewIntentStreamHeadClient(cfg),
 		Memory:                        NewMemoryClient(cfg),
 		MemoryConsentEvent:            NewMemoryConsentEventClient(cfg),
 		MemoryConsentGrant:            NewMemoryConsentGrantClient(cfg),
@@ -408,11 +426,12 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.GroupTopic, c.GroupTopicInput,
 		c.GroupTopicRoute, c.GroupTopicRouteCandidate, c.InboundAttachment,
-		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
-		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
-		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryConsentEvent,
-		c.MemoryConsentGrant, c.MemoryConsentProposal, c.MemoryExtractionCursor,
-		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.IntentDecision, c.IntentDecisionRun, c.IntentDecisionSnapshot,
+		c.IntentDecisionStep, c.IntentPromptVersion, c.IntentReplayEvaluation,
+		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.IntentRunEvent,
+		c.IntentStreamHead, c.Memory, c.MemoryConsentEvent, c.MemoryConsentGrant,
+		c.MemoryConsentProposal, c.MemoryExtractionCursor, c.MemoryExtractionJob,
+		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SendScopeSelection,
 		c.SystemSetting,
 	} {
@@ -428,11 +447,12 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
 		c.Contact, c.Conversation, c.GroupMember, c.GroupTopic, c.GroupTopicInput,
 		c.GroupTopicRoute, c.GroupTopicRouteCandidate, c.InboundAttachment,
-		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
-		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
-		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryConsentEvent,
-		c.MemoryConsentGrant, c.MemoryConsentProposal, c.MemoryExtractionCursor,
-		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.IntentDecision, c.IntentDecisionRun, c.IntentDecisionSnapshot,
+		c.IntentDecisionStep, c.IntentPromptVersion, c.IntentReplayEvaluation,
+		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.IntentRunEvent,
+		c.IntentStreamHead, c.Memory, c.MemoryConsentEvent, c.MemoryConsentGrant,
+		c.MemoryConsentProposal, c.MemoryExtractionCursor, c.MemoryExtractionJob,
+		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SendScopeSelection,
 		c.SystemSetting,
 	} {
@@ -477,6 +497,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.InboundAttachment.mutate(ctx, m)
 	case *IntentDecisionMutation:
 		return c.IntentDecision.mutate(ctx, m)
+	case *IntentDecisionRunMutation:
+		return c.IntentDecisionRun.mutate(ctx, m)
 	case *IntentDecisionSnapshotMutation:
 		return c.IntentDecisionSnapshot.mutate(ctx, m)
 	case *IntentDecisionStepMutation:
@@ -491,6 +513,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.IntentRuleEntry.mutate(ctx, m)
 	case *IntentRulesetMutation:
 		return c.IntentRuleset.mutate(ctx, m)
+	case *IntentRunEventMutation:
+		return c.IntentRunEvent.mutate(ctx, m)
+	case *IntentStreamHeadMutation:
+		return c.IntentStreamHead.mutate(ctx, m)
 	case *MemoryMutation:
 		return c.Memory.mutate(ctx, m)
 	case *MemoryConsentEventMutation:
@@ -3128,6 +3154,22 @@ func (c *IntentDecisionClient) GetX(ctx context.Context, id int64) *IntentDecisi
 	return obj
 }
 
+// QueryIntentRun queries the intent_run edge of a IntentDecision.
+func (c *IntentDecisionClient) QueryIntentRun(_m *IntentDecision) *IntentDecisionRunQuery {
+	query := (&IntentDecisionRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, id),
+			sqlgraph.To(intentdecisionrun.Table, intentdecisionrun.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, intentdecision.IntentRunTable, intentdecision.IntentRunColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryJobIDRef queries the job_id_ref edge of a IntentDecision.
 func (c *IntentDecisionClient) QueryJobIDRef(_m *IntentDecision) *MessageJobQuery {
 	query := (&MessageJobClient{config: c.config}).Query()
@@ -3214,6 +3256,187 @@ func (c *IntentDecisionClient) mutate(ctx context.Context, m *IntentDecisionMuta
 		return (&IntentDecisionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown IntentDecision mutation op: %q", m.Op())
+	}
+}
+
+// IntentDecisionRunClient is a client for the IntentDecisionRun schema.
+type IntentDecisionRunClient struct {
+	config
+}
+
+// NewIntentDecisionRunClient returns a client for the IntentDecisionRun from the given config.
+func NewIntentDecisionRunClient(c config) *IntentDecisionRunClient {
+	return &IntentDecisionRunClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `intentdecisionrun.Hooks(f(g(h())))`.
+func (c *IntentDecisionRunClient) Use(hooks ...Hook) {
+	c.hooks.IntentDecisionRun = append(c.hooks.IntentDecisionRun, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `intentdecisionrun.Intercept(f(g(h())))`.
+func (c *IntentDecisionRunClient) Intercept(interceptors ...Interceptor) {
+	c.inters.IntentDecisionRun = append(c.inters.IntentDecisionRun, interceptors...)
+}
+
+// Create returns a builder for creating a IntentDecisionRun entity.
+func (c *IntentDecisionRunClient) Create() *IntentDecisionRunCreate {
+	mutation := newIntentDecisionRunMutation(c.config, OpCreate)
+	return &IntentDecisionRunCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of IntentDecisionRun entities.
+func (c *IntentDecisionRunClient) CreateBulk(builders ...*IntentDecisionRunCreate) *IntentDecisionRunCreateBulk {
+	return &IntentDecisionRunCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IntentDecisionRunClient) MapCreateBulk(slice any, setFunc func(*IntentDecisionRunCreate, int)) *IntentDecisionRunCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IntentDecisionRunCreateBulk{err: fmt.Errorf("calling to IntentDecisionRunClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IntentDecisionRunCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IntentDecisionRunCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for IntentDecisionRun.
+func (c *IntentDecisionRunClient) Update() *IntentDecisionRunUpdate {
+	mutation := newIntentDecisionRunMutation(c.config, OpUpdate)
+	return &IntentDecisionRunUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IntentDecisionRunClient) UpdateOne(_m *IntentDecisionRun) *IntentDecisionRunUpdateOne {
+	mutation := newIntentDecisionRunMutation(c.config, OpUpdateOne, withIntentDecisionRun(_m))
+	return &IntentDecisionRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IntentDecisionRunClient) UpdateOneID(id uuid.UUID) *IntentDecisionRunUpdateOne {
+	mutation := newIntentDecisionRunMutation(c.config, OpUpdateOne, withIntentDecisionRunID(id))
+	return &IntentDecisionRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for IntentDecisionRun.
+func (c *IntentDecisionRunClient) Delete() *IntentDecisionRunDelete {
+	mutation := newIntentDecisionRunMutation(c.config, OpDelete)
+	return &IntentDecisionRunDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IntentDecisionRunClient) DeleteOne(_m *IntentDecisionRun) *IntentDecisionRunDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IntentDecisionRunClient) DeleteOneID(id uuid.UUID) *IntentDecisionRunDeleteOne {
+	builder := c.Delete().Where(intentdecisionrun.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IntentDecisionRunDeleteOne{builder}
+}
+
+// Query returns a query builder for IntentDecisionRun.
+func (c *IntentDecisionRunClient) Query() *IntentDecisionRunQuery {
+	return &IntentDecisionRunQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIntentDecisionRun},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a IntentDecisionRun entity by its id.
+func (c *IntentDecisionRunClient) Get(ctx context.Context, id uuid.UUID) (*IntentDecisionRun, error) {
+	return c.Query().Where(intentdecisionrun.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IntentDecisionRunClient) GetX(ctx context.Context, id uuid.UUID) *IntentDecisionRun {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryJob queries the job edge of a IntentDecisionRun.
+func (c *IntentDecisionRunClient) QueryJob(_m *IntentDecisionRun) *MessageJobQuery {
+	query := (&MessageJobClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecisionrun.Table, intentdecisionrun.FieldID, id),
+			sqlgraph.To(messagejob.Table, messagejob.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, intentdecisionrun.JobTable, intentdecisionrun.JobColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryDecision queries the decision edge of a IntentDecisionRun.
+func (c *IntentDecisionRunClient) QueryDecision(_m *IntentDecisionRun) *IntentDecisionQuery {
+	query := (&IntentDecisionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecisionrun.Table, intentdecisionrun.FieldID, id),
+			sqlgraph.To(intentdecision.Table, intentdecision.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, intentdecisionrun.DecisionTable, intentdecisionrun.DecisionColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryEvents queries the events edge of a IntentDecisionRun.
+func (c *IntentDecisionRunClient) QueryEvents(_m *IntentDecisionRun) *IntentRunEventQuery {
+	query := (&IntentRunEventClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecisionrun.Table, intentdecisionrun.FieldID, id),
+			sqlgraph.To(intentrunevent.Table, intentrunevent.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, intentdecisionrun.EventsTable, intentdecisionrun.EventsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *IntentDecisionRunClient) Hooks() []Hook {
+	return c.hooks.IntentDecisionRun
+}
+
+// Interceptors returns the client interceptors.
+func (c *IntentDecisionRunClient) Interceptors() []Interceptor {
+	return c.inters.IntentDecisionRun
+}
+
+func (c *IntentDecisionRunClient) mutate(ctx context.Context, m *IntentDecisionRunMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IntentDecisionRunCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IntentDecisionRunUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IntentDecisionRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IntentDecisionRunDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown IntentDecisionRun mutation op: %q", m.Op())
 	}
 }
 
@@ -4257,6 +4480,288 @@ func (c *IntentRulesetClient) mutate(ctx context.Context, m *IntentRulesetMutati
 		return (&IntentRulesetDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown IntentRuleset mutation op: %q", m.Op())
+	}
+}
+
+// IntentRunEventClient is a client for the IntentRunEvent schema.
+type IntentRunEventClient struct {
+	config
+}
+
+// NewIntentRunEventClient returns a client for the IntentRunEvent from the given config.
+func NewIntentRunEventClient(c config) *IntentRunEventClient {
+	return &IntentRunEventClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `intentrunevent.Hooks(f(g(h())))`.
+func (c *IntentRunEventClient) Use(hooks ...Hook) {
+	c.hooks.IntentRunEvent = append(c.hooks.IntentRunEvent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `intentrunevent.Intercept(f(g(h())))`.
+func (c *IntentRunEventClient) Intercept(interceptors ...Interceptor) {
+	c.inters.IntentRunEvent = append(c.inters.IntentRunEvent, interceptors...)
+}
+
+// Create returns a builder for creating a IntentRunEvent entity.
+func (c *IntentRunEventClient) Create() *IntentRunEventCreate {
+	mutation := newIntentRunEventMutation(c.config, OpCreate)
+	return &IntentRunEventCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of IntentRunEvent entities.
+func (c *IntentRunEventClient) CreateBulk(builders ...*IntentRunEventCreate) *IntentRunEventCreateBulk {
+	return &IntentRunEventCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IntentRunEventClient) MapCreateBulk(slice any, setFunc func(*IntentRunEventCreate, int)) *IntentRunEventCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IntentRunEventCreateBulk{err: fmt.Errorf("calling to IntentRunEventClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IntentRunEventCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IntentRunEventCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for IntentRunEvent.
+func (c *IntentRunEventClient) Update() *IntentRunEventUpdate {
+	mutation := newIntentRunEventMutation(c.config, OpUpdate)
+	return &IntentRunEventUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IntentRunEventClient) UpdateOne(_m *IntentRunEvent) *IntentRunEventUpdateOne {
+	mutation := newIntentRunEventMutation(c.config, OpUpdateOne, withIntentRunEvent(_m))
+	return &IntentRunEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IntentRunEventClient) UpdateOneID(id int64) *IntentRunEventUpdateOne {
+	mutation := newIntentRunEventMutation(c.config, OpUpdateOne, withIntentRunEventID(id))
+	return &IntentRunEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for IntentRunEvent.
+func (c *IntentRunEventClient) Delete() *IntentRunEventDelete {
+	mutation := newIntentRunEventMutation(c.config, OpDelete)
+	return &IntentRunEventDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IntentRunEventClient) DeleteOne(_m *IntentRunEvent) *IntentRunEventDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IntentRunEventClient) DeleteOneID(id int64) *IntentRunEventDeleteOne {
+	builder := c.Delete().Where(intentrunevent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IntentRunEventDeleteOne{builder}
+}
+
+// Query returns a query builder for IntentRunEvent.
+func (c *IntentRunEventClient) Query() *IntentRunEventQuery {
+	return &IntentRunEventQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIntentRunEvent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a IntentRunEvent entity by its id.
+func (c *IntentRunEventClient) Get(ctx context.Context, id int64) (*IntentRunEvent, error) {
+	return c.Query().Where(intentrunevent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IntentRunEventClient) GetX(ctx context.Context, id int64) *IntentRunEvent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryRun queries the run edge of a IntentRunEvent.
+func (c *IntentRunEventClient) QueryRun(_m *IntentRunEvent) *IntentDecisionRunQuery {
+	query := (&IntentDecisionRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentrunevent.Table, intentrunevent.FieldID, id),
+			sqlgraph.To(intentdecisionrun.Table, intentdecisionrun.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, intentrunevent.RunTable, intentrunevent.RunColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *IntentRunEventClient) Hooks() []Hook {
+	return c.hooks.IntentRunEvent
+}
+
+// Interceptors returns the client interceptors.
+func (c *IntentRunEventClient) Interceptors() []Interceptor {
+	return c.inters.IntentRunEvent
+}
+
+func (c *IntentRunEventClient) mutate(ctx context.Context, m *IntentRunEventMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IntentRunEventCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IntentRunEventUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IntentRunEventUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IntentRunEventDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown IntentRunEvent mutation op: %q", m.Op())
+	}
+}
+
+// IntentStreamHeadClient is a client for the IntentStreamHead schema.
+type IntentStreamHeadClient struct {
+	config
+}
+
+// NewIntentStreamHeadClient returns a client for the IntentStreamHead from the given config.
+func NewIntentStreamHeadClient(c config) *IntentStreamHeadClient {
+	return &IntentStreamHeadClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `intentstreamhead.Hooks(f(g(h())))`.
+func (c *IntentStreamHeadClient) Use(hooks ...Hook) {
+	c.hooks.IntentStreamHead = append(c.hooks.IntentStreamHead, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `intentstreamhead.Intercept(f(g(h())))`.
+func (c *IntentStreamHeadClient) Intercept(interceptors ...Interceptor) {
+	c.inters.IntentStreamHead = append(c.inters.IntentStreamHead, interceptors...)
+}
+
+// Create returns a builder for creating a IntentStreamHead entity.
+func (c *IntentStreamHeadClient) Create() *IntentStreamHeadCreate {
+	mutation := newIntentStreamHeadMutation(c.config, OpCreate)
+	return &IntentStreamHeadCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of IntentStreamHead entities.
+func (c *IntentStreamHeadClient) CreateBulk(builders ...*IntentStreamHeadCreate) *IntentStreamHeadCreateBulk {
+	return &IntentStreamHeadCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IntentStreamHeadClient) MapCreateBulk(slice any, setFunc func(*IntentStreamHeadCreate, int)) *IntentStreamHeadCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IntentStreamHeadCreateBulk{err: fmt.Errorf("calling to IntentStreamHeadClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IntentStreamHeadCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IntentStreamHeadCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for IntentStreamHead.
+func (c *IntentStreamHeadClient) Update() *IntentStreamHeadUpdate {
+	mutation := newIntentStreamHeadMutation(c.config, OpUpdate)
+	return &IntentStreamHeadUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IntentStreamHeadClient) UpdateOne(_m *IntentStreamHead) *IntentStreamHeadUpdateOne {
+	mutation := newIntentStreamHeadMutation(c.config, OpUpdateOne, withIntentStreamHead(_m))
+	return &IntentStreamHeadUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IntentStreamHeadClient) UpdateOneID(id int64) *IntentStreamHeadUpdateOne {
+	mutation := newIntentStreamHeadMutation(c.config, OpUpdateOne, withIntentStreamHeadID(id))
+	return &IntentStreamHeadUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for IntentStreamHead.
+func (c *IntentStreamHeadClient) Delete() *IntentStreamHeadDelete {
+	mutation := newIntentStreamHeadMutation(c.config, OpDelete)
+	return &IntentStreamHeadDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IntentStreamHeadClient) DeleteOne(_m *IntentStreamHead) *IntentStreamHeadDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IntentStreamHeadClient) DeleteOneID(id int64) *IntentStreamHeadDeleteOne {
+	builder := c.Delete().Where(intentstreamhead.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IntentStreamHeadDeleteOne{builder}
+}
+
+// Query returns a query builder for IntentStreamHead.
+func (c *IntentStreamHeadClient) Query() *IntentStreamHeadQuery {
+	return &IntentStreamHeadQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIntentStreamHead},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a IntentStreamHead entity by its id.
+func (c *IntentStreamHeadClient) Get(ctx context.Context, id int64) (*IntentStreamHead, error) {
+	return c.Query().Where(intentstreamhead.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IntentStreamHeadClient) GetX(ctx context.Context, id int64) *IntentStreamHead {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *IntentStreamHeadClient) Hooks() []Hook {
+	return c.hooks.IntentStreamHead
+}
+
+// Interceptors returns the client interceptors.
+func (c *IntentStreamHeadClient) Interceptors() []Interceptor {
+	return c.inters.IntentStreamHead
+}
+
+func (c *IntentStreamHeadClient) mutate(ctx context.Context, m *IntentStreamHeadMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IntentStreamHeadCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IntentStreamHeadUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IntentStreamHeadUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IntentStreamHeadDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown IntentStreamHead mutation op: %q", m.Op())
 	}
 }
 
@@ -5752,6 +6257,22 @@ func (c *MessageJobClient) GetX(ctx context.Context, id int64) *MessageJob {
 	return obj
 }
 
+// QueryIntentRuns queries the intent_runs edge of a MessageJob.
+func (c *MessageJobClient) QueryIntentRuns(_m *MessageJob) *IntentDecisionRunQuery {
+	query := (&IntentDecisionRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(messagejob.Table, messagejob.FieldID, id),
+			sqlgraph.To(intentdecisionrun.Table, intentdecisionrun.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, messagejob.IntentRunsTable, messagejob.IntentRunsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryIncomingMessageIDRef queries the incoming_message_id_ref edge of a MessageJob.
 func (c *MessageJobClient) QueryIncomingMessageIDRef(_m *MessageJob) *MessageQuery {
 	query := (&MessageClient{config: c.config}).Query()
@@ -6576,25 +7097,27 @@ type (
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
 		GroupMember, GroupTopic, GroupTopicInput, GroupTopicRoute,
-		GroupTopicRouteCandidate, InboundAttachment, IntentDecision,
+		GroupTopicRouteCandidate, InboundAttachment, IntentDecision, IntentDecisionRun,
 		IntentDecisionSnapshot, IntentDecisionStep, IntentPromptVersion,
 		IntentReplayEvaluation, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
-		Memory, MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
-		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
-		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
-		SendScopeSelection, SystemSetting []ent.Hook
+		IntentRunEvent, IntentStreamHead, Memory, MemoryConsentEvent,
+		MemoryConsentGrant, MemoryConsentProposal, MemoryExtractionCursor,
+		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
+		ScopeMemoryAuthorizationEvent, ScopePolicy, SendScopeSelection,
+		SystemSetting []ent.Hook
 	}
 	inters struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
 		GroupMember, GroupTopic, GroupTopicInput, GroupTopicRoute,
-		GroupTopicRouteCandidate, InboundAttachment, IntentDecision,
+		GroupTopicRouteCandidate, InboundAttachment, IntentDecision, IntentDecisionRun,
 		IntentDecisionSnapshot, IntentDecisionStep, IntentPromptVersion,
 		IntentReplayEvaluation, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
-		Memory, MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
-		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
-		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
-		SendScopeSelection, SystemSetting []ent.Interceptor
+		IntentRunEvent, IntentStreamHead, Memory, MemoryConsentEvent,
+		MemoryConsentGrant, MemoryConsentProposal, MemoryExtractionCursor,
+		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
+		ScopeMemoryAuthorizationEvent, ScopePolicy, SendScopeSelection,
+		SystemSetting []ent.Interceptor
 	}
 )
 

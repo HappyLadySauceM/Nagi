@@ -16,6 +16,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentrunbudget"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
@@ -30,6 +31,7 @@ type MessageJobQuery struct {
 	order                          []messagejob.OrderOption
 	inters                         []Interceptor
 	predicates                     []predicate.MessageJob
+	withIntentRuns                 *IntentDecisionRunQuery
 	withIncomingMessageIDRef       *MessageQuery
 	withConsentProposal            *MemoryConsentProposalQuery
 	withIntentDecisionsJobID       *IntentDecisionQuery
@@ -70,6 +72,28 @@ func (_q *MessageJobQuery) Unique(unique bool) *MessageJobQuery {
 func (_q *MessageJobQuery) Order(o ...messagejob.OrderOption) *MessageJobQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryIntentRuns chains the current query on the "intent_runs" edge.
+func (_q *MessageJobQuery) QueryIntentRuns() *IntentDecisionRunQuery {
+	query := (&IntentDecisionRunClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(messagejob.Table, messagejob.FieldID, selector),
+			sqlgraph.To(intentdecisionrun.Table, intentdecisionrun.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, messagejob.IntentRunsTable, messagejob.IntentRunsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryIncomingMessageIDRef chains the current query on the "incoming_message_id_ref" edge.
@@ -374,6 +398,7 @@ func (_q *MessageJobQuery) Clone() *MessageJobQuery {
 		order:                          append([]messagejob.OrderOption{}, _q.order...),
 		inters:                         append([]Interceptor{}, _q.inters...),
 		predicates:                     append([]predicate.MessageJob{}, _q.predicates...),
+		withIntentRuns:                 _q.withIntentRuns.Clone(),
 		withIncomingMessageIDRef:       _q.withIncomingMessageIDRef.Clone(),
 		withConsentProposal:            _q.withConsentProposal.Clone(),
 		withIntentDecisionsJobID:       _q.withIntentDecisionsJobID.Clone(),
@@ -383,6 +408,17 @@ func (_q *MessageJobQuery) Clone() *MessageJobQuery {
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithIntentRuns tells the query-builder to eager-load the nodes that are connected to
+// the "intent_runs" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MessageJobQuery) WithIntentRuns(opts ...func(*IntentDecisionRunQuery)) *MessageJobQuery {
+	query := (&IntentDecisionRunClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withIntentRuns = query
+	return _q
 }
 
 // WithIncomingMessageIDRef tells the query-builder to eager-load the nodes that are connected to
@@ -518,7 +554,8 @@ func (_q *MessageJobQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*M
 	var (
 		nodes       = []*MessageJob{}
 		_spec       = _q.querySpec()
-		loadedTypes = [5]bool{
+		loadedTypes = [6]bool{
+			_q.withIntentRuns != nil,
 			_q.withIncomingMessageIDRef != nil,
 			_q.withConsentProposal != nil,
 			_q.withIntentDecisionsJobID != nil,
@@ -546,6 +583,13 @@ func (_q *MessageJobQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*M
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withIntentRuns; query != nil {
+		if err := _q.loadIntentRuns(ctx, query, nodes,
+			func(n *MessageJob) { n.Edges.IntentRuns = []*IntentDecisionRun{} },
+			func(n *MessageJob, e *IntentDecisionRun) { n.Edges.IntentRuns = append(n.Edges.IntentRuns, e) }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withIncomingMessageIDRef; query != nil {
 		if err := _q.loadIncomingMessageIDRef(ctx, query, nodes, nil,
@@ -589,6 +633,36 @@ func (_q *MessageJobQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*M
 	return nodes, nil
 }
 
+func (_q *MessageJobQuery) loadIntentRuns(ctx context.Context, query *IntentDecisionRunQuery, nodes []*MessageJob, init func(*MessageJob), assign func(*MessageJob, *IntentDecisionRun)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*MessageJob)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(intentdecisionrun.FieldJobID)
+	}
+	query.Where(predicate.IntentDecisionRun(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(messagejob.IntentRunsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.JobID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "job_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
 func (_q *MessageJobQuery) loadIncomingMessageIDRef(ctx context.Context, query *MessageQuery, nodes []*MessageJob, init func(*MessageJob), assign func(*MessageJob, *Message)) error {
 	ids := make([]int64, 0, len(nodes))
 	nodeids := make(map[int64][]*MessageJob)

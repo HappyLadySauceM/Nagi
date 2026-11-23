@@ -66,7 +66,10 @@ func TestRecordPersistsStepsAndReadModel(t *testing.T) {
 		RulesetVersion: "builtin-v1",
 		Steps: []domain.Step{
 			{Index: 0, Phase: domain.StepPolicy, NodeID: domain.NodePolicy, NodeVersion: 1, Status: domain.NodeStatusExecuted, Detail: map[string]any{"ReplyMode": "always_reply"}},
-			{Index: 1, Phase: domain.StepRules, NodeID: domain.NodeRules, NodeVersion: 1, Status: domain.NodeStatusExecuted, Detail: map[string]any{"AlwaysReply": true}},
+			{Index: 1, Phase: domain.StepRules, NodeID: domain.NodeRules, NodeVersion: 1, Status: domain.NodeStatusExecuted, Detail: map[string]any{"AlwaysReply": true, "RuleEvents": []domain.CooldownEvent{
+				{RuleID: domain.CooldownRuleID, Version: domain.CooldownRuleVersion, Sequence: 1, Branch: "deferred"},
+				{RuleID: domain.CooldownRuleID, Version: domain.CooldownRuleVersion, Sequence: 2, Branch: "bypassed"},
+			}}},
 			{Index: 2, Phase: domain.StepFinal, NodeID: domain.NodeDecision, NodeVersion: 1, Status: domain.NodeStatusExecuted, ReasonCode: "always_reply", Detail: map[string]any{"Decision": "reply"}},
 		},
 		Snapshot: &domain.DecisionSnapshot{
@@ -77,6 +80,9 @@ func TestRecordPersistsStepsAndReadModel(t *testing.T) {
 			Rule:           domain.RuleResult{NeedSemantic: true, BuiltinRules: map[string]bool{"closing": true}},
 			RulesetVersion: "ruleset-1",
 		},
+	}
+	if _, err := pool.Exec(ctx, "UPDATE message_jobs SET attempts=2 WHERE id=$1", jobID); err != nil {
+		t.Fatal(err)
 	}
 	if err := repo.Record(ctx, jobID, decision, dbtest.Claim(t, pool, jobID)); err != nil {
 		t.Fatalf("record: %v", err)
@@ -106,6 +112,16 @@ func TestRecordPersistsStepsAndReadModel(t *testing.T) {
 	}
 	if detail.Steps[1].Phase != domain.StepRules || detail.Steps[1].Detail["AlwaysReply"] != true || detail.Steps[1].NodeID != domain.NodeRules {
 		t.Fatalf("rules step = %+v", detail.Steps[1])
+	}
+	events, ok := detail.Steps[1].Detail["RuleEvents"].([]any)
+	if !ok || len(events) != 2 {
+		t.Fatalf("rule events = %#v", events)
+	}
+	for i, raw := range events {
+		event, ok := raw.(map[string]any)
+		if !ok || event["Attempt"] != float64(3) || event["Sequence"] != float64(i+1) {
+			t.Fatalf("attempt or sequence missing: %#v", raw)
+		}
 	}
 	if detail.Scores["directed_to_bot"] != 0.7 {
 		t.Fatalf("scores = %+v", detail.Scores)
@@ -422,12 +438,22 @@ func TestPromptsRepoPublishAndRollback(t *testing.T) {
 // TestStatsReadsLegacySemanticDetailKeys 验证旧版小写 detail 键仍计入语义成功统计。
 func TestStatsReadsLegacySemanticDetailKeys(t *testing.T) {
 	pool := dbtest.Open(t)
-	jobID, botID, _ := seedJob(t, pool)
+	jobID, botID, conversation := seedJob(t, pool)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,store_messages,allow_history_read)
+	 SELECT bot_id,kind,target_id,true,true,true FROM conversations WHERE id=$1`, conversation); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM scope_policies p USING conversations c WHERE c.id=$1 AND p.bot_id=c.bot_id AND p.scope_type=c.kind AND p.scope_id=c.target_id`, conversation); err != nil {
+			t.Error(err)
+		}
+	})
 	repo, err := NewDecisionsRepo(pool)
 	if err != nil {
 		t.Fatalf("new decisions repo: %v", err)
 	}
-	before, err := repo.Stats(context.Background(), botID, time.Now().Add(-time.Hour))
+	before, err := repo.Stats(ctx, botID, time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("baseline stats: %v", err)
 	}
@@ -452,6 +478,14 @@ func TestStatsReadsLegacySemanticDetailKeys(t *testing.T) {
 	}
 	if stats.SemanticCalls != before.SemanticCalls+1 || stats.SemanticSuccess != before.SemanticSuccess+1 || stats.Degraded != before.Degraded {
 		t.Fatalf("legacy stats = %+v, baseline = %+v", stats, before)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE scope_policies p SET enabled=false,version=version+1 FROM conversations c
+	 WHERE c.id=$1 AND p.bot_id=c.bot_id AND p.scope_type=c.kind AND p.scope_id=c.target_id`, conversation); err != nil {
+		t.Fatal(err)
+	}
+	after, err := repo.Stats(ctx, botID, time.Now().Add(-time.Hour))
+	if err != nil || after != before {
+		t.Fatalf("stats after revocation = %+v, baseline = %+v, error = %v", after, before, err)
 	}
 }
 

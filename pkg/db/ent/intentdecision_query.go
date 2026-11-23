@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentreplayevaluation"
@@ -28,6 +29,7 @@ type IntentDecisionQuery struct {
 	order                                 []intentdecision.OrderOption
 	inters                                []Interceptor
 	predicates                            []predicate.IntentDecision
+	withIntentRun                         *IntentDecisionRunQuery
 	withJobIDRef                          *MessageJobQuery
 	withIntentDecisionStepsDecisionID     *IntentDecisionStepQuery
 	withIntentDecisionSnapshotsDecisionID *IntentDecisionSnapshotQuery
@@ -67,6 +69,28 @@ func (_q *IntentDecisionQuery) Unique(unique bool) *IntentDecisionQuery {
 func (_q *IntentDecisionQuery) Order(o ...intentdecision.OrderOption) *IntentDecisionQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryIntentRun chains the current query on the "intent_run" edge.
+func (_q *IntentDecisionQuery) QueryIntentRun() *IntentDecisionRunQuery {
+	query := (&IntentDecisionRunClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(intentdecision.Table, intentdecision.FieldID, selector),
+			sqlgraph.To(intentdecisionrun.Table, intentdecisionrun.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, intentdecision.IntentRunTable, intentdecision.IntentRunColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryJobIDRef chains the current query on the "job_id_ref" edge.
@@ -349,6 +373,7 @@ func (_q *IntentDecisionQuery) Clone() *IntentDecisionQuery {
 		order:                                 append([]intentdecision.OrderOption{}, _q.order...),
 		inters:                                append([]Interceptor{}, _q.inters...),
 		predicates:                            append([]predicate.IntentDecision{}, _q.predicates...),
+		withIntentRun:                         _q.withIntentRun.Clone(),
 		withJobIDRef:                          _q.withJobIDRef.Clone(),
 		withIntentDecisionStepsDecisionID:     _q.withIntentDecisionStepsDecisionID.Clone(),
 		withIntentDecisionSnapshotsDecisionID: _q.withIntentDecisionSnapshotsDecisionID.Clone(),
@@ -357,6 +382,17 @@ func (_q *IntentDecisionQuery) Clone() *IntentDecisionQuery {
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithIntentRun tells the query-builder to eager-load the nodes that are connected to
+// the "intent_run" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *IntentDecisionQuery) WithIntentRun(opts ...func(*IntentDecisionRunQuery)) *IntentDecisionQuery {
+	query := (&IntentDecisionRunClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withIntentRun = query
+	return _q
 }
 
 // WithJobIDRef tells the query-builder to eager-load the nodes that are connected to
@@ -481,7 +517,8 @@ func (_q *IntentDecisionQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	var (
 		nodes       = []*IntentDecision{}
 		_spec       = _q.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [5]bool{
+			_q.withIntentRun != nil,
 			_q.withJobIDRef != nil,
 			_q.withIntentDecisionStepsDecisionID != nil,
 			_q.withIntentDecisionSnapshotsDecisionID != nil,
@@ -508,6 +545,12 @@ func (_q *IntentDecisionQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withIntentRun; query != nil {
+		if err := _q.loadIntentRun(ctx, query, nodes, nil,
+			func(n *IntentDecision, e *IntentDecisionRun) { n.Edges.IntentRun = e }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withJobIDRef; query != nil {
 		if err := _q.loadJobIDRef(ctx, query, nodes, nil,
@@ -545,6 +588,36 @@ func (_q *IntentDecisionQuery) sqlAll(ctx context.Context, hooks ...queryHook) (
 	return nodes, nil
 }
 
+func (_q *IntentDecisionQuery) loadIntentRun(ctx context.Context, query *IntentDecisionRunQuery, nodes []*IntentDecision, init func(*IntentDecision), assign func(*IntentDecision, *IntentDecisionRun)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*IntentDecision)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(intentdecisionrun.FieldDecisionID)
+	}
+	query.Where(predicate.IntentDecisionRun(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(intentdecision.IntentRunColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.DecisionID
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "decision_id" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "decision_id" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
 func (_q *IntentDecisionQuery) loadJobIDRef(ctx context.Context, query *MessageJobQuery, nodes []*IntentDecision, init func(*IntentDecision), assign func(*IntentDecision, *MessageJob)) error {
 	ids := make([]int64, 0, len(nodes))
 	nodeids := make(map[int64][]*IntentDecision)

@@ -1001,6 +1001,29 @@ func LeaseExpiresAtNotNil() predicate.MessageJob {
 	return predicate.MessageJob(sql.FieldNotNull(FieldLeaseExpiresAt))
 }
 
+// HasIntentRuns applies the HasEdge predicate on the "intent_runs" edge.
+func HasIntentRuns() predicate.MessageJob {
+	return predicate.MessageJob(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, IntentRunsTable, IntentRunsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasIntentRunsWith applies the HasEdge predicate on the "intent_runs" edge with a given conditions (other predicates).
+func HasIntentRunsWith(preds ...predicate.IntentDecisionRun) predicate.MessageJob {
+	return predicate.MessageJob(func(s *sql.Selector) {
+		step := newIntentRunsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasIncomingMessageIDRef applies the HasEdge predicate on the "incoming_message_id_ref" edge.
 func HasIncomingMessageIDRef() predicate.MessageJob {
 	return predicate.MessageJob(func(s *sql.Selector) {

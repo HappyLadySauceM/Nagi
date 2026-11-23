@@ -10,6 +10,7 @@ import type {
   IntentSnapshotStatus,
   ReplyMode,
 } from '../../../lib/api/contracts'
+import { CooldownNodeEvidence } from './cooldown-playback'
 import { REPLY_MODE_LABELS } from '../../../lib/api/contracts'
 import {
   BRANCH_TEXT,
@@ -563,11 +564,11 @@ function NodeRunBody({
   contextSheet: boolean
 }) {
   const conclusionRows: Array<[string, unknown]> = [
-    ['状态', STATUS_META[runNode.status].label],
+    ['状态', runNode.branch === 'live_interrupted' ? '中断' : runNode.branch === 'live_unknown' ? '结果未知' : runNode.branch === 'live_started' ? '进行中' : STATUS_META[runNode.status].label],
     ['版本', `v${runNode.version}`],
     ['分支', BRANCH_TEXT[runNode.branch] ?? runNode.branch],
     ['原因码', runNode.reasonCode],
-    ['耗时', `${runNode.durationMs} ms`],
+    ['耗时', runNode.nodeId === 'semantic' && runNode.status === 'unknown' ? '未知' : `${runNode.durationMs} ms`],
   ]
   const conclusion = (
     <Section title="节点结论" loose={contextSheet}>
@@ -578,7 +579,10 @@ function NodeRunBody({
   const detail = runNode.nodeId === 'policy' || node?.kind === 'policy'
     ? <PolicyDetail detail={runNode.detail} />
     : runNode.nodeId === 'rules' || node?.kind === 'rules'
-      ? <RuleDetail detail={runNode.detail} reasonCode={runNode.reasonCode} />
+      ? <>
+        <RuleDetail detail={runNode.detail} reasonCode={runNode.reasonCode} />
+        {(run && run.decisionId > 0) || Array.isArray(runNode.detail.RuleEvents) ? <Section title="冷却判定"><CooldownNodeEvidence detail={runNode.detail} /></Section> : null}
+      </>
       : runNode.nodeId === 'semantic' || node?.kind === 'semantic'
         ? <SemanticDetail detail={runNode.detail} reasonCode={run?.summary.reasonCode ?? ''} />
         : runNode.nodeId === 'decision' || node?.kind === 'decision'

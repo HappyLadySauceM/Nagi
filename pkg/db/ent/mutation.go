@@ -29,6 +29,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionstep"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentpromptversion"
@@ -36,6 +37,8 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleactivation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleentry"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentruleset"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentrunevent"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentstreamhead"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentgrant"
@@ -80,6 +83,7 @@ const (
 	TypeGroupTopicRouteCandidate      = "GroupTopicRouteCandidate"
 	TypeInboundAttachment             = "InboundAttachment"
 	TypeIntentDecision                = "IntentDecision"
+	TypeIntentDecisionRun             = "IntentDecisionRun"
 	TypeIntentDecisionSnapshot        = "IntentDecisionSnapshot"
 	TypeIntentDecisionStep            = "IntentDecisionStep"
 	TypeIntentPromptVersion           = "IntentPromptVersion"
@@ -87,6 +91,8 @@ const (
 	TypeIntentRuleActivation          = "IntentRuleActivation"
 	TypeIntentRuleEntry               = "IntentRuleEntry"
 	TypeIntentRuleset                 = "IntentRuleset"
+	TypeIntentRunEvent                = "IntentRunEvent"
+	TypeIntentStreamHead              = "IntentStreamHead"
 	TypeMemory                        = "Memory"
 	TypeMemoryConsentEvent            = "MemoryConsentEvent"
 	TypeMemoryConsentGrant            = "MemoryConsentGrant"
@@ -15299,6 +15305,8 @@ type IntentDecisionMutation struct {
 	created_at                                   *time.Time
 	ruleset_version                              *string
 	clearedFields                                map[string]struct{}
+	intent_run                                   *uuid.UUID
+	clearedintent_run                            bool
 	job_id_ref                                   *int64
 	clearedjob_id_ref                            bool
 	intent_decision_steps_decision_id            map[int64]struct{}
@@ -15776,6 +15784,45 @@ func (m *IntentDecisionMutation) OldRulesetVersion(ctx context.Context) (v strin
 // ResetRulesetVersion resets all changes to the "ruleset_version" field.
 func (m *IntentDecisionMutation) ResetRulesetVersion() {
 	m.ruleset_version = nil
+}
+
+// SetIntentRunID sets the "intent_run" edge to the IntentDecisionRun entity by id.
+func (m *IntentDecisionMutation) SetIntentRunID(id uuid.UUID) {
+	m.intent_run = &id
+}
+
+// ClearIntentRun clears the "intent_run" edge to the IntentDecisionRun entity.
+func (m *IntentDecisionMutation) ClearIntentRun() {
+	m.clearedintent_run = true
+}
+
+// IntentRunCleared reports if the "intent_run" edge to the IntentDecisionRun entity was cleared.
+func (m *IntentDecisionMutation) IntentRunCleared() bool {
+	return m.clearedintent_run
+}
+
+// IntentRunID returns the "intent_run" edge ID in the mutation.
+func (m *IntentDecisionMutation) IntentRunID() (id uuid.UUID, exists bool) {
+	if m.intent_run != nil {
+		return *m.intent_run, true
+	}
+	return
+}
+
+// IntentRunIDs returns the "intent_run" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// IntentRunID instead. It exists only for internal usage by the builders.
+func (m *IntentDecisionMutation) IntentRunIDs() (ids []uuid.UUID) {
+	if id := m.intent_run; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetIntentRun resets all changes to the "intent_run" edge.
+func (m *IntentDecisionMutation) ResetIntentRun() {
+	m.intent_run = nil
+	m.clearedintent_run = false
 }
 
 // SetJobIDRefID sets the "job_id_ref" edge to the MessageJob entity by id.
@@ -16264,7 +16311,10 @@ func (m *IntentDecisionMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *IntentDecisionMutation) AddedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
+	if m.intent_run != nil {
+		edges = append(edges, intentdecision.EdgeIntentRun)
+	}
 	if m.job_id_ref != nil {
 		edges = append(edges, intentdecision.EdgeJobIDRef)
 	}
@@ -16284,6 +16334,10 @@ func (m *IntentDecisionMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *IntentDecisionMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case intentdecision.EdgeIntentRun:
+		if id := m.intent_run; id != nil {
+			return []ent.Value{*id}
+		}
 	case intentdecision.EdgeJobIDRef:
 		if id := m.job_id_ref; id != nil {
 			return []ent.Value{*id}
@@ -16312,7 +16366,7 @@ func (m *IntentDecisionMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *IntentDecisionMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
 	if m.removedintent_decision_steps_decision_id != nil {
 		edges = append(edges, intentdecision.EdgeIntentDecisionStepsDecisionID)
 	}
@@ -16353,7 +16407,10 @@ func (m *IntentDecisionMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *IntentDecisionMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 4)
+	edges := make([]string, 0, 5)
+	if m.clearedintent_run {
+		edges = append(edges, intentdecision.EdgeIntentRun)
+	}
 	if m.clearedjob_id_ref {
 		edges = append(edges, intentdecision.EdgeJobIDRef)
 	}
@@ -16373,6 +16430,8 @@ func (m *IntentDecisionMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *IntentDecisionMutation) EdgeCleared(name string) bool {
 	switch name {
+	case intentdecision.EdgeIntentRun:
+		return m.clearedintent_run
 	case intentdecision.EdgeJobIDRef:
 		return m.clearedjob_id_ref
 	case intentdecision.EdgeIntentDecisionStepsDecisionID:
@@ -16389,6 +16448,9 @@ func (m *IntentDecisionMutation) EdgeCleared(name string) bool {
 // if that edge is not defined in the schema.
 func (m *IntentDecisionMutation) ClearEdge(name string) error {
 	switch name {
+	case intentdecision.EdgeIntentRun:
+		m.ClearIntentRun()
+		return nil
 	case intentdecision.EdgeJobIDRef:
 		m.ClearJobIDRef()
 		return nil
@@ -16400,6 +16462,9 @@ func (m *IntentDecisionMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *IntentDecisionMutation) ResetEdge(name string) error {
 	switch name {
+	case intentdecision.EdgeIntentRun:
+		m.ResetIntentRun()
+		return nil
 	case intentdecision.EdgeJobIDRef:
 		m.ResetJobIDRef()
 		return nil
@@ -16414,6 +16479,1122 @@ func (m *IntentDecisionMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown IntentDecision edge %s", name)
+}
+
+// IntentDecisionRunMutation represents an operation that mutates the IntentDecisionRun nodes in the graph.
+type IntentDecisionRunMutation struct {
+	config
+	op                      Op
+	typ                     string
+	id                      *uuid.UUID
+	bot_id                  *int64
+	addbot_id               *int64
+	conversation_id         *uuid.UUID
+	claim_token             *uuid.UUID
+	state                   *string
+	started_at              *time.Time
+	finished_at             *time.Time
+	recovery_decision       *jsontext.Value
+	appendrecovery_decision jsontext.Value
+	reply_started           *bool
+	clearedFields           map[string]struct{}
+	job                     *int64
+	clearedjob              bool
+	decision                *int64
+	cleareddecision         bool
+	events                  map[int64]struct{}
+	removedevents           map[int64]struct{}
+	clearedevents           bool
+	done                    bool
+	oldValue                func(context.Context) (*IntentDecisionRun, error)
+	predicates              []predicate.IntentDecisionRun
+}
+
+var _ ent.Mutation = (*IntentDecisionRunMutation)(nil)
+
+// intentdecisionrunOption allows management of the mutation configuration using functional options.
+type intentdecisionrunOption func(*IntentDecisionRunMutation)
+
+// newIntentDecisionRunMutation creates new mutation for the IntentDecisionRun entity.
+func newIntentDecisionRunMutation(c config, op Op, opts ...intentdecisionrunOption) *IntentDecisionRunMutation {
+	m := &IntentDecisionRunMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeIntentDecisionRun,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withIntentDecisionRunID sets the ID field of the mutation.
+func withIntentDecisionRunID(id uuid.UUID) intentdecisionrunOption {
+	return func(m *IntentDecisionRunMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *IntentDecisionRun
+		)
+		m.oldValue = func(ctx context.Context) (*IntentDecisionRun, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().IntentDecisionRun.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withIntentDecisionRun sets the old IntentDecisionRun of the mutation.
+func withIntentDecisionRun(node *IntentDecisionRun) intentdecisionrunOption {
+	return func(m *IntentDecisionRunMutation) {
+		m.oldValue = func(context.Context) (*IntentDecisionRun, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m IntentDecisionRunMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m IntentDecisionRunMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of IntentDecisionRun entities.
+func (m *IntentDecisionRunMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *IntentDecisionRunMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *IntentDecisionRunMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().IntentDecisionRun.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *IntentDecisionRunMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *IntentDecisionRunMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *IntentDecisionRunMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *IntentDecisionRunMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *IntentDecisionRunMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *IntentDecisionRunMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *IntentDecisionRunMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *IntentDecisionRunMutation) ResetConversationID() {
+	m.conversation_id = nil
+}
+
+// SetJobID sets the "job_id" field.
+func (m *IntentDecisionRunMutation) SetJobID(i int64) {
+	m.job = &i
+}
+
+// JobID returns the value of the "job_id" field in the mutation.
+func (m *IntentDecisionRunMutation) JobID() (r int64, exists bool) {
+	v := m.job
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldJobID returns the old "job_id" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldJobID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldJobID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldJobID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldJobID: %w", err)
+	}
+	return oldValue.JobID, nil
+}
+
+// ResetJobID resets all changes to the "job_id" field.
+func (m *IntentDecisionRunMutation) ResetJobID() {
+	m.job = nil
+}
+
+// SetClaimToken sets the "claim_token" field.
+func (m *IntentDecisionRunMutation) SetClaimToken(u uuid.UUID) {
+	m.claim_token = &u
+}
+
+// ClaimToken returns the value of the "claim_token" field in the mutation.
+func (m *IntentDecisionRunMutation) ClaimToken() (r uuid.UUID, exists bool) {
+	v := m.claim_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClaimToken returns the old "claim_token" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldClaimToken(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClaimToken is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClaimToken requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClaimToken: %w", err)
+	}
+	return oldValue.ClaimToken, nil
+}
+
+// ResetClaimToken resets all changes to the "claim_token" field.
+func (m *IntentDecisionRunMutation) ResetClaimToken() {
+	m.claim_token = nil
+}
+
+// SetState sets the "state" field.
+func (m *IntentDecisionRunMutation) SetState(s string) {
+	m.state = &s
+}
+
+// State returns the value of the "state" field in the mutation.
+func (m *IntentDecisionRunMutation) State() (r string, exists bool) {
+	v := m.state
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldState returns the old "state" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldState(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldState is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldState requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldState: %w", err)
+	}
+	return oldValue.State, nil
+}
+
+// ResetState resets all changes to the "state" field.
+func (m *IntentDecisionRunMutation) ResetState() {
+	m.state = nil
+}
+
+// SetDecisionID sets the "decision_id" field.
+func (m *IntentDecisionRunMutation) SetDecisionID(i int64) {
+	m.decision = &i
+}
+
+// DecisionID returns the value of the "decision_id" field in the mutation.
+func (m *IntentDecisionRunMutation) DecisionID() (r int64, exists bool) {
+	v := m.decision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDecisionID returns the old "decision_id" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldDecisionID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDecisionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDecisionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDecisionID: %w", err)
+	}
+	return oldValue.DecisionID, nil
+}
+
+// ClearDecisionID clears the value of the "decision_id" field.
+func (m *IntentDecisionRunMutation) ClearDecisionID() {
+	m.decision = nil
+	m.clearedFields[intentdecisionrun.FieldDecisionID] = struct{}{}
+}
+
+// DecisionIDCleared returns if the "decision_id" field was cleared in this mutation.
+func (m *IntentDecisionRunMutation) DecisionIDCleared() bool {
+	_, ok := m.clearedFields[intentdecisionrun.FieldDecisionID]
+	return ok
+}
+
+// ResetDecisionID resets all changes to the "decision_id" field.
+func (m *IntentDecisionRunMutation) ResetDecisionID() {
+	m.decision = nil
+	delete(m.clearedFields, intentdecisionrun.FieldDecisionID)
+}
+
+// SetStartedAt sets the "started_at" field.
+func (m *IntentDecisionRunMutation) SetStartedAt(t time.Time) {
+	m.started_at = &t
+}
+
+// StartedAt returns the value of the "started_at" field in the mutation.
+func (m *IntentDecisionRunMutation) StartedAt() (r time.Time, exists bool) {
+	v := m.started_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStartedAt returns the old "started_at" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldStartedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStartedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStartedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStartedAt: %w", err)
+	}
+	return oldValue.StartedAt, nil
+}
+
+// ResetStartedAt resets all changes to the "started_at" field.
+func (m *IntentDecisionRunMutation) ResetStartedAt() {
+	m.started_at = nil
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (m *IntentDecisionRunMutation) SetFinishedAt(t time.Time) {
+	m.finished_at = &t
+}
+
+// FinishedAt returns the value of the "finished_at" field in the mutation.
+func (m *IntentDecisionRunMutation) FinishedAt() (r time.Time, exists bool) {
+	v := m.finished_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFinishedAt returns the old "finished_at" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldFinishedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFinishedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFinishedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFinishedAt: %w", err)
+	}
+	return oldValue.FinishedAt, nil
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (m *IntentDecisionRunMutation) ClearFinishedAt() {
+	m.finished_at = nil
+	m.clearedFields[intentdecisionrun.FieldFinishedAt] = struct{}{}
+}
+
+// FinishedAtCleared returns if the "finished_at" field was cleared in this mutation.
+func (m *IntentDecisionRunMutation) FinishedAtCleared() bool {
+	_, ok := m.clearedFields[intentdecisionrun.FieldFinishedAt]
+	return ok
+}
+
+// ResetFinishedAt resets all changes to the "finished_at" field.
+func (m *IntentDecisionRunMutation) ResetFinishedAt() {
+	m.finished_at = nil
+	delete(m.clearedFields, intentdecisionrun.FieldFinishedAt)
+}
+
+// SetRecoveryDecision sets the "recovery_decision" field.
+func (m *IntentDecisionRunMutation) SetRecoveryDecision(j jsontext.Value) {
+	m.recovery_decision = &j
+	m.appendrecovery_decision = nil
+}
+
+// RecoveryDecision returns the value of the "recovery_decision" field in the mutation.
+func (m *IntentDecisionRunMutation) RecoveryDecision() (r jsontext.Value, exists bool) {
+	v := m.recovery_decision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryDecision returns the old "recovery_decision" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldRecoveryDecision(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryDecision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryDecision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryDecision: %w", err)
+	}
+	return oldValue.RecoveryDecision, nil
+}
+
+// AppendRecoveryDecision adds j to the "recovery_decision" field.
+func (m *IntentDecisionRunMutation) AppendRecoveryDecision(j jsontext.Value) {
+	m.appendrecovery_decision = append(m.appendrecovery_decision, j...)
+}
+
+// AppendedRecoveryDecision returns the list of values that were appended to the "recovery_decision" field in this mutation.
+func (m *IntentDecisionRunMutation) AppendedRecoveryDecision() (jsontext.Value, bool) {
+	if len(m.appendrecovery_decision) == 0 {
+		return nil, false
+	}
+	return m.appendrecovery_decision, true
+}
+
+// ClearRecoveryDecision clears the value of the "recovery_decision" field.
+func (m *IntentDecisionRunMutation) ClearRecoveryDecision() {
+	m.recovery_decision = nil
+	m.appendrecovery_decision = nil
+	m.clearedFields[intentdecisionrun.FieldRecoveryDecision] = struct{}{}
+}
+
+// RecoveryDecisionCleared returns if the "recovery_decision" field was cleared in this mutation.
+func (m *IntentDecisionRunMutation) RecoveryDecisionCleared() bool {
+	_, ok := m.clearedFields[intentdecisionrun.FieldRecoveryDecision]
+	return ok
+}
+
+// ResetRecoveryDecision resets all changes to the "recovery_decision" field.
+func (m *IntentDecisionRunMutation) ResetRecoveryDecision() {
+	m.recovery_decision = nil
+	m.appendrecovery_decision = nil
+	delete(m.clearedFields, intentdecisionrun.FieldRecoveryDecision)
+}
+
+// SetReplyStarted sets the "reply_started" field.
+func (m *IntentDecisionRunMutation) SetReplyStarted(b bool) {
+	m.reply_started = &b
+}
+
+// ReplyStarted returns the value of the "reply_started" field in the mutation.
+func (m *IntentDecisionRunMutation) ReplyStarted() (r bool, exists bool) {
+	v := m.reply_started
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReplyStarted returns the old "reply_started" field's value of the IntentDecisionRun entity.
+// If the IntentDecisionRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentDecisionRunMutation) OldReplyStarted(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReplyStarted is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReplyStarted requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReplyStarted: %w", err)
+	}
+	return oldValue.ReplyStarted, nil
+}
+
+// ResetReplyStarted resets all changes to the "reply_started" field.
+func (m *IntentDecisionRunMutation) ResetReplyStarted() {
+	m.reply_started = nil
+}
+
+// ClearJob clears the "job" edge to the MessageJob entity.
+func (m *IntentDecisionRunMutation) ClearJob() {
+	m.clearedjob = true
+	m.clearedFields[intentdecisionrun.FieldJobID] = struct{}{}
+}
+
+// JobCleared reports if the "job" edge to the MessageJob entity was cleared.
+func (m *IntentDecisionRunMutation) JobCleared() bool {
+	return m.clearedjob
+}
+
+// JobIDs returns the "job" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// JobID instead. It exists only for internal usage by the builders.
+func (m *IntentDecisionRunMutation) JobIDs() (ids []int64) {
+	if id := m.job; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetJob resets all changes to the "job" edge.
+func (m *IntentDecisionRunMutation) ResetJob() {
+	m.job = nil
+	m.clearedjob = false
+}
+
+// ClearDecision clears the "decision" edge to the IntentDecision entity.
+func (m *IntentDecisionRunMutation) ClearDecision() {
+	m.cleareddecision = true
+	m.clearedFields[intentdecisionrun.FieldDecisionID] = struct{}{}
+}
+
+// DecisionCleared reports if the "decision" edge to the IntentDecision entity was cleared.
+func (m *IntentDecisionRunMutation) DecisionCleared() bool {
+	return m.DecisionIDCleared() || m.cleareddecision
+}
+
+// DecisionIDs returns the "decision" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// DecisionID instead. It exists only for internal usage by the builders.
+func (m *IntentDecisionRunMutation) DecisionIDs() (ids []int64) {
+	if id := m.decision; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetDecision resets all changes to the "decision" edge.
+func (m *IntentDecisionRunMutation) ResetDecision() {
+	m.decision = nil
+	m.cleareddecision = false
+}
+
+// AddEventIDs adds the "events" edge to the IntentRunEvent entity by ids.
+func (m *IntentDecisionRunMutation) AddEventIDs(ids ...int64) {
+	if m.events == nil {
+		m.events = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.events[ids[i]] = struct{}{}
+	}
+}
+
+// ClearEvents clears the "events" edge to the IntentRunEvent entity.
+func (m *IntentDecisionRunMutation) ClearEvents() {
+	m.clearedevents = true
+}
+
+// EventsCleared reports if the "events" edge to the IntentRunEvent entity was cleared.
+func (m *IntentDecisionRunMutation) EventsCleared() bool {
+	return m.clearedevents
+}
+
+// RemoveEventIDs removes the "events" edge to the IntentRunEvent entity by IDs.
+func (m *IntentDecisionRunMutation) RemoveEventIDs(ids ...int64) {
+	if m.removedevents == nil {
+		m.removedevents = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.events, ids[i])
+		m.removedevents[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedEvents returns the removed IDs of the "events" edge to the IntentRunEvent entity.
+func (m *IntentDecisionRunMutation) RemovedEventsIDs() (ids []int64) {
+	for id := range m.removedevents {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// EventsIDs returns the "events" edge IDs in the mutation.
+func (m *IntentDecisionRunMutation) EventsIDs() (ids []int64) {
+	for id := range m.events {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetEvents resets all changes to the "events" edge.
+func (m *IntentDecisionRunMutation) ResetEvents() {
+	m.events = nil
+	m.clearedevents = false
+	m.removedevents = nil
+}
+
+// Where appends a list predicates to the IntentDecisionRunMutation builder.
+func (m *IntentDecisionRunMutation) Where(ps ...predicate.IntentDecisionRun) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the IntentDecisionRunMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *IntentDecisionRunMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.IntentDecisionRun, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *IntentDecisionRunMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *IntentDecisionRunMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (IntentDecisionRun).
+func (m *IntentDecisionRunMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *IntentDecisionRunMutation) Fields() []string {
+	fields := make([]string, 0, 10)
+	if m.bot_id != nil {
+		fields = append(fields, intentdecisionrun.FieldBotID)
+	}
+	if m.conversation_id != nil {
+		fields = append(fields, intentdecisionrun.FieldConversationID)
+	}
+	if m.job != nil {
+		fields = append(fields, intentdecisionrun.FieldJobID)
+	}
+	if m.claim_token != nil {
+		fields = append(fields, intentdecisionrun.FieldClaimToken)
+	}
+	if m.state != nil {
+		fields = append(fields, intentdecisionrun.FieldState)
+	}
+	if m.decision != nil {
+		fields = append(fields, intentdecisionrun.FieldDecisionID)
+	}
+	if m.started_at != nil {
+		fields = append(fields, intentdecisionrun.FieldStartedAt)
+	}
+	if m.finished_at != nil {
+		fields = append(fields, intentdecisionrun.FieldFinishedAt)
+	}
+	if m.recovery_decision != nil {
+		fields = append(fields, intentdecisionrun.FieldRecoveryDecision)
+	}
+	if m.reply_started != nil {
+		fields = append(fields, intentdecisionrun.FieldReplyStarted)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *IntentDecisionRunMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case intentdecisionrun.FieldBotID:
+		return m.BotID()
+	case intentdecisionrun.FieldConversationID:
+		return m.ConversationID()
+	case intentdecisionrun.FieldJobID:
+		return m.JobID()
+	case intentdecisionrun.FieldClaimToken:
+		return m.ClaimToken()
+	case intentdecisionrun.FieldState:
+		return m.State()
+	case intentdecisionrun.FieldDecisionID:
+		return m.DecisionID()
+	case intentdecisionrun.FieldStartedAt:
+		return m.StartedAt()
+	case intentdecisionrun.FieldFinishedAt:
+		return m.FinishedAt()
+	case intentdecisionrun.FieldRecoveryDecision:
+		return m.RecoveryDecision()
+	case intentdecisionrun.FieldReplyStarted:
+		return m.ReplyStarted()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *IntentDecisionRunMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case intentdecisionrun.FieldBotID:
+		return m.OldBotID(ctx)
+	case intentdecisionrun.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case intentdecisionrun.FieldJobID:
+		return m.OldJobID(ctx)
+	case intentdecisionrun.FieldClaimToken:
+		return m.OldClaimToken(ctx)
+	case intentdecisionrun.FieldState:
+		return m.OldState(ctx)
+	case intentdecisionrun.FieldDecisionID:
+		return m.OldDecisionID(ctx)
+	case intentdecisionrun.FieldStartedAt:
+		return m.OldStartedAt(ctx)
+	case intentdecisionrun.FieldFinishedAt:
+		return m.OldFinishedAt(ctx)
+	case intentdecisionrun.FieldRecoveryDecision:
+		return m.OldRecoveryDecision(ctx)
+	case intentdecisionrun.FieldReplyStarted:
+		return m.OldReplyStarted(ctx)
+	}
+	return nil, fmt.Errorf("unknown IntentDecisionRun field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentDecisionRunMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case intentdecisionrun.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case intentdecisionrun.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case intentdecisionrun.FieldJobID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetJobID(v)
+		return nil
+	case intentdecisionrun.FieldClaimToken:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClaimToken(v)
+		return nil
+	case intentdecisionrun.FieldState:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetState(v)
+		return nil
+	case intentdecisionrun.FieldDecisionID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDecisionID(v)
+		return nil
+	case intentdecisionrun.FieldStartedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStartedAt(v)
+		return nil
+	case intentdecisionrun.FieldFinishedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFinishedAt(v)
+		return nil
+	case intentdecisionrun.FieldRecoveryDecision:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryDecision(v)
+		return nil
+	case intentdecisionrun.FieldReplyStarted:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReplyStarted(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentDecisionRun field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *IntentDecisionRunMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, intentdecisionrun.FieldBotID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *IntentDecisionRunMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case intentdecisionrun.FieldBotID:
+		return m.AddedBotID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentDecisionRunMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case intentdecisionrun.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentDecisionRun numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *IntentDecisionRunMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(intentdecisionrun.FieldDecisionID) {
+		fields = append(fields, intentdecisionrun.FieldDecisionID)
+	}
+	if m.FieldCleared(intentdecisionrun.FieldFinishedAt) {
+		fields = append(fields, intentdecisionrun.FieldFinishedAt)
+	}
+	if m.FieldCleared(intentdecisionrun.FieldRecoveryDecision) {
+		fields = append(fields, intentdecisionrun.FieldRecoveryDecision)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *IntentDecisionRunMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *IntentDecisionRunMutation) ClearField(name string) error {
+	switch name {
+	case intentdecisionrun.FieldDecisionID:
+		m.ClearDecisionID()
+		return nil
+	case intentdecisionrun.FieldFinishedAt:
+		m.ClearFinishedAt()
+		return nil
+	case intentdecisionrun.FieldRecoveryDecision:
+		m.ClearRecoveryDecision()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentDecisionRun nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *IntentDecisionRunMutation) ResetField(name string) error {
+	switch name {
+	case intentdecisionrun.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case intentdecisionrun.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case intentdecisionrun.FieldJobID:
+		m.ResetJobID()
+		return nil
+	case intentdecisionrun.FieldClaimToken:
+		m.ResetClaimToken()
+		return nil
+	case intentdecisionrun.FieldState:
+		m.ResetState()
+		return nil
+	case intentdecisionrun.FieldDecisionID:
+		m.ResetDecisionID()
+		return nil
+	case intentdecisionrun.FieldStartedAt:
+		m.ResetStartedAt()
+		return nil
+	case intentdecisionrun.FieldFinishedAt:
+		m.ResetFinishedAt()
+		return nil
+	case intentdecisionrun.FieldRecoveryDecision:
+		m.ResetRecoveryDecision()
+		return nil
+	case intentdecisionrun.FieldReplyStarted:
+		m.ResetReplyStarted()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentDecisionRun field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *IntentDecisionRunMutation) AddedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.job != nil {
+		edges = append(edges, intentdecisionrun.EdgeJob)
+	}
+	if m.decision != nil {
+		edges = append(edges, intentdecisionrun.EdgeDecision)
+	}
+	if m.events != nil {
+		edges = append(edges, intentdecisionrun.EdgeEvents)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *IntentDecisionRunMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case intentdecisionrun.EdgeJob:
+		if id := m.job; id != nil {
+			return []ent.Value{*id}
+		}
+	case intentdecisionrun.EdgeDecision:
+		if id := m.decision; id != nil {
+			return []ent.Value{*id}
+		}
+	case intentdecisionrun.EdgeEvents:
+		ids := make([]ent.Value, 0, len(m.events))
+		for id := range m.events {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *IntentDecisionRunMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.removedevents != nil {
+		edges = append(edges, intentdecisionrun.EdgeEvents)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *IntentDecisionRunMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case intentdecisionrun.EdgeEvents:
+		ids := make([]ent.Value, 0, len(m.removedevents))
+		for id := range m.removedevents {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *IntentDecisionRunMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.clearedjob {
+		edges = append(edges, intentdecisionrun.EdgeJob)
+	}
+	if m.cleareddecision {
+		edges = append(edges, intentdecisionrun.EdgeDecision)
+	}
+	if m.clearedevents {
+		edges = append(edges, intentdecisionrun.EdgeEvents)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *IntentDecisionRunMutation) EdgeCleared(name string) bool {
+	switch name {
+	case intentdecisionrun.EdgeJob:
+		return m.clearedjob
+	case intentdecisionrun.EdgeDecision:
+		return m.cleareddecision
+	case intentdecisionrun.EdgeEvents:
+		return m.clearedevents
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *IntentDecisionRunMutation) ClearEdge(name string) error {
+	switch name {
+	case intentdecisionrun.EdgeJob:
+		m.ClearJob()
+		return nil
+	case intentdecisionrun.EdgeDecision:
+		m.ClearDecision()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentDecisionRun unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *IntentDecisionRunMutation) ResetEdge(name string) error {
+	switch name {
+	case intentdecisionrun.EdgeJob:
+		m.ResetJob()
+		return nil
+	case intentdecisionrun.EdgeDecision:
+		m.ResetDecision()
+		return nil
+	case intentdecisionrun.EdgeEvents:
+		m.ResetEvents()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentDecisionRun edge %s", name)
 }
 
 // IntentDecisionSnapshotMutation represents an operation that mutates the IntentDecisionSnapshot nodes in the graph.
@@ -23814,6 +24995,1376 @@ func (m *IntentRulesetMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown IntentRuleset edge %s", name)
+}
+
+// IntentRunEventMutation represents an operation that mutates the IntentRunEvent nodes in the graph.
+type IntentRunEventMutation struct {
+	config
+	op            Op
+	typ           string
+	id            *int64
+	bot_id        *int64
+	addbot_id     *int64
+	position      *int64
+	addposition   *int64
+	sequence      *int
+	addsequence   *int
+	kind          *string
+	data          *jsontext.Value
+	appenddata    jsontext.Value
+	created_at    *time.Time
+	clearedFields map[string]struct{}
+	run           *uuid.UUID
+	clearedrun    bool
+	done          bool
+	oldValue      func(context.Context) (*IntentRunEvent, error)
+	predicates    []predicate.IntentRunEvent
+}
+
+var _ ent.Mutation = (*IntentRunEventMutation)(nil)
+
+// intentruneventOption allows management of the mutation configuration using functional options.
+type intentruneventOption func(*IntentRunEventMutation)
+
+// newIntentRunEventMutation creates new mutation for the IntentRunEvent entity.
+func newIntentRunEventMutation(c config, op Op, opts ...intentruneventOption) *IntentRunEventMutation {
+	m := &IntentRunEventMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeIntentRunEvent,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withIntentRunEventID sets the ID field of the mutation.
+func withIntentRunEventID(id int64) intentruneventOption {
+	return func(m *IntentRunEventMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *IntentRunEvent
+		)
+		m.oldValue = func(ctx context.Context) (*IntentRunEvent, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().IntentRunEvent.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withIntentRunEvent sets the old IntentRunEvent of the mutation.
+func withIntentRunEvent(node *IntentRunEvent) intentruneventOption {
+	return func(m *IntentRunEventMutation) {
+		m.oldValue = func(context.Context) (*IntentRunEvent, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m IntentRunEventMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m IntentRunEventMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of IntentRunEvent entities.
+func (m *IntentRunEventMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *IntentRunEventMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *IntentRunEventMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().IntentRunEvent.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetRunID sets the "run_id" field.
+func (m *IntentRunEventMutation) SetRunID(u uuid.UUID) {
+	m.run = &u
+}
+
+// RunID returns the value of the "run_id" field in the mutation.
+func (m *IntentRunEventMutation) RunID() (r uuid.UUID, exists bool) {
+	v := m.run
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRunID returns the old "run_id" field's value of the IntentRunEvent entity.
+// If the IntentRunEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRunEventMutation) OldRunID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRunID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRunID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRunID: %w", err)
+	}
+	return oldValue.RunID, nil
+}
+
+// ResetRunID resets all changes to the "run_id" field.
+func (m *IntentRunEventMutation) ResetRunID() {
+	m.run = nil
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *IntentRunEventMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *IntentRunEventMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the IntentRunEvent entity.
+// If the IntentRunEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRunEventMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *IntentRunEventMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *IntentRunEventMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *IntentRunEventMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetPosition sets the "position" field.
+func (m *IntentRunEventMutation) SetPosition(i int64) {
+	m.position = &i
+	m.addposition = nil
+}
+
+// Position returns the value of the "position" field in the mutation.
+func (m *IntentRunEventMutation) Position() (r int64, exists bool) {
+	v := m.position
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPosition returns the old "position" field's value of the IntentRunEvent entity.
+// If the IntentRunEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRunEventMutation) OldPosition(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPosition is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPosition requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPosition: %w", err)
+	}
+	return oldValue.Position, nil
+}
+
+// AddPosition adds i to the "position" field.
+func (m *IntentRunEventMutation) AddPosition(i int64) {
+	if m.addposition != nil {
+		*m.addposition += i
+	} else {
+		m.addposition = &i
+	}
+}
+
+// AddedPosition returns the value that was added to the "position" field in this mutation.
+func (m *IntentRunEventMutation) AddedPosition() (r int64, exists bool) {
+	v := m.addposition
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPosition resets all changes to the "position" field.
+func (m *IntentRunEventMutation) ResetPosition() {
+	m.position = nil
+	m.addposition = nil
+}
+
+// SetSequence sets the "sequence" field.
+func (m *IntentRunEventMutation) SetSequence(i int) {
+	m.sequence = &i
+	m.addsequence = nil
+}
+
+// Sequence returns the value of the "sequence" field in the mutation.
+func (m *IntentRunEventMutation) Sequence() (r int, exists bool) {
+	v := m.sequence
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSequence returns the old "sequence" field's value of the IntentRunEvent entity.
+// If the IntentRunEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRunEventMutation) OldSequence(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSequence is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSequence requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSequence: %w", err)
+	}
+	return oldValue.Sequence, nil
+}
+
+// AddSequence adds i to the "sequence" field.
+func (m *IntentRunEventMutation) AddSequence(i int) {
+	if m.addsequence != nil {
+		*m.addsequence += i
+	} else {
+		m.addsequence = &i
+	}
+}
+
+// AddedSequence returns the value that was added to the "sequence" field in this mutation.
+func (m *IntentRunEventMutation) AddedSequence() (r int, exists bool) {
+	v := m.addsequence
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSequence resets all changes to the "sequence" field.
+func (m *IntentRunEventMutation) ResetSequence() {
+	m.sequence = nil
+	m.addsequence = nil
+}
+
+// SetKind sets the "kind" field.
+func (m *IntentRunEventMutation) SetKind(s string) {
+	m.kind = &s
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *IntentRunEventMutation) Kind() (r string, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the IntentRunEvent entity.
+// If the IntentRunEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRunEventMutation) OldKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *IntentRunEventMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetData sets the "data" field.
+func (m *IntentRunEventMutation) SetData(j jsontext.Value) {
+	m.data = &j
+	m.appenddata = nil
+}
+
+// Data returns the value of the "data" field in the mutation.
+func (m *IntentRunEventMutation) Data() (r jsontext.Value, exists bool) {
+	v := m.data
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldData returns the old "data" field's value of the IntentRunEvent entity.
+// If the IntentRunEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRunEventMutation) OldData(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldData is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldData requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldData: %w", err)
+	}
+	return oldValue.Data, nil
+}
+
+// AppendData adds j to the "data" field.
+func (m *IntentRunEventMutation) AppendData(j jsontext.Value) {
+	m.appenddata = append(m.appenddata, j...)
+}
+
+// AppendedData returns the list of values that were appended to the "data" field in this mutation.
+func (m *IntentRunEventMutation) AppendedData() (jsontext.Value, bool) {
+	if len(m.appenddata) == 0 {
+		return nil, false
+	}
+	return m.appenddata, true
+}
+
+// ResetData resets all changes to the "data" field.
+func (m *IntentRunEventMutation) ResetData() {
+	m.data = nil
+	m.appenddata = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *IntentRunEventMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *IntentRunEventMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the IntentRunEvent entity.
+// If the IntentRunEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentRunEventMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *IntentRunEventMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// ClearRun clears the "run" edge to the IntentDecisionRun entity.
+func (m *IntentRunEventMutation) ClearRun() {
+	m.clearedrun = true
+	m.clearedFields[intentrunevent.FieldRunID] = struct{}{}
+}
+
+// RunCleared reports if the "run" edge to the IntentDecisionRun entity was cleared.
+func (m *IntentRunEventMutation) RunCleared() bool {
+	return m.clearedrun
+}
+
+// RunIDs returns the "run" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// RunID instead. It exists only for internal usage by the builders.
+func (m *IntentRunEventMutation) RunIDs() (ids []uuid.UUID) {
+	if id := m.run; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetRun resets all changes to the "run" edge.
+func (m *IntentRunEventMutation) ResetRun() {
+	m.run = nil
+	m.clearedrun = false
+}
+
+// Where appends a list predicates to the IntentRunEventMutation builder.
+func (m *IntentRunEventMutation) Where(ps ...predicate.IntentRunEvent) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the IntentRunEventMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *IntentRunEventMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.IntentRunEvent, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *IntentRunEventMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *IntentRunEventMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (IntentRunEvent).
+func (m *IntentRunEventMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *IntentRunEventMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.run != nil {
+		fields = append(fields, intentrunevent.FieldRunID)
+	}
+	if m.bot_id != nil {
+		fields = append(fields, intentrunevent.FieldBotID)
+	}
+	if m.position != nil {
+		fields = append(fields, intentrunevent.FieldPosition)
+	}
+	if m.sequence != nil {
+		fields = append(fields, intentrunevent.FieldSequence)
+	}
+	if m.kind != nil {
+		fields = append(fields, intentrunevent.FieldKind)
+	}
+	if m.data != nil {
+		fields = append(fields, intentrunevent.FieldData)
+	}
+	if m.created_at != nil {
+		fields = append(fields, intentrunevent.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *IntentRunEventMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case intentrunevent.FieldRunID:
+		return m.RunID()
+	case intentrunevent.FieldBotID:
+		return m.BotID()
+	case intentrunevent.FieldPosition:
+		return m.Position()
+	case intentrunevent.FieldSequence:
+		return m.Sequence()
+	case intentrunevent.FieldKind:
+		return m.Kind()
+	case intentrunevent.FieldData:
+		return m.Data()
+	case intentrunevent.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *IntentRunEventMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case intentrunevent.FieldRunID:
+		return m.OldRunID(ctx)
+	case intentrunevent.FieldBotID:
+		return m.OldBotID(ctx)
+	case intentrunevent.FieldPosition:
+		return m.OldPosition(ctx)
+	case intentrunevent.FieldSequence:
+		return m.OldSequence(ctx)
+	case intentrunevent.FieldKind:
+		return m.OldKind(ctx)
+	case intentrunevent.FieldData:
+		return m.OldData(ctx)
+	case intentrunevent.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown IntentRunEvent field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentRunEventMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case intentrunevent.FieldRunID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRunID(v)
+		return nil
+	case intentrunevent.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case intentrunevent.FieldPosition:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPosition(v)
+		return nil
+	case intentrunevent.FieldSequence:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSequence(v)
+		return nil
+	case intentrunevent.FieldKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case intentrunevent.FieldData:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetData(v)
+		return nil
+	case intentrunevent.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentRunEvent field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *IntentRunEventMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, intentrunevent.FieldBotID)
+	}
+	if m.addposition != nil {
+		fields = append(fields, intentrunevent.FieldPosition)
+	}
+	if m.addsequence != nil {
+		fields = append(fields, intentrunevent.FieldSequence)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *IntentRunEventMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case intentrunevent.FieldBotID:
+		return m.AddedBotID()
+	case intentrunevent.FieldPosition:
+		return m.AddedPosition()
+	case intentrunevent.FieldSequence:
+		return m.AddedSequence()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentRunEventMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case intentrunevent.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	case intentrunevent.FieldPosition:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPosition(v)
+		return nil
+	case intentrunevent.FieldSequence:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSequence(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentRunEvent numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *IntentRunEventMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *IntentRunEventMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *IntentRunEventMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown IntentRunEvent nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *IntentRunEventMutation) ResetField(name string) error {
+	switch name {
+	case intentrunevent.FieldRunID:
+		m.ResetRunID()
+		return nil
+	case intentrunevent.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case intentrunevent.FieldPosition:
+		m.ResetPosition()
+		return nil
+	case intentrunevent.FieldSequence:
+		m.ResetSequence()
+		return nil
+	case intentrunevent.FieldKind:
+		m.ResetKind()
+		return nil
+	case intentrunevent.FieldData:
+		m.ResetData()
+		return nil
+	case intentrunevent.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentRunEvent field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *IntentRunEventMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.run != nil {
+		edges = append(edges, intentrunevent.EdgeRun)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *IntentRunEventMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case intentrunevent.EdgeRun:
+		if id := m.run; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *IntentRunEventMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *IntentRunEventMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *IntentRunEventMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedrun {
+		edges = append(edges, intentrunevent.EdgeRun)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *IntentRunEventMutation) EdgeCleared(name string) bool {
+	switch name {
+	case intentrunevent.EdgeRun:
+		return m.clearedrun
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *IntentRunEventMutation) ClearEdge(name string) error {
+	switch name {
+	case intentrunevent.EdgeRun:
+		m.ClearRun()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentRunEvent unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *IntentRunEventMutation) ResetEdge(name string) error {
+	switch name {
+	case intentrunevent.EdgeRun:
+		m.ResetRun()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentRunEvent edge %s", name)
+}
+
+// IntentStreamHeadMutation represents an operation that mutates the IntentStreamHead nodes in the graph.
+type IntentStreamHeadMutation struct {
+	config
+	op                    Op
+	typ                   string
+	id                    *int64
+	position              *int64
+	addposition           *int64
+	retained_after        *int64
+	addretained_after     *int64
+	retention_revision    *int64
+	addretention_revision *int64
+	clearedFields         map[string]struct{}
+	done                  bool
+	oldValue              func(context.Context) (*IntentStreamHead, error)
+	predicates            []predicate.IntentStreamHead
+}
+
+var _ ent.Mutation = (*IntentStreamHeadMutation)(nil)
+
+// intentstreamheadOption allows management of the mutation configuration using functional options.
+type intentstreamheadOption func(*IntentStreamHeadMutation)
+
+// newIntentStreamHeadMutation creates new mutation for the IntentStreamHead entity.
+func newIntentStreamHeadMutation(c config, op Op, opts ...intentstreamheadOption) *IntentStreamHeadMutation {
+	m := &IntentStreamHeadMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeIntentStreamHead,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withIntentStreamHeadID sets the ID field of the mutation.
+func withIntentStreamHeadID(id int64) intentstreamheadOption {
+	return func(m *IntentStreamHeadMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *IntentStreamHead
+		)
+		m.oldValue = func(ctx context.Context) (*IntentStreamHead, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().IntentStreamHead.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withIntentStreamHead sets the old IntentStreamHead of the mutation.
+func withIntentStreamHead(node *IntentStreamHead) intentstreamheadOption {
+	return func(m *IntentStreamHeadMutation) {
+		m.oldValue = func(context.Context) (*IntentStreamHead, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m IntentStreamHeadMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m IntentStreamHeadMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of IntentStreamHead entities.
+func (m *IntentStreamHeadMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *IntentStreamHeadMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *IntentStreamHeadMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().IntentStreamHead.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetPosition sets the "position" field.
+func (m *IntentStreamHeadMutation) SetPosition(i int64) {
+	m.position = &i
+	m.addposition = nil
+}
+
+// Position returns the value of the "position" field in the mutation.
+func (m *IntentStreamHeadMutation) Position() (r int64, exists bool) {
+	v := m.position
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPosition returns the old "position" field's value of the IntentStreamHead entity.
+// If the IntentStreamHead object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentStreamHeadMutation) OldPosition(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPosition is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPosition requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPosition: %w", err)
+	}
+	return oldValue.Position, nil
+}
+
+// AddPosition adds i to the "position" field.
+func (m *IntentStreamHeadMutation) AddPosition(i int64) {
+	if m.addposition != nil {
+		*m.addposition += i
+	} else {
+		m.addposition = &i
+	}
+}
+
+// AddedPosition returns the value that was added to the "position" field in this mutation.
+func (m *IntentStreamHeadMutation) AddedPosition() (r int64, exists bool) {
+	v := m.addposition
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPosition resets all changes to the "position" field.
+func (m *IntentStreamHeadMutation) ResetPosition() {
+	m.position = nil
+	m.addposition = nil
+}
+
+// SetRetainedAfter sets the "retained_after" field.
+func (m *IntentStreamHeadMutation) SetRetainedAfter(i int64) {
+	m.retained_after = &i
+	m.addretained_after = nil
+}
+
+// RetainedAfter returns the value of the "retained_after" field in the mutation.
+func (m *IntentStreamHeadMutation) RetainedAfter() (r int64, exists bool) {
+	v := m.retained_after
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRetainedAfter returns the old "retained_after" field's value of the IntentStreamHead entity.
+// If the IntentStreamHead object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentStreamHeadMutation) OldRetainedAfter(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRetainedAfter is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRetainedAfter requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRetainedAfter: %w", err)
+	}
+	return oldValue.RetainedAfter, nil
+}
+
+// AddRetainedAfter adds i to the "retained_after" field.
+func (m *IntentStreamHeadMutation) AddRetainedAfter(i int64) {
+	if m.addretained_after != nil {
+		*m.addretained_after += i
+	} else {
+		m.addretained_after = &i
+	}
+}
+
+// AddedRetainedAfter returns the value that was added to the "retained_after" field in this mutation.
+func (m *IntentStreamHeadMutation) AddedRetainedAfter() (r int64, exists bool) {
+	v := m.addretained_after
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRetainedAfter resets all changes to the "retained_after" field.
+func (m *IntentStreamHeadMutation) ResetRetainedAfter() {
+	m.retained_after = nil
+	m.addretained_after = nil
+}
+
+// SetRetentionRevision sets the "retention_revision" field.
+func (m *IntentStreamHeadMutation) SetRetentionRevision(i int64) {
+	m.retention_revision = &i
+	m.addretention_revision = nil
+}
+
+// RetentionRevision returns the value of the "retention_revision" field in the mutation.
+func (m *IntentStreamHeadMutation) RetentionRevision() (r int64, exists bool) {
+	v := m.retention_revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRetentionRevision returns the old "retention_revision" field's value of the IntentStreamHead entity.
+// If the IntentStreamHead object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *IntentStreamHeadMutation) OldRetentionRevision(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRetentionRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRetentionRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRetentionRevision: %w", err)
+	}
+	return oldValue.RetentionRevision, nil
+}
+
+// AddRetentionRevision adds i to the "retention_revision" field.
+func (m *IntentStreamHeadMutation) AddRetentionRevision(i int64) {
+	if m.addretention_revision != nil {
+		*m.addretention_revision += i
+	} else {
+		m.addretention_revision = &i
+	}
+}
+
+// AddedRetentionRevision returns the value that was added to the "retention_revision" field in this mutation.
+func (m *IntentStreamHeadMutation) AddedRetentionRevision() (r int64, exists bool) {
+	v := m.addretention_revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRetentionRevision resets all changes to the "retention_revision" field.
+func (m *IntentStreamHeadMutation) ResetRetentionRevision() {
+	m.retention_revision = nil
+	m.addretention_revision = nil
+}
+
+// Where appends a list predicates to the IntentStreamHeadMutation builder.
+func (m *IntentStreamHeadMutation) Where(ps ...predicate.IntentStreamHead) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the IntentStreamHeadMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *IntentStreamHeadMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.IntentStreamHead, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *IntentStreamHeadMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *IntentStreamHeadMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (IntentStreamHead).
+func (m *IntentStreamHeadMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *IntentStreamHeadMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.position != nil {
+		fields = append(fields, intentstreamhead.FieldPosition)
+	}
+	if m.retained_after != nil {
+		fields = append(fields, intentstreamhead.FieldRetainedAfter)
+	}
+	if m.retention_revision != nil {
+		fields = append(fields, intentstreamhead.FieldRetentionRevision)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *IntentStreamHeadMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case intentstreamhead.FieldPosition:
+		return m.Position()
+	case intentstreamhead.FieldRetainedAfter:
+		return m.RetainedAfter()
+	case intentstreamhead.FieldRetentionRevision:
+		return m.RetentionRevision()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *IntentStreamHeadMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case intentstreamhead.FieldPosition:
+		return m.OldPosition(ctx)
+	case intentstreamhead.FieldRetainedAfter:
+		return m.OldRetainedAfter(ctx)
+	case intentstreamhead.FieldRetentionRevision:
+		return m.OldRetentionRevision(ctx)
+	}
+	return nil, fmt.Errorf("unknown IntentStreamHead field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentStreamHeadMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case intentstreamhead.FieldPosition:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPosition(v)
+		return nil
+	case intentstreamhead.FieldRetainedAfter:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRetainedAfter(v)
+		return nil
+	case intentstreamhead.FieldRetentionRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRetentionRevision(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentStreamHead field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *IntentStreamHeadMutation) AddedFields() []string {
+	var fields []string
+	if m.addposition != nil {
+		fields = append(fields, intentstreamhead.FieldPosition)
+	}
+	if m.addretained_after != nil {
+		fields = append(fields, intentstreamhead.FieldRetainedAfter)
+	}
+	if m.addretention_revision != nil {
+		fields = append(fields, intentstreamhead.FieldRetentionRevision)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *IntentStreamHeadMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case intentstreamhead.FieldPosition:
+		return m.AddedPosition()
+	case intentstreamhead.FieldRetainedAfter:
+		return m.AddedRetainedAfter()
+	case intentstreamhead.FieldRetentionRevision:
+		return m.AddedRetentionRevision()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *IntentStreamHeadMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case intentstreamhead.FieldPosition:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPosition(v)
+		return nil
+	case intentstreamhead.FieldRetainedAfter:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRetainedAfter(v)
+		return nil
+	case intentstreamhead.FieldRetentionRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRetentionRevision(v)
+		return nil
+	}
+	return fmt.Errorf("unknown IntentStreamHead numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *IntentStreamHeadMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *IntentStreamHeadMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *IntentStreamHeadMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown IntentStreamHead nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *IntentStreamHeadMutation) ResetField(name string) error {
+	switch name {
+	case intentstreamhead.FieldPosition:
+		m.ResetPosition()
+		return nil
+	case intentstreamhead.FieldRetainedAfter:
+		m.ResetRetainedAfter()
+		return nil
+	case intentstreamhead.FieldRetentionRevision:
+		m.ResetRetentionRevision()
+		return nil
+	}
+	return fmt.Errorf("unknown IntentStreamHead field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *IntentStreamHeadMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *IntentStreamHeadMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *IntentStreamHeadMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *IntentStreamHeadMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *IntentStreamHeadMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *IntentStreamHeadMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *IntentStreamHeadMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown IntentStreamHead unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *IntentStreamHeadMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown IntentStreamHead edge %s", name)
 }
 
 // MemoryMutation represents an operation that mutates the Memory nodes in the graph.
@@ -33841,6 +36392,9 @@ type MessageJobMutation struct {
 	claim_token                           *uuid.UUID
 	lease_expires_at                      *time.Time
 	clearedFields                         map[string]struct{}
+	intent_runs                           map[uuid.UUID]struct{}
+	removedintent_runs                    map[uuid.UUID]struct{}
+	clearedintent_runs                    bool
 	incoming_message_id_ref               *int64
 	clearedincoming_message_id_ref        bool
 	consent_proposal                      *uuid.UUID
@@ -34680,6 +37234,60 @@ func (m *MessageJobMutation) ResetLeaseExpiresAt() {
 	delete(m.clearedFields, messagejob.FieldLeaseExpiresAt)
 }
 
+// AddIntentRunIDs adds the "intent_runs" edge to the IntentDecisionRun entity by ids.
+func (m *MessageJobMutation) AddIntentRunIDs(ids ...uuid.UUID) {
+	if m.intent_runs == nil {
+		m.intent_runs = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		m.intent_runs[ids[i]] = struct{}{}
+	}
+}
+
+// ClearIntentRuns clears the "intent_runs" edge to the IntentDecisionRun entity.
+func (m *MessageJobMutation) ClearIntentRuns() {
+	m.clearedintent_runs = true
+}
+
+// IntentRunsCleared reports if the "intent_runs" edge to the IntentDecisionRun entity was cleared.
+func (m *MessageJobMutation) IntentRunsCleared() bool {
+	return m.clearedintent_runs
+}
+
+// RemoveIntentRunIDs removes the "intent_runs" edge to the IntentDecisionRun entity by IDs.
+func (m *MessageJobMutation) RemoveIntentRunIDs(ids ...uuid.UUID) {
+	if m.removedintent_runs == nil {
+		m.removedintent_runs = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		delete(m.intent_runs, ids[i])
+		m.removedintent_runs[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedIntentRuns returns the removed IDs of the "intent_runs" edge to the IntentDecisionRun entity.
+func (m *MessageJobMutation) RemovedIntentRunsIDs() (ids []uuid.UUID) {
+	for id := range m.removedintent_runs {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// IntentRunsIDs returns the "intent_runs" edge IDs in the mutation.
+func (m *MessageJobMutation) IntentRunsIDs() (ids []uuid.UUID) {
+	for id := range m.intent_runs {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetIntentRuns resets all changes to the "intent_runs" edge.
+func (m *MessageJobMutation) ResetIntentRuns() {
+	m.intent_runs = nil
+	m.clearedintent_runs = false
+	m.removedintent_runs = nil
+}
+
 // SetIncomingMessageIDRefID sets the "incoming_message_id_ref" edge to the Message entity by id.
 func (m *MessageJobMutation) SetIncomingMessageIDRefID(id int64) {
 	m.incoming_message_id_ref = &id
@@ -35374,7 +37982,10 @@ func (m *MessageJobMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *MessageJobMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
+	if m.intent_runs != nil {
+		edges = append(edges, messagejob.EdgeIntentRuns)
+	}
 	if m.incoming_message_id_ref != nil {
 		edges = append(edges, messagejob.EdgeIncomingMessageIDRef)
 	}
@@ -35397,6 +38008,12 @@ func (m *MessageJobMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *MessageJobMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case messagejob.EdgeIntentRuns:
+		ids := make([]ent.Value, 0, len(m.intent_runs))
+		for id := range m.intent_runs {
+			ids = append(ids, id)
+		}
+		return ids
 	case messagejob.EdgeIncomingMessageIDRef:
 		if id := m.incoming_message_id_ref; id != nil {
 			return []ent.Value{*id}
@@ -35429,7 +38046,10 @@ func (m *MessageJobMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MessageJobMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
+	if m.removedintent_runs != nil {
+		edges = append(edges, messagejob.EdgeIntentRuns)
+	}
 	if m.removedintent_decisions_job_id != nil {
 		edges = append(edges, messagejob.EdgeIntentDecisionsJobID)
 	}
@@ -35446,6 +38066,12 @@ func (m *MessageJobMutation) RemovedEdges() []string {
 // the given name in this mutation.
 func (m *MessageJobMutation) RemovedIDs(name string) []ent.Value {
 	switch name {
+	case messagejob.EdgeIntentRuns:
+		ids := make([]ent.Value, 0, len(m.removedintent_runs))
+		for id := range m.removedintent_runs {
+			ids = append(ids, id)
+		}
+		return ids
 	case messagejob.EdgeIntentDecisionsJobID:
 		ids := make([]ent.Value, 0, len(m.removedintent_decisions_job_id))
 		for id := range m.removedintent_decisions_job_id {
@@ -35470,7 +38096,10 @@ func (m *MessageJobMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *MessageJobMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
+	if m.clearedintent_runs {
+		edges = append(edges, messagejob.EdgeIntentRuns)
+	}
 	if m.clearedincoming_message_id_ref {
 		edges = append(edges, messagejob.EdgeIncomingMessageIDRef)
 	}
@@ -35493,6 +38122,8 @@ func (m *MessageJobMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *MessageJobMutation) EdgeCleared(name string) bool {
 	switch name {
+	case messagejob.EdgeIntentRuns:
+		return m.clearedintent_runs
 	case messagejob.EdgeIncomingMessageIDRef:
 		return m.clearedincoming_message_id_ref
 	case messagejob.EdgeConsentProposal:
@@ -35525,6 +38156,9 @@ func (m *MessageJobMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *MessageJobMutation) ResetEdge(name string) error {
 	switch name {
+	case messagejob.EdgeIntentRuns:
+		m.ResetIntentRuns()
+		return nil
 	case messagejob.EdgeIncomingMessageIDRef:
 		m.ResetIncomingMessageIDRef()
 		return nil

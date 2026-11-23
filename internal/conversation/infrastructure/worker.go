@@ -84,7 +84,8 @@ type WorkerOptions struct {
 	PrepareRun func(context.Context) (context.Context, int64)
 	// ResumeDelivery drains a durable outbound slot independently of generation.
 	// ResumeDelivery 独立于生成池续办持久化的出站槽。
-	ResumeDelivery func(context.Context) (bool, error)
+	ResumeDelivery        func(context.Context) (bool, error)
+	InterruptDecisionRuns func(context.Context) error
 }
 
 // Worker polls pending jobs from the database and processes them with per-conversation
@@ -255,6 +256,11 @@ func (w *Worker) Run(ctx context.Context) error {
 			nextRecovery = time.Now().Add(30 * time.Second)
 			if err := w.repo.RecoverStaleJobs(ctx, domain.RecoveryPolicy{MaxAttempts: w.opts.MaxAttempts, RetryBackoff: w.opts.RetryBackoff}); err != nil {
 				w.logger.Warn("recover expired claims failed", "error", err)
+			}
+			if w.opts.InterruptDecisionRuns != nil {
+				if err := w.opts.InterruptDecisionRuns(ctx); err != nil {
+					w.logger.Warn("interrupt stale decision runs failed", "error", err)
+				}
 			}
 			if repair, ok := w.repo.(interface{ ReconcileOutgoing(context.Context) error }); ok {
 				if err := repair.ReconcileOutgoing(ctx); err != nil {
@@ -482,6 +488,10 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		var gate *outbound.GateError
 		if errors.As(err, &gate) && gate.Reason == outbound.GateStale {
 			failureCode, maxAttempts = gate.Reason, 1
+		}
+		var noRetry interface{ StopJobRetry() bool }
+		if errors.As(err, &noRetry) && noRetry.StopJobRetry() {
+			failureCode, maxAttempts = "decision_persistence_failed", 1
 		}
 		var uncertain *auditcontracts.SideEffectUncertainError
 		if errors.Is(err, auditcontracts.ErrModelMediaStart) {

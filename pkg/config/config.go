@@ -80,6 +80,9 @@ type Server struct {
 	// AdminToken is the management API bearer token; empty disables auth and is
 	// only accepted for loopback listeners, otherwise startup fails.
 	AdminToken string `yaml:"admin-token"`
+	// Enable only behind a trusted, authenticated management ingress.
+	// 仅在可信且已鉴权的管理入口后启用。
+	TrustedDecisionAudit bool `yaml:"trusted-decision-audit"`
 }
 
 // Log 是日志配置域。
@@ -629,6 +632,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Echo.Enabled && strings.TrimSpace(c.Echo.Prefix) == "" {
 		return fmt.Errorf("config: echo.enabled 时 echo.prefix 不能为空")
+	}
+	if c.Server.TrustedDecisionAudit && strings.TrimSpace(c.Server.AdminToken) == "" {
+		return fmt.Errorf("config: server.trusted-decision-audit requires admin-token")
 	}
 	if c.Database.MaxConns <= 0 || c.Database.MaxConns > 12 {
 		return fmt.Errorf("config: database.max-conns 必须介于 1 和 12 之间")

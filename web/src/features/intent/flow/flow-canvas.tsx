@@ -39,23 +39,26 @@ function edgeStatusLabel(status: string) {
 export function FlowCanvas({
   flow,
   run,
+  recording,
   compact = false,
   showSnapshotStatus = true,
 }: {
   flow: IntentFlow
   run?: IntentRun
+  recording?: Pick<IntentRun, 'nodes' | 'edges'>
   compact?: boolean
   showSnapshotStatus?: boolean
 }) {
+  const displayed = recording ?? run
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const nodes = useMemo(() => new Map(flow.nodes.map((node) => [node.nodeId, node])), [flow.nodes])
   const runNodes = useMemo(
-    () => new Map((run?.nodes ?? []).map((node) => [node.nodeId, node])),
-    [run?.nodes],
+    () => new Map((displayed?.nodes ?? []).map((node) => [node.nodeId, node])),
+    [displayed?.nodes],
   )
   const runEdges = useMemo(
-    () => new Map((run?.edges ?? []).map((edge) => [edge.edgeId, edge])),
-    [run?.edges],
+    () => new Map((displayed?.edges ?? []).map((edge) => [edge.edgeId, edge])),
+    [displayed?.edges],
   )
   const selectedNode = selectedNodeId ? nodes.get(selectedNodeId) : undefined
   const selectedRunNode = selectedNodeId ? runNodes.get(selectedNodeId) : undefined
@@ -88,8 +91,11 @@ export function FlowCanvas({
         <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(flow.nodes.length, 1)}, minmax(0, 1fr))` }}>
           {flow.nodes.map((node) => {
             const runNode = runNodes.get(node.nodeId)
-            const meta = runNode ? STATUS_META[runNode.status] : run ? STATUS_META.unknown : undefined
-            const statusLabel = runNode ? meta?.label : run ? '未记录' : '待运行'
+            const meta = runNode ? STATUS_META[runNode.status] : displayed ? STATUS_META.unknown : undefined
+            const statusLabel = runNode?.branch === 'live_started' ? '进行中'
+              : runNode?.branch === 'live_interrupted' ? '中断'
+                : runNode?.branch === 'live_unknown' ? '结果未知'
+                : runNode ? meta?.label : displayed ? '未记录' : '待运行'
             const Icon = meta?.icon ?? CircleHelp
             return (
               <button
@@ -119,7 +125,7 @@ export function FlowCanvas({
                 </span>
                 <span className="mt-auto flex items-center gap-1 pt-3 text-[10px] text-muted-foreground">
                   <Icon className="size-3" aria-hidden />
-                  {runNode ? `v${runNode.version} · ${runNode.durationMs} ms` : `第 ${node.stageIndex + 1} 步`}
+                  {runNode ? `v${runNode.version} · ${runNode.nodeId === 'semantic' && runNode.status === 'unknown' ? '耗时未知' : `${runNode.durationMs} ms`}` : `第 ${node.stageIndex + 1} 步`}
                 </span>
               </button>
             )
@@ -127,7 +133,7 @@ export function FlowCanvas({
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {flow.edges.map((edge) => {
-            const status = runEdges.get(edge.edgeId)?.status ?? (run ? 'unknown' : 'pending')
+            const status = runEdges.get(edge.edgeId)?.status ?? (displayed ? 'unknown' : 'pending')
             const from = nodes.get(edge.fromNodeId)?.title ?? edge.fromNodeId
             const to = nodes.get(edge.toNodeId)?.title ?? edge.toNodeId
             return (

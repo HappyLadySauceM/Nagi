@@ -213,6 +213,18 @@ func (f IntentDecisionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Val
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentDecisionMutation", m)
 }
 
+// The IntentDecisionRunFunc type is an adapter to allow the use of ordinary
+// function as IntentDecisionRun mutator.
+type IntentDecisionRunFunc func(context.Context, *ent.IntentDecisionRunMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f IntentDecisionRunFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.IntentDecisionRunMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentDecisionRunMutation", m)
+}
+
 // The IntentDecisionSnapshotFunc type is an adapter to allow the use of ordinary
 // function as IntentDecisionSnapshot mutator.
 type IntentDecisionSnapshotFunc func(context.Context, *ent.IntentDecisionSnapshotMutation) (ent.Value, error)
@@ -295,6 +307,30 @@ func (f IntentRulesetFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Valu
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentRulesetMutation", m)
+}
+
+// The IntentRunEventFunc type is an adapter to allow the use of ordinary
+// function as IntentRunEvent mutator.
+type IntentRunEventFunc func(context.Context, *ent.IntentRunEventMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f IntentRunEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.IntentRunEventMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentRunEventMutation", m)
+}
+
+// The IntentStreamHeadFunc type is an adapter to allow the use of ordinary
+// function as IntentStreamHead mutator.
+type IntentStreamHeadFunc func(context.Context, *ent.IntentStreamHeadMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f IntentStreamHeadFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.IntentStreamHeadMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IntentStreamHeadMutation", m)
 }
 
 // The MemoryFunc type is an adapter to allow the use of ordinary

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionrun"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 )
 
@@ -46,6 +47,8 @@ type IntentDecision struct {
 
 // IntentDecisionEdges holds the relations/edges for other nodes in the graph.
 type IntentDecisionEdges struct {
+	// IntentRun holds the value of the intent_run edge.
+	IntentRun *IntentDecisionRun `json:"intent_run,omitempty"`
 	// JobIDRef holds the value of the job_id_ref edge.
 	JobIDRef *MessageJob `json:"job_id_ref,omitempty"`
 	// IntentDecisionStepsDecisionID holds the value of the intent_decision_steps_decision_id edge.
@@ -56,7 +59,18 @@ type IntentDecisionEdges struct {
 	IntentReplayEvaluationsDecisionID []*IntentReplayEvaluation `json:"intent_replay_evaluations_decision_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
+}
+
+// IntentRunOrErr returns the IntentRun value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e IntentDecisionEdges) IntentRunOrErr() (*IntentDecisionRun, error) {
+	if e.IntentRun != nil {
+		return e.IntentRun, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: intentdecisionrun.Label}
+	}
+	return nil, &NotLoadedError{edge: "intent_run"}
 }
 
 // JobIDRefOrErr returns the JobIDRef value or an error if the edge
@@ -64,7 +78,7 @@ type IntentDecisionEdges struct {
 func (e IntentDecisionEdges) JobIDRefOrErr() (*MessageJob, error) {
 	if e.JobIDRef != nil {
 		return e.JobIDRef, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: messagejob.Label}
 	}
 	return nil, &NotLoadedError{edge: "job_id_ref"}
@@ -73,7 +87,7 @@ func (e IntentDecisionEdges) JobIDRefOrErr() (*MessageJob, error) {
 // IntentDecisionStepsDecisionIDOrErr returns the IntentDecisionStepsDecisionID value or an error if the edge
 // was not loaded in eager-loading.
 func (e IntentDecisionEdges) IntentDecisionStepsDecisionIDOrErr() ([]*IntentDecisionStep, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.IntentDecisionStepsDecisionID, nil
 	}
 	return nil, &NotLoadedError{edge: "intent_decision_steps_decision_id"}
@@ -82,7 +96,7 @@ func (e IntentDecisionEdges) IntentDecisionStepsDecisionIDOrErr() ([]*IntentDeci
 // IntentDecisionSnapshotsDecisionIDOrErr returns the IntentDecisionSnapshotsDecisionID value or an error if the edge
 // was not loaded in eager-loading.
 func (e IntentDecisionEdges) IntentDecisionSnapshotsDecisionIDOrErr() ([]*IntentDecisionSnapshot, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.IntentDecisionSnapshotsDecisionID, nil
 	}
 	return nil, &NotLoadedError{edge: "intent_decision_snapshots_decision_id"}
@@ -91,7 +105,7 @@ func (e IntentDecisionEdges) IntentDecisionSnapshotsDecisionIDOrErr() ([]*Intent
 // IntentReplayEvaluationsDecisionIDOrErr returns the IntentReplayEvaluationsDecisionID value or an error if the edge
 // was not loaded in eager-loading.
 func (e IntentDecisionEdges) IntentReplayEvaluationsDecisionIDOrErr() ([]*IntentReplayEvaluation, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.IntentReplayEvaluationsDecisionID, nil
 	}
 	return nil, &NotLoadedError{edge: "intent_replay_evaluations_decision_id"}
@@ -198,6 +212,11 @@ func (_m *IntentDecision) assignValues(columns []string, values []any) error {
 // This includes values selected through modifiers, order, etc.
 func (_m *IntentDecision) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
+}
+
+// QueryIntentRun queries the "intent_run" edge of the IntentDecision entity.
+func (_m *IntentDecision) QueryIntentRun() *IntentDecisionRunQuery {
+	return NewIntentDecisionClient(_m.config).QueryIntentRun(_m)
 }
 
 // QueryJobIDRef queries the "job_id_ref" edge of the IntentDecision entity.

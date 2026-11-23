@@ -54,6 +54,7 @@ export interface ReplayModelVariables {
 export function useRecalculateDecision(decisionId: number | null) {
   const client = useQueryClient()
   return useMutation({
+    mutationKey: ['intent', 'replay', decisionId],
     mutationFn: () =>
       apiRequest(`/api/v1/intent/decisions/${decisionId}/recalculate`, {
         method: 'POST',
@@ -71,6 +72,7 @@ export function useRecalculateDecision(decisionId: number | null) {
 export function useReplayDecisionModel(decisionId: number | null) {
   const client = useQueryClient()
   return useMutation({
+    mutationKey: ['intent', 'replay', decisionId],
     mutationFn: async (variables: ReplayModelVariables): Promise<ReplayModelResult> => {
       const raw = await apiRequest(`/api/v1/intent/decisions/${decisionId}/replay-model`, {
         method: 'POST',
@@ -100,6 +102,7 @@ export function useReplayDecisionModel(decisionId: number | null) {
 /** Quotes the server-side cost of a model replay before any external call. */
 export function useReplayEstimate(decisionId: number | null) {
   return useMutation({
+    mutationKey: ['intent', 'replay', decisionId],
     mutationFn: (): Promise<ReplayEstimate> =>
       apiRequest(`/api/v1/intent/decisions/${decisionId}/replay-model/estimate`, {
         method: 'POST',
@@ -110,6 +113,7 @@ export function useReplayEstimate(decisionId: number | null) {
 export function useSaveReplayEvaluation(decisionId: number | null) {
   const client = useQueryClient()
   return useMutation({
+    mutationKey: ['intent', 'replay', decisionId],
     mutationFn: (variables: {
       mode: ReplayEvaluationMode
       confirmationToken?: string

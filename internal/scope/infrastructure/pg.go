@@ -236,6 +236,9 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 	if err != nil {
 		return err
 	}
+	if _, err := client.ExecContext(ctx, `SELECT pg_notify('intent_live',$1::text)`, fmt.Sprint(botID)); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -289,6 +292,9 @@ func (r *Repo) Delete(ctx context.Context, botID int64, scopeType domain.ScopeTy
 		if err := advanceSendSelection(ctx, client, botID, string(scopeType), scopeID); err != nil {
 			return false, err
 		}
+	}
+	if _, err := client.ExecContext(ctx, `SELECT pg_notify('intent_live',$1::text)`, fmt.Sprint(botID)); err != nil {
+		return false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return false, err

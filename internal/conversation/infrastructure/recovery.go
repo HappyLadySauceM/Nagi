@@ -12,6 +12,14 @@ const recoverExpiredJobsSQL = `WITH expired AS MATERIALIZED (
      WHERE d.job_id=j.id AND d.decision='silent' AND d.reason_code=$4
       AND s.input->>'WorkerAuditRunID'=r.id::text))
  ) AS audit_start_failed,
+ COALESCE(live.recovery_decision IS NULL AND EXISTS (
+  SELECT 1 FROM intent_run_events e WHERE e.run_id=live.id AND (
+   (live.state='running' AND e.kind='semantic_started') OR
+   (live.state='interrupted' AND e.kind='end' AND e.data->>'ReasonCode'='semantic_result_unknown'))),false) AS semantic_unknown,
+ COALESCE(live.state='failed' AND EXISTS (SELECT 1 FROM intent_run_events e WHERE e.run_id=live.id
+  AND e.kind='end' AND e.data->>'ReasonCode'='decision_persistence_failed'),false) AS persistence_failed,
+ COALESCE((live.state='completed' AND live.decision_id IS NOT NULL) OR
+  (live.state='running' AND live.recovery_decision IS NOT NULL),false) AS decision_resume,
  j.source_kind='incoming' AND j.consent_proposal_id IS NULL
   AND EXISTS (SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.claim_token=j.claim_token AND o.status='prepared' AND o.resume_digest IS NOT NULL) AS pure_delivery,
  EXISTS (SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status IN ('sent','unknown','sending','failed')) AS partial,
@@ -19,6 +27,10 @@ const recoverExpiredJobsSQL = `WITH expired AS MATERIALIZED (
   AND b.reserved_messages=(SELECT count(*) FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status<>'cancelled')
   AND b.reserved_chars=(SELECT COALESCE(sum(o.charge_chars),0) FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status<>'cancelled')) AS balanced
  FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id
+ LEFT JOIN LATERAL (SELECT r.* FROM intent_decision_runs r WHERE r.job_id=j.id AND r.bot_id=m.bot_id AND r.conversation_id=m.conversation_id
+  AND (r.claim_token=j.claim_token OR (j.last_error_code='decision_resume' AND
+   (r.state='completed' OR (r.state='running' AND r.recovery_decision IS NOT NULL))))
+  ORDER BY (r.claim_token=j.claim_token) DESC,r.started_at DESC,r.id DESC LIMIT 1) live ON j.source_kind='incoming'
  WHERE j.id IN (SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb))
   AND j.status='processing' AND NOT j.delivery_continuation AND j.lease_expires_at<=clock_timestamp()
 ), candidates AS MATERIALIZED (
@@ -70,8 +82,11 @@ const recoverExpiredJobsSQL = `WITH expired AS MATERIALIZED (
  delivery_reason=CASE WHEN o.missing>0 THEN 'consent_resume_evidence_missing' ELSE j.delivery_reason END,
  denied_count=j.denied_count+o.missing,
  status=CASE WHEN o.audit_start_failed THEN 'failed' WHEN o.resume THEN 'pending'
-  WHEN o.pure_delivery OR o.partial OR o.incomplete OR j.delivery_outcome='blocked' OR j.attempts+1>=$2 THEN 'failed' ELSE 'pending' END,
+  WHEN o.pure_delivery OR o.partial OR o.incomplete OR j.delivery_outcome='blocked' OR o.semantic_unknown OR o.persistence_failed THEN 'failed'
+  WHEN o.decision_resume THEN 'pending' WHEN j.attempts+1>=$2 THEN 'failed' ELSE 'pending' END,
  last_error_code=CASE WHEN o.audit_start_failed THEN $4 WHEN o.missing>0 THEN 'consent_resume_evidence_missing'
-  WHEN o.partial THEN 'partial' ELSE 'lease_expired' END,
+  WHEN o.partial THEN 'partial' WHEN o.semantic_unknown THEN 'semantic_result_unknown'
+  WHEN o.persistence_failed THEN 'decision_persistence_failed' WHEN o.decision_resume AND NOT o.pure_delivery AND NOT o.incomplete AND j.delivery_outcome<>'blocked' THEN 'decision_resume'
+  ELSE 'lease_expired' END,
  attempts=j.attempts+1,next_run_at=clock_timestamp()+make_interval(secs=>$3),claim_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp()
  FROM outcomes o WHERE j.id=o.id AND j.claim_token=o.claim_token`
