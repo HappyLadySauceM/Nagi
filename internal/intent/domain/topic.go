@@ -15,11 +15,13 @@ const (
 )
 
 type TopicContext struct {
-	Candidates  []TopicCandidate
-	QuotedID    int64
-	QuotedBot   bool
-	Reference   *Message
-	IdleSeconds int
+	Candidates   []TopicCandidate
+	QuotedID     int64
+	BoundID      int64
+	BoundVersion int64
+	QuotedBot    bool
+	Reference    *Message
+	IdleSeconds  int
 }
 
 type TopicCandidate struct {

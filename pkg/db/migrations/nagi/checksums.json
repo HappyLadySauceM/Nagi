@@ -32,5 +32,7 @@
   "20261122002000_inbound_media_summary.down.sql": "597dbaf6cf60b1b282af7bdb28544c5626bd38b72d8b9921e01f2f0dcde26543",
   "20261122002000_inbound_media_summary.up.sql": "92481ef27e9d6f0c60284c54170e3e0ddd94ae252b03aea77d06e6a0d278d696",
   "20261122050000_memory_cross_group_consent.down.sql": "090bdee7cabcfa47cc614184bdd94bc2e2a7dae2d3608115d87d7afe29be3f39",
-  "20261122050000_memory_cross_group_consent.up.sql": "da8981ca9a53027e3d6ea225ee23c6f1585e6c0a70128eaceba86bbbebe74015"
+  "20261122050000_memory_cross_group_consent.up.sql": "da8981ca9a53027e3d6ea225ee23c6f1585e6c0a70128eaceba86bbbebe74015",
+  "20261122160000_group_topic_routing.down.sql": "79830b27c165ea06222da2723a17996a0efa509537dc601f50262f3552ba03b6",
+  "20261122160000_group_topic_routing.up.sql": "7e78a7763c01c37afd5a0115340f87f1971a74a61a2dae1f8f3cc388221afd16"
 }

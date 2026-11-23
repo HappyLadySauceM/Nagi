@@ -116,7 +116,7 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 			return domain.IngestResult{}, err
 		}
 	}
-	if err := c.BotAccount.Create().SetID(in.BotID).OnConflict(entsql.ConflictColumns("bot_id")).Ignore().Exec(ctx); err != nil {
+	if _, err := c.ExecContext(ctx, `INSERT INTO bot_accounts (bot_id) VALUES ($1) ON CONFLICT (bot_id) DO NOTHING`, in.BotID); err != nil {
 		return domain.IngestResult{}, err
 	}
 	conv, err := c.Conversation.Create().SetID(uuid.New()).SetBotID(in.BotID).SetKind(string(in.Kind)).SetTargetID(in.TargetID).SetLastMessageAt(time.Now()).OnConflict(entsql.ConflictColumns("bot_id", "kind", "target_id")).UpdateLastMessageAt().ID(ctx)
@@ -190,6 +190,11 @@ func (r *Repo) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ingest
 	job, err := jobCreate.Save(ctx)
 	if err != nil {
 		return domain.IngestResult{}, err
+	}
+	if in.Kind == domain.KindGroup && !in.ArchiveOnly && in.SenderID > 0 && in.SenderID != in.BotID && in.PlatformMessageID != 0 {
+		if err := registerTopicRoute(ctx, c, conv, message); err != nil {
+			return domain.IngestResult{}, fmt.Errorf("conversation: register topic route: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return domain.IngestResult{}, err
@@ -301,7 +306,7 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	locked, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND j.next_run_at<=clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing') ORDER BY c.id LIMIT $1 FOR UPDATE OF c SKIP LOCKED`, limit)
+	locked, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND NOT j.delivery_continuation AND NOT EXISTS(SELECT 1 FROM group_topic_routes route WHERE route.id=m.id AND route.status IN ('pending','routing') AND EXISTS(SELECT 1 FROM group_topic_route_candidates candidate WHERE candidate.route_id=route.id)) AND j.next_run_at<=clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing') ORDER BY c.id LIMIT $1 FOR UPDATE OF c SKIP LOCKED`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +328,7 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 	rows, err := tx.Query(ctx, `
  WITH picked AS (
  SELECT j.id FROM conversations c
- JOIN LATERAL(SELECT j.id FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND j.next_run_at<=clock_timestamp() ORDER BY j.next_run_at,j.id LIMIT 1) chosen ON true
+ JOIN LATERAL(SELECT j.id FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND NOT j.delivery_continuation AND NOT EXISTS(SELECT 1 FROM group_topic_routes route WHERE route.id=m.id AND route.status IN ('pending','routing') AND EXISTS(SELECT 1 FROM group_topic_route_candidates candidate WHERE candidate.route_id=route.id)) AND j.next_run_at<=clock_timestamp() ORDER BY j.next_run_at,j.id LIMIT 1) chosen ON true
  JOIN message_jobs j ON j.id=chosen.id
  WHERE c.id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
  AND NOT EXISTS(SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing')
@@ -415,12 +420,29 @@ func (r *Repo) CompleteJob(ctx context.Context, jobID int64, claim ...string) er
 // 因此直接以 partial 错误码失败。仍在 sending 的记录同样计入：其结果尚未确认，
 // 只能由启动恢复落定。
 func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter time.Duration, maxAttempts int, claim ...string) error {
+	for {
+		err := r.failJob(ctx, jobID, code, retryAfter, maxAttempts, claimValue(claim))
+		if err != errFailureScopeChanged {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+}
+
+func (r *Repo) failJob(ctx context.Context, jobID int64, code string, retryAfter time.Duration, maxAttempts int, claim any) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := r.lockClaim(ctx, tx, jobID, claimValue(claim)); err != nil {
+	lockedConversations, err := r.lockFailure(ctx, tx, jobID, claim)
+	if err != nil {
+		return err
+	}
+	lockedTargets, _ := json.Marshal(lockedConversations)
+	if _, err := tx.Exec(ctx, `SELECT id FROM agent_outbound_messages WHERE job_id=$1 AND status IN ('prepared','sending') ORDER BY id FOR UPDATE`, jobID); err != nil {
 		return err
 	}
 	// Close uncertain sends and unused reservations before releasing this claim.
@@ -428,7 +450,7 @@ func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter
 	if _, err := tx.Exec(ctx, `WITH cancelled AS (UPDATE agent_outbound_messages SET status='cancelled',updated_at=clock_timestamp() WHERE job_id=$1 AND status='prepared' RETURNING job_id,charge_chars chars),refund AS(SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id) UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars) FROM refund r WHERE b.job_id=r.job_id`, jobID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status='unknown',error_code='finalization_failed',updated_at=clock_timestamp() WHERE job_id=$1 AND status='sending'`, jobID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status=CASE WHEN platform_message_id IS NULL THEN 'unknown' ELSE 'sent' END,error_code=CASE WHEN platform_message_id IS NULL THEN 'finalization_failed' END,updated_at=clock_timestamp() WHERE job_id=$1 AND status='sending'`, jobID); err != nil {
 		return err
 	}
 	// History follows the actual target, matching Settle; a cross-conversation
@@ -439,7 +461,8 @@ func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter
  FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN conversations c ON c.bot_id=o.bot_id AND c.kind=o.target_kind AND c.target_id=o.target_id
  JOIN LATERAL(SELECT enabled,store_messages FROM scope_policies WHERE bot_id=c.bot_id AND scope_type=c.kind AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1)p ON p.enabled AND p.store_messages
  WHERE o.job_id=$1 AND o.status IN('sent','unknown')
- ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, jobID); err != nil {
+ AND c.id IN (SELECT value::uuid FROM jsonb_array_elements_text($2::jsonb))
+ ON CONFLICT(outbound_id) WHERE outbound_id IS NOT NULL DO NOTHING`, jobID, lockedTargets); err != nil {
 		return err
 	}
 
@@ -466,7 +489,7 @@ func (r *Repo) FailJob(ctx context.Context, jobID int64, code string, retryAfter
 			updated_at = now()
 		FROM delivered
 		WHERE j.id=delivered.id AND j.status='processing' AND j.claim_token=$5::uuid AND j.lease_expires_at>clock_timestamp()
-	`, jobID, code, maxAttempts, retryAfter.Seconds(), claimValue(claim))
+	`, jobID, code, maxAttempts, retryAfter.Seconds(), claim)
 	if err != nil {
 		return fmt.Errorf("conversation: fail job: %w", err)
 	}
@@ -512,7 +535,7 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context, policies ...domain.Recovery
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='processing' AND j.lease_expires_at<=clock_timestamp()) ORDER BY c.id LIMIT 100 FOR UPDATE OF c SKIP LOCKED`)
+	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='processing' AND NOT j.delivery_continuation AND j.lease_expires_at<=clock_timestamp()) ORDER BY c.id LIMIT 100 FOR UPDATE OF c SKIP LOCKED`)
 	if err != nil {
 		return err
 	}
@@ -531,41 +554,39 @@ func (r *Repo) RecoverStaleJobs(ctx context.Context, policies ...domain.Recovery
 		return err
 	}
 	encoded, _ := json.Marshal(ids)
-	_, err = tx.Exec(ctx, `WITH expired AS MATERIALIZED (
- SELECT j.id, EXISTS (
-  SELECT 1 FROM ai_audit_runs r WHERE r.job_id=j.id AND r.bot_id=m.bot_id AND r.conversation_id=m.conversation_id
-   AND r.operation_id='job:'||j.id::text||':claim:'||j.claim_token::text
-   AND (r.error_code=$4 OR EXISTS (SELECT 1 FROM ai_audit_events e
-    WHERE e.run_id=r.id AND e.stage IN ('worker.process','intent.decision','agent.generation')
-     AND e.status='failed' AND e.error_code=$4)
-    OR EXISTS (SELECT 1 FROM intent_decisions d JOIN intent_decision_snapshots s ON s.decision_id=d.id
-     WHERE d.job_id=j.id AND d.decision='silent' AND d.reason_code=$4
-      AND s.input->>'WorkerAuditRunID'=r.id::text))
- ) AS audit_start_failed
- FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id
- LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id
- WHERE COALESCE(m.conversation_id,p.source_conversation_id) IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
- AND j.status='processing' AND j.lease_expires_at<=clock_timestamp() FOR UPDATE OF j
- ),cancelled AS (
- UPDATE agent_outbound_messages o SET status='cancelled',
- error_code=CASE WHEN EXISTS (SELECT 1 FROM agent_run_budgets b WHERE b.job_id=o.job_id AND b.reserved_messages >= (SELECT count(*) FROM agent_outbound_messages q WHERE q.job_id=o.job_id AND q.status='prepared') AND b.reserved_chars >= (SELECT COALESCE(sum(q.charge_chars),0) FROM agent_outbound_messages q WHERE q.job_id=o.job_id AND q.status='prepared')) THEN 'lease_expired_prepared_refunded' ELSE 'lease_expired' END,
- updated_at=clock_timestamp()
- WHERE o.job_id IN(SELECT id FROM expired) AND o.status='prepared' RETURNING job_id,charge_chars chars
- ),refund AS (SELECT job_id,count(*) messages,sum(chars) chars FROM cancelled GROUP BY job_id),budgets AS (
- UPDATE agent_run_budgets b SET reserved_messages=GREATEST(0,reserved_messages-r.messages),reserved_chars=GREATEST(0,reserved_chars-r.chars),updated_at=clock_timestamp()
- FROM refund r WHERE b.job_id=r.job_id
- ),uncertain AS (
- UPDATE agent_outbound_messages o SET status='unknown',error_code='lease_expired',updated_at=clock_timestamp()
- WHERE o.job_id IN(SELECT id FROM expired) AND o.status='sending' RETURNING job_id
- ),outcomes AS (
- SELECT e.id,e.audit_start_failed,EXISTS(SELECT 1 FROM agent_outbound_messages o
-  WHERE o.job_id=e.id AND o.status IN('sent','unknown','sending','failed')) AS partial
- FROM expired e
- ) UPDATE message_jobs j SET
- status=CASE WHEN o.partial OR o.audit_start_failed OR j.delivery_outcome='blocked' OR j.attempts+1>=$2 THEN 'failed' ELSE 'pending' END,
- last_error_code=CASE WHEN o.partial THEN 'partial' WHEN o.audit_start_failed THEN $4 ELSE 'lease_expired' END,
- attempts=j.attempts+1,next_run_at=clock_timestamp()+make_interval(secs=>$3),claim_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp()
- FROM outcomes o WHERE j.id=o.id`, encoded, policy.MaxAttempts, policy.RetryBackoff.Seconds(), audit.ModelMediaStartFailureCode)
+	rows, err = tx.Query(ctx, `SELECT j.id FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id
+ WHERE COALESCE(m.conversation_id,p.source_conversation_id) IN (SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
+ AND j.status='processing' AND NOT j.delivery_continuation AND j.lease_expires_at<=clock_timestamp() ORDER BY j.id FOR UPDATE OF j`, encoded)
+	if err != nil {
+		return err
+	}
+	jobs := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		jobs = append(jobs, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		return tx.Commit(ctx)
+	}
+	encoded, _ = json.Marshal(jobs)
+	if _, err := tx.Exec(ctx, `SELECT id FROM agent_outbound_messages WHERE job_id IN (
+ SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb)) AND status IN ('prepared','sending','cancelled') ORDER BY id FOR UPDATE`, encoded); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `SELECT job_id FROM agent_run_budgets WHERE job_id IN (
+ SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb)) ORDER BY job_id FOR UPDATE`, encoded); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, recoverExpiredJobsSQL, encoded, policy.MaxAttempts, policy.RetryBackoff.Seconds(), audit.ModelMediaStartFailureCode)
 	if err != nil {
 		return err
 	}

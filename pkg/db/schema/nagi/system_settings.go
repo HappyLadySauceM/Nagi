@@ -6,6 +6,7 @@ import (
 	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema"
 	"entgo.io/ent/schema/field"
+	"github.com/google/uuid"
 	"time"
 )
 
@@ -13,6 +14,8 @@ type SystemSetting struct{ ent.Schema }
 
 func (SystemSetting) Fields() []ent.Field {
 	return []ent.Field{
+		field.UUID("send_permit_instance", uuid.UUID{}).Default(uuid.New).Annotations(entsql.DefaultExpr("gen_random_uuid()")),
+		field.JSON("send_permit_generations", map[string]string{}).Default(map[string]string{}).Annotations(entsql.DefaultExpr("'{}'::jsonb")),
 		field.Int("id").SchemaType(map[string]string{"postgres": "smallint"}),
 		field.JSON("payload", json.RawMessage{}),
 		field.Int64("version").SchemaType(map[string]string{"postgres": "bigint"}).Annotations(entsql.DefaultExpr("1")).Default(1),

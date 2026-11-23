@@ -414,9 +414,9 @@ func (s *Service) Synthesize(ctx context.Context, text string) (audio []byte, er
 		return s.archiveSynthesis(ctx, auditEvent, audio)
 	}
 	payload, _ := json.Marshal(map[string]string{"model": resolved.Profile.Model, "voice": resolved.Profile.Voice, "input": text, "response_format": "mp3"})
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(resolved.Profile.TimeoutSeconds)*time.Second)
+	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(resolved.Profile.TimeoutSeconds)*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "POST", resolved.Profile.BaseURL+"/audio/speech", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(requestCtx, "POST", resolved.Profile.BaseURL+"/audio/speech", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("invalid TTS endpoint")
 	}

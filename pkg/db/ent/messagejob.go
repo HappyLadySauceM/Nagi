@@ -48,6 +48,8 @@ type MessageJob struct {
 	DeliveryReason string `json:"delivery_reason,omitempty"`
 	// DeniedCount holds the value of the "denied_count" field.
 	DeniedCount int `json:"denied_count,omitempty"`
+	// DeliveryContinuation holds the value of the "delivery_continuation" field.
+	DeliveryContinuation bool `json:"delivery_continuation,omitempty"`
 	// ClaimToken holds the value of the "claim_token" field.
 	ClaimToken *uuid.UUID `json:"claim_token,omitempty"`
 	// LeaseExpiresAt holds the value of the "lease_expires_at" field.
@@ -131,6 +133,8 @@ func (*MessageJob) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case messagejob.FieldConsentProposalID, messagejob.FieldClaimToken:
 			values[i] = &sql.NullScanner{S: new(uuid.UUID)}
+		case messagejob.FieldDeliveryContinuation:
+			values[i] = new(sql.NullBool)
 		case messagejob.FieldID, messagejob.FieldIncomingMessageID, messagejob.FieldAttempts, messagejob.FieldDeniedCount:
 			values[i] = new(sql.NullInt64)
 		case messagejob.FieldIncomingDirection, messagejob.FieldSourceKind, messagejob.FieldStatus, messagejob.FieldLastErrorCode, messagejob.FieldTraceparent, messagejob.FieldTracestate, messagejob.FieldDeliveryOutcome, messagejob.FieldDeliveryReason:
@@ -244,6 +248,12 @@ func (_m *MessageJob) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field denied_count", values[i])
 			} else if value.Valid {
 				_m.DeniedCount = int(value.Int64)
+			}
+		case messagejob.FieldDeliveryContinuation:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field delivery_continuation", values[i])
+			} else if value.Valid {
+				_m.DeliveryContinuation = value.Bool
 			}
 		case messagejob.FieldClaimToken:
 			if value, ok := values[i].(*sql.NullScanner); !ok {
@@ -367,6 +377,9 @@ func (_m *MessageJob) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("denied_count=")
 	builder.WriteString(fmt.Sprintf("%v", _m.DeniedCount))
+	builder.WriteString(", ")
+	builder.WriteString("delivery_continuation=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DeliveryContinuation))
 	builder.WriteString(", ")
 	if v := _m.ClaimToken; v != nil {
 		builder.WriteString("claim_token=")

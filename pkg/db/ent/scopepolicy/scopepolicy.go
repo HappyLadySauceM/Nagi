@@ -8,6 +8,7 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/google/uuid"
 )
 
 const (
@@ -15,6 +16,10 @@ const (
 	Label = "scope_policy"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldSendPermitInstance holds the string denoting the send_permit_instance field in the database.
+	FieldSendPermitInstance = "send_permit_instance"
+	// FieldSendPermitGenerations holds the string denoting the send_permit_generations field in the database.
+	FieldSendPermitGenerations = "send_permit_generations"
 	// FieldBotID holds the string denoting the bot_id field in the database.
 	FieldBotID = "bot_id"
 	// FieldScopeType holds the string denoting the scope_type field in the database.
@@ -73,6 +78,8 @@ const (
 // Columns holds all SQL columns for scopepolicy fields.
 var Columns = []string{
 	FieldID,
+	FieldSendPermitInstance,
+	FieldSendPermitGenerations,
 	FieldBotID,
 	FieldScopeType,
 	FieldScopeID,
@@ -106,6 +113,10 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// DefaultSendPermitInstance holds the default value on creation for the "send_permit_instance" field.
+	DefaultSendPermitInstance func() uuid.UUID
+	// DefaultSendPermitGenerations holds the default value on creation for the "send_permit_generations" field.
+	DefaultSendPermitGenerations map[string]string
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
 	// DefaultReplyMode holds the default value on creation for the "reply_mode" field.
@@ -144,6 +155,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// BySendPermitInstance orders the results by the send_permit_instance field.
+func BySendPermitInstance(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSendPermitInstance, opts...).ToFunc()
 }
 
 // ByBotID orders the results by the bot_id field.

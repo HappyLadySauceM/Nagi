@@ -23,6 +23,10 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopic"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicinput"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroute"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
@@ -45,6 +49,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/sendscopeselection"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 	"github.com/google/uuid"
 )
@@ -69,6 +74,10 @@ const (
 	TypeContact                       = "Contact"
 	TypeConversation                  = "Conversation"
 	TypeGroupMember                   = "GroupMember"
+	TypeGroupTopic                    = "GroupTopic"
+	TypeGroupTopicInput               = "GroupTopicInput"
+	TypeGroupTopicRoute               = "GroupTopicRoute"
+	TypeGroupTopicRouteCandidate      = "GroupTopicRouteCandidate"
 	TypeInboundAttachment             = "InboundAttachment"
 	TypeIntentDecision                = "IntentDecision"
 	TypeIntentDecisionSnapshot        = "IntentDecisionSnapshot"
@@ -90,6 +99,7 @@ const (
 	TypeQQGroup                       = "QQGroup"
 	TypeScopeMemoryAuthorizationEvent = "ScopeMemoryAuthorizationEvent"
 	TypeScopePolicy                   = "ScopePolicy"
+	TypeSendScopeSelection            = "SendScopeSelection"
 	TypeSystemSetting                 = "SystemSetting"
 )
 
@@ -4113,6 +4123,12 @@ type AgentOutboundMessageMutation struct {
 	platform_message_id         *int64
 	addplatform_message_id      *int64
 	error_code                  *string
+	resume_digest               *string
+	memory_dependencies         *[]map[string]interface{}
+	appendmemory_dependencies   []map[string]interface{}
+	send_permit                 *[]map[string]interface{}
+	appendsend_permit           []map[string]interface{}
+	resume_result               *map[string]interface{}
 	created_at                  *time.Time
 	updated_at                  *time.Time
 	claim_token                 *uuid.UUID
@@ -4895,6 +4911,234 @@ func (m *AgentOutboundMessageMutation) ResetErrorCode() {
 	delete(m.clearedFields, agentoutboundmessage.FieldErrorCode)
 }
 
+// SetResumeDigest sets the "resume_digest" field.
+func (m *AgentOutboundMessageMutation) SetResumeDigest(s string) {
+	m.resume_digest = &s
+}
+
+// ResumeDigest returns the value of the "resume_digest" field in the mutation.
+func (m *AgentOutboundMessageMutation) ResumeDigest() (r string, exists bool) {
+	v := m.resume_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResumeDigest returns the old "resume_digest" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldResumeDigest(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResumeDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResumeDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResumeDigest: %w", err)
+	}
+	return oldValue.ResumeDigest, nil
+}
+
+// ClearResumeDigest clears the value of the "resume_digest" field.
+func (m *AgentOutboundMessageMutation) ClearResumeDigest() {
+	m.resume_digest = nil
+	m.clearedFields[agentoutboundmessage.FieldResumeDigest] = struct{}{}
+}
+
+// ResumeDigestCleared returns if the "resume_digest" field was cleared in this mutation.
+func (m *AgentOutboundMessageMutation) ResumeDigestCleared() bool {
+	_, ok := m.clearedFields[agentoutboundmessage.FieldResumeDigest]
+	return ok
+}
+
+// ResetResumeDigest resets all changes to the "resume_digest" field.
+func (m *AgentOutboundMessageMutation) ResetResumeDigest() {
+	m.resume_digest = nil
+	delete(m.clearedFields, agentoutboundmessage.FieldResumeDigest)
+}
+
+// SetMemoryDependencies sets the "memory_dependencies" field.
+func (m *AgentOutboundMessageMutation) SetMemoryDependencies(value []map[string]interface{}) {
+	m.memory_dependencies = &value
+	m.appendmemory_dependencies = nil
+}
+
+// MemoryDependencies returns the value of the "memory_dependencies" field in the mutation.
+func (m *AgentOutboundMessageMutation) MemoryDependencies() (r []map[string]interface{}, exists bool) {
+	v := m.memory_dependencies
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMemoryDependencies returns the old "memory_dependencies" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldMemoryDependencies(ctx context.Context) (v []map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMemoryDependencies is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMemoryDependencies requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMemoryDependencies: %w", err)
+	}
+	return oldValue.MemoryDependencies, nil
+}
+
+// AppendMemoryDependencies adds value to the "memory_dependencies" field.
+func (m *AgentOutboundMessageMutation) AppendMemoryDependencies(value []map[string]interface{}) {
+	m.appendmemory_dependencies = append(m.appendmemory_dependencies, value...)
+}
+
+// AppendedMemoryDependencies returns the list of values that were appended to the "memory_dependencies" field in this mutation.
+func (m *AgentOutboundMessageMutation) AppendedMemoryDependencies() ([]map[string]interface{}, bool) {
+	if len(m.appendmemory_dependencies) == 0 {
+		return nil, false
+	}
+	return m.appendmemory_dependencies, true
+}
+
+// ClearMemoryDependencies clears the value of the "memory_dependencies" field.
+func (m *AgentOutboundMessageMutation) ClearMemoryDependencies() {
+	m.memory_dependencies = nil
+	m.appendmemory_dependencies = nil
+	m.clearedFields[agentoutboundmessage.FieldMemoryDependencies] = struct{}{}
+}
+
+// MemoryDependenciesCleared returns if the "memory_dependencies" field was cleared in this mutation.
+func (m *AgentOutboundMessageMutation) MemoryDependenciesCleared() bool {
+	_, ok := m.clearedFields[agentoutboundmessage.FieldMemoryDependencies]
+	return ok
+}
+
+// ResetMemoryDependencies resets all changes to the "memory_dependencies" field.
+func (m *AgentOutboundMessageMutation) ResetMemoryDependencies() {
+	m.memory_dependencies = nil
+	m.appendmemory_dependencies = nil
+	delete(m.clearedFields, agentoutboundmessage.FieldMemoryDependencies)
+}
+
+// SetSendPermit sets the "send_permit" field.
+func (m *AgentOutboundMessageMutation) SetSendPermit(value []map[string]interface{}) {
+	m.send_permit = &value
+	m.appendsend_permit = nil
+}
+
+// SendPermit returns the value of the "send_permit" field in the mutation.
+func (m *AgentOutboundMessageMutation) SendPermit() (r []map[string]interface{}, exists bool) {
+	v := m.send_permit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSendPermit returns the old "send_permit" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldSendPermit(ctx context.Context) (v []map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSendPermit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSendPermit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSendPermit: %w", err)
+	}
+	return oldValue.SendPermit, nil
+}
+
+// AppendSendPermit adds value to the "send_permit" field.
+func (m *AgentOutboundMessageMutation) AppendSendPermit(value []map[string]interface{}) {
+	m.appendsend_permit = append(m.appendsend_permit, value...)
+}
+
+// AppendedSendPermit returns the list of values that were appended to the "send_permit" field in this mutation.
+func (m *AgentOutboundMessageMutation) AppendedSendPermit() ([]map[string]interface{}, bool) {
+	if len(m.appendsend_permit) == 0 {
+		return nil, false
+	}
+	return m.appendsend_permit, true
+}
+
+// ClearSendPermit clears the value of the "send_permit" field.
+func (m *AgentOutboundMessageMutation) ClearSendPermit() {
+	m.send_permit = nil
+	m.appendsend_permit = nil
+	m.clearedFields[agentoutboundmessage.FieldSendPermit] = struct{}{}
+}
+
+// SendPermitCleared returns if the "send_permit" field was cleared in this mutation.
+func (m *AgentOutboundMessageMutation) SendPermitCleared() bool {
+	_, ok := m.clearedFields[agentoutboundmessage.FieldSendPermit]
+	return ok
+}
+
+// ResetSendPermit resets all changes to the "send_permit" field.
+func (m *AgentOutboundMessageMutation) ResetSendPermit() {
+	m.send_permit = nil
+	m.appendsend_permit = nil
+	delete(m.clearedFields, agentoutboundmessage.FieldSendPermit)
+}
+
+// SetResumeResult sets the "resume_result" field.
+func (m *AgentOutboundMessageMutation) SetResumeResult(value map[string]interface{}) {
+	m.resume_result = &value
+}
+
+// ResumeResult returns the value of the "resume_result" field in the mutation.
+func (m *AgentOutboundMessageMutation) ResumeResult() (r map[string]interface{}, exists bool) {
+	v := m.resume_result
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResumeResult returns the old "resume_result" field's value of the AgentOutboundMessage entity.
+// If the AgentOutboundMessage object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AgentOutboundMessageMutation) OldResumeResult(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResumeResult is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResumeResult requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResumeResult: %w", err)
+	}
+	return oldValue.ResumeResult, nil
+}
+
+// ClearResumeResult clears the value of the "resume_result" field.
+func (m *AgentOutboundMessageMutation) ClearResumeResult() {
+	m.resume_result = nil
+	m.clearedFields[agentoutboundmessage.FieldResumeResult] = struct{}{}
+}
+
+// ResumeResultCleared returns if the "resume_result" field was cleared in this mutation.
+func (m *AgentOutboundMessageMutation) ResumeResultCleared() bool {
+	_, ok := m.clearedFields[agentoutboundmessage.FieldResumeResult]
+	return ok
+}
+
+// ResetResumeResult resets all changes to the "resume_result" field.
+func (m *AgentOutboundMessageMutation) ResetResumeResult() {
+	m.resume_result = nil
+	delete(m.clearedFields, agentoutboundmessage.FieldResumeResult)
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *AgentOutboundMessageMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -5211,7 +5455,7 @@ func (m *AgentOutboundMessageMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AgentOutboundMessageMutation) Fields() []string {
-	fields := make([]string, 0, 18)
+	fields := make([]string, 0, 22)
 	if m.job_id_ref != nil {
 		fields = append(fields, agentoutboundmessage.FieldJobID)
 	}
@@ -5256,6 +5500,18 @@ func (m *AgentOutboundMessageMutation) Fields() []string {
 	}
 	if m.error_code != nil {
 		fields = append(fields, agentoutboundmessage.FieldErrorCode)
+	}
+	if m.resume_digest != nil {
+		fields = append(fields, agentoutboundmessage.FieldResumeDigest)
+	}
+	if m.memory_dependencies != nil {
+		fields = append(fields, agentoutboundmessage.FieldMemoryDependencies)
+	}
+	if m.send_permit != nil {
+		fields = append(fields, agentoutboundmessage.FieldSendPermit)
+	}
+	if m.resume_result != nil {
+		fields = append(fields, agentoutboundmessage.FieldResumeResult)
 	}
 	if m.created_at != nil {
 		fields = append(fields, agentoutboundmessage.FieldCreatedAt)
@@ -5304,6 +5560,14 @@ func (m *AgentOutboundMessageMutation) Field(name string) (ent.Value, bool) {
 		return m.PlatformMessageID()
 	case agentoutboundmessage.FieldErrorCode:
 		return m.ErrorCode()
+	case agentoutboundmessage.FieldResumeDigest:
+		return m.ResumeDigest()
+	case agentoutboundmessage.FieldMemoryDependencies:
+		return m.MemoryDependencies()
+	case agentoutboundmessage.FieldSendPermit:
+		return m.SendPermit()
+	case agentoutboundmessage.FieldResumeResult:
+		return m.ResumeResult()
 	case agentoutboundmessage.FieldCreatedAt:
 		return m.CreatedAt()
 	case agentoutboundmessage.FieldUpdatedAt:
@@ -5349,6 +5613,14 @@ func (m *AgentOutboundMessageMutation) OldField(ctx context.Context, name string
 		return m.OldPlatformMessageID(ctx)
 	case agentoutboundmessage.FieldErrorCode:
 		return m.OldErrorCode(ctx)
+	case agentoutboundmessage.FieldResumeDigest:
+		return m.OldResumeDigest(ctx)
+	case agentoutboundmessage.FieldMemoryDependencies:
+		return m.OldMemoryDependencies(ctx)
+	case agentoutboundmessage.FieldSendPermit:
+		return m.OldSendPermit(ctx)
+	case agentoutboundmessage.FieldResumeResult:
+		return m.OldResumeResult(ctx)
 	case agentoutboundmessage.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case agentoutboundmessage.FieldUpdatedAt:
@@ -5469,6 +5741,34 @@ func (m *AgentOutboundMessageMutation) SetField(name string, value ent.Value) er
 		}
 		m.SetErrorCode(v)
 		return nil
+	case agentoutboundmessage.FieldResumeDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResumeDigest(v)
+		return nil
+	case agentoutboundmessage.FieldMemoryDependencies:
+		v, ok := value.([]map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMemoryDependencies(v)
+		return nil
+	case agentoutboundmessage.FieldSendPermit:
+		v, ok := value.([]map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSendPermit(v)
+		return nil
+	case agentoutboundmessage.FieldResumeResult:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResumeResult(v)
+		return nil
 	case agentoutboundmessage.FieldCreatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -5580,6 +5880,18 @@ func (m *AgentOutboundMessageMutation) ClearedFields() []string {
 	if m.FieldCleared(agentoutboundmessage.FieldErrorCode) {
 		fields = append(fields, agentoutboundmessage.FieldErrorCode)
 	}
+	if m.FieldCleared(agentoutboundmessage.FieldResumeDigest) {
+		fields = append(fields, agentoutboundmessage.FieldResumeDigest)
+	}
+	if m.FieldCleared(agentoutboundmessage.FieldMemoryDependencies) {
+		fields = append(fields, agentoutboundmessage.FieldMemoryDependencies)
+	}
+	if m.FieldCleared(agentoutboundmessage.FieldSendPermit) {
+		fields = append(fields, agentoutboundmessage.FieldSendPermit)
+	}
+	if m.FieldCleared(agentoutboundmessage.FieldResumeResult) {
+		fields = append(fields, agentoutboundmessage.FieldResumeResult)
+	}
 	return fields
 }
 
@@ -5602,6 +5914,18 @@ func (m *AgentOutboundMessageMutation) ClearField(name string) error {
 		return nil
 	case agentoutboundmessage.FieldErrorCode:
 		m.ClearErrorCode()
+		return nil
+	case agentoutboundmessage.FieldResumeDigest:
+		m.ClearResumeDigest()
+		return nil
+	case agentoutboundmessage.FieldMemoryDependencies:
+		m.ClearMemoryDependencies()
+		return nil
+	case agentoutboundmessage.FieldSendPermit:
+		m.ClearSendPermit()
+		return nil
+	case agentoutboundmessage.FieldResumeResult:
+		m.ClearResumeResult()
 		return nil
 	}
 	return fmt.Errorf("unknown AgentOutboundMessage nullable field %s", name)
@@ -5655,6 +5979,18 @@ func (m *AgentOutboundMessageMutation) ResetField(name string) error {
 		return nil
 	case agentoutboundmessage.FieldErrorCode:
 		m.ResetErrorCode()
+		return nil
+	case agentoutboundmessage.FieldResumeDigest:
+		m.ResetResumeDigest()
+		return nil
+	case agentoutboundmessage.FieldMemoryDependencies:
+		m.ResetMemoryDependencies()
+		return nil
+	case agentoutboundmessage.FieldSendPermit:
+		m.ResetSendPermit()
+		return nil
+	case agentoutboundmessage.FieldResumeResult:
+		m.ResetResumeResult()
 		return nil
 	case agentoutboundmessage.FieldCreatedAt:
 		m.ResetCreatedAt()
@@ -11117,6 +11453,2425 @@ func (m *GroupMemberMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown GroupMember edge %s", name)
+}
+
+// GroupTopicMutation represents an operation that mutates the GroupTopic nodes in the graph.
+type GroupTopicMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *int64
+	conversation_id *uuid.UUID
+	version         *int64
+	addversion      *int64
+	expires_at      *time.Time
+	closed          *bool
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*GroupTopic, error)
+	predicates      []predicate.GroupTopic
+}
+
+var _ ent.Mutation = (*GroupTopicMutation)(nil)
+
+// grouptopicOption allows management of the mutation configuration using functional options.
+type grouptopicOption func(*GroupTopicMutation)
+
+// newGroupTopicMutation creates new mutation for the GroupTopic entity.
+func newGroupTopicMutation(c config, op Op, opts ...grouptopicOption) *GroupTopicMutation {
+	m := &GroupTopicMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeGroupTopic,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withGroupTopicID sets the ID field of the mutation.
+func withGroupTopicID(id int64) grouptopicOption {
+	return func(m *GroupTopicMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *GroupTopic
+		)
+		m.oldValue = func(ctx context.Context) (*GroupTopic, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().GroupTopic.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withGroupTopic sets the old GroupTopic of the mutation.
+func withGroupTopic(node *GroupTopic) grouptopicOption {
+	return func(m *GroupTopicMutation) {
+		m.oldValue = func(context.Context) (*GroupTopic, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m GroupTopicMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m GroupTopicMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of GroupTopic entities.
+func (m *GroupTopicMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *GroupTopicMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *GroupTopicMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().GroupTopic.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *GroupTopicMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *GroupTopicMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the GroupTopic entity.
+// If the GroupTopic object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *GroupTopicMutation) ResetConversationID() {
+	m.conversation_id = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *GroupTopicMutation) SetVersion(i int64) {
+	m.version = &i
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *GroupTopicMutation) Version() (r int64, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the GroupTopic entity.
+// If the GroupTopic object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicMutation) OldVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds i to the "version" field.
+func (m *GroupTopicMutation) AddVersion(i int64) {
+	if m.addversion != nil {
+		*m.addversion += i
+	} else {
+		m.addversion = &i
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *GroupTopicMutation) AddedVersion() (r int64, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *GroupTopicMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *GroupTopicMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *GroupTopicMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the GroupTopic entity.
+// If the GroupTopic object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicMutation) OldExpiresAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *GroupTopicMutation) ResetExpiresAt() {
+	m.expires_at = nil
+}
+
+// SetClosed sets the "closed" field.
+func (m *GroupTopicMutation) SetClosed(b bool) {
+	m.closed = &b
+}
+
+// Closed returns the value of the "closed" field in the mutation.
+func (m *GroupTopicMutation) Closed() (r bool, exists bool) {
+	v := m.closed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClosed returns the old "closed" field's value of the GroupTopic entity.
+// If the GroupTopic object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicMutation) OldClosed(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClosed is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClosed requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClosed: %w", err)
+	}
+	return oldValue.Closed, nil
+}
+
+// ResetClosed resets all changes to the "closed" field.
+func (m *GroupTopicMutation) ResetClosed() {
+	m.closed = nil
+}
+
+// Where appends a list predicates to the GroupTopicMutation builder.
+func (m *GroupTopicMutation) Where(ps ...predicate.GroupTopic) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the GroupTopicMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *GroupTopicMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.GroupTopic, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *GroupTopicMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *GroupTopicMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (GroupTopic).
+func (m *GroupTopicMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *GroupTopicMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.conversation_id != nil {
+		fields = append(fields, grouptopic.FieldConversationID)
+	}
+	if m.version != nil {
+		fields = append(fields, grouptopic.FieldVersion)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, grouptopic.FieldExpiresAt)
+	}
+	if m.closed != nil {
+		fields = append(fields, grouptopic.FieldClosed)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *GroupTopicMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case grouptopic.FieldConversationID:
+		return m.ConversationID()
+	case grouptopic.FieldVersion:
+		return m.Version()
+	case grouptopic.FieldExpiresAt:
+		return m.ExpiresAt()
+	case grouptopic.FieldClosed:
+		return m.Closed()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *GroupTopicMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case grouptopic.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case grouptopic.FieldVersion:
+		return m.OldVersion(ctx)
+	case grouptopic.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	case grouptopic.FieldClosed:
+		return m.OldClosed(ctx)
+	}
+	return nil, fmt.Errorf("unknown GroupTopic field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case grouptopic.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case grouptopic.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case grouptopic.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	case grouptopic.FieldClosed:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClosed(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopic field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *GroupTopicMutation) AddedFields() []string {
+	var fields []string
+	if m.addversion != nil {
+		fields = append(fields, grouptopic.FieldVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *GroupTopicMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case grouptopic.FieldVersion:
+		return m.AddedVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case grouptopic.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopic numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *GroupTopicMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *GroupTopicMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *GroupTopicMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown GroupTopic nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *GroupTopicMutation) ResetField(name string) error {
+	switch name {
+	case grouptopic.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case grouptopic.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case grouptopic.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	case grouptopic.FieldClosed:
+		m.ResetClosed()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopic field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *GroupTopicMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *GroupTopicMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *GroupTopicMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *GroupTopicMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *GroupTopicMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *GroupTopicMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *GroupTopicMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopic unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *GroupTopicMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopic edge %s", name)
+}
+
+// GroupTopicInputMutation represents an operation that mutates the GroupTopicInput nodes in the graph.
+type GroupTopicInputMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *uuid.UUID
+	conversation_id *uuid.UUID
+	topic_id        *int64
+	addtopic_id     *int64
+	version         *int64
+	addversion      *int64
+	route_id        *int64
+	addroute_id     *int64
+	action          *string
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*GroupTopicInput, error)
+	predicates      []predicate.GroupTopicInput
+}
+
+var _ ent.Mutation = (*GroupTopicInputMutation)(nil)
+
+// grouptopicinputOption allows management of the mutation configuration using functional options.
+type grouptopicinputOption func(*GroupTopicInputMutation)
+
+// newGroupTopicInputMutation creates new mutation for the GroupTopicInput entity.
+func newGroupTopicInputMutation(c config, op Op, opts ...grouptopicinputOption) *GroupTopicInputMutation {
+	m := &GroupTopicInputMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeGroupTopicInput,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withGroupTopicInputID sets the ID field of the mutation.
+func withGroupTopicInputID(id uuid.UUID) grouptopicinputOption {
+	return func(m *GroupTopicInputMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *GroupTopicInput
+		)
+		m.oldValue = func(ctx context.Context) (*GroupTopicInput, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().GroupTopicInput.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withGroupTopicInput sets the old GroupTopicInput of the mutation.
+func withGroupTopicInput(node *GroupTopicInput) grouptopicinputOption {
+	return func(m *GroupTopicInputMutation) {
+		m.oldValue = func(context.Context) (*GroupTopicInput, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m GroupTopicInputMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m GroupTopicInputMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of GroupTopicInput entities.
+func (m *GroupTopicInputMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *GroupTopicInputMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *GroupTopicInputMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().GroupTopicInput.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *GroupTopicInputMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *GroupTopicInputMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the GroupTopicInput entity.
+// If the GroupTopicInput object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicInputMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *GroupTopicInputMutation) ResetConversationID() {
+	m.conversation_id = nil
+}
+
+// SetTopicID sets the "topic_id" field.
+func (m *GroupTopicInputMutation) SetTopicID(i int64) {
+	m.topic_id = &i
+	m.addtopic_id = nil
+}
+
+// TopicID returns the value of the "topic_id" field in the mutation.
+func (m *GroupTopicInputMutation) TopicID() (r int64, exists bool) {
+	v := m.topic_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTopicID returns the old "topic_id" field's value of the GroupTopicInput entity.
+// If the GroupTopicInput object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicInputMutation) OldTopicID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTopicID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTopicID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTopicID: %w", err)
+	}
+	return oldValue.TopicID, nil
+}
+
+// AddTopicID adds i to the "topic_id" field.
+func (m *GroupTopicInputMutation) AddTopicID(i int64) {
+	if m.addtopic_id != nil {
+		*m.addtopic_id += i
+	} else {
+		m.addtopic_id = &i
+	}
+}
+
+// AddedTopicID returns the value that was added to the "topic_id" field in this mutation.
+func (m *GroupTopicInputMutation) AddedTopicID() (r int64, exists bool) {
+	v := m.addtopic_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTopicID resets all changes to the "topic_id" field.
+func (m *GroupTopicInputMutation) ResetTopicID() {
+	m.topic_id = nil
+	m.addtopic_id = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *GroupTopicInputMutation) SetVersion(i int64) {
+	m.version = &i
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *GroupTopicInputMutation) Version() (r int64, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the GroupTopicInput entity.
+// If the GroupTopicInput object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicInputMutation) OldVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds i to the "version" field.
+func (m *GroupTopicInputMutation) AddVersion(i int64) {
+	if m.addversion != nil {
+		*m.addversion += i
+	} else {
+		m.addversion = &i
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *GroupTopicInputMutation) AddedVersion() (r int64, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *GroupTopicInputMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
+// SetRouteID sets the "route_id" field.
+func (m *GroupTopicInputMutation) SetRouteID(i int64) {
+	m.route_id = &i
+	m.addroute_id = nil
+}
+
+// RouteID returns the value of the "route_id" field in the mutation.
+func (m *GroupTopicInputMutation) RouteID() (r int64, exists bool) {
+	v := m.route_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRouteID returns the old "route_id" field's value of the GroupTopicInput entity.
+// If the GroupTopicInput object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicInputMutation) OldRouteID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRouteID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRouteID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRouteID: %w", err)
+	}
+	return oldValue.RouteID, nil
+}
+
+// AddRouteID adds i to the "route_id" field.
+func (m *GroupTopicInputMutation) AddRouteID(i int64) {
+	if m.addroute_id != nil {
+		*m.addroute_id += i
+	} else {
+		m.addroute_id = &i
+	}
+}
+
+// AddedRouteID returns the value that was added to the "route_id" field in this mutation.
+func (m *GroupTopicInputMutation) AddedRouteID() (r int64, exists bool) {
+	v := m.addroute_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRouteID resets all changes to the "route_id" field.
+func (m *GroupTopicInputMutation) ResetRouteID() {
+	m.route_id = nil
+	m.addroute_id = nil
+}
+
+// SetAction sets the "action" field.
+func (m *GroupTopicInputMutation) SetAction(s string) {
+	m.action = &s
+}
+
+// Action returns the value of the "action" field in the mutation.
+func (m *GroupTopicInputMutation) Action() (r string, exists bool) {
+	v := m.action
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAction returns the old "action" field's value of the GroupTopicInput entity.
+// If the GroupTopicInput object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicInputMutation) OldAction(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAction is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAction requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAction: %w", err)
+	}
+	return oldValue.Action, nil
+}
+
+// ResetAction resets all changes to the "action" field.
+func (m *GroupTopicInputMutation) ResetAction() {
+	m.action = nil
+}
+
+// Where appends a list predicates to the GroupTopicInputMutation builder.
+func (m *GroupTopicInputMutation) Where(ps ...predicate.GroupTopicInput) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the GroupTopicInputMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *GroupTopicInputMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.GroupTopicInput, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *GroupTopicInputMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *GroupTopicInputMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (GroupTopicInput).
+func (m *GroupTopicInputMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *GroupTopicInputMutation) Fields() []string {
+	fields := make([]string, 0, 5)
+	if m.conversation_id != nil {
+		fields = append(fields, grouptopicinput.FieldConversationID)
+	}
+	if m.topic_id != nil {
+		fields = append(fields, grouptopicinput.FieldTopicID)
+	}
+	if m.version != nil {
+		fields = append(fields, grouptopicinput.FieldVersion)
+	}
+	if m.route_id != nil {
+		fields = append(fields, grouptopicinput.FieldRouteID)
+	}
+	if m.action != nil {
+		fields = append(fields, grouptopicinput.FieldAction)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *GroupTopicInputMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case grouptopicinput.FieldConversationID:
+		return m.ConversationID()
+	case grouptopicinput.FieldTopicID:
+		return m.TopicID()
+	case grouptopicinput.FieldVersion:
+		return m.Version()
+	case grouptopicinput.FieldRouteID:
+		return m.RouteID()
+	case grouptopicinput.FieldAction:
+		return m.Action()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *GroupTopicInputMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case grouptopicinput.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case grouptopicinput.FieldTopicID:
+		return m.OldTopicID(ctx)
+	case grouptopicinput.FieldVersion:
+		return m.OldVersion(ctx)
+	case grouptopicinput.FieldRouteID:
+		return m.OldRouteID(ctx)
+	case grouptopicinput.FieldAction:
+		return m.OldAction(ctx)
+	}
+	return nil, fmt.Errorf("unknown GroupTopicInput field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicInputMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case grouptopicinput.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case grouptopicinput.FieldTopicID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTopicID(v)
+		return nil
+	case grouptopicinput.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case grouptopicinput.FieldRouteID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRouteID(v)
+		return nil
+	case grouptopicinput.FieldAction:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAction(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicInput field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *GroupTopicInputMutation) AddedFields() []string {
+	var fields []string
+	if m.addtopic_id != nil {
+		fields = append(fields, grouptopicinput.FieldTopicID)
+	}
+	if m.addversion != nil {
+		fields = append(fields, grouptopicinput.FieldVersion)
+	}
+	if m.addroute_id != nil {
+		fields = append(fields, grouptopicinput.FieldRouteID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *GroupTopicInputMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case grouptopicinput.FieldTopicID:
+		return m.AddedTopicID()
+	case grouptopicinput.FieldVersion:
+		return m.AddedVersion()
+	case grouptopicinput.FieldRouteID:
+		return m.AddedRouteID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicInputMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case grouptopicinput.FieldTopicID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTopicID(v)
+		return nil
+	case grouptopicinput.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
+	case grouptopicinput.FieldRouteID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRouteID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicInput numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *GroupTopicInputMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *GroupTopicInputMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *GroupTopicInputMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown GroupTopicInput nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *GroupTopicInputMutation) ResetField(name string) error {
+	switch name {
+	case grouptopicinput.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case grouptopicinput.FieldTopicID:
+		m.ResetTopicID()
+		return nil
+	case grouptopicinput.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case grouptopicinput.FieldRouteID:
+		m.ResetRouteID()
+		return nil
+	case grouptopicinput.FieldAction:
+		m.ResetAction()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicInput field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *GroupTopicInputMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *GroupTopicInputMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *GroupTopicInputMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *GroupTopicInputMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *GroupTopicInputMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *GroupTopicInputMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *GroupTopicInputMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopicInput unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *GroupTopicInputMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopicInput edge %s", name)
+}
+
+// GroupTopicRouteMutation represents an operation that mutates the GroupTopicRoute nodes in the graph.
+type GroupTopicRouteMutation struct {
+	config
+	op                Op
+	typ               string
+	id                *int64
+	conversation_id   *uuid.UUID
+	message_direction *string
+	deadline          *time.Time
+	claim_token       *uuid.UUID
+	lease_expires_at  *time.Time
+	status            *string
+	clearedFields     map[string]struct{}
+	done              bool
+	oldValue          func(context.Context) (*GroupTopicRoute, error)
+	predicates        []predicate.GroupTopicRoute
+}
+
+var _ ent.Mutation = (*GroupTopicRouteMutation)(nil)
+
+// grouptopicrouteOption allows management of the mutation configuration using functional options.
+type grouptopicrouteOption func(*GroupTopicRouteMutation)
+
+// newGroupTopicRouteMutation creates new mutation for the GroupTopicRoute entity.
+func newGroupTopicRouteMutation(c config, op Op, opts ...grouptopicrouteOption) *GroupTopicRouteMutation {
+	m := &GroupTopicRouteMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeGroupTopicRoute,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withGroupTopicRouteID sets the ID field of the mutation.
+func withGroupTopicRouteID(id int64) grouptopicrouteOption {
+	return func(m *GroupTopicRouteMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *GroupTopicRoute
+		)
+		m.oldValue = func(ctx context.Context) (*GroupTopicRoute, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().GroupTopicRoute.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withGroupTopicRoute sets the old GroupTopicRoute of the mutation.
+func withGroupTopicRoute(node *GroupTopicRoute) grouptopicrouteOption {
+	return func(m *GroupTopicRouteMutation) {
+		m.oldValue = func(context.Context) (*GroupTopicRoute, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m GroupTopicRouteMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m GroupTopicRouteMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of GroupTopicRoute entities.
+func (m *GroupTopicRouteMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *GroupTopicRouteMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *GroupTopicRouteMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().GroupTopicRoute.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *GroupTopicRouteMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *GroupTopicRouteMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the GroupTopicRoute entity.
+// If the GroupTopicRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *GroupTopicRouteMutation) ResetConversationID() {
+	m.conversation_id = nil
+}
+
+// SetMessageDirection sets the "message_direction" field.
+func (m *GroupTopicRouteMutation) SetMessageDirection(s string) {
+	m.message_direction = &s
+}
+
+// MessageDirection returns the value of the "message_direction" field in the mutation.
+func (m *GroupTopicRouteMutation) MessageDirection() (r string, exists bool) {
+	v := m.message_direction
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMessageDirection returns the old "message_direction" field's value of the GroupTopicRoute entity.
+// If the GroupTopicRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteMutation) OldMessageDirection(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMessageDirection is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMessageDirection requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMessageDirection: %w", err)
+	}
+	return oldValue.MessageDirection, nil
+}
+
+// ResetMessageDirection resets all changes to the "message_direction" field.
+func (m *GroupTopicRouteMutation) ResetMessageDirection() {
+	m.message_direction = nil
+}
+
+// SetDeadline sets the "deadline" field.
+func (m *GroupTopicRouteMutation) SetDeadline(t time.Time) {
+	m.deadline = &t
+}
+
+// Deadline returns the value of the "deadline" field in the mutation.
+func (m *GroupTopicRouteMutation) Deadline() (r time.Time, exists bool) {
+	v := m.deadline
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeadline returns the old "deadline" field's value of the GroupTopicRoute entity.
+// If the GroupTopicRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteMutation) OldDeadline(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeadline is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeadline requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeadline: %w", err)
+	}
+	return oldValue.Deadline, nil
+}
+
+// ResetDeadline resets all changes to the "deadline" field.
+func (m *GroupTopicRouteMutation) ResetDeadline() {
+	m.deadline = nil
+}
+
+// SetClaimToken sets the "claim_token" field.
+func (m *GroupTopicRouteMutation) SetClaimToken(u uuid.UUID) {
+	m.claim_token = &u
+}
+
+// ClaimToken returns the value of the "claim_token" field in the mutation.
+func (m *GroupTopicRouteMutation) ClaimToken() (r uuid.UUID, exists bool) {
+	v := m.claim_token
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClaimToken returns the old "claim_token" field's value of the GroupTopicRoute entity.
+// If the GroupTopicRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteMutation) OldClaimToken(ctx context.Context) (v *uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClaimToken is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClaimToken requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClaimToken: %w", err)
+	}
+	return oldValue.ClaimToken, nil
+}
+
+// ClearClaimToken clears the value of the "claim_token" field.
+func (m *GroupTopicRouteMutation) ClearClaimToken() {
+	m.claim_token = nil
+	m.clearedFields[grouptopicroute.FieldClaimToken] = struct{}{}
+}
+
+// ClaimTokenCleared returns if the "claim_token" field was cleared in this mutation.
+func (m *GroupTopicRouteMutation) ClaimTokenCleared() bool {
+	_, ok := m.clearedFields[grouptopicroute.FieldClaimToken]
+	return ok
+}
+
+// ResetClaimToken resets all changes to the "claim_token" field.
+func (m *GroupTopicRouteMutation) ResetClaimToken() {
+	m.claim_token = nil
+	delete(m.clearedFields, grouptopicroute.FieldClaimToken)
+}
+
+// SetLeaseExpiresAt sets the "lease_expires_at" field.
+func (m *GroupTopicRouteMutation) SetLeaseExpiresAt(t time.Time) {
+	m.lease_expires_at = &t
+}
+
+// LeaseExpiresAt returns the value of the "lease_expires_at" field in the mutation.
+func (m *GroupTopicRouteMutation) LeaseExpiresAt() (r time.Time, exists bool) {
+	v := m.lease_expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLeaseExpiresAt returns the old "lease_expires_at" field's value of the GroupTopicRoute entity.
+// If the GroupTopicRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteMutation) OldLeaseExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLeaseExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLeaseExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLeaseExpiresAt: %w", err)
+	}
+	return oldValue.LeaseExpiresAt, nil
+}
+
+// ClearLeaseExpiresAt clears the value of the "lease_expires_at" field.
+func (m *GroupTopicRouteMutation) ClearLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	m.clearedFields[grouptopicroute.FieldLeaseExpiresAt] = struct{}{}
+}
+
+// LeaseExpiresAtCleared returns if the "lease_expires_at" field was cleared in this mutation.
+func (m *GroupTopicRouteMutation) LeaseExpiresAtCleared() bool {
+	_, ok := m.clearedFields[grouptopicroute.FieldLeaseExpiresAt]
+	return ok
+}
+
+// ResetLeaseExpiresAt resets all changes to the "lease_expires_at" field.
+func (m *GroupTopicRouteMutation) ResetLeaseExpiresAt() {
+	m.lease_expires_at = nil
+	delete(m.clearedFields, grouptopicroute.FieldLeaseExpiresAt)
+}
+
+// SetStatus sets the "status" field.
+func (m *GroupTopicRouteMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *GroupTopicRouteMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the GroupTopicRoute entity.
+// If the GroupTopicRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *GroupTopicRouteMutation) ResetStatus() {
+	m.status = nil
+}
+
+// Where appends a list predicates to the GroupTopicRouteMutation builder.
+func (m *GroupTopicRouteMutation) Where(ps ...predicate.GroupTopicRoute) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the GroupTopicRouteMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *GroupTopicRouteMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.GroupTopicRoute, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *GroupTopicRouteMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *GroupTopicRouteMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (GroupTopicRoute).
+func (m *GroupTopicRouteMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *GroupTopicRouteMutation) Fields() []string {
+	fields := make([]string, 0, 6)
+	if m.conversation_id != nil {
+		fields = append(fields, grouptopicroute.FieldConversationID)
+	}
+	if m.message_direction != nil {
+		fields = append(fields, grouptopicroute.FieldMessageDirection)
+	}
+	if m.deadline != nil {
+		fields = append(fields, grouptopicroute.FieldDeadline)
+	}
+	if m.claim_token != nil {
+		fields = append(fields, grouptopicroute.FieldClaimToken)
+	}
+	if m.lease_expires_at != nil {
+		fields = append(fields, grouptopicroute.FieldLeaseExpiresAt)
+	}
+	if m.status != nil {
+		fields = append(fields, grouptopicroute.FieldStatus)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *GroupTopicRouteMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case grouptopicroute.FieldConversationID:
+		return m.ConversationID()
+	case grouptopicroute.FieldMessageDirection:
+		return m.MessageDirection()
+	case grouptopicroute.FieldDeadline:
+		return m.Deadline()
+	case grouptopicroute.FieldClaimToken:
+		return m.ClaimToken()
+	case grouptopicroute.FieldLeaseExpiresAt:
+		return m.LeaseExpiresAt()
+	case grouptopicroute.FieldStatus:
+		return m.Status()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *GroupTopicRouteMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case grouptopicroute.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case grouptopicroute.FieldMessageDirection:
+		return m.OldMessageDirection(ctx)
+	case grouptopicroute.FieldDeadline:
+		return m.OldDeadline(ctx)
+	case grouptopicroute.FieldClaimToken:
+		return m.OldClaimToken(ctx)
+	case grouptopicroute.FieldLeaseExpiresAt:
+		return m.OldLeaseExpiresAt(ctx)
+	case grouptopicroute.FieldStatus:
+		return m.OldStatus(ctx)
+	}
+	return nil, fmt.Errorf("unknown GroupTopicRoute field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicRouteMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case grouptopicroute.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case grouptopicroute.FieldMessageDirection:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMessageDirection(v)
+		return nil
+	case grouptopicroute.FieldDeadline:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeadline(v)
+		return nil
+	case grouptopicroute.FieldClaimToken:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClaimToken(v)
+		return nil
+	case grouptopicroute.FieldLeaseExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLeaseExpiresAt(v)
+		return nil
+	case grouptopicroute.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicRoute field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *GroupTopicRouteMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *GroupTopicRouteMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicRouteMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown GroupTopicRoute numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *GroupTopicRouteMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(grouptopicroute.FieldClaimToken) {
+		fields = append(fields, grouptopicroute.FieldClaimToken)
+	}
+	if m.FieldCleared(grouptopicroute.FieldLeaseExpiresAt) {
+		fields = append(fields, grouptopicroute.FieldLeaseExpiresAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *GroupTopicRouteMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *GroupTopicRouteMutation) ClearField(name string) error {
+	switch name {
+	case grouptopicroute.FieldClaimToken:
+		m.ClearClaimToken()
+		return nil
+	case grouptopicroute.FieldLeaseExpiresAt:
+		m.ClearLeaseExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicRoute nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *GroupTopicRouteMutation) ResetField(name string) error {
+	switch name {
+	case grouptopicroute.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case grouptopicroute.FieldMessageDirection:
+		m.ResetMessageDirection()
+		return nil
+	case grouptopicroute.FieldDeadline:
+		m.ResetDeadline()
+		return nil
+	case grouptopicroute.FieldClaimToken:
+		m.ResetClaimToken()
+		return nil
+	case grouptopicroute.FieldLeaseExpiresAt:
+		m.ResetLeaseExpiresAt()
+		return nil
+	case grouptopicroute.FieldStatus:
+		m.ResetStatus()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicRoute field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *GroupTopicRouteMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *GroupTopicRouteMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *GroupTopicRouteMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *GroupTopicRouteMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *GroupTopicRouteMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *GroupTopicRouteMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *GroupTopicRouteMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopicRoute unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *GroupTopicRouteMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopicRoute edge %s", name)
+}
+
+// GroupTopicRouteCandidateMutation represents an operation that mutates the GroupTopicRouteCandidate nodes in the graph.
+type GroupTopicRouteCandidateMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *uuid.UUID
+	conversation_id *uuid.UUID
+	route_id        *int64
+	addroute_id     *int64
+	topic_id        *int64
+	addtopic_id     *int64
+	version         *int64
+	addversion      *int64
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*GroupTopicRouteCandidate, error)
+	predicates      []predicate.GroupTopicRouteCandidate
+}
+
+var _ ent.Mutation = (*GroupTopicRouteCandidateMutation)(nil)
+
+// grouptopicroutecandidateOption allows management of the mutation configuration using functional options.
+type grouptopicroutecandidateOption func(*GroupTopicRouteCandidateMutation)
+
+// newGroupTopicRouteCandidateMutation creates new mutation for the GroupTopicRouteCandidate entity.
+func newGroupTopicRouteCandidateMutation(c config, op Op, opts ...grouptopicroutecandidateOption) *GroupTopicRouteCandidateMutation {
+	m := &GroupTopicRouteCandidateMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeGroupTopicRouteCandidate,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withGroupTopicRouteCandidateID sets the ID field of the mutation.
+func withGroupTopicRouteCandidateID(id uuid.UUID) grouptopicroutecandidateOption {
+	return func(m *GroupTopicRouteCandidateMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *GroupTopicRouteCandidate
+		)
+		m.oldValue = func(ctx context.Context) (*GroupTopicRouteCandidate, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().GroupTopicRouteCandidate.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withGroupTopicRouteCandidate sets the old GroupTopicRouteCandidate of the mutation.
+func withGroupTopicRouteCandidate(node *GroupTopicRouteCandidate) grouptopicroutecandidateOption {
+	return func(m *GroupTopicRouteCandidateMutation) {
+		m.oldValue = func(context.Context) (*GroupTopicRouteCandidate, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m GroupTopicRouteCandidateMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m GroupTopicRouteCandidateMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of GroupTopicRouteCandidate entities.
+func (m *GroupTopicRouteCandidateMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *GroupTopicRouteCandidateMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *GroupTopicRouteCandidateMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().GroupTopicRouteCandidate.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetConversationID sets the "conversation_id" field.
+func (m *GroupTopicRouteCandidateMutation) SetConversationID(u uuid.UUID) {
+	m.conversation_id = &u
+}
+
+// ConversationID returns the value of the "conversation_id" field in the mutation.
+func (m *GroupTopicRouteCandidateMutation) ConversationID() (r uuid.UUID, exists bool) {
+	v := m.conversation_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConversationID returns the old "conversation_id" field's value of the GroupTopicRouteCandidate entity.
+// If the GroupTopicRouteCandidate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteCandidateMutation) OldConversationID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConversationID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConversationID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConversationID: %w", err)
+	}
+	return oldValue.ConversationID, nil
+}
+
+// ResetConversationID resets all changes to the "conversation_id" field.
+func (m *GroupTopicRouteCandidateMutation) ResetConversationID() {
+	m.conversation_id = nil
+}
+
+// SetRouteID sets the "route_id" field.
+func (m *GroupTopicRouteCandidateMutation) SetRouteID(i int64) {
+	m.route_id = &i
+	m.addroute_id = nil
+}
+
+// RouteID returns the value of the "route_id" field in the mutation.
+func (m *GroupTopicRouteCandidateMutation) RouteID() (r int64, exists bool) {
+	v := m.route_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRouteID returns the old "route_id" field's value of the GroupTopicRouteCandidate entity.
+// If the GroupTopicRouteCandidate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteCandidateMutation) OldRouteID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRouteID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRouteID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRouteID: %w", err)
+	}
+	return oldValue.RouteID, nil
+}
+
+// AddRouteID adds i to the "route_id" field.
+func (m *GroupTopicRouteCandidateMutation) AddRouteID(i int64) {
+	if m.addroute_id != nil {
+		*m.addroute_id += i
+	} else {
+		m.addroute_id = &i
+	}
+}
+
+// AddedRouteID returns the value that was added to the "route_id" field in this mutation.
+func (m *GroupTopicRouteCandidateMutation) AddedRouteID() (r int64, exists bool) {
+	v := m.addroute_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRouteID resets all changes to the "route_id" field.
+func (m *GroupTopicRouteCandidateMutation) ResetRouteID() {
+	m.route_id = nil
+	m.addroute_id = nil
+}
+
+// SetTopicID sets the "topic_id" field.
+func (m *GroupTopicRouteCandidateMutation) SetTopicID(i int64) {
+	m.topic_id = &i
+	m.addtopic_id = nil
+}
+
+// TopicID returns the value of the "topic_id" field in the mutation.
+func (m *GroupTopicRouteCandidateMutation) TopicID() (r int64, exists bool) {
+	v := m.topic_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTopicID returns the old "topic_id" field's value of the GroupTopicRouteCandidate entity.
+// If the GroupTopicRouteCandidate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteCandidateMutation) OldTopicID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTopicID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTopicID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTopicID: %w", err)
+	}
+	return oldValue.TopicID, nil
+}
+
+// AddTopicID adds i to the "topic_id" field.
+func (m *GroupTopicRouteCandidateMutation) AddTopicID(i int64) {
+	if m.addtopic_id != nil {
+		*m.addtopic_id += i
+	} else {
+		m.addtopic_id = &i
+	}
+}
+
+// AddedTopicID returns the value that was added to the "topic_id" field in this mutation.
+func (m *GroupTopicRouteCandidateMutation) AddedTopicID() (r int64, exists bool) {
+	v := m.addtopic_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTopicID resets all changes to the "topic_id" field.
+func (m *GroupTopicRouteCandidateMutation) ResetTopicID() {
+	m.topic_id = nil
+	m.addtopic_id = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *GroupTopicRouteCandidateMutation) SetVersion(i int64) {
+	m.version = &i
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *GroupTopicRouteCandidateMutation) Version() (r int64, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the GroupTopicRouteCandidate entity.
+// If the GroupTopicRouteCandidate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupTopicRouteCandidateMutation) OldVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds i to the "version" field.
+func (m *GroupTopicRouteCandidateMutation) AddVersion(i int64) {
+	if m.addversion != nil {
+		*m.addversion += i
+	} else {
+		m.addversion = &i
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *GroupTopicRouteCandidateMutation) AddedVersion() (r int64, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *GroupTopicRouteCandidateMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
+// Where appends a list predicates to the GroupTopicRouteCandidateMutation builder.
+func (m *GroupTopicRouteCandidateMutation) Where(ps ...predicate.GroupTopicRouteCandidate) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the GroupTopicRouteCandidateMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *GroupTopicRouteCandidateMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.GroupTopicRouteCandidate, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *GroupTopicRouteCandidateMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *GroupTopicRouteCandidateMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (GroupTopicRouteCandidate).
+func (m *GroupTopicRouteCandidateMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *GroupTopicRouteCandidateMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.conversation_id != nil {
+		fields = append(fields, grouptopicroutecandidate.FieldConversationID)
+	}
+	if m.route_id != nil {
+		fields = append(fields, grouptopicroutecandidate.FieldRouteID)
+	}
+	if m.topic_id != nil {
+		fields = append(fields, grouptopicroutecandidate.FieldTopicID)
+	}
+	if m.version != nil {
+		fields = append(fields, grouptopicroutecandidate.FieldVersion)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *GroupTopicRouteCandidateMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case grouptopicroutecandidate.FieldConversationID:
+		return m.ConversationID()
+	case grouptopicroutecandidate.FieldRouteID:
+		return m.RouteID()
+	case grouptopicroutecandidate.FieldTopicID:
+		return m.TopicID()
+	case grouptopicroutecandidate.FieldVersion:
+		return m.Version()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *GroupTopicRouteCandidateMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case grouptopicroutecandidate.FieldConversationID:
+		return m.OldConversationID(ctx)
+	case grouptopicroutecandidate.FieldRouteID:
+		return m.OldRouteID(ctx)
+	case grouptopicroutecandidate.FieldTopicID:
+		return m.OldTopicID(ctx)
+	case grouptopicroutecandidate.FieldVersion:
+		return m.OldVersion(ctx)
+	}
+	return nil, fmt.Errorf("unknown GroupTopicRouteCandidate field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicRouteCandidateMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case grouptopicroutecandidate.FieldConversationID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConversationID(v)
+		return nil
+	case grouptopicroutecandidate.FieldRouteID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRouteID(v)
+		return nil
+	case grouptopicroutecandidate.FieldTopicID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTopicID(v)
+		return nil
+	case grouptopicroutecandidate.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicRouteCandidate field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *GroupTopicRouteCandidateMutation) AddedFields() []string {
+	var fields []string
+	if m.addroute_id != nil {
+		fields = append(fields, grouptopicroutecandidate.FieldRouteID)
+	}
+	if m.addtopic_id != nil {
+		fields = append(fields, grouptopicroutecandidate.FieldTopicID)
+	}
+	if m.addversion != nil {
+		fields = append(fields, grouptopicroutecandidate.FieldVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *GroupTopicRouteCandidateMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case grouptopicroutecandidate.FieldRouteID:
+		return m.AddedRouteID()
+	case grouptopicroutecandidate.FieldTopicID:
+		return m.AddedTopicID()
+	case grouptopicroutecandidate.FieldVersion:
+		return m.AddedVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupTopicRouteCandidateMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case grouptopicroutecandidate.FieldRouteID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRouteID(v)
+		return nil
+	case grouptopicroutecandidate.FieldTopicID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTopicID(v)
+		return nil
+	case grouptopicroutecandidate.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicRouteCandidate numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *GroupTopicRouteCandidateMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *GroupTopicRouteCandidateMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *GroupTopicRouteCandidateMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown GroupTopicRouteCandidate nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *GroupTopicRouteCandidateMutation) ResetField(name string) error {
+	switch name {
+	case grouptopicroutecandidate.FieldConversationID:
+		m.ResetConversationID()
+		return nil
+	case grouptopicroutecandidate.FieldRouteID:
+		m.ResetRouteID()
+		return nil
+	case grouptopicroutecandidate.FieldTopicID:
+		m.ResetTopicID()
+		return nil
+	case grouptopicroutecandidate.FieldVersion:
+		m.ResetVersion()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupTopicRouteCandidate field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *GroupTopicRouteCandidateMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *GroupTopicRouteCandidateMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *GroupTopicRouteCandidateMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *GroupTopicRouteCandidateMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *GroupTopicRouteCandidateMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *GroupTopicRouteCandidateMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *GroupTopicRouteCandidateMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopicRouteCandidate unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *GroupTopicRouteCandidateMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown GroupTopicRouteCandidate edge %s", name)
 }
 
 // InboundAttachmentMutation represents an operation that mutates the InboundAttachment nodes in the graph.
@@ -31082,6 +33837,7 @@ type MessageJobMutation struct {
 	delivery_reason                       *string
 	denied_count                          *int
 	adddenied_count                       *int
+	delivery_continuation                 *bool
 	claim_token                           *uuid.UUID
 	lease_expires_at                      *time.Time
 	clearedFields                         map[string]struct{}
@@ -31790,6 +34546,42 @@ func (m *MessageJobMutation) ResetDeniedCount() {
 	m.adddenied_count = nil
 }
 
+// SetDeliveryContinuation sets the "delivery_continuation" field.
+func (m *MessageJobMutation) SetDeliveryContinuation(b bool) {
+	m.delivery_continuation = &b
+}
+
+// DeliveryContinuation returns the value of the "delivery_continuation" field in the mutation.
+func (m *MessageJobMutation) DeliveryContinuation() (r bool, exists bool) {
+	v := m.delivery_continuation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeliveryContinuation returns the old "delivery_continuation" field's value of the MessageJob entity.
+// If the MessageJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageJobMutation) OldDeliveryContinuation(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeliveryContinuation is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeliveryContinuation requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeliveryContinuation: %w", err)
+	}
+	return oldValue.DeliveryContinuation, nil
+}
+
+// ResetDeliveryContinuation resets all changes to the "delivery_continuation" field.
+func (m *MessageJobMutation) ResetDeliveryContinuation() {
+	m.delivery_continuation = nil
+}
+
 // SetClaimToken sets the "claim_token" field.
 func (m *MessageJobMutation) SetClaimToken(u uuid.UUID) {
 	m.claim_token = &u
@@ -32151,7 +34943,7 @@ func (m *MessageJobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MessageJobMutation) Fields() []string {
-	fields := make([]string, 0, 16)
+	fields := make([]string, 0, 17)
 	if m.incoming_message_id_ref != nil {
 		fields = append(fields, messagejob.FieldIncomingMessageID)
 	}
@@ -32193,6 +34985,9 @@ func (m *MessageJobMutation) Fields() []string {
 	}
 	if m.denied_count != nil {
 		fields = append(fields, messagejob.FieldDeniedCount)
+	}
+	if m.delivery_continuation != nil {
+		fields = append(fields, messagejob.FieldDeliveryContinuation)
 	}
 	if m.claim_token != nil {
 		fields = append(fields, messagejob.FieldClaimToken)
@@ -32236,6 +35031,8 @@ func (m *MessageJobMutation) Field(name string) (ent.Value, bool) {
 		return m.DeliveryReason()
 	case messagejob.FieldDeniedCount:
 		return m.DeniedCount()
+	case messagejob.FieldDeliveryContinuation:
+		return m.DeliveryContinuation()
 	case messagejob.FieldClaimToken:
 		return m.ClaimToken()
 	case messagejob.FieldLeaseExpiresAt:
@@ -32277,6 +35074,8 @@ func (m *MessageJobMutation) OldField(ctx context.Context, name string) (ent.Val
 		return m.OldDeliveryReason(ctx)
 	case messagejob.FieldDeniedCount:
 		return m.OldDeniedCount(ctx)
+	case messagejob.FieldDeliveryContinuation:
+		return m.OldDeliveryContinuation(ctx)
 	case messagejob.FieldClaimToken:
 		return m.OldClaimToken(ctx)
 	case messagejob.FieldLeaseExpiresAt:
@@ -32387,6 +35186,13 @@ func (m *MessageJobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeniedCount(v)
+		return nil
+	case messagejob.FieldDeliveryContinuation:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeliveryContinuation(v)
 		return nil
 	case messagejob.FieldClaimToken:
 		v, ok := value.(uuid.UUID)
@@ -32552,6 +35358,9 @@ func (m *MessageJobMutation) ResetField(name string) error {
 		return nil
 	case messagejob.FieldDeniedCount:
 		m.ResetDeniedCount()
+		return nil
+	case messagejob.FieldDeliveryContinuation:
+		m.ResetDeliveryContinuation()
 		return nil
 	case messagejob.FieldClaimToken:
 		m.ResetClaimToken()
@@ -34239,6 +37048,8 @@ type ScopePolicyMutation struct {
 	op                               Op
 	typ                              string
 	id                               *int64
+	send_permit_instance             *uuid.UUID
+	send_permit_generations          *map[string]string
 	scope_type                       *string
 	scope_id                         *int64
 	addscope_id                      *int64
@@ -34379,6 +37190,78 @@ func (m *ScopePolicyMutation) IDs(ctx context.Context) ([]int64, error) {
 	default:
 		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
 	}
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (m *ScopePolicyMutation) SetSendPermitInstance(u uuid.UUID) {
+	m.send_permit_instance = &u
+}
+
+// SendPermitInstance returns the value of the "send_permit_instance" field in the mutation.
+func (m *ScopePolicyMutation) SendPermitInstance() (r uuid.UUID, exists bool) {
+	v := m.send_permit_instance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSendPermitInstance returns the old "send_permit_instance" field's value of the ScopePolicy entity.
+// If the ScopePolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopePolicyMutation) OldSendPermitInstance(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSendPermitInstance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSendPermitInstance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSendPermitInstance: %w", err)
+	}
+	return oldValue.SendPermitInstance, nil
+}
+
+// ResetSendPermitInstance resets all changes to the "send_permit_instance" field.
+func (m *ScopePolicyMutation) ResetSendPermitInstance() {
+	m.send_permit_instance = nil
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (m *ScopePolicyMutation) SetSendPermitGenerations(value map[string]string) {
+	m.send_permit_generations = &value
+}
+
+// SendPermitGenerations returns the value of the "send_permit_generations" field in the mutation.
+func (m *ScopePolicyMutation) SendPermitGenerations() (r map[string]string, exists bool) {
+	v := m.send_permit_generations
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSendPermitGenerations returns the old "send_permit_generations" field's value of the ScopePolicy entity.
+// If the ScopePolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ScopePolicyMutation) OldSendPermitGenerations(ctx context.Context) (v map[string]string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSendPermitGenerations is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSendPermitGenerations requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSendPermitGenerations: %w", err)
+	}
+	return oldValue.SendPermitGenerations, nil
+}
+
+// ResetSendPermitGenerations resets all changes to the "send_permit_generations" field.
+func (m *ScopePolicyMutation) ResetSendPermitGenerations() {
+	m.send_permit_generations = nil
 }
 
 // SetBotID sets the "bot_id" field.
@@ -35413,7 +38296,13 @@ func (m *ScopePolicyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ScopePolicyMutation) Fields() []string {
-	fields := make([]string, 0, 20)
+	fields := make([]string, 0, 22)
+	if m.send_permit_instance != nil {
+		fields = append(fields, scopepolicy.FieldSendPermitInstance)
+	}
+	if m.send_permit_generations != nil {
+		fields = append(fields, scopepolicy.FieldSendPermitGenerations)
+	}
 	if m.bot_id_ref != nil {
 		fields = append(fields, scopepolicy.FieldBotID)
 	}
@@ -35482,6 +38371,10 @@ func (m *ScopePolicyMutation) Fields() []string {
 // schema.
 func (m *ScopePolicyMutation) Field(name string) (ent.Value, bool) {
 	switch name {
+	case scopepolicy.FieldSendPermitInstance:
+		return m.SendPermitInstance()
+	case scopepolicy.FieldSendPermitGenerations:
+		return m.SendPermitGenerations()
 	case scopepolicy.FieldBotID:
 		return m.BotID()
 	case scopepolicy.FieldScopeType:
@@ -35531,6 +38424,10 @@ func (m *ScopePolicyMutation) Field(name string) (ent.Value, bool) {
 // database failed.
 func (m *ScopePolicyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
 	switch name {
+	case scopepolicy.FieldSendPermitInstance:
+		return m.OldSendPermitInstance(ctx)
+	case scopepolicy.FieldSendPermitGenerations:
+		return m.OldSendPermitGenerations(ctx)
 	case scopepolicy.FieldBotID:
 		return m.OldBotID(ctx)
 	case scopepolicy.FieldScopeType:
@@ -35580,6 +38477,20 @@ func (m *ScopePolicyMutation) OldField(ctx context.Context, name string) (ent.Va
 // type.
 func (m *ScopePolicyMutation) SetField(name string, value ent.Value) error {
 	switch name {
+	case scopepolicy.FieldSendPermitInstance:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSendPermitInstance(v)
+		return nil
+	case scopepolicy.FieldSendPermitGenerations:
+		v, ok := value.(map[string]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSendPermitGenerations(v)
+		return nil
 	case scopepolicy.FieldBotID:
 		v, ok := value.(int64)
 		if !ok {
@@ -35895,6 +38806,12 @@ func (m *ScopePolicyMutation) ClearField(name string) error {
 // It returns an error if the field is not defined in the schema.
 func (m *ScopePolicyMutation) ResetField(name string) error {
 	switch name {
+	case scopepolicy.FieldSendPermitInstance:
+		m.ResetSendPermitInstance()
+		return nil
+	case scopepolicy.FieldSendPermitGenerations:
+		m.ResetSendPermitGenerations()
+		return nil
 	case scopepolicy.FieldBotID:
 		m.ResetBotID()
 		return nil
@@ -36033,22 +38950,533 @@ func (m *ScopePolicyMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown ScopePolicy edge %s", name)
 }
 
-// SystemSettingMutation represents an operation that mutates the SystemSetting nodes in the graph.
-type SystemSettingMutation struct {
+// SendScopeSelectionMutation represents an operation that mutates the SendScopeSelection nodes in the graph.
+type SendScopeSelectionMutation struct {
 	config
 	op            Op
 	typ           string
-	id            *int
-	payload       *jsontext.Value
-	appendpayload jsontext.Value
-	version       *int64
-	addversion    *int64
-	updated_at    *time.Time
-	updated_by    *string
+	id            *uuid.UUID
+	bot_id        *int64
+	addbot_id     *int64
+	scope_type    *string
+	scope_id      *int64
+	addscope_id   *int64
 	clearedFields map[string]struct{}
 	done          bool
-	oldValue      func(context.Context) (*SystemSetting, error)
-	predicates    []predicate.SystemSetting
+	oldValue      func(context.Context) (*SendScopeSelection, error)
+	predicates    []predicate.SendScopeSelection
+}
+
+var _ ent.Mutation = (*SendScopeSelectionMutation)(nil)
+
+// sendscopeselectionOption allows management of the mutation configuration using functional options.
+type sendscopeselectionOption func(*SendScopeSelectionMutation)
+
+// newSendScopeSelectionMutation creates new mutation for the SendScopeSelection entity.
+func newSendScopeSelectionMutation(c config, op Op, opts ...sendscopeselectionOption) *SendScopeSelectionMutation {
+	m := &SendScopeSelectionMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeSendScopeSelection,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withSendScopeSelectionID sets the ID field of the mutation.
+func withSendScopeSelectionID(id uuid.UUID) sendscopeselectionOption {
+	return func(m *SendScopeSelectionMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *SendScopeSelection
+		)
+		m.oldValue = func(ctx context.Context) (*SendScopeSelection, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().SendScopeSelection.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withSendScopeSelection sets the old SendScopeSelection of the mutation.
+func withSendScopeSelection(node *SendScopeSelection) sendscopeselectionOption {
+	return func(m *SendScopeSelectionMutation) {
+		m.oldValue = func(context.Context) (*SendScopeSelection, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m SendScopeSelectionMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m SendScopeSelectionMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of SendScopeSelection entities.
+func (m *SendScopeSelectionMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *SendScopeSelectionMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *SendScopeSelectionMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().SendScopeSelection.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetBotID sets the "bot_id" field.
+func (m *SendScopeSelectionMutation) SetBotID(i int64) {
+	m.bot_id = &i
+	m.addbot_id = nil
+}
+
+// BotID returns the value of the "bot_id" field in the mutation.
+func (m *SendScopeSelectionMutation) BotID() (r int64, exists bool) {
+	v := m.bot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBotID returns the old "bot_id" field's value of the SendScopeSelection entity.
+// If the SendScopeSelection object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SendScopeSelectionMutation) OldBotID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBotID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBotID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBotID: %w", err)
+	}
+	return oldValue.BotID, nil
+}
+
+// AddBotID adds i to the "bot_id" field.
+func (m *SendScopeSelectionMutation) AddBotID(i int64) {
+	if m.addbot_id != nil {
+		*m.addbot_id += i
+	} else {
+		m.addbot_id = &i
+	}
+}
+
+// AddedBotID returns the value that was added to the "bot_id" field in this mutation.
+func (m *SendScopeSelectionMutation) AddedBotID() (r int64, exists bool) {
+	v := m.addbot_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBotID resets all changes to the "bot_id" field.
+func (m *SendScopeSelectionMutation) ResetBotID() {
+	m.bot_id = nil
+	m.addbot_id = nil
+}
+
+// SetScopeType sets the "scope_type" field.
+func (m *SendScopeSelectionMutation) SetScopeType(s string) {
+	m.scope_type = &s
+}
+
+// ScopeType returns the value of the "scope_type" field in the mutation.
+func (m *SendScopeSelectionMutation) ScopeType() (r string, exists bool) {
+	v := m.scope_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeType returns the old "scope_type" field's value of the SendScopeSelection entity.
+// If the SendScopeSelection object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SendScopeSelectionMutation) OldScopeType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeType: %w", err)
+	}
+	return oldValue.ScopeType, nil
+}
+
+// ResetScopeType resets all changes to the "scope_type" field.
+func (m *SendScopeSelectionMutation) ResetScopeType() {
+	m.scope_type = nil
+}
+
+// SetScopeID sets the "scope_id" field.
+func (m *SendScopeSelectionMutation) SetScopeID(i int64) {
+	m.scope_id = &i
+	m.addscope_id = nil
+}
+
+// ScopeID returns the value of the "scope_id" field in the mutation.
+func (m *SendScopeSelectionMutation) ScopeID() (r int64, exists bool) {
+	v := m.scope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScopeID returns the old "scope_id" field's value of the SendScopeSelection entity.
+// If the SendScopeSelection object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SendScopeSelectionMutation) OldScopeID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScopeID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScopeID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScopeID: %w", err)
+	}
+	return oldValue.ScopeID, nil
+}
+
+// AddScopeID adds i to the "scope_id" field.
+func (m *SendScopeSelectionMutation) AddScopeID(i int64) {
+	if m.addscope_id != nil {
+		*m.addscope_id += i
+	} else {
+		m.addscope_id = &i
+	}
+}
+
+// AddedScopeID returns the value that was added to the "scope_id" field in this mutation.
+func (m *SendScopeSelectionMutation) AddedScopeID() (r int64, exists bool) {
+	v := m.addscope_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetScopeID resets all changes to the "scope_id" field.
+func (m *SendScopeSelectionMutation) ResetScopeID() {
+	m.scope_id = nil
+	m.addscope_id = nil
+}
+
+// Where appends a list predicates to the SendScopeSelectionMutation builder.
+func (m *SendScopeSelectionMutation) Where(ps ...predicate.SendScopeSelection) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the SendScopeSelectionMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *SendScopeSelectionMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.SendScopeSelection, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *SendScopeSelectionMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *SendScopeSelectionMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (SendScopeSelection).
+func (m *SendScopeSelectionMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *SendScopeSelectionMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.bot_id != nil {
+		fields = append(fields, sendscopeselection.FieldBotID)
+	}
+	if m.scope_type != nil {
+		fields = append(fields, sendscopeselection.FieldScopeType)
+	}
+	if m.scope_id != nil {
+		fields = append(fields, sendscopeselection.FieldScopeID)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *SendScopeSelectionMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case sendscopeselection.FieldBotID:
+		return m.BotID()
+	case sendscopeselection.FieldScopeType:
+		return m.ScopeType()
+	case sendscopeselection.FieldScopeID:
+		return m.ScopeID()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *SendScopeSelectionMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case sendscopeselection.FieldBotID:
+		return m.OldBotID(ctx)
+	case sendscopeselection.FieldScopeType:
+		return m.OldScopeType(ctx)
+	case sendscopeselection.FieldScopeID:
+		return m.OldScopeID(ctx)
+	}
+	return nil, fmt.Errorf("unknown SendScopeSelection field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *SendScopeSelectionMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case sendscopeselection.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBotID(v)
+		return nil
+	case sendscopeselection.FieldScopeType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeType(v)
+		return nil
+	case sendscopeselection.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScopeID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown SendScopeSelection field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *SendScopeSelectionMutation) AddedFields() []string {
+	var fields []string
+	if m.addbot_id != nil {
+		fields = append(fields, sendscopeselection.FieldBotID)
+	}
+	if m.addscope_id != nil {
+		fields = append(fields, sendscopeselection.FieldScopeID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *SendScopeSelectionMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case sendscopeselection.FieldBotID:
+		return m.AddedBotID()
+	case sendscopeselection.FieldScopeID:
+		return m.AddedScopeID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *SendScopeSelectionMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case sendscopeselection.FieldBotID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBotID(v)
+		return nil
+	case sendscopeselection.FieldScopeID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddScopeID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown SendScopeSelection numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *SendScopeSelectionMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *SendScopeSelectionMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *SendScopeSelectionMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown SendScopeSelection nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *SendScopeSelectionMutation) ResetField(name string) error {
+	switch name {
+	case sendscopeselection.FieldBotID:
+		m.ResetBotID()
+		return nil
+	case sendscopeselection.FieldScopeType:
+		m.ResetScopeType()
+		return nil
+	case sendscopeselection.FieldScopeID:
+		m.ResetScopeID()
+		return nil
+	}
+	return fmt.Errorf("unknown SendScopeSelection field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *SendScopeSelectionMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *SendScopeSelectionMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *SendScopeSelectionMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *SendScopeSelectionMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *SendScopeSelectionMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *SendScopeSelectionMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *SendScopeSelectionMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown SendScopeSelection unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *SendScopeSelectionMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown SendScopeSelection edge %s", name)
+}
+
+// SystemSettingMutation represents an operation that mutates the SystemSetting nodes in the graph.
+type SystemSettingMutation struct {
+	config
+	op                      Op
+	typ                     string
+	id                      *int
+	send_permit_instance    *uuid.UUID
+	send_permit_generations *map[string]string
+	payload                 *jsontext.Value
+	appendpayload           jsontext.Value
+	version                 *int64
+	addversion              *int64
+	updated_at              *time.Time
+	updated_by              *string
+	clearedFields           map[string]struct{}
+	done                    bool
+	oldValue                func(context.Context) (*SystemSetting, error)
+	predicates              []predicate.SystemSetting
 }
 
 var _ ent.Mutation = (*SystemSettingMutation)(nil)
@@ -36153,6 +39581,78 @@ func (m *SystemSettingMutation) IDs(ctx context.Context) ([]int, error) {
 	default:
 		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
 	}
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (m *SystemSettingMutation) SetSendPermitInstance(u uuid.UUID) {
+	m.send_permit_instance = &u
+}
+
+// SendPermitInstance returns the value of the "send_permit_instance" field in the mutation.
+func (m *SystemSettingMutation) SendPermitInstance() (r uuid.UUID, exists bool) {
+	v := m.send_permit_instance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSendPermitInstance returns the old "send_permit_instance" field's value of the SystemSetting entity.
+// If the SystemSetting object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SystemSettingMutation) OldSendPermitInstance(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSendPermitInstance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSendPermitInstance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSendPermitInstance: %w", err)
+	}
+	return oldValue.SendPermitInstance, nil
+}
+
+// ResetSendPermitInstance resets all changes to the "send_permit_instance" field.
+func (m *SystemSettingMutation) ResetSendPermitInstance() {
+	m.send_permit_instance = nil
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (m *SystemSettingMutation) SetSendPermitGenerations(value map[string]string) {
+	m.send_permit_generations = &value
+}
+
+// SendPermitGenerations returns the value of the "send_permit_generations" field in the mutation.
+func (m *SystemSettingMutation) SendPermitGenerations() (r map[string]string, exists bool) {
+	v := m.send_permit_generations
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSendPermitGenerations returns the old "send_permit_generations" field's value of the SystemSetting entity.
+// If the SystemSetting object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SystemSettingMutation) OldSendPermitGenerations(ctx context.Context) (v map[string]string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSendPermitGenerations is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSendPermitGenerations requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSendPermitGenerations: %w", err)
+	}
+	return oldValue.SendPermitGenerations, nil
+}
+
+// ResetSendPermitGenerations resets all changes to the "send_permit_generations" field.
+func (m *SystemSettingMutation) ResetSendPermitGenerations() {
+	m.send_permit_generations = nil
 }
 
 // SetPayload sets the "payload" field.
@@ -36368,7 +39868,13 @@ func (m *SystemSettingMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SystemSettingMutation) Fields() []string {
-	fields := make([]string, 0, 4)
+	fields := make([]string, 0, 6)
+	if m.send_permit_instance != nil {
+		fields = append(fields, systemsetting.FieldSendPermitInstance)
+	}
+	if m.send_permit_generations != nil {
+		fields = append(fields, systemsetting.FieldSendPermitGenerations)
+	}
 	if m.payload != nil {
 		fields = append(fields, systemsetting.FieldPayload)
 	}
@@ -36389,6 +39895,10 @@ func (m *SystemSettingMutation) Fields() []string {
 // schema.
 func (m *SystemSettingMutation) Field(name string) (ent.Value, bool) {
 	switch name {
+	case systemsetting.FieldSendPermitInstance:
+		return m.SendPermitInstance()
+	case systemsetting.FieldSendPermitGenerations:
+		return m.SendPermitGenerations()
 	case systemsetting.FieldPayload:
 		return m.Payload()
 	case systemsetting.FieldVersion:
@@ -36406,6 +39916,10 @@ func (m *SystemSettingMutation) Field(name string) (ent.Value, bool) {
 // database failed.
 func (m *SystemSettingMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
 	switch name {
+	case systemsetting.FieldSendPermitInstance:
+		return m.OldSendPermitInstance(ctx)
+	case systemsetting.FieldSendPermitGenerations:
+		return m.OldSendPermitGenerations(ctx)
 	case systemsetting.FieldPayload:
 		return m.OldPayload(ctx)
 	case systemsetting.FieldVersion:
@@ -36423,6 +39937,20 @@ func (m *SystemSettingMutation) OldField(ctx context.Context, name string) (ent.
 // type.
 func (m *SystemSettingMutation) SetField(name string, value ent.Value) error {
 	switch name {
+	case systemsetting.FieldSendPermitInstance:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSendPermitInstance(v)
+		return nil
+	case systemsetting.FieldSendPermitGenerations:
+		v, ok := value.(map[string]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSendPermitGenerations(v)
+		return nil
 	case systemsetting.FieldPayload:
 		v, ok := value.(jsontext.Value)
 		if !ok {
@@ -36515,6 +40043,12 @@ func (m *SystemSettingMutation) ClearField(name string) error {
 // It returns an error if the field is not defined in the schema.
 func (m *SystemSettingMutation) ResetField(name string) error {
 	switch name {
+	case systemsetting.FieldSendPermitInstance:
+		m.ResetSendPermitInstance()
+		return nil
+	case systemsetting.FieldSendPermitGenerations:
+		m.ResetSendPermitGenerations()
+		return nil
 	case systemsetting.FieldPayload:
 		m.ResetPayload()
 		return nil

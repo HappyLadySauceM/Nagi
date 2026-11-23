@@ -45,6 +45,14 @@ const (
 	FieldPlatformMessageID = "platform_message_id"
 	// FieldErrorCode holds the string denoting the error_code field in the database.
 	FieldErrorCode = "error_code"
+	// FieldResumeDigest holds the string denoting the resume_digest field in the database.
+	FieldResumeDigest = "resume_digest"
+	// FieldMemoryDependencies holds the string denoting the memory_dependencies field in the database.
+	FieldMemoryDependencies = "memory_dependencies"
+	// FieldSendPermit holds the string denoting the send_permit field in the database.
+	FieldSendPermit = "send_permit"
+	// FieldResumeResult holds the string denoting the resume_result field in the database.
+	FieldResumeResult = "resume_result"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -111,6 +119,10 @@ var Columns = []string{
 	FieldStatus,
 	FieldPlatformMessageID,
 	FieldErrorCode,
+	FieldResumeDigest,
+	FieldMemoryDependencies,
+	FieldSendPermit,
+	FieldResumeResult,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldClaimToken,
@@ -223,6 +235,11 @@ func ByPlatformMessageID(opts ...sql.OrderTermOption) OrderOption {
 // ByErrorCode orders the results by the error_code field.
 func ByErrorCode(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldErrorCode, opts...).ToFunc()
+}
+
+// ByResumeDigest orders the results by the resume_digest field.
+func ByResumeDigest(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldResumeDigest, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

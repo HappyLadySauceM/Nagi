@@ -23,6 +23,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	outbound "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
 
 // auditSafeSegments removes inline media bytes before segments enter local audit
@@ -81,6 +82,9 @@ type WorkerOptions struct {
 	// PrepareRun captures execution settings and their revision together.
 	// PrepareRun 一并捕获执行配置及其修订号。
 	PrepareRun func(context.Context) (context.Context, int64)
+	// ResumeDelivery drains a durable outbound slot independently of generation.
+	// ResumeDelivery 独立于生成池续办持久化的出站槽。
+	ResumeDelivery func(context.Context) (bool, error)
 }
 
 // Worker polls pending jobs from the database and processes them with per-conversation
@@ -127,9 +131,73 @@ func NewWorker(repo application.Repository, processor JobProcessor, opts WorkerO
 // Run 先恢复遗留任务，随后循环直至 ctx 取消；返回前排空在途任务，
 // 保证退出不会中断正在执行的决策流水线。
 func (w *Worker) Run(ctx context.Context) error {
+	if router, ok := w.repo.(interface {
+		RouteNext(context.Context) (bool, error)
+	}); ok {
+		routerCtx, stopRouter := context.WithCancel(ctx)
+		routerDone := make(chan struct{})
+		defer func() { stopRouter(); <-routerDone }()
+		go func() {
+			defer close(routerDone)
+			ticker := time.NewTicker(w.opts.PollInterval)
+			defer ticker.Stop()
+			for routerCtx.Err() == nil {
+				for i := 0; i < w.opts.MaxPending; i++ {
+					work, cancel := context.WithTimeout(routerCtx, 5*time.Second)
+					more, err := router.RouteNext(work)
+					cancel()
+					if err != nil {
+						w.logger.Warn("route group input failed", "error", err)
+						break
+					}
+					if !more {
+						break
+					}
+				}
+				select {
+				case <-routerCtx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+	}
+	if w.opts.ResumeDelivery != nil {
+		resumeDone := make(chan struct{})
+		resumeCtx, stopResume := context.WithCancel(ctx)
+		defer func() { stopResume(); <-resumeDone }()
+		go func() {
+			defer close(resumeDone)
+			timer := time.NewTicker(w.opts.PollInterval)
+			defer timer.Stop()
+			for resumeCtx.Err() == nil {
+				for i := 0; i < w.opts.MaxPending; i++ {
+					attempt, cancel := context.WithTimeout(resumeCtx, 35*time.Second)
+					more, err := w.opts.ResumeDelivery(attempt)
+					cancel()
+					if err != nil {
+						w.logger.Warn("resume outbound delivery failed", "error", err)
+						break
+					}
+					if !more {
+						break
+					}
+				}
+				select {
+				case <-resumeCtx.Done():
+					return
+				case <-timer.C:
+				}
+			}
+		}()
+	}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	active := map[string]context.CancelFunc{}
+	type activeJob struct {
+		id     int64
+		cancel context.CancelFunc
+	}
+	active := map[string]activeJob{}
 	renewalCtx, stopRenewal := context.WithCancel(context.Background())
 	defer stopRenewal()
 	renewDone := make(chan struct{})
@@ -164,8 +232,8 @@ func (w *Worker) Run(ctx context.Context) error {
 					mu.Lock()
 					for _, token := range tokens {
 						if !good[token] {
-							if cancel := active[token]; cancel != nil {
-								cancel()
+							if job, ok := active[token]; ok {
+								job.cancel()
 							}
 						}
 					}
@@ -176,6 +244,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}()
 	defer wg.Wait()
 	nextRecovery := time.Time{}
+	nextTopicCheck := time.Time{}
 	ticker := time.NewTicker(w.opts.PollInterval)
 	defer ticker.Stop()
 	for {
@@ -193,6 +262,35 @@ func (w *Worker) Run(ctx context.Context) error {
 				}
 			}
 		}
+		if time.Now().After(nextTopicCheck) {
+			nextTopicCheck = time.Now().Add(250 * time.Millisecond)
+			if observer, ok := w.repo.(interface {
+				ExpiredTopicJobs(context.Context, []int64) ([]int64, error)
+			}); ok {
+				mu.Lock()
+				ids := make([]int64, 0, len(active))
+				for _, running := range active {
+					ids = append(ids, running.id)
+				}
+				mu.Unlock()
+				if len(ids) > 0 {
+					check, cancel := context.WithTimeout(ctx, time.Second)
+					expired, err := observer.ExpiredTopicJobs(check, ids)
+					cancel()
+					if err == nil && len(expired) > 0 {
+						mu.Lock()
+						for _, id := range expired {
+							for _, running := range active {
+								if running.id == id {
+									running.cancel()
+								}
+							}
+						}
+						mu.Unlock()
+					}
+				}
+			}
+		}
 		free := w.opts.Concurrency - int(w.pending.Load())
 		if free > 0 {
 			if free > w.opts.MaxPending {
@@ -206,7 +304,7 @@ func (w *Worker) Run(ctx context.Context) error {
 					jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 					jobCtx = auditcontracts.WithMediaRepairContext(jobCtx, ctx)
 					mu.Lock()
-					active[job.ClaimToken] = cancel
+					active[job.ClaimToken] = activeJob{id: job.ID, cancel: cancel}
 					mu.Unlock()
 					w.pending.Add(1)
 					wg.Add(1)
@@ -373,8 +471,18 @@ func (w *Worker) process(ctx context.Context, job domain.Job) {
 		}
 	}
 	if err := w.processor.Process(jobCtx, job); err != nil {
+		if errors.Is(err, outbound.ErrContinuation) {
+			if err := finishAudit("done", outbound.GatePending); err != nil {
+				w.logger.Warn("finish handed-off audit failed", "job_id", job.ID, "error", err)
+			}
+			return
+		}
 		failureCode := "process_error"
 		maxAttempts := w.opts.MaxAttempts
+		var gate *outbound.GateError
+		if errors.As(err, &gate) && gate.Reason == outbound.GateStale {
+			failureCode, maxAttempts = gate.Reason, 1
+		}
 		var uncertain *auditcontracts.SideEffectUncertainError
 		if errors.Is(err, auditcontracts.ErrModelMediaStart) {
 			failureCode = auditcontracts.ModelMediaStartFailureCode

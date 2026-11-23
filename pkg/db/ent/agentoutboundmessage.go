@@ -52,6 +52,14 @@ type AgentOutboundMessage struct {
 	PlatformMessageID *int64 `json:"platform_message_id,omitempty"`
 	// ErrorCode holds the value of the "error_code" field.
 	ErrorCode *string `json:"error_code,omitempty"`
+	// ResumeDigest holds the value of the "resume_digest" field.
+	ResumeDigest *string `json:"resume_digest,omitempty"`
+	// MemoryDependencies holds the value of the "memory_dependencies" field.
+	MemoryDependencies []map[string]interface{} `json:"memory_dependencies,omitempty"`
+	// SendPermit holds the value of the "send_permit" field.
+	SendPermit []map[string]interface{} `json:"send_permit,omitempty"`
+	// ResumeResult holds the value of the "resume_result" field.
+	ResumeResult map[string]interface{} `json:"resume_result,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
@@ -126,11 +134,11 @@ func (*AgentOutboundMessage) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case agentoutboundmessage.FieldPayload:
+		case agentoutboundmessage.FieldPayload, agentoutboundmessage.FieldMemoryDependencies, agentoutboundmessage.FieldSendPermit, agentoutboundmessage.FieldResumeResult:
 			values[i] = new([]byte)
 		case agentoutboundmessage.FieldJobID, agentoutboundmessage.FieldBotID, agentoutboundmessage.FieldSequence, agentoutboundmessage.FieldTargetID, agentoutboundmessage.FieldChargeChars, agentoutboundmessage.FieldPlatformMessageID:
 			values[i] = new(sql.NullInt64)
-		case agentoutboundmessage.FieldRunID, agentoutboundmessage.FieldToolCallID, agentoutboundmessage.FieldTextContent, agentoutboundmessage.FieldTargetKind, agentoutboundmessage.FieldAction, agentoutboundmessage.FieldStatus, agentoutboundmessage.FieldErrorCode:
+		case agentoutboundmessage.FieldRunID, agentoutboundmessage.FieldToolCallID, agentoutboundmessage.FieldTextContent, agentoutboundmessage.FieldTargetKind, agentoutboundmessage.FieldAction, agentoutboundmessage.FieldStatus, agentoutboundmessage.FieldErrorCode, agentoutboundmessage.FieldResumeDigest:
 			values[i] = new(sql.NullString)
 		case agentoutboundmessage.FieldCreatedAt, agentoutboundmessage.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -251,6 +259,37 @@ func (_m *AgentOutboundMessage) assignValues(columns []string, values []any) err
 			} else if value.Valid {
 				_m.ErrorCode = new(string)
 				*_m.ErrorCode = value.String
+			}
+		case agentoutboundmessage.FieldResumeDigest:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field resume_digest", values[i])
+			} else if value.Valid {
+				_m.ResumeDigest = new(string)
+				*_m.ResumeDigest = value.String
+			}
+		case agentoutboundmessage.FieldMemoryDependencies:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field memory_dependencies", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.MemoryDependencies); err != nil {
+					return fmt.Errorf("unmarshal field memory_dependencies: %w", err)
+				}
+			}
+		case agentoutboundmessage.FieldSendPermit:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field send_permit", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.SendPermit); err != nil {
+					return fmt.Errorf("unmarshal field send_permit: %w", err)
+				}
+			}
+		case agentoutboundmessage.FieldResumeResult:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field resume_result", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.ResumeResult); err != nil {
+					return fmt.Errorf("unmarshal field resume_result: %w", err)
+				}
 			}
 		case agentoutboundmessage.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -376,6 +415,20 @@ func (_m *AgentOutboundMessage) String() string {
 		builder.WriteString("error_code=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	if v := _m.ResumeDigest; v != nil {
+		builder.WriteString("resume_digest=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("memory_dependencies=")
+	builder.WriteString(fmt.Sprintf("%v", _m.MemoryDependencies))
+	builder.WriteString(", ")
+	builder.WriteString("send_permit=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SendPermit))
+	builder.WriteString(", ")
+	builder.WriteString("resume_result=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ResumeResult))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

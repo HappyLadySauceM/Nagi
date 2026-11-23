@@ -262,6 +262,20 @@ func (_u *MessageJobUpdate) AddDeniedCount(v int) *MessageJobUpdate {
 	return _u
 }
 
+// SetDeliveryContinuation sets the "delivery_continuation" field.
+func (_u *MessageJobUpdate) SetDeliveryContinuation(v bool) *MessageJobUpdate {
+	_u.mutation.SetDeliveryContinuation(v)
+	return _u
+}
+
+// SetNillableDeliveryContinuation sets the "delivery_continuation" field if the given value is not nil.
+func (_u *MessageJobUpdate) SetNillableDeliveryContinuation(v *bool) *MessageJobUpdate {
+	if v != nil {
+		_u.SetDeliveryContinuation(*v)
+	}
+	return _u
+}
+
 // SetClaimToken sets the "claim_token" field.
 func (_u *MessageJobUpdate) SetClaimToken(v uuid.UUID) *MessageJobUpdate {
 	_u.mutation.SetClaimToken(v)
@@ -531,6 +545,9 @@ func (_u *MessageJobUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	}
 	if value, ok := _u.mutation.AddedDeniedCount(); ok {
 		_spec.AddField(messagejob.FieldDeniedCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.DeliveryContinuation(); ok {
+		_spec.SetField(messagejob.FieldDeliveryContinuation, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.ClaimToken(); ok {
 		_spec.SetField(messagejob.FieldClaimToken, field.TypeUUID, value)
@@ -985,6 +1002,20 @@ func (_u *MessageJobUpdateOne) AddDeniedCount(v int) *MessageJobUpdateOne {
 	return _u
 }
 
+// SetDeliveryContinuation sets the "delivery_continuation" field.
+func (_u *MessageJobUpdateOne) SetDeliveryContinuation(v bool) *MessageJobUpdateOne {
+	_u.mutation.SetDeliveryContinuation(v)
+	return _u
+}
+
+// SetNillableDeliveryContinuation sets the "delivery_continuation" field if the given value is not nil.
+func (_u *MessageJobUpdateOne) SetNillableDeliveryContinuation(v *bool) *MessageJobUpdateOne {
+	if v != nil {
+		_u.SetDeliveryContinuation(*v)
+	}
+	return _u
+}
+
 // SetClaimToken sets the "claim_token" field.
 func (_u *MessageJobUpdateOne) SetClaimToken(v uuid.UUID) *MessageJobUpdateOne {
 	_u.mutation.SetClaimToken(v)
@@ -1284,6 +1315,9 @@ func (_u *MessageJobUpdateOne) sqlSave(ctx context.Context) (_node *MessageJob, 
 	}
 	if value, ok := _u.mutation.AddedDeniedCount(); ok {
 		_spec.AddField(messagejob.FieldDeniedCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.DeliveryContinuation(); ok {
+		_spec.SetField(messagejob.FieldDeliveryContinuation, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.ClaimToken(); ok {
 		_spec.SetField(messagejob.FieldClaimToken, field.TypeUUID, value)

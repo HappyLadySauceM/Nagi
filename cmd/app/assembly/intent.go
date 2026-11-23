@@ -473,7 +473,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	mediaService media.Transcriber,
 	promptService *intentapp.PromptService,
 	scope *scopeapp.Service, conv *conversationapp.Service, accounts *svc.Accounts, executor intentcontracts.ReplyExecutor,
-	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder, consentProcessor func(context.Context, conversationdomain.Job) error,
+	identity *observability.Identities, rules *intentinfra.RulesetsRepo, audit auditcontracts.AIRecorder, consentProcessor func(context.Context, conversationdomain.Job) error, resume func(context.Context) (bool, error),
 ) (*conversationinfra.Worker, *intentinfra.DecisionsRepo, intentcontracts.SimulationEvaluator, *intentapp.PromptService, *intentapp.ReplayService, error) {
 	if pool == nil || scope == nil || conv == nil {
 		return nil, nil, nil, nil, nil, nil
@@ -551,11 +551,12 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 		return nil, nil, nil, nil, nil, err
 	}
 	worker, err := conversationinfra.NewWorker(repo, intentProcessor{decider: decider, models: catalog, settings: settings, consentProcessor: consentProcessor}, conversationinfra.WorkerOptions{
-		Concurrency:  cfg.Worker.Concurrency,
-		MaxPending:   cfg.Worker.MaxPendingJobs,
-		PollInterval: cfg.Worker.PollInterval.D(),
-		Identity:     identity,
-		Audit:        audit,
+		Concurrency:    cfg.Worker.Concurrency,
+		MaxPending:     cfg.Worker.MaxPendingJobs,
+		PollInterval:   cfg.Worker.PollInterval.D(),
+		Identity:       identity,
+		Audit:          audit,
+		ResumeDelivery: resume,
 		PrepareRun: func(ctx context.Context) (context.Context, int64) {
 			snapshot := settings.Current()
 			current := snapshot.Settings

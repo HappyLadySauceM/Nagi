@@ -30,6 +30,7 @@ func (MessageJob) Fields() []ent.Field {
 		field.String("delivery_outcome").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.String("delivery_reason").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.Int("denied_count").SchemaType(map[string]string{"postgres": "integer"}).Annotations(entsql.DefaultExpr("0")).Default(0),
+		field.Bool("delivery_continuation").Default(false),
 		field.UUID("claim_token", uuid.UUID{}).Optional().Nillable(),
 		field.Time("lease_expires_at").Optional().Nillable(),
 	}

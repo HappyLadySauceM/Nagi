@@ -9,9 +9,10 @@ import (
 	"errors"
 	"fmt"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
+	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	eo "github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,6 +27,7 @@ import (
 // Repo 是基于 Ent 的投递台账。
 type Repo struct {
 	pool        *db.Pool
+	authorize   gatePermissions
 	consentGate ConsentGate
 }
 
@@ -68,52 +70,6 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	reads := memory.ConsentReads(ctx)
-	strict := len(reads) > 0 || in.ToolCallID == "memory_consent_prompt"
-	if strict {
-		if r.consentGate == nil || in.ToolCallID == "" {
-			return domain.Record{}, domain.ErrConsentSendDenied
-		}
-		if err := r.consentGate.LockConsentSend(ctx, tx, in.BotID); err != nil {
-			return domain.Record{}, err
-		}
-	}
-	proposals := make([]string, 0, len(reads))
-	for _, read := range reads {
-		parts := strings.Split(read.Identity, ":")
-		if len(parts) != 4 || read.BotID != in.BotID || read.JobID != in.JobID || read.Claim != in.ClaimToken || read.ConversationID != in.ConversationID {
-			return domain.Record{}, domain.ErrConsentSendDenied
-		}
-		proposals = append(proposals, parts[2])
-	}
-	proposalIDs, _ := json.Marshal(proposals)
-	rows, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE c.id=$1::uuid OR (c.bot_id=$2 AND c.id IN (SELECT source_conversation_id FROM memory_consent_proposals WHERE bot_id=$2 AND id::text IN(SELECT value FROM jsonb_array_elements_text($3::jsonb)))) ORDER BY c.id FOR UPDATE`, in.ConversationID, in.BotID, proposalIDs)
-	if err != nil {
-		return domain.Record{}, err
-	}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
-			return domain.Record{}, err
-		}
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		return domain.Record{}, err
-	}
-	rows.Close()
-	var jobID int64
-	var source string
-	if err := tx.QueryRow(ctx,
-		`SELECT j.id,j.source_kind FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE j.id=$1 AND COALESCE(m.bot_id,p.bot_id)=$2 AND COALESCE(m.conversation_id,p.source_conversation_id)=$3 AND j.claim_token=$4::uuid AND j.status='processing' AND j.lease_expires_at>clock_timestamp() FOR UPDATE OF j`, in.JobID, in.BotID, in.ConversationID, in.ClaimToken,
-	).Scan(&jobID, &source); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Record{}, fmt.Errorf("outbound: reserve job %d: %w", in.JobID, domain.ErrRecordNotFound)
-		}
-		return domain.Record{}, fmt.Errorf("outbound: lock job %d: %w", in.JobID, err)
-	}
-
 	var sourceKind string
 	var sourceTarget int64
 	if err := tx.QueryRow(ctx, "SELECT kind,target_id FROM conversations WHERE id=$1 AND bot_id=$2", in.ConversationID, in.BotID).Scan(&sourceKind, &sourceTarget); err != nil {
@@ -122,9 +78,6 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	if in.TargetKind == "" {
 		in.TargetKind = sourceKind
 		in.TargetID = sourceTarget
-	}
-	if source == "memory_consent_prompt" && (sourceKind != "group" || in.TargetKind != sourceKind || in.TargetID != sourceTarget || in.ToolCallID != "memory_consent_prompt") {
-		return domain.Record{}, fmt.Errorf("outbound: invalid consent prompt target")
 	}
 	if (in.TargetKind != "group" && in.TargetKind != "private") || in.TargetID <= 0 {
 		return domain.Record{}, fmt.Errorf("outbound: invalid target")
@@ -153,39 +106,144 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	if in.ChargeChars < 0 {
 		return domain.Record{}, fmt.Errorf("outbound: invalid cost")
 	}
+	reads := memory.ConsentReads(ctx)
+	localReads := memory.ReadDependencies(ctx)
+	dependencies, err := json.Marshal(localReads)
+	if err != nil {
+		return domain.Record{}, err
+	}
+	derived := len(reads) != 0
+	control := in.ToolCallID == "memory_consent_prompt"
+	if marker, digest, err := consentMarker(in.Payload); err != nil || marker != derived || (derived && (control || in.ToolCallID == "" || digest != memory.ConsentReadDigest(reads))) {
+		return domain.Record{}, domain.ErrConsentSendDenied
+	}
+	if (derived || control) && r.consentGate == nil {
+		return domain.Record{}, domain.ErrConsentSendDenied
+	}
+	proposals, err := consentProposals(reads)
+	if err != nil {
+		return domain.Record{}, err
+	}
+	for _, read := range reads {
+		if read.BotID != in.BotID || read.JobID != in.JobID || read.Claim != in.ClaimToken || read.ConversationID != in.ConversationID {
+			return domain.Record{}, domain.ErrConsentSendDenied
+		}
+	}
+	encodedProposals, err := json.Marshal(proposals)
+	if err != nil {
+		return domain.Record{}, err
+	}
+	if derived || control {
+		if err := r.consentGate.LockConsentSend(ctx, tx, in.BotID); err != nil {
+			return domain.Record{}, err
+		}
+	} else if len(localReads) > 0 {
+		if err := memoryinfra.LockMemoryMutation(ctx, tx, in.BotID); err != nil {
+			return domain.Record{}, err
+		}
+	}
+	if err := scopecontracts.LockPolicies(ctx, tx, false,
+		scopecontracts.PolicyLockKey{BotID: in.BotID, Kind: sourceKind}, scopecontracts.PolicyLockKey{BotID: in.BotID, Kind: in.TargetKind}); err != nil {
+		return domain.Record{}, err
+	}
+	if sourceKind != in.TargetKind || sourceTarget != in.TargetID {
+		if _, err := tx.Exec(ctx, `INSERT INTO conversations(id,bot_id,kind,target_id) VALUES(gen_random_uuid(),$1,$2,$3)
+ ON CONFLICT(bot_id,kind,target_id) DO NOTHING`, in.BotID, in.TargetKind, in.TargetID); err != nil {
+			return domain.Record{}, err
+		}
+	}
+	var sourceLocked bool
+	rows, err := tx.Query(ctx, `SELECT id,kind,target_id FROM conversations WHERE bot_id=$1 AND (id=$2 OR (kind=$3 AND target_id=$4) OR id IN (
+ SELECT source_conversation_id FROM memory_consent_proposals WHERE bot_id=$1 AND id::text IN (SELECT value FROM jsonb_array_elements_text($5::jsonb))))
+ ORDER BY id FOR UPDATE`, in.BotID, in.ConversationID, in.TargetKind, in.TargetID, encodedProposals)
+	if err != nil {
+		return domain.Record{}, err
+	}
+	for rows.Next() {
+		var id, kind string
+		var target int64
+		if err := rows.Scan(&id, &kind, &target); err != nil {
+			rows.Close()
+			return domain.Record{}, err
+		}
+		if id == in.ConversationID {
+			if kind != sourceKind || target != sourceTarget {
+				rows.Close()
+				return domain.Record{}, errDeliveryScopeChanged
+			}
+			sourceLocked = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return domain.Record{}, err
+	}
+	if err := rows.Err(); err != nil {
+		return domain.Record{}, err
+	}
+	if !sourceLocked {
+		return domain.Record{}, domain.ErrRecordNotFound
+	}
+	var topic int64
+	if r.authorize != nil {
+		err := tx.QueryRow(ctx, `SELECT t.id FROM message_jobs j
+ JOIN group_topic_inputs i ON i.route_id=j.incoming_message_id AND i.conversation_id=$2
+ JOIN group_topics t ON (t.id,t.conversation_id)=(i.topic_id,i.conversation_id)
+ WHERE j.id=$1 FOR UPDATE OF t`, in.JobID, in.ConversationID).Scan(&topic)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return domain.Record{}, err
+		}
+	}
+	var jobID int64
+	var source string
+	var hasProposal bool
+	if err := tx.QueryRow(ctx, `SELECT j.id,j.source_kind,j.consent_proposal_id IS NOT NULL FROM message_jobs j
+ LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id
+ WHERE j.id=$1 AND COALESCE(m.bot_id,p.bot_id)=$2 AND COALESCE(m.conversation_id,p.source_conversation_id)=$3
+ AND j.claim_token=$4::uuid AND j.status='processing' AND NOT j.delivery_continuation AND j.lease_expires_at>clock_timestamp() FOR UPDATE OF j`,
+		in.JobID, in.BotID, in.ConversationID, in.ClaimToken).Scan(&jobID, &source, &hasProposal); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Record{}, fmt.Errorf("outbound: reserve job %d: %w", in.JobID, domain.ErrRecordNotFound)
+		}
+		return domain.Record{}, fmt.Errorf("outbound: lock job %d: %w", in.JobID, err)
+	}
+	if control != hasProposal || (control && (source != "memory_consent_prompt" || sourceKind != "group" || in.TargetKind != sourceKind || in.TargetID != sourceTarget)) || (!control && source != "incoming") {
+		return domain.Record{}, domain.ErrConsentSendDenied
+	}
 	var changedSlot bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_outbound_messages old WHERE old.job_id=$1 AND old.claim_token IS DISTINCT FROM $2::uuid AND (
- (old.tool_call_id LIKE 'explicit:v1:%' OR (COALESCE(old.tool_call_id,'') NOT IN ('final','memory_consent_prompt') AND (old.payload ? 'params' OR old.action='qq.send_voice_current')))
- OR (old.payload @> '{"cross_group_fact":true}'::jsonb AND (NOT $4 OR NOT EXISTS(SELECT 1 FROM agent_outbound_messages slot WHERE slot.job_id=$1 AND slot.tool_call_id=$3 AND slot.payload @> '{"cross_group_fact":true}'::jsonb)))
- OR (old.status IN ('sending','sent','unknown') AND $4)))`, in.JobID, in.ClaimToken, in.ToolCallID, len(reads) > 0).Scan(&changedSlot); err != nil {
+ (old.payload @> '{"cross_group_fact":true}'::jsonb AND (NOT $4 OR old.tool_call_id IS DISTINCT FROM $3))
+ OR (old.status IN ('sending','sent','unknown') AND $4)
+ OR old.error_code='consent_resume_evidence_missing'
+ OR ((old.tool_call_id LIKE 'explicit:v1:%' OR old.tool_call_id LIKE 'explicit:consent:v1:%' OR (COALESCE(old.tool_call_id,'') NOT IN ('final','memory_consent_prompt') AND (old.payload ? 'params' OR old.action='qq.send_voice_current')))
+  AND NOT ($4 AND old.tool_call_id=$3 AND old.payload @> '{"cross_group_fact":true}'::jsonb))))`, in.JobID, in.ClaimToken, in.ToolCallID, derived).Scan(&changedSlot); err != nil {
 		return domain.Record{}, err
 	}
 	if changedSlot {
 		return domain.Record{}, domain.ErrConsentSendDenied
 	}
+	strict := derived || control
 	var reusable *domain.Record
 	var previousClaim string
+	var storedPermit, storedDependencies []byte
 	if in.ToolCallID != "" {
 		var old domain.Record
 		var status, reason string
 		var samePayload bool
 		err := tx.QueryRow(ctx, `SELECT id::text,sequence,text_content,status,COALESCE(platform_message_id,0),target_kind,target_id,action,payload::text,
- CASE WHEN jsonb_typeof(payload)='object' THEN payload-'lease_recoveries' ELSE payload END = $3::jsonb,
- charge_chars,claim_token::text,COALESCE(error_code,'') FROM agent_outbound_messages WHERE job_id=$1 AND tool_call_id=$2 FOR UPDATE`,
-			in.JobID, in.ToolCallID, in.Payload).Scan(&old.ID, &old.Sequence, &old.Text, &status, &old.PlatformMessageID, &old.TargetKind, &old.TargetID, &old.Action, &old.Payload, &samePayload, &old.ChargeChars, &previousClaim, &reason)
+ CASE WHEN jsonb_typeof(payload)='object' THEN payload-'lease_recoveries' ELSE payload END=$3::jsonb,
+ charge_chars,claim_token::text,COALESCE(error_code,''),send_permit,memory_dependencies FROM agent_outbound_messages
+ WHERE job_id=$1 AND tool_call_id=$2 FOR UPDATE`, in.JobID, in.ToolCallID, in.Payload).Scan(&old.ID, &old.Sequence, &old.Text, &status, &old.PlatformMessageID, &old.TargetKind, &old.TargetID, &old.Action, &old.Payload, &samePayload, &old.ChargeChars, &previousClaim, &reason, &storedPermit, &storedDependencies)
 		if err == nil {
 			if old.Text != in.Text || old.TargetKind != in.TargetKind || old.TargetID != in.TargetID || old.Action != in.Action || !samePayload || old.ChargeChars != in.ChargeChars {
 				return domain.Record{}, fmt.Errorf("outbound: conflicting tool call")
 			}
 			if status == string(domain.StatusCancelled) {
-				if strict || strings.HasPrefix(in.ToolCallID, "explicit:v1:") {
-					var refundable bool
-					if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_run_budgets b WHERE b.job_id=$1 AND b.reserved_messages=(SELECT count(*) FROM agent_outbound_messages WHERE job_id=$1 AND status<>'cancelled') AND b.reserved_chars=(SELECT COALESCE(sum(charge_chars),0) FROM agent_outbound_messages WHERE job_id=$1 AND status<>'cancelled')) AND NOT EXISTS(SELECT 1 FROM messages WHERE outbound_id=$2)`, in.JobID, old.ID).Scan(&refundable); err != nil {
-						return domain.Record{}, err
-					}
-					if previousClaim == in.ClaimToken || reason != "lease_expired_prepared_refunded" || old.PlatformMessageID != 0 || !refundable {
+				if strict {
+					if previousClaim == in.ClaimToken || reason != "lease_expired_prepared_refunded" || old.PlatformMessageID != 0 {
 						return domain.Record{}, domain.ErrConsentSendDenied
 					}
+				} else if reason != "" && reason != "lease_recovered" {
+					return domain.Record{}, &domain.TransitionError{RecordID: old.ID, From: domain.StatusCancelled, To: domain.StatusPrepared}
 				}
 				reusable = &old
 			} else {
@@ -217,14 +275,58 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 			return domain.Record{}, err
 		}
 	}
-	if reusable != nil {
+	var used domain.Usage
+	if err := tx.QueryRow(ctx, `SELECT reserved_messages,reserved_chars FROM agent_run_budgets WHERE job_id=$1 FOR UPDATE`, in.JobID).Scan(&used.Messages, &used.Chars); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return domain.Record{}, fmt.Errorf("outbound: read run budget: %w", err)
+	}
+	if reusable != nil && strict {
+		var refunded bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_run_budgets b WHERE b.job_id=$1 AND b.reserved_messages=(SELECT count(*) FROM agent_outbound_messages WHERE job_id=$1 AND status<>'cancelled') AND b.reserved_chars=(SELECT COALESCE(sum(charge_chars),0) FROM agent_outbound_messages WHERE job_id=$1 AND status<>'cancelled')) AND NOT EXISTS(SELECT 1 FROM messages WHERE outbound_id=$2)`, in.JobID, reusable.ID).Scan(&refunded); err != nil {
+			return domain.Record{}, err
+		}
+		if !refunded {
+			return domain.Record{}, domain.ErrConsentSendDenied
+		}
+	}
+	if reusable != nil && (control || r.authorize == nil) {
 		in.Limits, err = lockCurrentLimits(ctx, tx, in.BotID, sourceKind, sourceTarget, in.Limits)
 		if err != nil {
 			return domain.Record{}, err
 		}
-		if source == "memory_consent_prompt" {
-			in.Limits.MaxMessages = 1
+	}
+	var permit []byte
+	if r.authorize != nil && !control {
+		scope := deliveryPolicyScope{botID: in.BotID, sourceID: in.ConversationID, sourceKind: sourceKind, sourceTarget: sourceTarget, targetKind: in.TargetKind, targetID: in.TargetID, hasMemoryReads: len(localReads) > 0, derived: derived}
+		if derived {
+			if err := lockConsentAuthorization(ctx, tx, scope); err != nil {
+				return domain.Record{}, err
+			}
 		}
+		if reusable != nil && !sameReadDependencies(storedDependencies, dependencies) {
+			if strict {
+				return domain.Record{}, domain.ErrConsentSendDenied
+			}
+			return denyReservingOriginal(ctx, tx, reusable.ID, in.JobID)
+		}
+		var limits domain.Limits
+		permit, limits, err = r.currentSendingPolicy(ctx, tx, scope, preparedDelivery{topic: topic, action: in.Action, payload: in.Payload, memoryDependencies: dependencies})
+		if err != nil {
+			return domain.Record{}, err
+		}
+		if reusable != nil && !sameSendPermit(storedPermit, permit) {
+			if strict {
+				return domain.Record{}, domain.ErrConsentSendDenied
+			}
+			return denyReservingOriginal(ctx, tx, reusable.ID, in.JobID)
+		}
+		if len(permit) == 0 {
+			return domain.Record{}, &domain.GateError{Reason: domain.GateRevoked}
+		}
+		limits.StopAfterFailure = in.Limits.StopAfterFailure
+		in.Limits = limits
+	}
+	if control {
+		in.Limits.MaxMessages = 1
 	}
 	var stopped bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_outbound_messages WHERE job_id=$1 AND status IN ('failed','unknown','sending')) OR EXISTS(SELECT 1 FROM message_jobs WHERE id=$1 AND delivery_outcome='blocked')`, in.JobID).Scan(&stopped); err != nil {
@@ -241,12 +343,6 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 		if hourly >= in.Limits.MaxPerHour {
 			return domain.Record{}, &domain.BudgetError{Dimension: "hourly_messages", Limit: in.Limits.MaxPerHour, Requested: hourly + 1}
 		}
-	}
-	var used domain.Usage
-	if err := tx.QueryRow(ctx,
-		`SELECT reserved_messages, reserved_chars FROM agent_run_budgets WHERE job_id = $1`, in.JobID,
-	).Scan(&used.Messages, &used.Chars); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return domain.Record{}, fmt.Errorf("outbound: read run budget: %w", err)
 	}
 	if err := domain.CheckBudgetChars(in.Limits, used, in.ChargeChars); err != nil {
 		return domain.Record{}, err
@@ -306,18 +402,24 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	} else {
 		if _, err := tx.Exec(ctx, `
 		INSERT INTO agent_outbound_messages
-			(id, job_id, conversation_id, bot_id, run_id, sequence, tool_call_id, text_content, status,claim_token,target_kind,target_id,action,payload,charge_chars)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9,$10::uuid,$11,$12,$13,$14::jsonb,$15)
+			(id, job_id, conversation_id, bot_id, run_id, sequence, tool_call_id, text_content, status,claim_token,target_kind,target_id,action,payload,charge_chars,memory_dependencies,send_permit)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9,$10::uuid,$11,$12,$13,$14::jsonb,$15,$16::jsonb,$17::jsonb)
 	`, record.ID, record.JobID, record.ConversationID, record.BotID, record.RunID,
-			record.Sequence, record.ToolCallID, record.Text, string(record.Status), in.ClaimToken, in.TargetKind, in.TargetID, in.Action, in.Payload, in.ChargeChars,
+			record.Sequence, record.ToolCallID, record.Text, string(record.Status), in.ClaimToken, in.TargetKind, in.TargetID, in.Action, in.Payload, in.ChargeChars, string(dependencies), permit,
 		); err != nil {
 			return domain.Record{}, fmt.Errorf("outbound: insert record: %w", err)
 		}
 
 	}
 
-	if len(reads) > 0 {
+	if derived {
 		if err := r.consentGate.ValidateConsentReply(ctx, tx, in.BotID, record.ID, reads); err != nil {
+			return domain.Record{}, err
+		}
+	}
+	if !control && record.ToolCallID != "" && record.ToolCallID != "final" {
+		if _, err := tx.Exec(ctx, `UPDATE agent_outbound_messages o SET resume_digest=`+resumeDigestSQL+`
+ WHERE o.id=$1 AND EXISTS(SELECT 1 FROM message_jobs j JOIN group_topic_inputs i ON i.route_id=j.incoming_message_id WHERE j.id=o.job_id)`, record.ID); err != nil {
 			return domain.Record{}, err
 		}
 	}
@@ -356,6 +458,42 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	return record, nil
 }
 
+func sameReadDependencies(stored, current []byte) bool {
+	var before, after []memory.ReadDependency
+	if len(stored) > 0 && json.Unmarshal(stored, &before) != nil {
+		return false
+	}
+	if json.Unmarshal(current, &after) != nil {
+		return false
+	}
+	if len(before) != len(after) {
+		return false
+	}
+	for i := range before {
+		if before[i].ID != after[i].ID || !before[i].UpdatedAt.Equal(after[i].UpdatedAt) || before[i].SourceMessageID != after[i].SourceMessageID {
+			return false
+		}
+	}
+	return true
+}
+
+func denyReservingOriginal(ctx context.Context, tx *db.Tx, id string, jobID int64) (domain.Record, error) {
+	result, err := tx.Exec(ctx, `WITH closed AS (
+ UPDATE agent_outbound_messages SET error_code=$3,updated_at=clock_timestamp()
+ WHERE id=$1 AND job_id=$2 AND status='cancelled' AND COALESCE(error_code,'') IN ('','lease_recovered') RETURNING job_id
+ ) UPDATE message_jobs j SET delivery_outcome='blocked',delivery_reason=$3,denied_count=denied_count+1 FROM closed c WHERE j.id=c.job_id`, id, jobID, domain.GateRevoked)
+	if err != nil {
+		return domain.Record{}, err
+	}
+	if result.RowsAffected() != 1 {
+		return domain.Record{}, ErrLeaseLost
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Record{}, err
+	}
+	return domain.Record{}, &domain.GateError{Reason: domain.GateRevoked}
+}
+
 // MarkSending advances one prepared record to sending. A record in another
 // state reports a transition error so callers never send twice.
 // MarkSending 把一条 prepared 记录推进为 sending；状态不符时返回迁移错误，
@@ -364,96 +502,38 @@ func (r *Repo) MarkSending(ctx context.Context, id string, claim ...string) erro
 	if len(claim) != 1 || claim[0] == "" {
 		return ErrLeaseLost
 	}
+	for {
+		err := r.markSending(ctx, id, claim[0])
+		if !errors.Is(err, errDeliveryScopeChanged) {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+}
+
+// RememberReceipt persists a known platform result before updating history and the job.
+// RememberReceipt 在回写历史和任务前持久保存已知平台回执。
+func (r *Repo) RememberReceipt(ctx context.Context, id string, receipt int64, claim string) error {
+	if receipt == 0 || claim == "" {
+		return domain.ErrInvalidSettlement
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var botID int64
-	var proposal string
-	var derived bool
-	if err := tx.QueryRow(ctx, `SELECT o.bot_id,COALESCE(j.consent_proposal_id::text,''),o.payload @> '{"cross_group_fact":true}'::jsonb FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id WHERE o.id=$1`, id).Scan(&botID, &proposal, &derived); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return domain.ErrRecordNotFound
-		}
+	if err := lockDelivery(ctx, tx, id, claim); err != nil {
 		return err
 	}
-	reads := memory.ConsentReads(ctx)
-	if derived != (len(reads) > 0) {
-		return domain.ErrConsentSendDenied
-	}
-	if proposal != "" || derived {
-		if r.consentGate == nil {
-			return domain.ErrConsentSendDenied
-		}
-		if err := r.consentGate.LockConsentSend(ctx, tx, botID); err != nil {
-			return err
-		}
-	}
-	if err := lockDispatch(ctx, tx, id, claim[0], reads); err != nil {
-		return err
-	}
-	var sourceKind string
-	var sourceTarget int64
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT c.kind,c.target_id,o.status FROM agent_outbound_messages o JOIN conversations c ON c.id=o.conversation_id WHERE o.id=$1`, id).Scan(&sourceKind, &sourceTarget, &status); err != nil {
-		return err
-	}
-	if domain.Status(status) != domain.StatusPrepared {
-		return &domain.TransitionError{RecordID: id, From: domain.Status(status), To: domain.StatusSending}
-	}
-	limits, err := lockCurrentLimits(ctx, tx, botID, sourceKind, sourceTarget, domain.Limits{MinIntervalMS: DefaultMessageIntervalMS})
+	res, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET platform_message_id=$2 WHERE id=$1 AND status='sending'
+ AND claim_token=$3 AND (platform_message_id IS NULL OR platform_message_id=$2)`, id, receipt, claim)
 	if err != nil {
 		return err
 	}
-	if proposal != "" {
-		limits.MaxMessages = 1
-		var replyInterval int
-		if err := tx.QueryRow(ctx, `SELECT min_reply_interval_ms FROM scope_policies
- WHERE bot_id=$1 AND scope_type=$2 AND scope_id IN ($3,0) ORDER BY scope_id DESC LIMIT 1`, botID, sourceKind, sourceTarget).Scan(&replyInterval); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		limits.MinIntervalMS = max(limits.MinIntervalMS, replyInterval)
-	}
-	if err := validateReserved(ctx, tx, id, limits); err != nil {
-		return err
-	}
-	if derived {
-		if err := r.consentGate.ValidateConsentReply(ctx, tx, botID, id, reads); err != nil {
-			return err
-		}
-	}
-	if proposal != "" {
-		if err := r.consentGate.ValidateConsentSend(ctx, tx, botID, id); err != nil {
-			return err
-		}
-	}
-	if limits.MinIntervalMS > 0 {
-		var remainingUS int64
-		if err := tx.QueryRow(ctx, `SELECT COALESCE(ceil(extract(epoch FROM (
-  max(prior.updated_at) + $2::integer * interval '1 millisecond' - clock_timestamp())) * 1000000),0)::bigint
- FROM agent_outbound_messages slot JOIN agent_outbound_messages prior
- ON prior.conversation_id=slot.conversation_id AND prior.id<>slot.id AND prior.status IN ('sent','unknown')
- WHERE slot.id=$1`, id, limits.MinIntervalMS).Scan(&remainingUS); err != nil {
-			return err
-		}
-		if remainingUS > 0 {
-			return &domain.IntervalWait{Remaining: time.Duration(remainingUS) * time.Microsecond}
-		}
-	}
-	result, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status='sending',updated_at=clock_timestamp() WHERE id=$1 AND status='prepared' AND claim_token=$2::uuid AND EXISTS(SELECT 1 FROM message_jobs j WHERE j.id=agent_outbound_messages.job_id AND j.status='processing' AND j.claim_token=agent_outbound_messages.claim_token AND j.lease_expires_at>clock_timestamp())`, id, claim[0])
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() != 1 {
-		var current string
-		if err := tx.QueryRow(ctx, "SELECT status FROM agent_outbound_messages WHERE id=$1", id).Scan(&current); err != nil {
-			return err
-		}
-		return &domain.TransitionError{RecordID: id, From: domain.Status(current), To: domain.StatusSending}
-	}
-	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
-		return err
+	if res.RowsAffected() != 1 {
+		return ErrLeaseLost
 	}
 	return tx.Commit(ctx)
 }
@@ -473,13 +553,23 @@ func (r *Repo) Settle(ctx context.Context, id string, outcome application.Outcom
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO conversations(id,bot_id,kind,target_id) SELECT gen_random_uuid(),bot_id,target_kind,target_id FROM agent_outbound_messages WHERE id=$1 ON CONFLICT(bot_id,kind,target_id) DO NOTHING`, id); err != nil {
+	if _, err := lockScopedDeliveryConversations(ctx, tx, id); err != nil {
 		return err
 	}
-	if err := lockDelivery(ctx, tx, id, claim[0], true); err != nil {
+	if outcome.Status == domain.StatusSent && outcome.PlatformMessageID != 0 {
+		var settled bool
+		if err := tx.QueryRow(ctx, `SELECT status='sent' AND platform_message_id IS NOT DISTINCT FROM $2::bigint
+ AND claim_token=$3::uuid FROM agent_outbound_messages WHERE id=$1`, id, outcome.PlatformMessageID, claim[0]).Scan(&settled); err != nil {
+			return err
+		}
+		if settled {
+			return tx.Commit(ctx)
+		}
+	}
+	if err := lockDeliveryJob(ctx, tx, id, claim[0]); err != nil {
 		return err
 	}
-	result, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status=$2,platform_message_id=NULLIF($3,0),error_code=NULLIF($4,''),updated_at=clock_timestamp() WHERE id=$1 AND status='sending' AND claim_token=$5::uuid AND EXISTS(SELECT 1 FROM message_jobs j WHERE j.id=agent_outbound_messages.job_id AND j.status='processing' AND j.claim_token=agent_outbound_messages.claim_token AND j.lease_expires_at>clock_timestamp())`, id, string(outcome.Status), outcome.PlatformMessageID, outcome.ErrorCode, claim[0])
+	result, err := tx.Exec(ctx, `UPDATE agent_outbound_messages SET status=$2,platform_message_id=NULLIF($3,0),error_code=NULLIF($4,''),updated_at=clock_timestamp() WHERE id=$1 AND status='sending' AND (platform_message_id IS NULL OR ($2='sent' AND platform_message_id=$3)) AND claim_token=$5::uuid AND EXISTS(SELECT 1 FROM message_jobs j WHERE j.id=agent_outbound_messages.job_id AND j.status='processing' AND j.claim_token=agent_outbound_messages.claim_token AND j.lease_expires_at>clock_timestamp())`, id, string(outcome.Status), outcome.PlatformMessageID, outcome.ErrorCode, claim[0])
 	if err != nil {
 		return err
 	}
@@ -502,8 +592,23 @@ func (r *Repo) Settle(ctx context.Context, id string, outcome application.Outcom
 		return err
 	}
 
-	if err := lockDelivery(ctx, tx, id, claim[0], true); err != nil {
+	var job int64
+	var continued bool
+	if err := tx.QueryRow(ctx, `SELECT j.id,j.delivery_continuation FROM message_jobs j JOIN agent_outbound_messages o ON o.job_id=j.id WHERE o.id=$1 AND j.claim_token=$2::uuid AND j.lease_expires_at>clock_timestamp()`, id, claim[0]).Scan(&job, &continued); err != nil {
 		return err
+	}
+	if continued {
+		if err := saveContinuationResult(ctx, tx, id); err != nil {
+			return err
+		}
+		if outcome.Status != domain.StatusSent {
+			if _, err := tx.Exec(ctx, `UPDATE message_jobs SET delivery_reason=$2 WHERE id=$1 AND delivery_reason<>$3`, job, outcome.ErrorCode, consentEvidenceMissing); err != nil {
+				return err
+			}
+		}
+		if err := finishContinuation(ctx, tx, job, claim[0]); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -603,9 +708,6 @@ func (r *Repo) Cancel(ctx context.Context, id string, claim ...string) error {
 	if result.RowsAffected() != 1 {
 		return ErrLeaseLost
 	}
-	if err := lockDelivery(ctx, tx, id, claim[0]); err != nil {
-		return err
-	}
 	return tx.Commit(ctx)
 }
 
@@ -668,11 +770,11 @@ func (r *Repo) ValidateReserved(ctx context.Context, id string, limits domain.Li
 	return validateReserved(ctx, r.pool, id, limits)
 }
 
-func validateReserved(ctx context.Context, q interface {
+func validateReserved(ctx context.Context, reader interface {
 	QueryRow(context.Context, string, ...any) *sql.Row
 }, id string, limits domain.Limits) error {
 	var sequence, chars, total int
-	err := q.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),o.charge_chars,COALESCE((SELECT sum(p.charge_chars) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),0) FROM agent_outbound_messages o WHERE o.id=$1 AND o.status='prepared'`, id).Scan(&sequence, &chars, &total)
+	err := reader.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),o.charge_chars,COALESCE((SELECT sum(p.charge_chars) FROM agent_outbound_messages p WHERE p.job_id=o.job_id AND p.sequence<=o.sequence AND p.status<>'cancelled'),0) FROM agent_outbound_messages o WHERE o.id=$1 AND o.status='prepared'`, id).Scan(&sequence, &chars, &total)
 	if err != nil {
 		return err
 	}
@@ -689,7 +791,7 @@ func validateReserved(ctx context.Context, q interface {
 	}
 	if limits.MaxPerHour > 0 {
 		var hourly int
-		err := q.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.conversation_id=o.conversation_id AND p.created_at>now()-interval '1 hour' AND p.status IN ('prepared','sending','sent','unknown')) + (SELECT count(*) FROM messages m WHERE m.conversation_id=o.conversation_id AND m.direction='outgoing' AND m.outbound_id IS NULL AND m.sent_status IN ('sent','unknown') AND m.created_at>now()-interval '1 hour') FROM agent_outbound_messages o WHERE o.id=$1`, id).Scan(&hourly)
+		err := reader.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_outbound_messages p WHERE p.conversation_id=o.conversation_id AND p.created_at>now()-interval '1 hour' AND p.status IN ('prepared','sending','sent','unknown')) + (SELECT count(*) FROM messages m WHERE m.conversation_id=o.conversation_id AND m.direction='outgoing' AND m.outbound_id IS NULL AND m.sent_status IN ('sent','unknown') AND m.created_at>now()-interval '1 hour') FROM agent_outbound_messages o WHERE o.id=$1`, id).Scan(&hourly)
 		if err != nil {
 			return err
 		}

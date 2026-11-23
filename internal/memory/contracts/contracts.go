@@ -126,10 +126,11 @@ type DetailReader interface {
 // RunReads tracks memory versions and source grants already used by a reply run.
 // RunReads 记录回复运行已使用的记忆版本与来源授权。
 type RunReads struct {
-	mu         sync.Mutex
-	checks     []func(context.Context) error
-	crossGroup []ConsentRead
-	local      []LocalRead
+	mu           sync.Mutex
+	checks       []func(context.Context) error
+	crossGroup   []ConsentRead
+	local        []LocalRead
+	dependencies []ReadDependency
 }
 type runReadsKey struct{}
 
@@ -246,6 +247,26 @@ func WithRunReads(ctx context.Context) context.Context {
 	return context.WithValue(ctx, runReadsKey{}, &RunReads{})
 }
 
+// ReadDependency contains the identifiers needed to verify a previous disclosure.
+// ReadDependency 仅包含重新核验既有披露所需的标识。
+type ReadDependency struct {
+	ID              string    `json:"id"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	SourceMessageID int64     `json:"source_message_id,omitempty"`
+}
+
+// ReadDependencies returns a snapshot of the disclosed memory versions.
+// ReadDependencies 返回本回合已披露的记忆版本快照。
+func ReadDependencies(ctx context.Context) []ReadDependency {
+	reads, _ := ctx.Value(runReadsKey{}).(*RunReads)
+	if reads == nil {
+		return nil
+	}
+	reads.mu.Lock()
+	defer reads.mu.Unlock()
+	return append([]ReadDependency(nil), reads.dependencies...)
+}
+
 // TrackRead records the full persisted version and the live authority for one disclosure.
 // TrackRead 记录一次披露使用的完整持久化版本和实时授权。
 func TrackRead(ctx context.Context, reader DetailReader, req DetailRequest, version time.Time, authorize func(context.Context) error) {
@@ -283,6 +304,13 @@ func trackVersionedRead(ctx context.Context, reader DetailReader, req DetailRequ
 			SourceMessageID: version.SourceMessageID, SourceSenderID: version.SourceSenderID, HistorySource: historySource}
 		if !slices.Contains(reads.local, read) {
 			reads.local = append(reads.local, read)
+		}
+		dependency := ReadDependency{ID: req.MemoryID, UpdatedAt: version.UpdatedAt}
+		if historySource {
+			dependency.SourceMessageID = version.SourceMessageID
+		}
+		if !slices.Contains(reads.dependencies, dependency) {
+			reads.dependencies = append(reads.dependencies, dependency)
 		}
 	}
 	reads.checks = append(reads.checks, func(call context.Context) error {

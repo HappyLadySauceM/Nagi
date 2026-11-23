@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"github.com/google/uuid"
 )
 
 // ScopePolicy is the model entity for the ScopePolicy schema.
@@ -20,6 +21,10 @@ type ScopePolicy struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int64 `json:"id,omitempty"`
+	// SendPermitInstance holds the value of the "send_permit_instance" field.
+	SendPermitInstance uuid.UUID `json:"send_permit_instance,omitempty"`
+	// SendPermitGenerations holds the value of the "send_permit_generations" field.
+	SendPermitGenerations map[string]string `json:"send_permit_generations,omitempty"`
 	// BotID holds the value of the "bot_id" field.
 	BotID int64 `json:"bot_id,omitempty"`
 	// ScopeType holds the value of the "scope_type" field.
@@ -91,7 +96,7 @@ func (*ScopePolicy) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case scopepolicy.FieldToolPermissions, scopepolicy.FieldPreviousReplyPermission:
+		case scopepolicy.FieldSendPermitGenerations, scopepolicy.FieldToolPermissions, scopepolicy.FieldPreviousReplyPermission:
 			values[i] = new([]byte)
 		case scopepolicy.FieldEnabled, scopepolicy.FieldStoreMessages, scopepolicy.FieldAllowMemoryWrite, scopepolicy.FieldAllowMemoryRead, scopepolicy.FieldAllowHistoryRead:
 			values[i] = new(sql.NullBool)
@@ -101,6 +106,8 @@ func (*ScopePolicy) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullString)
 		case scopepolicy.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
+		case scopepolicy.FieldSendPermitInstance:
+			values[i] = new(uuid.UUID)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -122,6 +129,20 @@ func (_m *ScopePolicy) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int64(value.Int64)
+		case scopepolicy.FieldSendPermitInstance:
+			if value, ok := values[i].(*uuid.UUID); !ok {
+				return fmt.Errorf("unexpected type %T for field send_permit_instance", values[i])
+			} else if value != nil {
+				_m.SendPermitInstance = *value
+			}
+		case scopepolicy.FieldSendPermitGenerations:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field send_permit_generations", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.SendPermitGenerations); err != nil {
+					return fmt.Errorf("unmarshal field send_permit_generations: %w", err)
+				}
+			}
 		case scopepolicy.FieldBotID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field bot_id", values[i])
@@ -288,6 +309,12 @@ func (_m *ScopePolicy) String() string {
 	var builder strings.Builder
 	builder.WriteString("ScopePolicy(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("send_permit_instance=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SendPermitInstance))
+	builder.WriteString(", ")
+	builder.WriteString("send_permit_generations=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SendPermitGenerations))
+	builder.WriteString(", ")
 	builder.WriteString("bot_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.BotID))
 	builder.WriteString(", ")

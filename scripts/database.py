@@ -34,14 +34,21 @@ def check_group(group):
     config = (DB / 'atlas.hcl').read_text()
     if 'env "nagi"' not in config or 'ent://schema/nagi' not in config or 'file://migrations/nagi' not in config:
         raise ValueError('database group configuration mismatch')
-    inventory = json.loads((DB / 'sql-only.json').read_text())
-    sql_only = [obj['exclude'] for obj in inventory['objects']]
-    reviewed = ['schema_migrations',
-                'memory_consent_grants.memory_consent_grant_bound_proposal[type=fk]',
-                'message_jobs.message_jobs_bound_incoming[type=fk]']
+    reviewed = [
+        'schema_migrations',
+        'memory_consent_grants.memory_consent_grant_bound_proposal[type=fk]',
+        'message_jobs.message_jobs_bound_incoming[type=fk]',
+        'group_topics.group_topics_conversation_fk[type=fk]',
+        'group_topic_routes.group_topic_routes_inbound_fk[type=fk]',
+        'group_topic_route_candidates.group_topic_candidates_route_fk[type=fk]',
+        'group_topic_route_candidates.group_topic_candidates_topic_fk[type=fk]',
+        'group_topic_inputs.group_topic_inputs_route_fk[type=fk]',
+        'group_topic_inputs.group_topic_inputs_topic_fk[type=fk]',
+    ]
     if 'exclude = ' + json.dumps(reviewed) not in config:
         raise ValueError('SQL-only exclusions must match the reviewed inventory')
-    if inventory['database'] != group or inventory['schema'] != 'public' or inventory['business_table_exclusions'] or sql_only != reviewed:
+    inventory = json.loads((DB / 'sql-only.json').read_text())
+    if inventory['database'] != group or inventory['schema'] != 'public' or inventory['business_table_exclusions'] or [obj['exclude'] for obj in inventory['objects']] != reviewed:
         raise ValueError('SQL-only inventory mismatch')
     files = list(DIR.glob('*.sql'))
     versions = set()

@@ -9,6 +9,7 @@ import (
 	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
+	outbound "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/modelhttp"
 	"io"
 	"net"
@@ -496,6 +497,9 @@ func normalizeToolImages(ctx context.Context, state *adk.ChatModelAgentState) er
 func privateRuntimeError(err error) error {
 	if errors.Is(err, audit.ErrModelMediaStart) {
 		return audit.ErrModelMediaStart
+	}
+	if errors.Is(err, outbound.ErrContinuation) {
+		return outbound.ErrContinuation
 	}
 	if errors.Is(err, memorycontracts.ErrReadChanged) {
 		return memorycontracts.ErrReadChanged

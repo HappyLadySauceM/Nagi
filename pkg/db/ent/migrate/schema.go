@@ -144,6 +144,10 @@ var (
 		{Name: "status", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "platform_message_id", Type: field.TypeInt64, Nullable: true, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "error_code", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "resume_digest", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "memory_dependencies", Type: field.TypeJSON, Nullable: true},
+		{Name: "send_permit", Type: field.TypeJSON, Nullable: true},
+		{Name: "resume_result", Type: field.TypeJSON, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("now()")},
 		{Name: "claim_token", Type: field.TypeUUID, Default: schema.Expr("gen_random_uuid()")},
@@ -159,19 +163,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "agent_outbound_messages_bot_accounts_agent_outbound_messages_bot_id",
-				Columns:    []*schema.Column{AgentOutboundMessagesColumns[16]},
+				Columns:    []*schema.Column{AgentOutboundMessagesColumns[20]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "agent_outbound_messages_conversations_agent_outbound_messages_conversation_id",
-				Columns:    []*schema.Column{AgentOutboundMessagesColumns[17]},
+				Columns:    []*schema.Column{AgentOutboundMessagesColumns[21]},
 				RefColumns: []*schema.Column{ConversationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "agent_outbound_messages_message_jobs_agent_outbound_messages_job_id",
-				Columns:    []*schema.Column{AgentOutboundMessagesColumns[18]},
+				Columns:    []*schema.Column{AgentOutboundMessagesColumns[22]},
 				RefColumns: []*schema.Column{MessageJobsColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -180,12 +184,12 @@ var (
 			{
 				Name:    "agent_outbound_messages_job_id_sequence_key",
 				Unique:  true,
-				Columns: []*schema.Column{AgentOutboundMessagesColumns[18], AgentOutboundMessagesColumns[2]},
+				Columns: []*schema.Column{AgentOutboundMessagesColumns[22], AgentOutboundMessagesColumns[2]},
 			},
 			{
 				Name:    "agent_outbound_job_tool_call_uidx",
 				Unique:  true,
-				Columns: []*schema.Column{AgentOutboundMessagesColumns[18], AgentOutboundMessagesColumns[3]},
+				Columns: []*schema.Column{AgentOutboundMessagesColumns[22], AgentOutboundMessagesColumns[3]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "(tool_call_id IS NOT NULL)",
 				},
@@ -193,7 +197,7 @@ var (
 			{
 				Name:    "agent_outbound_conversation_timeline",
 				Unique:  false,
-				Columns: []*schema.Column{AgentOutboundMessagesColumns[17], AgentOutboundMessagesColumns[13], AgentOutboundMessagesColumns[2]},
+				Columns: []*schema.Column{AgentOutboundMessagesColumns[21], AgentOutboundMessagesColumns[17], AgentOutboundMessagesColumns[2]},
 			},
 		},
 	}
@@ -351,6 +355,127 @@ var (
 				Name:    "group_members_business_key",
 				Unique:  true,
 				Columns: []*schema.Column{GroupMembersColumns[7], GroupMembersColumns[1], GroupMembersColumns[2]},
+			},
+		},
+	}
+	// GroupTopicsColumns holds the columns for the "group_topics" table.
+	GroupTopicsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "version", Type: field.TypeInt64},
+		{Name: "expires_at", Type: field.TypeTime},
+		{Name: "closed", Type: field.TypeBool, Default: false},
+	}
+	// GroupTopicsTable holds the schema information for the "group_topics" table.
+	GroupTopicsTable = &schema.Table{
+		Name:       "group_topics",
+		Columns:    GroupTopicsColumns,
+		PrimaryKey: []*schema.Column{GroupTopicsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "group_topics_scope_key",
+				Unique:  true,
+				Columns: []*schema.Column{GroupTopicsColumns[0], GroupTopicsColumns[1]},
+			},
+			{
+				Name:    "group_topics_open_scope",
+				Unique:  false,
+				Columns: []*schema.Column{GroupTopicsColumns[1], GroupTopicsColumns[3], GroupTopicsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "NOT closed",
+				},
+			},
+		},
+	}
+	// GroupTopicInputsColumns holds the columns for the "group_topic_inputs" table.
+	GroupTopicInputsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "topic_id", Type: field.TypeInt64},
+		{Name: "version", Type: field.TypeInt64},
+		{Name: "route_id", Type: field.TypeInt64},
+		{Name: "action", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+	}
+	// GroupTopicInputsTable holds the schema information for the "group_topic_inputs" table.
+	GroupTopicInputsTable = &schema.Table{
+		Name:       "group_topic_inputs",
+		Columns:    GroupTopicInputsColumns,
+		PrimaryKey: []*schema.Column{GroupTopicInputsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "group_topic_inputs_topic_version_key",
+				Unique:  true,
+				Columns: []*schema.Column{GroupTopicInputsColumns[2], GroupTopicInputsColumns[3]},
+			},
+			{
+				Name:    "group_topic_inputs_route_key",
+				Unique:  true,
+				Columns: []*schema.Column{GroupTopicInputsColumns[4]},
+			},
+		},
+	}
+	// GroupTopicRoutesColumns holds the columns for the "group_topic_routes" table.
+	GroupTopicRoutesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "message_direction", Type: field.TypeString, Default: "incoming", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "deadline", Type: field.TypeTime},
+		{Name: "claim_token", Type: field.TypeUUID, Nullable: true},
+		{Name: "lease_expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "status", Type: field.TypeString, Default: "pending", SchemaType: map[string]string{"postgres": "text"}},
+	}
+	// GroupTopicRoutesTable holds the schema information for the "group_topic_routes" table.
+	GroupTopicRoutesTable = &schema.Table{
+		Name:       "group_topic_routes",
+		Columns:    GroupTopicRoutesColumns,
+		PrimaryKey: []*schema.Column{GroupTopicRoutesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "group_topic_routes_scope_key",
+				Unique:  true,
+				Columns: []*schema.Column{GroupTopicRoutesColumns[0], GroupTopicRoutesColumns[1]},
+			},
+			{
+				Name:    "group_topic_routes_live_scope",
+				Unique:  false,
+				Columns: []*schema.Column{GroupTopicRoutesColumns[1], GroupTopicRoutesColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "status IN ('pending', 'routing')",
+				},
+			},
+			{
+				Name:    "group_topic_routes_due",
+				Unique:  false,
+				Columns: []*schema.Column{GroupTopicRoutesColumns[3], GroupTopicRoutesColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "status IN ('pending', 'routing')",
+				},
+			},
+		},
+	}
+	// GroupTopicRouteCandidatesColumns holds the columns for the "group_topic_route_candidates" table.
+	GroupTopicRouteCandidatesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "conversation_id", Type: field.TypeUUID},
+		{Name: "route_id", Type: field.TypeInt64},
+		{Name: "topic_id", Type: field.TypeInt64},
+		{Name: "version", Type: field.TypeInt64},
+	}
+	// GroupTopicRouteCandidatesTable holds the schema information for the "group_topic_route_candidates" table.
+	GroupTopicRouteCandidatesTable = &schema.Table{
+		Name:       "group_topic_route_candidates",
+		Columns:    GroupTopicRouteCandidatesColumns,
+		PrimaryKey: []*schema.Column{GroupTopicRouteCandidatesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "group_topic_route_candidates_route_topic_key",
+				Unique:  true,
+				Columns: []*schema.Column{GroupTopicRouteCandidatesColumns[2], GroupTopicRouteCandidatesColumns[3]},
+			},
+			{
+				Name:    "group_topic_route_candidates_topic_routes",
+				Unique:  false,
+				Columns: []*schema.Column{GroupTopicRouteCandidatesColumns[3], GroupTopicRouteCandidatesColumns[2]},
 			},
 		},
 	}
@@ -1060,6 +1185,11 @@ var (
 				Columns: []*schema.Column{MessagesColumns[0], MessagesColumns[2]},
 			},
 			{
+				Name:    "messages_topic_inbound_key",
+				Unique:  true,
+				Columns: []*schema.Column{MessagesColumns[0], MessagesColumns[13], MessagesColumns[2]},
+			},
+			{
 				Name:    "messages_incoming_event_uniq",
 				Unique:  true,
 				Columns: []*schema.Column{MessagesColumns[12], MessagesColumns[13], MessagesColumns[3]},
@@ -1107,6 +1237,7 @@ var (
 		{Name: "delivery_outcome", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "delivery_reason", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "denied_count", Type: field.TypeInt, Default: schema.Expr("0"), SchemaType: map[string]string{"postgres": "integer"}},
+		{Name: "delivery_continuation", Type: field.TypeBool, Default: false},
 		{Name: "claim_token", Type: field.TypeUUID, Nullable: true},
 		{Name: "lease_expires_at", Type: field.TypeTime, Nullable: true},
 		{Name: "consent_proposal_id", Type: field.TypeUUID, Nullable: true},
@@ -1120,13 +1251,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "message_jobs_memory_consent_proposals_delivery_job",
-				Columns:    []*schema.Column{MessageJobsColumns[15]},
+				Columns:    []*schema.Column{MessageJobsColumns[16]},
 				RefColumns: []*schema.Column{MemoryConsentProposalsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "message_jobs_messages_message_jobs_incoming_message_id",
-				Columns:    []*schema.Column{MessageJobsColumns[16]},
+				Columns:    []*schema.Column{MessageJobsColumns[17]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -1135,12 +1266,12 @@ var (
 			{
 				Name:    "message_jobs_consent_proposal_unique",
 				Unique:  true,
-				Columns: []*schema.Column{MessageJobsColumns[15]},
+				Columns: []*schema.Column{MessageJobsColumns[16]},
 			},
 			{
 				Name:    "message_jobs_incoming_message_id_key",
 				Unique:  true,
-				Columns: []*schema.Column{MessageJobsColumns[16]},
+				Columns: []*schema.Column{MessageJobsColumns[17]},
 			},
 			{
 				Name:    "message_jobs_ready",
@@ -1150,7 +1281,7 @@ var (
 			{
 				Name:    "message_jobs_expired",
 				Unique:  false,
-				Columns: []*schema.Column{MessageJobsColumns[14]},
+				Columns: []*schema.Column{MessageJobsColumns[15]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "status = 'processing'",
 				},
@@ -1222,6 +1353,8 @@ var (
 	// ScopePoliciesColumns holds the columns for the "scope_policies" table.
 	ScopePoliciesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "send_permit_instance", Type: field.TypeUUID, Default: schema.Expr("gen_random_uuid()")},
+		{Name: "send_permit_generations", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
 		{Name: "scope_type", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "scope_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "enabled", Type: field.TypeBool, Default: schema.Expr("false")},
@@ -1251,7 +1384,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "scope_policies_bot_accounts_scope_policies_bot_id",
-				Columns:    []*schema.Column{ScopePoliciesColumns[20]},
+				Columns:    []*schema.Column{ScopePoliciesColumns[22]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -1260,13 +1393,35 @@ var (
 			{
 				Name:    "scope_policies_business_key",
 				Unique:  true,
-				Columns: []*schema.Column{ScopePoliciesColumns[20], ScopePoliciesColumns[1], ScopePoliciesColumns[2]},
+				Columns: []*schema.Column{ScopePoliciesColumns[22], ScopePoliciesColumns[3], ScopePoliciesColumns[4]},
+			},
+		},
+	}
+	// SendScopeSelectionsColumns holds the columns for the "send_scope_selections" table.
+	SendScopeSelectionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID, Default: schema.Expr("gen_random_uuid()")},
+		{Name: "bot_id", Type: field.TypeInt64},
+		{Name: "scope_type", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "scope_id", Type: field.TypeInt64},
+	}
+	// SendScopeSelectionsTable holds the schema information for the "send_scope_selections" table.
+	SendScopeSelectionsTable = &schema.Table{
+		Name:       "send_scope_selections",
+		Columns:    SendScopeSelectionsColumns,
+		PrimaryKey: []*schema.Column{SendScopeSelectionsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "send_scope_selections_scope_key",
+				Unique:  true,
+				Columns: []*schema.Column{SendScopeSelectionsColumns[1], SendScopeSelectionsColumns[2], SendScopeSelectionsColumns[3]},
 			},
 		},
 	}
 	// SystemSettingsColumns holds the columns for the "system_settings" table.
 	SystemSettingsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true, SchemaType: map[string]string{"postgres": "smallint"}},
+		{Name: "send_permit_instance", Type: field.TypeUUID, Default: schema.Expr("gen_random_uuid()")},
+		{Name: "send_permit_generations", Type: field.TypeJSON, Default: schema.Expr("'{}'::jsonb")},
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "version", Type: field.TypeInt64, Default: schema.Expr("1"), SchemaType: map[string]string{"postgres": "bigint"}},
 		{Name: "updated_at", Type: field.TypeTime, Default: schema.Expr("now()")},
@@ -1291,6 +1446,10 @@ var (
 		ContactsTable,
 		ConversationsTable,
 		GroupMembersTable,
+		GroupTopicsTable,
+		GroupTopicInputsTable,
+		GroupTopicRoutesTable,
+		GroupTopicRouteCandidatesTable,
 		InboundAttachmentsTable,
 		IntentDecisionsTable,
 		IntentDecisionSnapshotsTable,
@@ -1312,6 +1471,7 @@ var (
 		QqGroupsTable,
 		ScopeMemoryAuthorizationEventsTable,
 		ScopePoliciesTable,
+		SendScopeSelectionsTable,
 		SystemSettingsTable,
 	}
 )
@@ -1336,8 +1496,9 @@ func init() {
 		Table: "agent_outbound_messages",
 	}
 	AgentOutboundMessagesTable.Annotation.Checks = map[string]string{
-		"agent_outbound_messages_sequence_check": "((sequence > 0))",
-		"agent_outbound_messages_status_check":   "((status = ANY (ARRAY['prepared'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'unknown'::text, 'denied'::text, 'cancelled'::text])))",
+		"agent_outbound_messages_send_permit_check": "send_permit IS NULL OR CASE WHEN jsonb_typeof(send_permit) = 'array' THEN jsonb_array_length(send_permit) > 0 ELSE false END",
+		"agent_outbound_messages_sequence_check":    "((sequence > 0))",
+		"agent_outbound_messages_status_check":      "((status = ANY (ARRAY['prepared'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'unknown'::text, 'denied'::text, 'cancelled'::text])))",
 	}
 	AgentRunBudgetsTable.ForeignKeys[0].RefTable = MessageJobsTable
 	AgentRunBudgetsTable.Annotation = &entsql.Annotation{
@@ -1371,6 +1532,33 @@ func init() {
 	GroupMembersTable.ForeignKeys[0].RefTable = BotAccountsTable
 	GroupMembersTable.Annotation = &entsql.Annotation{
 		Table: "group_members",
+	}
+	GroupTopicsTable.Annotation = &entsql.Annotation{
+		Table: "group_topics",
+	}
+	GroupTopicsTable.Annotation.Checks = map[string]string{
+		"group_topics_version_check": "version > 0",
+	}
+	GroupTopicInputsTable.Annotation = &entsql.Annotation{
+		Table: "group_topic_inputs",
+	}
+	GroupTopicInputsTable.Annotation.Checks = map[string]string{
+		"group_topic_inputs_action_check":  "action IN ('opened', 'waiting', 'follow_up', 'contribution', 'corrected', 'replaced', 'merged', 'close')",
+		"group_topic_inputs_version_check": "version > 0",
+	}
+	GroupTopicRoutesTable.Annotation = &entsql.Annotation{
+		Table: "group_topic_routes",
+	}
+	GroupTopicRoutesTable.Annotation.Checks = map[string]string{
+		"group_topic_routes_direction_check": "message_direction = 'incoming'::text",
+		"group_topic_routes_lease_check":     "((status = 'routing' AND claim_token IS NOT NULL AND lease_expires_at IS NOT NULL AND lease_expires_at <= deadline) OR (status <> 'routing' AND claim_token IS NULL AND lease_expires_at IS NULL))",
+		"group_topic_routes_status_check":    "status IN ('pending', 'routing', 'resolved', 'unrelated', 'expired', 'unavailable', 'stale')",
+	}
+	GroupTopicRouteCandidatesTable.Annotation = &entsql.Annotation{
+		Table: "group_topic_route_candidates",
+	}
+	GroupTopicRouteCandidatesTable.Annotation.Checks = map[string]string{
+		"group_topic_route_candidates_version_check": "version > 0",
 	}
 	InboundAttachmentsTable.Annotation = &entsql.Annotation{
 		Table: "inbound_attachments",
@@ -1527,6 +1715,12 @@ func init() {
 		"scope_policies_message_interval_ms_check": "(((message_interval_ms >= 0) AND (message_interval_ms <= 60000)))",
 		"scope_policies_reply_mode_check":          "((reply_mode = ANY (ARRAY['mention_only'::text, 'intent_based'::text, 'always_reply'::text, 'observe_only'::text])))",
 		"scope_policies_scope_type_check":          "((scope_type = ANY (ARRAY['group'::text, 'private'::text])))",
+	}
+	SendScopeSelectionsTable.Annotation = &entsql.Annotation{
+		Table: "send_scope_selections",
+	}
+	SendScopeSelectionsTable.Annotation.Checks = map[string]string{
+		"send_scope_selections_exact_scope_check": "bot_id > 0 AND scope_id > 0 AND scope_type IN ('group', 'private')",
 	}
 	SystemSettingsTable.Annotation = &entsql.Annotation{
 		Table: "system_settings",

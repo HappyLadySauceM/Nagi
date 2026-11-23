@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
@@ -281,6 +282,74 @@ func (_u *AgentOutboundMessageUpdate) ClearErrorCode() *AgentOutboundMessageUpda
 	return _u
 }
 
+// SetResumeDigest sets the "resume_digest" field.
+func (_u *AgentOutboundMessageUpdate) SetResumeDigest(v string) *AgentOutboundMessageUpdate {
+	_u.mutation.SetResumeDigest(v)
+	return _u
+}
+
+// SetNillableResumeDigest sets the "resume_digest" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdate) SetNillableResumeDigest(v *string) *AgentOutboundMessageUpdate {
+	if v != nil {
+		_u.SetResumeDigest(*v)
+	}
+	return _u
+}
+
+// ClearResumeDigest clears the value of the "resume_digest" field.
+func (_u *AgentOutboundMessageUpdate) ClearResumeDigest() *AgentOutboundMessageUpdate {
+	_u.mutation.ClearResumeDigest()
+	return _u
+}
+
+// SetMemoryDependencies sets the "memory_dependencies" field.
+func (_u *AgentOutboundMessageUpdate) SetMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageUpdate {
+	_u.mutation.SetMemoryDependencies(v)
+	return _u
+}
+
+// AppendMemoryDependencies appends value to the "memory_dependencies" field.
+func (_u *AgentOutboundMessageUpdate) AppendMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageUpdate {
+	_u.mutation.AppendMemoryDependencies(v)
+	return _u
+}
+
+// ClearMemoryDependencies clears the value of the "memory_dependencies" field.
+func (_u *AgentOutboundMessageUpdate) ClearMemoryDependencies() *AgentOutboundMessageUpdate {
+	_u.mutation.ClearMemoryDependencies()
+	return _u
+}
+
+// SetSendPermit sets the "send_permit" field.
+func (_u *AgentOutboundMessageUpdate) SetSendPermit(v []map[string]interface{}) *AgentOutboundMessageUpdate {
+	_u.mutation.SetSendPermit(v)
+	return _u
+}
+
+// AppendSendPermit appends value to the "send_permit" field.
+func (_u *AgentOutboundMessageUpdate) AppendSendPermit(v []map[string]interface{}) *AgentOutboundMessageUpdate {
+	_u.mutation.AppendSendPermit(v)
+	return _u
+}
+
+// ClearSendPermit clears the value of the "send_permit" field.
+func (_u *AgentOutboundMessageUpdate) ClearSendPermit() *AgentOutboundMessageUpdate {
+	_u.mutation.ClearSendPermit()
+	return _u
+}
+
+// SetResumeResult sets the "resume_result" field.
+func (_u *AgentOutboundMessageUpdate) SetResumeResult(v map[string]interface{}) *AgentOutboundMessageUpdate {
+	_u.mutation.SetResumeResult(v)
+	return _u
+}
+
+// ClearResumeResult clears the value of the "resume_result" field.
+func (_u *AgentOutboundMessageUpdate) ClearResumeResult() *AgentOutboundMessageUpdate {
+	_u.mutation.ClearResumeResult()
+	return _u
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_u *AgentOutboundMessageUpdate) SetCreatedAt(v time.Time) *AgentOutboundMessageUpdate {
 	_u.mutation.SetCreatedAt(v)
@@ -524,6 +593,40 @@ func (_u *AgentOutboundMessageUpdate) sqlSave(ctx context.Context) (_node int, e
 	}
 	if _u.mutation.ErrorCodeCleared() {
 		_spec.ClearField(agentoutboundmessage.FieldErrorCode, field.TypeString)
+	}
+	if value, ok := _u.mutation.ResumeDigest(); ok {
+		_spec.SetField(agentoutboundmessage.FieldResumeDigest, field.TypeString, value)
+	}
+	if _u.mutation.ResumeDigestCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldResumeDigest, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemoryDependencies(); ok {
+		_spec.SetField(agentoutboundmessage.FieldMemoryDependencies, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedMemoryDependencies(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, agentoutboundmessage.FieldMemoryDependencies, value)
+		})
+	}
+	if _u.mutation.MemoryDependenciesCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldMemoryDependencies, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.SendPermit(); ok {
+		_spec.SetField(agentoutboundmessage.FieldSendPermit, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedSendPermit(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, agentoutboundmessage.FieldSendPermit, value)
+		})
+	}
+	if _u.mutation.SendPermitCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldSendPermit, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.ResumeResult(); ok {
+		_spec.SetField(agentoutboundmessage.FieldResumeResult, field.TypeJSON, value)
+	}
+	if _u.mutation.ResumeResultCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldResumeResult, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(agentoutboundmessage.FieldCreatedAt, field.TypeTime, value)
@@ -934,6 +1037,74 @@ func (_u *AgentOutboundMessageUpdateOne) ClearErrorCode() *AgentOutboundMessageU
 	return _u
 }
 
+// SetResumeDigest sets the "resume_digest" field.
+func (_u *AgentOutboundMessageUpdateOne) SetResumeDigest(v string) *AgentOutboundMessageUpdateOne {
+	_u.mutation.SetResumeDigest(v)
+	return _u
+}
+
+// SetNillableResumeDigest sets the "resume_digest" field if the given value is not nil.
+func (_u *AgentOutboundMessageUpdateOne) SetNillableResumeDigest(v *string) *AgentOutboundMessageUpdateOne {
+	if v != nil {
+		_u.SetResumeDigest(*v)
+	}
+	return _u
+}
+
+// ClearResumeDigest clears the value of the "resume_digest" field.
+func (_u *AgentOutboundMessageUpdateOne) ClearResumeDigest() *AgentOutboundMessageUpdateOne {
+	_u.mutation.ClearResumeDigest()
+	return _u
+}
+
+// SetMemoryDependencies sets the "memory_dependencies" field.
+func (_u *AgentOutboundMessageUpdateOne) SetMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageUpdateOne {
+	_u.mutation.SetMemoryDependencies(v)
+	return _u
+}
+
+// AppendMemoryDependencies appends value to the "memory_dependencies" field.
+func (_u *AgentOutboundMessageUpdateOne) AppendMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageUpdateOne {
+	_u.mutation.AppendMemoryDependencies(v)
+	return _u
+}
+
+// ClearMemoryDependencies clears the value of the "memory_dependencies" field.
+func (_u *AgentOutboundMessageUpdateOne) ClearMemoryDependencies() *AgentOutboundMessageUpdateOne {
+	_u.mutation.ClearMemoryDependencies()
+	return _u
+}
+
+// SetSendPermit sets the "send_permit" field.
+func (_u *AgentOutboundMessageUpdateOne) SetSendPermit(v []map[string]interface{}) *AgentOutboundMessageUpdateOne {
+	_u.mutation.SetSendPermit(v)
+	return _u
+}
+
+// AppendSendPermit appends value to the "send_permit" field.
+func (_u *AgentOutboundMessageUpdateOne) AppendSendPermit(v []map[string]interface{}) *AgentOutboundMessageUpdateOne {
+	_u.mutation.AppendSendPermit(v)
+	return _u
+}
+
+// ClearSendPermit clears the value of the "send_permit" field.
+func (_u *AgentOutboundMessageUpdateOne) ClearSendPermit() *AgentOutboundMessageUpdateOne {
+	_u.mutation.ClearSendPermit()
+	return _u
+}
+
+// SetResumeResult sets the "resume_result" field.
+func (_u *AgentOutboundMessageUpdateOne) SetResumeResult(v map[string]interface{}) *AgentOutboundMessageUpdateOne {
+	_u.mutation.SetResumeResult(v)
+	return _u
+}
+
+// ClearResumeResult clears the value of the "resume_result" field.
+func (_u *AgentOutboundMessageUpdateOne) ClearResumeResult() *AgentOutboundMessageUpdateOne {
+	_u.mutation.ClearResumeResult()
+	return _u
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_u *AgentOutboundMessageUpdateOne) SetCreatedAt(v time.Time) *AgentOutboundMessageUpdateOne {
 	_u.mutation.SetCreatedAt(v)
@@ -1207,6 +1378,40 @@ func (_u *AgentOutboundMessageUpdateOne) sqlSave(ctx context.Context) (_node *Ag
 	}
 	if _u.mutation.ErrorCodeCleared() {
 		_spec.ClearField(agentoutboundmessage.FieldErrorCode, field.TypeString)
+	}
+	if value, ok := _u.mutation.ResumeDigest(); ok {
+		_spec.SetField(agentoutboundmessage.FieldResumeDigest, field.TypeString, value)
+	}
+	if _u.mutation.ResumeDigestCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldResumeDigest, field.TypeString)
+	}
+	if value, ok := _u.mutation.MemoryDependencies(); ok {
+		_spec.SetField(agentoutboundmessage.FieldMemoryDependencies, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedMemoryDependencies(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, agentoutboundmessage.FieldMemoryDependencies, value)
+		})
+	}
+	if _u.mutation.MemoryDependenciesCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldMemoryDependencies, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.SendPermit(); ok {
+		_spec.SetField(agentoutboundmessage.FieldSendPermit, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedSendPermit(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, agentoutboundmessage.FieldSendPermit, value)
+		})
+	}
+	if _u.mutation.SendPermitCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldSendPermit, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.ResumeResult(); ok {
+		_spec.SetField(agentoutboundmessage.FieldResumeResult, field.TypeJSON, value)
+	}
+	if _u.mutation.ResumeResultCleared() {
+		_spec.ClearField(agentoutboundmessage.FieldResumeResult, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(agentoutboundmessage.FieldCreatedAt, field.TypeTime, value)

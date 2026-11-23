@@ -36,6 +36,14 @@ type Tx struct {
 	Conversation *ConversationClient
 	// GroupMember is the client for interacting with the GroupMember builders.
 	GroupMember *GroupMemberClient
+	// GroupTopic is the client for interacting with the GroupTopic builders.
+	GroupTopic *GroupTopicClient
+	// GroupTopicInput is the client for interacting with the GroupTopicInput builders.
+	GroupTopicInput *GroupTopicInputClient
+	// GroupTopicRoute is the client for interacting with the GroupTopicRoute builders.
+	GroupTopicRoute *GroupTopicRouteClient
+	// GroupTopicRouteCandidate is the client for interacting with the GroupTopicRouteCandidate builders.
+	GroupTopicRouteCandidate *GroupTopicRouteCandidateClient
 	// InboundAttachment is the client for interacting with the InboundAttachment builders.
 	InboundAttachment *InboundAttachmentClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
@@ -78,6 +86,8 @@ type Tx struct {
 	ScopeMemoryAuthorizationEvent *ScopeMemoryAuthorizationEventClient
 	// ScopePolicy is the client for interacting with the ScopePolicy builders.
 	ScopePolicy *ScopePolicyClient
+	// SendScopeSelection is the client for interacting with the SendScopeSelection builders.
+	SendScopeSelection *SendScopeSelectionClient
 	// SystemSetting is the client for interacting with the SystemSetting builders.
 	SystemSetting *SystemSettingClient
 
@@ -222,6 +232,10 @@ func (tx *Tx) init() {
 	tx.Contact = NewContactClient(tx.config)
 	tx.Conversation = NewConversationClient(tx.config)
 	tx.GroupMember = NewGroupMemberClient(tx.config)
+	tx.GroupTopic = NewGroupTopicClient(tx.config)
+	tx.GroupTopicInput = NewGroupTopicInputClient(tx.config)
+	tx.GroupTopicRoute = NewGroupTopicRouteClient(tx.config)
+	tx.GroupTopicRouteCandidate = NewGroupTopicRouteCandidateClient(tx.config)
 	tx.InboundAttachment = NewInboundAttachmentClient(tx.config)
 	tx.IntentDecision = NewIntentDecisionClient(tx.config)
 	tx.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(tx.config)
@@ -243,6 +257,7 @@ func (tx *Tx) init() {
 	tx.QQGroup = NewQQGroupClient(tx.config)
 	tx.ScopeMemoryAuthorizationEvent = NewScopeMemoryAuthorizationEventClient(tx.config)
 	tx.ScopePolicy = NewScopePolicyClient(tx.config)
+	tx.SendScopeSelection = NewSendScopeSelectionClient(tx.config)
 	tx.SystemSetting = NewSystemSettingClient(tx.config)
 }
 

@@ -264,12 +264,12 @@ func (_q *SystemSettingQuery) Clone() *SystemSettingQuery {
 // Example:
 //
 //	var v []struct {
-//		Payload jsontext.Value `json:"payload,omitempty"`
+//		SendPermitInstance uuid.UUID `json:"send_permit_instance,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.SystemSetting.Query().
-//		GroupBy(systemsetting.FieldPayload).
+//		GroupBy(systemsetting.FieldSendPermitInstance).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *SystemSettingQuery) GroupBy(field string, fields ...string) *SystemSettingGroupBy {
@@ -287,11 +287,11 @@ func (_q *SystemSettingQuery) GroupBy(field string, fields ...string) *SystemSet
 // Example:
 //
 //	var v []struct {
-//		Payload jsontext.Value `json:"payload,omitempty"`
+//		SendPermitInstance uuid.UUID `json:"send_permit_instance,omitempty"`
 //	}
 //
 //	client.SystemSetting.Query().
-//		Select(systemsetting.FieldPayload).
+//		Select(systemsetting.FieldSendPermitInstance).
 //		Scan(ctx, &v)
 func (_q *SystemSettingQuery) Select(fields ...string) *SystemSettingSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)

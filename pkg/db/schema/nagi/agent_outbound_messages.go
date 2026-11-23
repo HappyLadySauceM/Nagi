@@ -31,13 +31,17 @@ func (AgentOutboundMessage) Fields() []ent.Field {
 		field.String("status").SchemaType(map[string]string{"postgres": "text"}),
 		field.Int64("platform_message_id").SchemaType(map[string]string{"postgres": "bigint"}).Optional().Nillable(),
 		field.String("error_code").SchemaType(map[string]string{"postgres": "text"}).Optional().Nillable(),
+		field.String("resume_digest").SchemaType(map[string]string{"postgres": "text"}).Optional().Nillable(),
+		field.JSON("memory_dependencies", []map[string]any{}).Optional(),
+		field.JSON("send_permit", []map[string]any{}).Optional(),
+		field.JSON("resume_result", map[string]any{}).Optional(),
 		field.Time("created_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 		field.Time("updated_at").Annotations(entsql.DefaultExpr("now()")).Default(time.Now),
 		field.UUID("claim_token", uuid.UUID{}).Default(uuid.New).Annotations(entsql.DefaultExpr("gen_random_uuid()")),
 	}
 }
 func (AgentOutboundMessage) Annotations() []schema.Annotation {
-	return []schema.Annotation{entsql.Annotation{Table: "agent_outbound_messages", Checks: map[string]string{"agent_outbound_messages_sequence_check": "((sequence > 0))", "agent_outbound_messages_status_check": "((status = ANY (ARRAY['prepared'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'unknown'::text, 'denied'::text, 'cancelled'::text])))"}}}
+	return []schema.Annotation{entsql.Annotation{Table: "agent_outbound_messages", Checks: map[string]string{"agent_outbound_messages_send_permit_check": "send_permit IS NULL OR CASE WHEN jsonb_typeof(send_permit) = 'array' THEN jsonb_array_length(send_permit) > 0 ELSE false END", "agent_outbound_messages_sequence_check": "((sequence > 0))", "agent_outbound_messages_status_check": "((status = ANY (ARRAY['prepared'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'unknown'::text, 'denied'::text, 'cancelled'::text])))"}}}
 }
 func (AgentOutboundMessage) Indexes() []ent.Index {
 	return []ent.Index{index.Fields("job_id", "sequence").Unique().StorageKey("agent_outbound_messages_job_id_sequence_key"), index.Fields("job_id", "tool_call_id").Unique().StorageKey("agent_outbound_job_tool_call_uidx").Annotations(entsql.IndexWhere("(tool_call_id IS NOT NULL)")), index.Fields("conversation_id", "created_at", "sequence").StorageKey("agent_outbound_conversation_timeline")}

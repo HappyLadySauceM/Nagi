@@ -6,6 +6,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
+	"errors"
 	"fmt"
 	mediainfra "github.com/HappyLadySauceM/Nagi/internal/media/infrastructure"
 	modelinfra "github.com/HappyLadySauceM/Nagi/internal/models/infrastructure"
@@ -253,6 +255,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if outboundErr != nil {
 			return nil, outboundErr
 		}
+		outboundRepo.SetGatePermissions(func() []pluginscontracts.RegisteredTool { return rt.Tools.Snapshot() })
 		ledger, ledgerErr := outboundapp.NewCoordinator(outboundRepo)
 		if ledgerErr != nil {
 			return nil, ledgerErr
@@ -503,7 +506,56 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		}
 		outboundRepo.SetConsentGate(memoryinfra.ConsentSendGate{Enabled: cfg.Memory.CrossGroupConsentWrite, ReadEnabled: cfg.Memory.CrossGroupConsentRead})
 		consentProcessor := consentPromptProcessor(cfg.Memory.CrossGroupConsentWrite, consentRepo, registry, rt.Scope, ledger, policiesRepo, settingsProvider)
-		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, promptService, rt.Scope, rt.Conversation, rt.Registry, executor, identities, rt.Rulesets, rt.AIAudit, consentProcessor)
+		resume := func(ctx context.Context) (bool, error) {
+			return outboundRepo.ResumeNext(ctx, func(ctx context.Context, record outbounddomain.Record) (id int64, err error) {
+				defer func() {
+					if errors.Is(err, obapp.ErrNotConnected) || errors.Is(err, obapp.ErrClosed) {
+						err = outbounddomain.ErrDispatchNotWritten
+					}
+				}()
+				sender, ok := (replySenders{accounts: registry}).ReceiptSender(record.BotID)
+				if !ok {
+					return 0, outbounddomain.ErrDispatchNotWritten
+				}
+				var payload struct {
+					Segments json.RawMessage `json:"segments"`
+				}
+				if err := json.Unmarshal([]byte(record.Payload), &payload); err != nil {
+					return 0, err
+				}
+				segments, err := obdomain.SegmentsFromWire(payload.Segments)
+				if err != nil {
+					return 0, err
+				}
+				if obdomain.ActionName(record.Action) == obdomain.ActionSendMessage {
+					api, ok := publicAccount(record.BotID)
+					if !ok {
+						return 0, outbounddomain.ErrDispatchNotWritten
+					}
+					command := obdomain.PublicCommand{Name: obdomain.ActionSendMessage, Segments: segments}
+					if record.TargetKind == "group" {
+						command.MessageType = obdomain.TypeGroup
+						command.GroupID = obdomain.GroupID(record.TargetID)
+					} else {
+						command.MessageType = obdomain.TypePrivate
+						command.UserID = obdomain.UserID(record.TargetID)
+					}
+					result, err := api.ExecutePublic(ctx, command)
+					if result.Async {
+						return 0, err
+					}
+					return result.MessageID, err
+				}
+				if record.TargetKind == "group" {
+					return sender.SendGroupMessageReceipt(ctx, obdomain.GroupID(record.TargetID), segments...)
+				}
+				return sender.SendPrivateMessageReceipt(ctx, obdomain.UserID(record.TargetID), segments...)
+			}, func(record outbounddomain.Record) bool {
+				conn, ok := registry.Lookup(record.BotID)
+				return ok && conn.Connected()
+			})
+		}
+		worker, decisions, simulator, prompts, replayer, workerErr := buildWorker(cfg, logger, pool, settingsProvider, settingsService, mediaService, promptService, rt.Scope, rt.Conversation, rt.Registry, executor, identities, rt.Rulesets, rt.AIAudit, consentProcessor, resume)
 		if workerErr != nil {
 			return nil, workerErr
 		}

@@ -589,7 +589,7 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return nil
 	}
 
-	reserveCtx, reserveSpan := tracer.Start(ctx, "nagi.outbound.reserve")
+	reserveCtx, reserveSpan := tracer.Start(genCtx, "nagi.outbound.reserve")
 	record, err := r.outbound.Reserve(reserveCtx, outboundapp.Request{
 		JobID:          task.JobID,
 		ClaimToken:     task.ClaimToken,

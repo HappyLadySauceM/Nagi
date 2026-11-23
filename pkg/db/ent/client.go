@@ -27,6 +27,10 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopic"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicinput"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroute"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
@@ -48,6 +52,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/sendscopeselection"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 
 	stdsql "database/sql"
@@ -80,6 +85,14 @@ type Client struct {
 	Conversation *ConversationClient
 	// GroupMember is the client for interacting with the GroupMember builders.
 	GroupMember *GroupMemberClient
+	// GroupTopic is the client for interacting with the GroupTopic builders.
+	GroupTopic *GroupTopicClient
+	// GroupTopicInput is the client for interacting with the GroupTopicInput builders.
+	GroupTopicInput *GroupTopicInputClient
+	// GroupTopicRoute is the client for interacting with the GroupTopicRoute builders.
+	GroupTopicRoute *GroupTopicRouteClient
+	// GroupTopicRouteCandidate is the client for interacting with the GroupTopicRouteCandidate builders.
+	GroupTopicRouteCandidate *GroupTopicRouteCandidateClient
 	// InboundAttachment is the client for interacting with the InboundAttachment builders.
 	InboundAttachment *InboundAttachmentClient
 	// IntentDecision is the client for interacting with the IntentDecision builders.
@@ -122,6 +135,8 @@ type Client struct {
 	ScopeMemoryAuthorizationEvent *ScopeMemoryAuthorizationEventClient
 	// ScopePolicy is the client for interacting with the ScopePolicy builders.
 	ScopePolicy *ScopePolicyClient
+	// SendScopeSelection is the client for interacting with the SendScopeSelection builders.
+	SendScopeSelection *SendScopeSelectionClient
 	// SystemSetting is the client for interacting with the SystemSetting builders.
 	SystemSetting *SystemSettingClient
 }
@@ -146,6 +161,10 @@ func (c *Client) init() {
 	c.Contact = NewContactClient(c.config)
 	c.Conversation = NewConversationClient(c.config)
 	c.GroupMember = NewGroupMemberClient(c.config)
+	c.GroupTopic = NewGroupTopicClient(c.config)
+	c.GroupTopicInput = NewGroupTopicInputClient(c.config)
+	c.GroupTopicRoute = NewGroupTopicRouteClient(c.config)
+	c.GroupTopicRouteCandidate = NewGroupTopicRouteCandidateClient(c.config)
 	c.InboundAttachment = NewInboundAttachmentClient(c.config)
 	c.IntentDecision = NewIntentDecisionClient(c.config)
 	c.IntentDecisionSnapshot = NewIntentDecisionSnapshotClient(c.config)
@@ -167,6 +186,7 @@ func (c *Client) init() {
 	c.QQGroup = NewQQGroupClient(c.config)
 	c.ScopeMemoryAuthorizationEvent = NewScopeMemoryAuthorizationEventClient(c.config)
 	c.ScopePolicy = NewScopePolicyClient(c.config)
+	c.SendScopeSelection = NewSendScopeSelectionClient(c.config)
 	c.SystemSetting = NewSystemSettingClient(c.config)
 }
 
@@ -271,6 +291,10 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Contact:                       NewContactClient(cfg),
 		Conversation:                  NewConversationClient(cfg),
 		GroupMember:                   NewGroupMemberClient(cfg),
+		GroupTopic:                    NewGroupTopicClient(cfg),
+		GroupTopicInput:               NewGroupTopicInputClient(cfg),
+		GroupTopicRoute:               NewGroupTopicRouteClient(cfg),
+		GroupTopicRouteCandidate:      NewGroupTopicRouteCandidateClient(cfg),
 		InboundAttachment:             NewInboundAttachmentClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
@@ -292,6 +316,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		QQGroup:                       NewQQGroupClient(cfg),
 		ScopeMemoryAuthorizationEvent: NewScopeMemoryAuthorizationEventClient(cfg),
 		ScopePolicy:                   NewScopePolicyClient(cfg),
+		SendScopeSelection:            NewSendScopeSelectionClient(cfg),
 		SystemSetting:                 NewSystemSettingClient(cfg),
 	}, nil
 }
@@ -323,6 +348,10 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Contact:                       NewContactClient(cfg),
 		Conversation:                  NewConversationClient(cfg),
 		GroupMember:                   NewGroupMemberClient(cfg),
+		GroupTopic:                    NewGroupTopicClient(cfg),
+		GroupTopicInput:               NewGroupTopicInputClient(cfg),
+		GroupTopicRoute:               NewGroupTopicRouteClient(cfg),
+		GroupTopicRouteCandidate:      NewGroupTopicRouteCandidateClient(cfg),
 		InboundAttachment:             NewInboundAttachmentClient(cfg),
 		IntentDecision:                NewIntentDecisionClient(cfg),
 		IntentDecisionSnapshot:        NewIntentDecisionSnapshotClient(cfg),
@@ -344,6 +373,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		QQGroup:                       NewQQGroupClient(cfg),
 		ScopeMemoryAuthorizationEvent: NewScopeMemoryAuthorizationEventClient(cfg),
 		ScopePolicy:                   NewScopePolicyClient(cfg),
+		SendScopeSelection:            NewSendScopeSelectionClient(cfg),
 		SystemSetting:                 NewSystemSettingClient(cfg),
 	}, nil
 }
@@ -376,13 +406,15 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
-		c.Contact, c.Conversation, c.GroupMember, c.InboundAttachment,
+		c.Contact, c.Conversation, c.GroupMember, c.GroupTopic, c.GroupTopicInput,
+		c.GroupTopicRoute, c.GroupTopicRouteCandidate, c.InboundAttachment,
 		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
 		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
 		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryConsentEvent,
 		c.MemoryConsentGrant, c.MemoryConsentProposal, c.MemoryExtractionCursor,
 		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
-		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
+		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SendScopeSelection,
+		c.SystemSetting,
 	} {
 		n.Use(hooks...)
 	}
@@ -394,13 +426,15 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.AIAuditArtifact, c.AIAuditEvent, c.AIAuditRun, c.AdminAuditLog,
 		c.AgentOutboundMessage, c.AgentRunBudget, c.AgentSendingPolicy, c.BotAccount,
-		c.Contact, c.Conversation, c.GroupMember, c.InboundAttachment,
+		c.Contact, c.Conversation, c.GroupMember, c.GroupTopic, c.GroupTopicInput,
+		c.GroupTopicRoute, c.GroupTopicRouteCandidate, c.InboundAttachment,
 		c.IntentDecision, c.IntentDecisionSnapshot, c.IntentDecisionStep,
 		c.IntentPromptVersion, c.IntentReplayEvaluation, c.IntentRuleActivation,
 		c.IntentRuleEntry, c.IntentRuleset, c.Memory, c.MemoryConsentEvent,
 		c.MemoryConsentGrant, c.MemoryConsentProposal, c.MemoryExtractionCursor,
 		c.MemoryExtractionJob, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
-		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SystemSetting,
+		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SendScopeSelection,
+		c.SystemSetting,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -431,6 +465,14 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Conversation.mutate(ctx, m)
 	case *GroupMemberMutation:
 		return c.GroupMember.mutate(ctx, m)
+	case *GroupTopicMutation:
+		return c.GroupTopic.mutate(ctx, m)
+	case *GroupTopicInputMutation:
+		return c.GroupTopicInput.mutate(ctx, m)
+	case *GroupTopicRouteMutation:
+		return c.GroupTopicRoute.mutate(ctx, m)
+	case *GroupTopicRouteCandidateMutation:
+		return c.GroupTopicRouteCandidate.mutate(ctx, m)
 	case *InboundAttachmentMutation:
 		return c.InboundAttachment.mutate(ctx, m)
 	case *IntentDecisionMutation:
@@ -473,6 +515,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ScopeMemoryAuthorizationEvent.mutate(ctx, m)
 	case *ScopePolicyMutation:
 		return c.ScopePolicy.mutate(ctx, m)
+	case *SendScopeSelectionMutation:
+		return c.SendScopeSelection.mutate(ctx, m)
 	case *SystemSettingMutation:
 		return c.SystemSetting.mutate(ctx, m)
 	default:
@@ -2308,6 +2352,538 @@ func (c *GroupMemberClient) mutate(ctx context.Context, m *GroupMemberMutation) 
 		return (&GroupMemberDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown GroupMember mutation op: %q", m.Op())
+	}
+}
+
+// GroupTopicClient is a client for the GroupTopic schema.
+type GroupTopicClient struct {
+	config
+}
+
+// NewGroupTopicClient returns a client for the GroupTopic from the given config.
+func NewGroupTopicClient(c config) *GroupTopicClient {
+	return &GroupTopicClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `grouptopic.Hooks(f(g(h())))`.
+func (c *GroupTopicClient) Use(hooks ...Hook) {
+	c.hooks.GroupTopic = append(c.hooks.GroupTopic, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `grouptopic.Intercept(f(g(h())))`.
+func (c *GroupTopicClient) Intercept(interceptors ...Interceptor) {
+	c.inters.GroupTopic = append(c.inters.GroupTopic, interceptors...)
+}
+
+// Create returns a builder for creating a GroupTopic entity.
+func (c *GroupTopicClient) Create() *GroupTopicCreate {
+	mutation := newGroupTopicMutation(c.config, OpCreate)
+	return &GroupTopicCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of GroupTopic entities.
+func (c *GroupTopicClient) CreateBulk(builders ...*GroupTopicCreate) *GroupTopicCreateBulk {
+	return &GroupTopicCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *GroupTopicClient) MapCreateBulk(slice any, setFunc func(*GroupTopicCreate, int)) *GroupTopicCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &GroupTopicCreateBulk{err: fmt.Errorf("calling to GroupTopicClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*GroupTopicCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &GroupTopicCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for GroupTopic.
+func (c *GroupTopicClient) Update() *GroupTopicUpdate {
+	mutation := newGroupTopicMutation(c.config, OpUpdate)
+	return &GroupTopicUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *GroupTopicClient) UpdateOne(_m *GroupTopic) *GroupTopicUpdateOne {
+	mutation := newGroupTopicMutation(c.config, OpUpdateOne, withGroupTopic(_m))
+	return &GroupTopicUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *GroupTopicClient) UpdateOneID(id int64) *GroupTopicUpdateOne {
+	mutation := newGroupTopicMutation(c.config, OpUpdateOne, withGroupTopicID(id))
+	return &GroupTopicUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for GroupTopic.
+func (c *GroupTopicClient) Delete() *GroupTopicDelete {
+	mutation := newGroupTopicMutation(c.config, OpDelete)
+	return &GroupTopicDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *GroupTopicClient) DeleteOne(_m *GroupTopic) *GroupTopicDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *GroupTopicClient) DeleteOneID(id int64) *GroupTopicDeleteOne {
+	builder := c.Delete().Where(grouptopic.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &GroupTopicDeleteOne{builder}
+}
+
+// Query returns a query builder for GroupTopic.
+func (c *GroupTopicClient) Query() *GroupTopicQuery {
+	return &GroupTopicQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeGroupTopic},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a GroupTopic entity by its id.
+func (c *GroupTopicClient) Get(ctx context.Context, id int64) (*GroupTopic, error) {
+	return c.Query().Where(grouptopic.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *GroupTopicClient) GetX(ctx context.Context, id int64) *GroupTopic {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *GroupTopicClient) Hooks() []Hook {
+	return c.hooks.GroupTopic
+}
+
+// Interceptors returns the client interceptors.
+func (c *GroupTopicClient) Interceptors() []Interceptor {
+	return c.inters.GroupTopic
+}
+
+func (c *GroupTopicClient) mutate(ctx context.Context, m *GroupTopicMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&GroupTopicCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&GroupTopicUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&GroupTopicUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&GroupTopicDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown GroupTopic mutation op: %q", m.Op())
+	}
+}
+
+// GroupTopicInputClient is a client for the GroupTopicInput schema.
+type GroupTopicInputClient struct {
+	config
+}
+
+// NewGroupTopicInputClient returns a client for the GroupTopicInput from the given config.
+func NewGroupTopicInputClient(c config) *GroupTopicInputClient {
+	return &GroupTopicInputClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `grouptopicinput.Hooks(f(g(h())))`.
+func (c *GroupTopicInputClient) Use(hooks ...Hook) {
+	c.hooks.GroupTopicInput = append(c.hooks.GroupTopicInput, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `grouptopicinput.Intercept(f(g(h())))`.
+func (c *GroupTopicInputClient) Intercept(interceptors ...Interceptor) {
+	c.inters.GroupTopicInput = append(c.inters.GroupTopicInput, interceptors...)
+}
+
+// Create returns a builder for creating a GroupTopicInput entity.
+func (c *GroupTopicInputClient) Create() *GroupTopicInputCreate {
+	mutation := newGroupTopicInputMutation(c.config, OpCreate)
+	return &GroupTopicInputCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of GroupTopicInput entities.
+func (c *GroupTopicInputClient) CreateBulk(builders ...*GroupTopicInputCreate) *GroupTopicInputCreateBulk {
+	return &GroupTopicInputCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *GroupTopicInputClient) MapCreateBulk(slice any, setFunc func(*GroupTopicInputCreate, int)) *GroupTopicInputCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &GroupTopicInputCreateBulk{err: fmt.Errorf("calling to GroupTopicInputClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*GroupTopicInputCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &GroupTopicInputCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for GroupTopicInput.
+func (c *GroupTopicInputClient) Update() *GroupTopicInputUpdate {
+	mutation := newGroupTopicInputMutation(c.config, OpUpdate)
+	return &GroupTopicInputUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *GroupTopicInputClient) UpdateOne(_m *GroupTopicInput) *GroupTopicInputUpdateOne {
+	mutation := newGroupTopicInputMutation(c.config, OpUpdateOne, withGroupTopicInput(_m))
+	return &GroupTopicInputUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *GroupTopicInputClient) UpdateOneID(id uuid.UUID) *GroupTopicInputUpdateOne {
+	mutation := newGroupTopicInputMutation(c.config, OpUpdateOne, withGroupTopicInputID(id))
+	return &GroupTopicInputUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for GroupTopicInput.
+func (c *GroupTopicInputClient) Delete() *GroupTopicInputDelete {
+	mutation := newGroupTopicInputMutation(c.config, OpDelete)
+	return &GroupTopicInputDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *GroupTopicInputClient) DeleteOne(_m *GroupTopicInput) *GroupTopicInputDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *GroupTopicInputClient) DeleteOneID(id uuid.UUID) *GroupTopicInputDeleteOne {
+	builder := c.Delete().Where(grouptopicinput.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &GroupTopicInputDeleteOne{builder}
+}
+
+// Query returns a query builder for GroupTopicInput.
+func (c *GroupTopicInputClient) Query() *GroupTopicInputQuery {
+	return &GroupTopicInputQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeGroupTopicInput},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a GroupTopicInput entity by its id.
+func (c *GroupTopicInputClient) Get(ctx context.Context, id uuid.UUID) (*GroupTopicInput, error) {
+	return c.Query().Where(grouptopicinput.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *GroupTopicInputClient) GetX(ctx context.Context, id uuid.UUID) *GroupTopicInput {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *GroupTopicInputClient) Hooks() []Hook {
+	return c.hooks.GroupTopicInput
+}
+
+// Interceptors returns the client interceptors.
+func (c *GroupTopicInputClient) Interceptors() []Interceptor {
+	return c.inters.GroupTopicInput
+}
+
+func (c *GroupTopicInputClient) mutate(ctx context.Context, m *GroupTopicInputMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&GroupTopicInputCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&GroupTopicInputUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&GroupTopicInputUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&GroupTopicInputDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown GroupTopicInput mutation op: %q", m.Op())
+	}
+}
+
+// GroupTopicRouteClient is a client for the GroupTopicRoute schema.
+type GroupTopicRouteClient struct {
+	config
+}
+
+// NewGroupTopicRouteClient returns a client for the GroupTopicRoute from the given config.
+func NewGroupTopicRouteClient(c config) *GroupTopicRouteClient {
+	return &GroupTopicRouteClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `grouptopicroute.Hooks(f(g(h())))`.
+func (c *GroupTopicRouteClient) Use(hooks ...Hook) {
+	c.hooks.GroupTopicRoute = append(c.hooks.GroupTopicRoute, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `grouptopicroute.Intercept(f(g(h())))`.
+func (c *GroupTopicRouteClient) Intercept(interceptors ...Interceptor) {
+	c.inters.GroupTopicRoute = append(c.inters.GroupTopicRoute, interceptors...)
+}
+
+// Create returns a builder for creating a GroupTopicRoute entity.
+func (c *GroupTopicRouteClient) Create() *GroupTopicRouteCreate {
+	mutation := newGroupTopicRouteMutation(c.config, OpCreate)
+	return &GroupTopicRouteCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of GroupTopicRoute entities.
+func (c *GroupTopicRouteClient) CreateBulk(builders ...*GroupTopicRouteCreate) *GroupTopicRouteCreateBulk {
+	return &GroupTopicRouteCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *GroupTopicRouteClient) MapCreateBulk(slice any, setFunc func(*GroupTopicRouteCreate, int)) *GroupTopicRouteCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &GroupTopicRouteCreateBulk{err: fmt.Errorf("calling to GroupTopicRouteClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*GroupTopicRouteCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &GroupTopicRouteCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for GroupTopicRoute.
+func (c *GroupTopicRouteClient) Update() *GroupTopicRouteUpdate {
+	mutation := newGroupTopicRouteMutation(c.config, OpUpdate)
+	return &GroupTopicRouteUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *GroupTopicRouteClient) UpdateOne(_m *GroupTopicRoute) *GroupTopicRouteUpdateOne {
+	mutation := newGroupTopicRouteMutation(c.config, OpUpdateOne, withGroupTopicRoute(_m))
+	return &GroupTopicRouteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *GroupTopicRouteClient) UpdateOneID(id int64) *GroupTopicRouteUpdateOne {
+	mutation := newGroupTopicRouteMutation(c.config, OpUpdateOne, withGroupTopicRouteID(id))
+	return &GroupTopicRouteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for GroupTopicRoute.
+func (c *GroupTopicRouteClient) Delete() *GroupTopicRouteDelete {
+	mutation := newGroupTopicRouteMutation(c.config, OpDelete)
+	return &GroupTopicRouteDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *GroupTopicRouteClient) DeleteOne(_m *GroupTopicRoute) *GroupTopicRouteDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *GroupTopicRouteClient) DeleteOneID(id int64) *GroupTopicRouteDeleteOne {
+	builder := c.Delete().Where(grouptopicroute.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &GroupTopicRouteDeleteOne{builder}
+}
+
+// Query returns a query builder for GroupTopicRoute.
+func (c *GroupTopicRouteClient) Query() *GroupTopicRouteQuery {
+	return &GroupTopicRouteQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeGroupTopicRoute},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a GroupTopicRoute entity by its id.
+func (c *GroupTopicRouteClient) Get(ctx context.Context, id int64) (*GroupTopicRoute, error) {
+	return c.Query().Where(grouptopicroute.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *GroupTopicRouteClient) GetX(ctx context.Context, id int64) *GroupTopicRoute {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *GroupTopicRouteClient) Hooks() []Hook {
+	return c.hooks.GroupTopicRoute
+}
+
+// Interceptors returns the client interceptors.
+func (c *GroupTopicRouteClient) Interceptors() []Interceptor {
+	return c.inters.GroupTopicRoute
+}
+
+func (c *GroupTopicRouteClient) mutate(ctx context.Context, m *GroupTopicRouteMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&GroupTopicRouteCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&GroupTopicRouteUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&GroupTopicRouteUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&GroupTopicRouteDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown GroupTopicRoute mutation op: %q", m.Op())
+	}
+}
+
+// GroupTopicRouteCandidateClient is a client for the GroupTopicRouteCandidate schema.
+type GroupTopicRouteCandidateClient struct {
+	config
+}
+
+// NewGroupTopicRouteCandidateClient returns a client for the GroupTopicRouteCandidate from the given config.
+func NewGroupTopicRouteCandidateClient(c config) *GroupTopicRouteCandidateClient {
+	return &GroupTopicRouteCandidateClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `grouptopicroutecandidate.Hooks(f(g(h())))`.
+func (c *GroupTopicRouteCandidateClient) Use(hooks ...Hook) {
+	c.hooks.GroupTopicRouteCandidate = append(c.hooks.GroupTopicRouteCandidate, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `grouptopicroutecandidate.Intercept(f(g(h())))`.
+func (c *GroupTopicRouteCandidateClient) Intercept(interceptors ...Interceptor) {
+	c.inters.GroupTopicRouteCandidate = append(c.inters.GroupTopicRouteCandidate, interceptors...)
+}
+
+// Create returns a builder for creating a GroupTopicRouteCandidate entity.
+func (c *GroupTopicRouteCandidateClient) Create() *GroupTopicRouteCandidateCreate {
+	mutation := newGroupTopicRouteCandidateMutation(c.config, OpCreate)
+	return &GroupTopicRouteCandidateCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of GroupTopicRouteCandidate entities.
+func (c *GroupTopicRouteCandidateClient) CreateBulk(builders ...*GroupTopicRouteCandidateCreate) *GroupTopicRouteCandidateCreateBulk {
+	return &GroupTopicRouteCandidateCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *GroupTopicRouteCandidateClient) MapCreateBulk(slice any, setFunc func(*GroupTopicRouteCandidateCreate, int)) *GroupTopicRouteCandidateCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &GroupTopicRouteCandidateCreateBulk{err: fmt.Errorf("calling to GroupTopicRouteCandidateClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*GroupTopicRouteCandidateCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &GroupTopicRouteCandidateCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for GroupTopicRouteCandidate.
+func (c *GroupTopicRouteCandidateClient) Update() *GroupTopicRouteCandidateUpdate {
+	mutation := newGroupTopicRouteCandidateMutation(c.config, OpUpdate)
+	return &GroupTopicRouteCandidateUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *GroupTopicRouteCandidateClient) UpdateOne(_m *GroupTopicRouteCandidate) *GroupTopicRouteCandidateUpdateOne {
+	mutation := newGroupTopicRouteCandidateMutation(c.config, OpUpdateOne, withGroupTopicRouteCandidate(_m))
+	return &GroupTopicRouteCandidateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *GroupTopicRouteCandidateClient) UpdateOneID(id uuid.UUID) *GroupTopicRouteCandidateUpdateOne {
+	mutation := newGroupTopicRouteCandidateMutation(c.config, OpUpdateOne, withGroupTopicRouteCandidateID(id))
+	return &GroupTopicRouteCandidateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for GroupTopicRouteCandidate.
+func (c *GroupTopicRouteCandidateClient) Delete() *GroupTopicRouteCandidateDelete {
+	mutation := newGroupTopicRouteCandidateMutation(c.config, OpDelete)
+	return &GroupTopicRouteCandidateDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *GroupTopicRouteCandidateClient) DeleteOne(_m *GroupTopicRouteCandidate) *GroupTopicRouteCandidateDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *GroupTopicRouteCandidateClient) DeleteOneID(id uuid.UUID) *GroupTopicRouteCandidateDeleteOne {
+	builder := c.Delete().Where(grouptopicroutecandidate.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &GroupTopicRouteCandidateDeleteOne{builder}
+}
+
+// Query returns a query builder for GroupTopicRouteCandidate.
+func (c *GroupTopicRouteCandidateClient) Query() *GroupTopicRouteCandidateQuery {
+	return &GroupTopicRouteCandidateQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeGroupTopicRouteCandidate},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a GroupTopicRouteCandidate entity by its id.
+func (c *GroupTopicRouteCandidateClient) Get(ctx context.Context, id uuid.UUID) (*GroupTopicRouteCandidate, error) {
+	return c.Query().Where(grouptopicroutecandidate.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *GroupTopicRouteCandidateClient) GetX(ctx context.Context, id uuid.UUID) *GroupTopicRouteCandidate {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *GroupTopicRouteCandidateClient) Hooks() []Hook {
+	return c.hooks.GroupTopicRouteCandidate
+}
+
+// Interceptors returns the client interceptors.
+func (c *GroupTopicRouteCandidateClient) Interceptors() []Interceptor {
+	return c.inters.GroupTopicRouteCandidate
+}
+
+func (c *GroupTopicRouteCandidateClient) mutate(ctx context.Context, m *GroupTopicRouteCandidateMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&GroupTopicRouteCandidateCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&GroupTopicRouteCandidateUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&GroupTopicRouteCandidateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&GroupTopicRouteCandidateDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown GroupTopicRouteCandidate mutation op: %q", m.Op())
 	}
 }
 
@@ -5728,6 +6304,139 @@ func (c *ScopePolicyClient) mutate(ctx context.Context, m *ScopePolicyMutation) 
 	}
 }
 
+// SendScopeSelectionClient is a client for the SendScopeSelection schema.
+type SendScopeSelectionClient struct {
+	config
+}
+
+// NewSendScopeSelectionClient returns a client for the SendScopeSelection from the given config.
+func NewSendScopeSelectionClient(c config) *SendScopeSelectionClient {
+	return &SendScopeSelectionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `sendscopeselection.Hooks(f(g(h())))`.
+func (c *SendScopeSelectionClient) Use(hooks ...Hook) {
+	c.hooks.SendScopeSelection = append(c.hooks.SendScopeSelection, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `sendscopeselection.Intercept(f(g(h())))`.
+func (c *SendScopeSelectionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.SendScopeSelection = append(c.inters.SendScopeSelection, interceptors...)
+}
+
+// Create returns a builder for creating a SendScopeSelection entity.
+func (c *SendScopeSelectionClient) Create() *SendScopeSelectionCreate {
+	mutation := newSendScopeSelectionMutation(c.config, OpCreate)
+	return &SendScopeSelectionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of SendScopeSelection entities.
+func (c *SendScopeSelectionClient) CreateBulk(builders ...*SendScopeSelectionCreate) *SendScopeSelectionCreateBulk {
+	return &SendScopeSelectionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *SendScopeSelectionClient) MapCreateBulk(slice any, setFunc func(*SendScopeSelectionCreate, int)) *SendScopeSelectionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &SendScopeSelectionCreateBulk{err: fmt.Errorf("calling to SendScopeSelectionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*SendScopeSelectionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &SendScopeSelectionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for SendScopeSelection.
+func (c *SendScopeSelectionClient) Update() *SendScopeSelectionUpdate {
+	mutation := newSendScopeSelectionMutation(c.config, OpUpdate)
+	return &SendScopeSelectionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *SendScopeSelectionClient) UpdateOne(_m *SendScopeSelection) *SendScopeSelectionUpdateOne {
+	mutation := newSendScopeSelectionMutation(c.config, OpUpdateOne, withSendScopeSelection(_m))
+	return &SendScopeSelectionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *SendScopeSelectionClient) UpdateOneID(id uuid.UUID) *SendScopeSelectionUpdateOne {
+	mutation := newSendScopeSelectionMutation(c.config, OpUpdateOne, withSendScopeSelectionID(id))
+	return &SendScopeSelectionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for SendScopeSelection.
+func (c *SendScopeSelectionClient) Delete() *SendScopeSelectionDelete {
+	mutation := newSendScopeSelectionMutation(c.config, OpDelete)
+	return &SendScopeSelectionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *SendScopeSelectionClient) DeleteOne(_m *SendScopeSelection) *SendScopeSelectionDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *SendScopeSelectionClient) DeleteOneID(id uuid.UUID) *SendScopeSelectionDeleteOne {
+	builder := c.Delete().Where(sendscopeselection.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &SendScopeSelectionDeleteOne{builder}
+}
+
+// Query returns a query builder for SendScopeSelection.
+func (c *SendScopeSelectionClient) Query() *SendScopeSelectionQuery {
+	return &SendScopeSelectionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeSendScopeSelection},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a SendScopeSelection entity by its id.
+func (c *SendScopeSelectionClient) Get(ctx context.Context, id uuid.UUID) (*SendScopeSelection, error) {
+	return c.Query().Where(sendscopeselection.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *SendScopeSelectionClient) GetX(ctx context.Context, id uuid.UUID) *SendScopeSelection {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *SendScopeSelectionClient) Hooks() []Hook {
+	return c.hooks.SendScopeSelection
+}
+
+// Interceptors returns the client interceptors.
+func (c *SendScopeSelectionClient) Interceptors() []Interceptor {
+	return c.inters.SendScopeSelection
+}
+
+func (c *SendScopeSelectionClient) mutate(ctx context.Context, m *SendScopeSelectionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&SendScopeSelectionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&SendScopeSelectionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&SendScopeSelectionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&SendScopeSelectionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown SendScopeSelection mutation op: %q", m.Op())
+	}
+}
+
 // SystemSettingClient is a client for the SystemSetting schema.
 type SystemSettingClient struct {
 	config
@@ -5866,24 +6575,26 @@ type (
 	hooks struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
-		GroupMember, InboundAttachment, IntentDecision, IntentDecisionSnapshot,
-		IntentDecisionStep, IntentPromptVersion, IntentReplayEvaluation,
-		IntentRuleActivation, IntentRuleEntry, IntentRuleset, Memory,
-		MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
+		GroupMember, GroupTopic, GroupTopicInput, GroupTopicRoute,
+		GroupTopicRouteCandidate, InboundAttachment, IntentDecision,
+		IntentDecisionSnapshot, IntentDecisionStep, IntentPromptVersion,
+		IntentReplayEvaluation, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
+		Memory, MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
 		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
 		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
-		SystemSetting []ent.Hook
+		SendScopeSelection, SystemSetting []ent.Hook
 	}
 	inters struct {
 		AIAuditArtifact, AIAuditEvent, AIAuditRun, AdminAuditLog, AgentOutboundMessage,
 		AgentRunBudget, AgentSendingPolicy, BotAccount, Contact, Conversation,
-		GroupMember, InboundAttachment, IntentDecision, IntentDecisionSnapshot,
-		IntentDecisionStep, IntentPromptVersion, IntentReplayEvaluation,
-		IntentRuleActivation, IntentRuleEntry, IntentRuleset, Memory,
-		MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
+		GroupMember, GroupTopic, GroupTopicInput, GroupTopicRoute,
+		GroupTopicRouteCandidate, InboundAttachment, IntentDecision,
+		IntentDecisionSnapshot, IntentDecisionStep, IntentPromptVersion,
+		IntentReplayEvaluation, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
+		Memory, MemoryConsentEvent, MemoryConsentGrant, MemoryConsentProposal,
 		MemoryExtractionCursor, MemoryExtractionJob, MemoryReplacement, Message,
 		MessageJob, QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy,
-		SystemSetting []ent.Interceptor
+		SendScopeSelection, SystemSetting []ent.Interceptor
 	}
 )
 

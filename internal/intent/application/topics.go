@@ -60,6 +60,9 @@ func needsTopicSemantic(in domain.Input, rule domain.RuleResult) bool {
 }
 
 func selectTopic(in domain.Input, semantic domain.SemanticAnswer) (*domain.TopicCandidate, string) {
+	if in.Topics.BoundID != 0 && len(in.Topics.Candidates) == 1 {
+		return &in.Topics.Candidates[0], "routing"
+	}
 	if in.Topics.QuotedID != 0 {
 		for i := range in.Topics.Candidates {
 			candidate := &in.Topics.Candidates[i]
@@ -166,6 +169,15 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 			return decision
 		}
 	}
+	if in.Topics.BoundID != 0 {
+		if candidate == nil || !candidate.Active {
+			return silent("topic_version_stale")
+		}
+		if decision.Decision == domain.DecisionReply {
+			decision.Topic = &domain.TopicChange{ID: candidate.ID, Action: domain.TopicFollowUp, Source: "routing", ExpiresAt: candidate.ExpiresAt}
+		}
+		return decision
+	}
 	if cooldown && (decision.Decision == domain.DecisionReply || decision.Decision == domain.DecisionDefer) {
 		return silent("cooldown")
 	}
@@ -211,8 +223,30 @@ func addressesOther(in domain.Input) bool {
 	return false
 }
 
+// topicWithoutHistorySegments keeps executable attachment references out of decision snapshots.
+// topicWithoutHistorySegments 从决策快照中移除可执行的历史附件引用。
+func topicWithoutHistorySegments(topics *domain.TopicContext) *domain.TopicContext {
+	if topics == nil || topics.BoundID == 0 {
+		return topics
+	}
+	copy := *topics
+	copy.Candidates = slices.Clone(topics.Candidates)
+	for i := range copy.Candidates {
+		copy.Candidates[i].History = slices.Clone(copy.Candidates[i].History)
+		for j := range copy.Candidates[i].History {
+			copy.Candidates[i].History[j].Segments = nil
+		}
+	}
+	if topics.Reference != nil {
+		ref := *topics.Reference
+		ref.Segments = nil
+		copy.Reference = &ref
+	}
+	return &copy
+}
+
 func topicReplyHistory(in domain.Input, decision domain.FinalDecision) []domain.Message {
-	if decision.Topic != nil && decision.Topic.Action != "opened" && decision.Topic.Action != "waiting" {
+	if in.Topics != nil && decision.Topic != nil && decision.Topic.Action != "opened" && decision.Topic.Action != "waiting" {
 		for _, candidate := range in.Topics.Candidates {
 			if candidate.ID == decision.Topic.ID {
 				if decision.ReasonCode == "awaited_content_received" && len(candidate.History) == 0 {

@@ -3,6 +3,12 @@
 // 工具描述符与作用域策略共用的权限别名和群角色要求。
 package contracts
 
+import (
+	"maps"
+
+	"github.com/google/uuid"
+)
+
 // Group roles used by admin-only tools and the scope save-time guard.
 // 群管工具与作用域保存守卫使用的群角色。
 const (
@@ -88,4 +94,24 @@ func GroupRoleSatisfies(actual, required string) bool {
 	default:
 		return false
 	}
+}
+
+// AdvancePermissionGenerations retains each grant generation until its source value changes.
+// AdvancePermissionGenerations 仅在来源授权值变化时更新对应的能力代际。
+func AdvancePermissionGenerations(current map[string]string, before, after map[string]bool) map[string]string {
+	generations := make(map[string]string, len(current))
+	maps.Copy(generations, current)
+	before = NormalizePermissionOverrides(before)
+	after = NormalizePermissionOverrides(after)
+	for key, value := range before {
+		if next, ok := after[key]; !ok || next != value {
+			generations[key] = uuid.NewString()
+		}
+	}
+	for key := range after {
+		if _, ok := before[key]; !ok {
+			generations[key] = uuid.NewString()
+		}
+	}
+	return generations
 }

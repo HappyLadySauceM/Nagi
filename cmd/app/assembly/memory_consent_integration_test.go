@@ -385,6 +385,7 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 	jobFor := func(group, sender, number int64) conversationdomain.Job {
 		t.Helper()
 		incoming(firstIngress, number, sender, group, obdomain.Text("我叫霁蓝吗"))
+		exec(`UPDATE group_topic_routes r SET status='unrelated' FROM messages m WHERE r.id=m.id AND m.bot_id=$1 AND m.platform_message_id=$2 AND r.status='pending'`, bot, number)
 		all, err := conv2.ClaimReadyJobs(ctx, 30)
 		if err != nil {
 			t.Fatal(err)
@@ -958,6 +959,9 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 	}
 	j := jobFor(groupB, person, -329)
 	decisionRepo, _ := intentinfra.NewDecisionsRepo(pool)
+	exec(`UPDATE group_topic_routes SET status='unrelated' WHERE id=$1`, j.MessageID)
+	exec(`INSERT INTO group_topics (id,conversation_id,version,expires_at) VALUES ($1,$2,1,clock_timestamp()+interval '5 minutes')`, j.ID, j.ConversationID)
+	exec(`INSERT INTO group_topic_inputs (id,conversation_id,topic_id,version,route_id,action) VALUES (gen_random_uuid(),$1,$2,1,$3,'opened')`, j.ConversationID, j.ID, j.MessageID)
 	if err := decisionRepo.Record(ctx, j.ID, intentdomain.FinalDecision{Decision: intentdomain.DecisionReply, ReasonCode: "direct_name_call", Snapshot: &intentdomain.DecisionSnapshot{Input: intentdomain.SnapshotInput{TopicChange: &intentdomain.TopicChange{ID: j.ID, Action: "opened", ExpiresAt: time.Now().Add(5 * time.Minute)}}}}, j.ClaimToken); err != nil {
 		t.Fatal(err)
 	}
@@ -982,13 +986,16 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 			}
 		}
 	}
+	boundTopicID := j.ID
+	ordinaryHistoryID := j.Message.PlatformMessageID
 	var derivedID int64
 	if err := pool.QueryRow(ctx, `SELECT platform_message_id FROM messages WHERE bot_id=$1 AND conversation_id=$2 AND control_kind='memory_consent_reply' AND text_content LIKE '派生回复标记%'`, bot, j.ConversationID).Scan(&derivedID); err != nil {
 		t.Fatal(err)
 	}
 	quoted := func(h *conversationinfra.Ingress, number, sender, group, reference int64) conversationdomain.Job {
 		t.Helper()
-		incoming(h, number, sender, group, obdomain.Reply(obdomain.MessageID(reference)), obdomain.Text("请继续刚才的普通话题"))
+		incoming(h, number, sender, group, obdomain.Reply(obdomain.MessageID(reference)), obdomain.At(obdomain.UserID(bot)), obdomain.Text("请继续刚才的普通话题"))
+		exec(`UPDATE group_topic_routes r SET status='unrelated' FROM messages m WHERE r.id=m.id AND m.bot_id=$1 AND m.platform_message_id=$2 AND r.status='pending'`, bot, number)
 		jobs, err := conv2.ClaimReadyJobs(ctx, 30)
 		if err != nil {
 			t.Fatal(err)
@@ -1023,6 +1030,9 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 				fmt.Fprint(w, `{"choices":[{"logprobs":{"content":[{"token":"A","top_logprobs":[{"token":"A","logprob":-0.1},{"token":"B","logprob":-3}]}]}}]}`)
 				return
 			}
+			semMu.Lock()
+			counts["generation"]++
+			semMu.Unlock()
 			fmt.Fprint(w, `{"id":"probe","model":"fixture","choices":[{"index":0,"message":{"role":"assistant","content":"普通回复"},"finish_reason":"stop"}]}`)
 		}
 	}))
@@ -1060,20 +1070,20 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 			}
 		}
 		if adapter != "" {
-			engine, err := intentapp.NewDecider(intentapp.Options{Semantic: semantic, History: historyReader{svc: conversation}, Scopes: scopes, Recorder: decisionRepo, Logger: logger, Dynamic: func() intentapp.RuntimeConfig {
+			if topics.BoundID != boundTopicID || len(topics.Candidates) != 1 {
+				t.Fatalf("expected bound history: %+v", topics)
+			}
+			ordinary, err := decisionRepo.Topics(ctx, task, ordinaryHistoryID, 300)
+			if err != nil || ordinary.Reference == nil || ordinary.QuotedID != boundTopicID || ordinary.Reference.MessageID != ordinaryHistoryID {
+				t.Fatalf("ordinary bound reference: %+v %v", ordinary, err)
+			}
+			engine, err := intentapp.NewDecider(intentapp.Options{Semantic: semantic, History: historyReader{svc: conversation}, Scopes: scopes, Recorder: decisionRepo, Executor: cleanReply, Logger: logger, Dynamic: func() intentapp.RuntimeConfig {
 				return intentapp.RuntimeConfig{Enabled: true, AIEnabled: true, HistoryLimit: 15, TopicIdleSeconds: 300, Provider: adapter, Model: "fixture"}
 			}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := engine.ProcessTask(ctx, task); err != nil {
-				t.Fatal(err)
-			}
-			history, err := (historyReader{svc: conversation}).RecentIntentMessages(ctx, j.ConversationID, 15)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := cleanReply.ExecuteReply(ctx, task, history); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1083,11 +1093,18 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	checkContext(quoted(firstIngress, -330, other, groupB, derivedID), derivedID, "jev", jev)
+	boundQuote := func(number, sender, version int64) conversationdomain.Job {
+		t.Helper()
+		turn := quoted(firstIngress, number, sender, groupB, derivedID)
+		exec(`UPDATE group_topics SET version=$2 WHERE id=$1`, boundTopicID, version)
+		exec(`INSERT INTO group_topic_inputs (id,conversation_id,topic_id,version,route_id,action) VALUES (gen_random_uuid(),$1,$2,$3,$4,'follow_up')`, turn.ConversationID, boundTopicID, version, turn.MessageID)
+		return turn
+	}
+	checkContext(boundQuote(-330, other, 2), derivedID, "jev", jev)
 	revoke(secondIngress, beforeDisable, -331, groupB)
-	checkContext(quoted(firstIngress, -332, person, groupB, derivedID), derivedID, "openai", local)
+	checkContext(boundQuote(-332, other, 3), derivedID, "openai", local)
 	checkContext(quoted(firstIngress, -333, other, groupA, beforeDisable.PlatformMessageID), beforeDisable.PlatformMessageID, "", nil)
-	if counts["/jev"] < 1 || counts["/chat/completions"] < 7 {
+	if counts["/jev"] < 1 || counts["/chat/completions"] < 6 || counts["generation"] != 2 {
 		t.Fatalf("intent and agent physical counts=%v", counts)
 	}
 	t.Logf("automatic reply received once and stored as derived, raw spans absent; hidden content absent from quoted and aggregated context, actual request counts=%v", counts)
@@ -1409,6 +1426,7 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 	exec(`UPDATE system_settings SET payload=$1,version=version+1 WHERE id=1`, payload)
 	const localMid = -35501
 	incoming(firstIngress, localMid, person, groupB, obdomain.Text("本群隔离事实来源"))
+	exec(`UPDATE group_topic_routes r SET status='unrelated' FROM messages m WHERE r.id=m.id AND m.bot_id=$1 AND m.platform_message_id=$2 AND r.status='pending'`, bot, localMid)
 	localJob := claimOne(conv2, "")
 	finish(localJob)
 	var localID string
@@ -1470,7 +1488,7 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 		} else {
 			err = explicit(tracked(j), j, firstLedger, slot, explicitText, outbounddomain.Limits{MaxMessages: 1})
 		}
-		if !errors.Is(err, interrupted) || (i == 0 && old.ToolCallID != slot || i != 0 && !strings.HasPrefix(old.ToolCallID, "explicit:v1:")) || len(wire.actions) != before {
+		if !errors.Is(err, interrupted) || (i == 0 && old.ToolCallID != slot || i != 0 && !strings.HasPrefix(old.ToolCallID, "explicit:consent:v1:")) || len(wire.actions) != before {
 			t.Fatalf("entry interruption after reserve: slot=%s err=%v actions=%d", slot, err, len(wire.actions)-before)
 		}
 		usage(j.ID, 1)
@@ -1483,23 +1501,15 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 		if err := outbound.MarkSending(tracked(next), old.ID, j.ClaimToken); !errors.Is(err, outboundinfra.ErrLeaseLost) {
 			t.Fatalf("late claim: %v", err)
 		}
-		if i != 0 {
-			for _, newCall := range []string{slot, "new-framework-call"} {
-				err = explicit(tracked(next), next, ledger2, newCall, explicitText, outbounddomain.Limits{MaxMessages: 1})
-				if !errors.Is(err, outbounddomain.ErrConsentSendDenied) || len(wire.actions) != before {
-					t.Fatalf("independent execution of explicit call: actions=%d err=%v", len(wire.actions)-before, err)
-				}
-			}
-			rows, err := outbound2.ListByJob(ctx, next.ID)
-			if err != nil || len(rows) != 1 || rows[0].ID != old.ID || rows[0].Sequence != old.Sequence {
-				t.Fatalf("unverified execution changed the original slot: %v %v", rows, err)
+		if i == 0 {
+			err = secondReply.ExecuteReply(ctx, makeTask(next), nil)
+		} else {
+			if err := explicit(tracked(next), next, ledger2, "new-framework-call", explicitText, outbounddomain.Limits{MaxMessages: 1}); !errors.Is(err, outbounddomain.ErrConsentSendDenied) || len(wire.actions) != before {
+				t.Fatalf("independent explicit call: actions=%d err=%v", len(wire.actions)-before, err)
 			}
 			usage(j.ID, 0)
-			check(old, next, "cancelled")
-			finish(next)
-			continue
+			err = explicit(tracked(next), next, ledger2, slot, explicitText, outbounddomain.Limits{MaxMessages: 1})
 		}
-		err = secondReply.ExecuteReply(ctx, makeTask(next), nil)
 		if err != nil || len(wire.actions) != before+1 {
 			t.Fatalf("recovered slot receipt: slot=%s err=%v actions=%d", slot, err, len(wire.actions)-before)
 		}
@@ -1521,7 +1531,166 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 		recoveryEvidence(old)
 		finish(next)
 	}
-	t.Log("automatic reply reused the original slot across claims; independent explicit invocations kept the original slot cancelled and refunded")
+	t.Log("automatic reply and the same framework call reused the original slot after a fresh read; a different framework call made no reservation or dispatch")
+	for i, mode := range []string{"handoff", "expired_before_handoff", "already_refunded", "existing_receipt", "unknown_receipt", "mixed_receipts", "mixed_blocked"} {
+		t.Run("continuation_"+mode, func(t *testing.T) {
+			turn := jobFor(groupB, person, int64(-4500-i*2))
+			turnRun := tracked(turn)
+			exec(`INSERT INTO group_topics (id,conversation_id,version,expires_at) VALUES ($1,$2,1,clock_timestamp()+interval '5 minutes')`, turn.ID, turn.ConversationID)
+			exec(`INSERT INTO group_topic_inputs (id,conversation_id,topic_id,version,route_id,action) VALUES (gen_random_uuid(),$1,$2,1,$3,'opened')`, turn.ConversationID, turn.ID, turn.MessageID)
+			reserve := func(ctx context.Context, slot string) outbounddomain.Record {
+				t.Helper()
+				row, err := ledger.Reserve(ctx, outboundapp.Request{JobID: turn.ID, BotID: bot, ConversationID: turn.ConversationID, ClaimToken: turn.ClaimToken, ToolCallID: slot, Text: "隔离投递"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return row
+			}
+			var ordinary outbounddomain.Record
+			if mode == "handoff" || mode == "mixed_receipts" || mode == "mixed_blocked" {
+				ordinary = reserve(ctx, "ordinary-first")
+			}
+			row := reserve(turnRun, "derived-text")
+			var prior []outbounddomain.Record
+			var priorReceipt int64
+			if mode == "mixed_receipts" {
+				for _, slot := range []string{"prior-failed", "prior-unknown", "prior-sent", "prior-known"} {
+					prior = append(prior, reserve(ctx, slot))
+				}
+				priorReceipt = -900001
+				exec(`UPDATE agent_outbound_messages SET status='failed',error_code='fixture_failed' WHERE id=$1`, prior[0].ID)
+				exec(`UPDATE agent_outbound_messages SET status='unknown',error_code='fixture_unknown' WHERE id=$1`, prior[1].ID)
+				exec(`UPDATE agent_outbound_messages SET status='sent',platform_message_id=$2 WHERE id=$1`, prior[2].ID, priorReceipt-1)
+				exec(`UPDATE agent_outbound_messages SET status='sending',platform_message_id=$2 WHERE id=$1`, prior[3].ID, priorReceipt)
+			}
+			if mode == "mixed_blocked" {
+				other := reserve(ctx, "prior-blocked")
+				if err := outbound.Cancel(ctx, other.ID, turn.ClaimToken); err != nil {
+					t.Fatal(err)
+				}
+				exec(`UPDATE message_jobs SET delivery_outcome='blocked',delivery_reason='fixture_denial',denied_count=1 WHERE id=$1`, turn.ID)
+			}
+			var known int64
+			if mode == "existing_receipt" || mode == "unknown_receipt" {
+				for {
+					err := outbound.MarkSending(turnRun, row.ID, turn.ClaimToken)
+					if err == nil {
+						break
+					}
+					var wait *outbounddomain.IntervalWait
+					if !errors.As(err, &wait) || wait.Remaining <= 0 || wait.Remaining > time.Second {
+						t.Fatal(err)
+					}
+					time.Sleep(wait.Remaining)
+				}
+				if mode == "existing_receipt" {
+					var err error
+					known, err = wire.client.SendGroupMessageReceipt(ctx, obdomain.GroupID(groupB), obdomain.Text(row.Text))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := outbound.RememberReceipt(ctx, row.ID, known, turn.ClaimToken); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			beforeWire := len(wire.actions)
+			beforeModel := actual.Load()
+			switch mode {
+			case "handoff":
+				incoming(firstIngress, int64(-4501-i*2), person, groupB, obdomain.Text("同话题补充"))
+				if err := outbound.MarkSending(turnRun, row.ID, turn.ClaimToken); !errors.Is(err, outbounddomain.ErrContinuation) {
+					t.Fatalf("handoff result: %v", err)
+				}
+				exec(`UPDATE group_topic_routes r SET status='unrelated' FROM messages m WHERE r.id=m.id AND m.bot_id=$1 AND m.platform_message_id=$2`, bot, int64(-4501-i*2))
+			case "already_refunded":
+				if err := outbound.Cancel(ctx, row.ID, turn.ClaimToken); err != nil {
+					t.Fatal(err)
+				}
+				exec(`UPDATE agent_outbound_messages SET error_code='lease_recovered' WHERE id=$1`, row.ID)
+				exec(`UPDATE message_jobs SET delivery_continuation=true,status='pending',claim_token=NULL,lease_expires_at=NULL,next_run_at=clock_timestamp() WHERE id=$1`, turn.ID)
+			default:
+				recoverJob(turn)
+			}
+			if err := outbound.MarkSending(turnRun, row.ID, turn.ClaimToken); !errors.Is(err, outboundinfra.ErrLeaseLost) {
+				t.Fatalf("late mark: %v", err)
+			}
+			if err := outbound.Cancel(ctx, row.ID, turn.ClaimToken); !errors.Is(err, outboundinfra.ErrLeaseLost) {
+				t.Fatalf("late cancel: %v", err)
+			}
+			if mode == "mixed_receipts" || mode == "mixed_blocked" {
+				if err := conv2.RecoverStaleJobs(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := outbound2.ResumeNext(ctx, func(call context.Context, got outbounddomain.Record) (int64, error) {
+				if got.ID != ordinary.ID || got.Sequence != ordinary.Sequence || got.ToolCallID != ordinary.ToolCallID || got.ClaimToken == turn.ClaimToken {
+					t.Fatalf("unexpected resumed slot: %+v", got)
+				}
+				return wire.client.SendGroupMessageReceipt(call, obdomain.GroupID(groupB), obdomain.Text(ordinary.Text))
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if worked, err := outbound2.ResumeNext(ctx, func(context.Context, outbounddomain.Record) (int64, error) {
+				t.Fatal("terminal slot reached the platform")
+				return 0, nil
+			}); worked || err != nil {
+				t.Fatalf("duplicate continuation worked=%v err=%v", worked, err)
+			}
+			var state, reason, jobState string
+			var used, chars, sequence int
+			var receipt int64
+			if err := pool.QueryRow(ctx, `SELECT o.status,COALESCE(o.error_code,''),j.status,b.reserved_messages,b.reserved_chars,o.sequence,COALESCE(o.platform_message_id,0)
+ FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id JOIN agent_run_budgets b ON b.job_id=j.id WHERE o.id=$1`, row.ID).Scan(&state, &reason, &jobState, &used, &chars, &sequence, &receipt); err != nil {
+				t.Fatal(err)
+			}
+			wantState, wantReason, wantUsed, wantWire := "cancelled", "consent_resume_evidence_missing", 0, 0
+			switch mode {
+			case "handoff", "mixed_blocked":
+				wantWire, wantUsed = 1, 1
+			case "mixed_receipts":
+				wantWire, wantUsed = 1, 1+len(prior)
+			case "existing_receipt":
+				wantState, wantReason, wantUsed = "sent", "", 1
+			case "unknown_receipt":
+				wantState, wantReason, wantUsed = "unknown", "lease_expired", 1
+			}
+			if state != wantState || reason != wantReason || jobState != "failed" || used != wantUsed || chars != wantUsed*row.ChargeChars || sequence != row.Sequence || receipt != known || len(wire.actions)-beforeWire != wantWire || actual.Load() != beforeModel {
+				t.Fatalf("slot %s sequence=%d state=%s reason=%s job=%s used=%d/%d receipt=%d sends=%d model=%d", row.ID, sequence, state, reason, jobState, used, chars, receipt, len(wire.actions)-beforeWire, actual.Load()-beforeModel)
+			}
+			if ordinary.ID != "" {
+				wantDenied := 1
+				if mode == "mixed_blocked" {
+					wantDenied++
+				}
+				var state, reason, deliveryReason string
+				var receipt int64
+				var seq, denied, finals int
+				if err := pool.QueryRow(ctx, `SELECT o.status,COALESCE(o.error_code,''),o.platform_message_id,o.sequence,j.delivery_reason,j.denied_count,
+ (SELECT count(*) FROM agent_outbound_messages f WHERE f.job_id=j.id AND f.tool_call_id='final')
+ FROM agent_outbound_messages o JOIN message_jobs j ON j.id=o.job_id WHERE o.id=$1`, ordinary.ID).Scan(&state, &reason, &receipt, &seq, &deliveryReason, &denied, &finals); err != nil || state != "sent" || reason != "" || receipt == 0 || seq != ordinary.Sequence || deliveryReason != "consent_resume_evidence_missing" || denied != wantDenied || finals != 0 {
+					t.Fatalf("ordinary id=%s seq=%d state=%s reason=%s receipt=%d job_reason=%s denied=%d finals=%d err=%v", ordinary.ID, seq, state, reason, receipt, deliveryReason, denied, finals, err)
+				}
+				t.Logf("ordinary id=%s seq=%d receipt=%d final_slots=%d", ordinary.ID, seq, receipt, finals)
+			}
+			for i, p := range prior {
+				var state, reason string
+				var receipt int64
+				if err := pool.QueryRow(ctx, `SELECT status,COALESCE(error_code,''),COALESCE(platform_message_id,0) FROM agent_outbound_messages WHERE id=$1`, p.ID).Scan(&state, &reason, &receipt); err != nil || state != []string{"failed", "unknown", "sent", "sent"}[i] || reason != []string{"fixture_failed", "fixture_unknown", "", ""}[i] || receipt != []int64{0, 0, priorReceipt - 1, priorReceipt}[i] {
+					t.Fatalf("preexisting id=%s state=%s reason=%s receipt=%d err=%v", p.ID, state, reason, receipt, err)
+				}
+			}
+			if mode == "handoff" {
+				jobs, err := conv2.ClaimReadyJobs(ctx, 30)
+				if err != nil || len(jobs) != 1 || jobs[0].Message.PlatformMessageID != int64(-4501-i*2) {
+					t.Fatalf("ordinary generation claim after terminal delivery: %+v %v", jobs, err)
+				}
+				finish(jobs[0])
+			}
+			t.Logf("id=%s seq=%d state=%s reason=%s usage=%d/%d receipt=%d new_wire=%d new_model=%d", row.ID, sequence, state, reason, used, chars, receipt, len(wire.actions)-beforeWire, actual.Load()-beforeModel)
+		})
+	}
+
 	for i, slot := range []string{"final", explicitSlot} {
 		j = jobFor(groupB, person, int64(-390-i*4))
 		before := len(wire.actions)
@@ -1530,7 +1699,7 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 		} else {
 			err = explicit(tracked(j), j, firstLedger, slot, explicitText, outbounddomain.Limits{MaxMessages: 1})
 		}
-		if !errors.Is(err, interrupted) || (i == 0 && old.ToolCallID != slot || i != 0 && !strings.HasPrefix(old.ToolCallID, "explicit:v1:")) || len(wire.actions) != before {
+		if !errors.Is(err, interrupted) || (i == 0 && old.ToolCallID != slot || i != 0 && !strings.HasPrefix(old.ToolCallID, "explicit:consent:v1:")) || len(wire.actions) != before {
 			t.Fatalf("initial preparation for regrant: slot=%s err=%v", slot, err)
 		}
 		recoverJob(j)

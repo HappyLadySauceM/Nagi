@@ -3,13 +3,16 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
-	entsql "entgo.io/ent/dialect/sql"
 	"fmt"
+	"time"
+
+	entsql "entgo.io/ent/dialect/sql"
+
+	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	s "github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
-	"time"
 )
 
 type Repo struct{ pool *db.Pool }
@@ -64,7 +67,19 @@ func (r *Repo) Update(ctx context.Context, settings settingsdomain.Settings, exp
 		return settingsdomain.Revision{}, false, err
 	}
 	defer tx.Rollback()
-	n, err := tx.Client().SystemSetting.Update().Where(s.ID(1), s.Version(expected)).SetPayload(payload).SetUpdatedBy(actor).SetUpdatedAt(time.Now()).AddVersion(1).Save(ctx)
+	prior, err := tx.Client().SystemSetting.Query().Where(s.ID(1), s.Version(expected)).ForUpdate().Only(ctx)
+	if ent.IsNotFound(err) {
+		return settingsdomain.Revision{}, false, nil
+	}
+	if err != nil {
+		return settingsdomain.Revision{}, false, err
+	}
+	before, err := revision(prior)
+	if err != nil {
+		return settingsdomain.Revision{}, false, err
+	}
+	generations := pc.AdvancePermissionGenerations(prior.SendPermitGenerations, before.Settings.Tools.PermissionDefaults, settings.Tools.PermissionDefaults)
+	n, err := tx.Client().SystemSetting.Update().Where(s.ID(1), s.Version(expected)).SetPayload(payload).SetSendPermitGenerations(generations).SetUpdatedBy(actor).SetUpdatedAt(time.Now()).AddVersion(1).Save(ctx)
 	if err != nil {
 		return settingsdomain.Revision{}, false, err
 	}
