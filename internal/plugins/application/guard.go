@@ -19,6 +19,7 @@ import (
 	auditcontracts "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
+	outbound "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
@@ -188,6 +189,10 @@ func Guard(scope Scope, descriptor contracts.ToolDescriptor, invoke contracts.In
 			auditcontracts.MarkSideEffect(ctx)
 		}
 		result, err := invoke(runCtx, argumentsInJSON)
+		if errors.Is(err, outbound.ErrContinuation) {
+			_ = auditcontracts.FinishEvent(ctx, auditEvent, "done", outbound.GatePending, map[string]any{"status": outbound.GatePending})
+			return "", outbound.ErrContinuation
+		}
 		span.SetAttributes(attribute.Int64("nagi.tool_duration_ms", time.Since(started).Milliseconds()))
 		if err != nil {
 			status := StatusError

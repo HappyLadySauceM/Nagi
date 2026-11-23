@@ -126,6 +126,11 @@ func DeniedCount(v int) predicate.MessageJob {
 	return predicate.MessageJob(sql.FieldEQ(FieldDeniedCount, v))
 }
 
+// DeliveryContinuation applies equality check predicate on the "delivery_continuation" field. It's identical to DeliveryContinuationEQ.
+func DeliveryContinuation(v bool) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldDeliveryContinuation, v))
+}
+
 // ClaimToken applies equality check predicate on the "claim_token" field. It's identical to ClaimTokenEQ.
 func ClaimToken(v uuid.UUID) predicate.MessageJob {
 	return predicate.MessageJob(sql.FieldEQ(FieldClaimToken, v))
@@ -884,6 +889,16 @@ func DeniedCountLT(v int) predicate.MessageJob {
 // DeniedCountLTE applies the LTE predicate on the "denied_count" field.
 func DeniedCountLTE(v int) predicate.MessageJob {
 	return predicate.MessageJob(sql.FieldLTE(FieldDeniedCount, v))
+}
+
+// DeliveryContinuationEQ applies the EQ predicate on the "delivery_continuation" field.
+func DeliveryContinuationEQ(v bool) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldEQ(FieldDeliveryContinuation, v))
+}
+
+// DeliveryContinuationNEQ applies the NEQ predicate on the "delivery_continuation" field.
+func DeliveryContinuationNEQ(v bool) predicate.MessageJob {
+	return predicate.MessageJob(sql.FieldNEQ(FieldDeliveryContinuation, v))
 }
 
 // ClaimTokenEQ applies the EQ predicate on the "claim_token" field.

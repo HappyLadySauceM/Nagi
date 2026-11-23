@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
+	"github.com/google/uuid"
 )
 
 // SystemSetting is the model entity for the SystemSetting schema.
@@ -19,6 +20,10 @@ type SystemSetting struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// SendPermitInstance holds the value of the "send_permit_instance" field.
+	SendPermitInstance uuid.UUID `json:"send_permit_instance,omitempty"`
+	// SendPermitGenerations holds the value of the "send_permit_generations" field.
+	SendPermitGenerations map[string]string `json:"send_permit_generations,omitempty"`
 	// Payload holds the value of the "payload" field.
 	Payload jsontext.Value `json:"payload,omitempty"`
 	// Version holds the value of the "version" field.
@@ -35,7 +40,7 @@ func (*SystemSetting) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case systemsetting.FieldPayload:
+		case systemsetting.FieldSendPermitGenerations, systemsetting.FieldPayload:
 			values[i] = new([]byte)
 		case systemsetting.FieldID, systemsetting.FieldVersion:
 			values[i] = new(sql.NullInt64)
@@ -43,6 +48,8 @@ func (*SystemSetting) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullString)
 		case systemsetting.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
+		case systemsetting.FieldSendPermitInstance:
+			values[i] = new(uuid.UUID)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -64,6 +71,20 @@ func (_m *SystemSetting) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case systemsetting.FieldSendPermitInstance:
+			if value, ok := values[i].(*uuid.UUID); !ok {
+				return fmt.Errorf("unexpected type %T for field send_permit_instance", values[i])
+			} else if value != nil {
+				_m.SendPermitInstance = *value
+			}
+		case systemsetting.FieldSendPermitGenerations:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field send_permit_generations", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.SendPermitGenerations); err != nil {
+					return fmt.Errorf("unmarshal field send_permit_generations: %w", err)
+				}
+			}
 		case systemsetting.FieldPayload:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field payload", values[i])
@@ -126,6 +147,12 @@ func (_m *SystemSetting) String() string {
 	var builder strings.Builder
 	builder.WriteString("SystemSetting(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("send_permit_instance=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SendPermitInstance))
+	builder.WriteString(", ")
+	builder.WriteString("send_permit_generations=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SendPermitGenerations))
+	builder.WriteString(", ")
 	builder.WriteString("payload=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Payload))
 	builder.WriteString(", ")

@@ -192,7 +192,7 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	}
 	platformStarted := record.Status != outbounddomain.StatusPrepared
 	defer func() {
-		if !platformStarted && !denied {
+		if !platformStarted && !denied && !errors.Is(returnErr, outbounddomain.ErrContinuation) {
 			deny("cancelled_before_send")
 		}
 		if ledger, ok := p.opts.Ledger.(interface {
@@ -224,6 +224,14 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 				return err
 			}
 		}
+		if p.opts.Speech != nil {
+			for _, permission := range []string{"media.voice.send", "qq.reply.current", "qq.content.media"} {
+				if err := pluginsapp.RequirePermission(ctx, permission); err != nil {
+					deny("authorization_revoked")
+					return err
+				}
+			}
+		}
 		if validator, ok := p.opts.Ledger.(interface {
 			ValidateReserved(context.Context, string, outbounddomain.Limits) error
 		}); ok {
@@ -240,11 +248,6 @@ func (p provider) send(ctx context.Context, argumentsInJSON string) (result stri
 	outcome, sendErr := outboundapp.DeliverWithRecheck(ctx, p.opts.Ledger, record.ID, recheck, func(sendCtx context.Context) (int64, error) {
 		platformStarted = true
 		if p.opts.Speech != nil {
-			for _, permission := range []string{"media.voice.send", "qq.reply.current", "qq.content.media"} {
-				if err := pluginsapp.RequirePermission(sendCtx, permission); err != nil {
-					return 0, err
-				}
-			}
 			seg := obdomain.Segment{Type: obdomain.SegRecord, Data: map[string]string{"file": "base64://" + base64.StdEncoding.EncodeToString(audio)}}
 			if scope.Kind == contracts.ScopeKindGroup {
 				return sender.SendGroupMessageReceipt(sendCtx, obdomain.GroupID(scope.TargetID), seg)

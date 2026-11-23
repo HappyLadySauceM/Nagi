@@ -141,6 +141,54 @@ func (f GroupMemberFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupMemberMutation", m)
 }
 
+// The GroupTopicFunc type is an adapter to allow the use of ordinary
+// function as GroupTopic mutator.
+type GroupTopicFunc func(context.Context, *ent.GroupTopicMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupTopicFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupTopicMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupTopicMutation", m)
+}
+
+// The GroupTopicInputFunc type is an adapter to allow the use of ordinary
+// function as GroupTopicInput mutator.
+type GroupTopicInputFunc func(context.Context, *ent.GroupTopicInputMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupTopicInputFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupTopicInputMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupTopicInputMutation", m)
+}
+
+// The GroupTopicRouteFunc type is an adapter to allow the use of ordinary
+// function as GroupTopicRoute mutator.
+type GroupTopicRouteFunc func(context.Context, *ent.GroupTopicRouteMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupTopicRouteFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupTopicRouteMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupTopicRouteMutation", m)
+}
+
+// The GroupTopicRouteCandidateFunc type is an adapter to allow the use of ordinary
+// function as GroupTopicRouteCandidate mutator.
+type GroupTopicRouteCandidateFunc func(context.Context, *ent.GroupTopicRouteCandidateMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupTopicRouteCandidateFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupTopicRouteCandidateMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupTopicRouteCandidateMutation", m)
+}
+
 // The InboundAttachmentFunc type is an adapter to allow the use of ordinary
 // function as InboundAttachment mutator.
 type InboundAttachmentFunc func(context.Context, *ent.InboundAttachmentMutation) (ent.Value, error)
@@ -391,6 +439,18 @@ func (f ScopePolicyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ScopePolicyMutation", m)
+}
+
+// The SendScopeSelectionFunc type is an adapter to allow the use of ordinary
+// function as SendScopeSelection mutator.
+type SendScopeSelectionFunc func(context.Context, *ent.SendScopeSelectionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f SendScopeSelectionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.SendScopeSelectionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.SendScopeSelectionMutation", m)
 }
 
 // The SystemSettingFunc type is an adapter to allow the use of ordinary

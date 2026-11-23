@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
+
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 )
 
@@ -40,6 +43,27 @@ func (r *Repo) RenewClaims(ctx context.Context, tokens []string) ([]string, erro
 	return renewed, rows.Err()
 }
 
+// ExpiredTopicJobs returns active local jobs whose generation ownership was fenced by routing.
+// ExpiredTopicJobs 返回已被归属截止撤销生成领取的本地任务。
+func (r *Repo) ExpiredTopicJobs(ctx context.Context, jobs []int64) ([]int64, error) {
+	wire, _ := json.Marshal(jobs)
+	rows, err := r.pool.Query(ctx, `SELECT id FROM message_jobs WHERE id IN (SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb))
+ AND status='failed' AND delivery_reason='topic_routing_expired'`, wire)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var expired []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		expired = append(expired, id)
+	}
+	return expired, rows.Err()
+}
+
 // lockClaim serializes claim-sensitive transitions with sending and recovery.
 // lockClaim 使认领状态迁移与发送、恢复按一致顺序串行执行。
 func (r *Repo) lockClaim(ctx context.Context, tx *db.Tx, jobID int64, token any) error {
@@ -59,3 +83,81 @@ func (r *Repo) lockClaim(ctx context.Context, tx *db.Tx, jobID int64, token any)
 	}
 	return nil
 }
+
+func failurePolicyKeys(ctx context.Context, tx *db.Tx, jobID int64) ([]scopecontracts.PolicyLockKey, error) {
+	rows, err := tx.Query(ctx, `SELECT c.bot_id,c.kind
+ FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id
+ JOIN conversations c ON c.id=COALESCE(m.conversation_id,p.source_conversation_id) WHERE j.id=$1
+ UNION SELECT o.bot_id,o.target_kind FROM agent_outbound_messages o WHERE o.job_id=$1
+ ORDER BY 1,2`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []scopecontracts.PolicyLockKey
+	for rows.Next() {
+		var key scopecontracts.PolicyLockKey
+		if err := rows.Scan(&key.BotID, &key.Kind); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+func failureConversations(ctx context.Context, tx *db.Tx, jobID int64, lock bool) ([]string, error) {
+	query := `SELECT c.id FROM conversations c WHERE c.id IN (
+ SELECT COALESCE(m.conversation_id,p.source_conversation_id) FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE j.id=$1
+ ) OR EXISTS (SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=$1
+ AND o.bot_id=c.bot_id AND o.target_kind=c.kind AND o.target_id=c.target_id) ORDER BY c.id`
+	if lock {
+		query += ` FOR UPDATE OF c`
+	}
+	rows, err := tx.Query(ctx, query, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (r *Repo) lockFailure(ctx context.Context, tx *db.Tx, jobID int64, claim any) ([]string, error) {
+	keys, err := failurePolicyKeys(ctx, tx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if err := scopecontracts.LockPolicies(ctx, tx, false, keys...); err != nil {
+		return nil, err
+	}
+	ids, err := failureConversations(ctx, tx, jobID, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.lockClaim(ctx, tx, jobID, claim); err != nil {
+		return nil, err
+	}
+	currentKeys, err := failurePolicyKeys(ctx, tx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	currentIDs, err := failureConversations(ctx, tx, jobID, false)
+	if err != nil {
+		return nil, err
+	}
+	// A reservation that committed during lock acquisition may add a new lock key.
+	// 取锁期间提交的新预留可能增加锁键。
+	if !slices.Equal(currentKeys, keys) || !slices.Equal(currentIDs, ids) {
+		return nil, errFailureScopeChanged
+	}
+	return ids, nil
+}
+
+var errFailureScopeChanged = errors.New("conversation: delivery scope changed while locking failure")

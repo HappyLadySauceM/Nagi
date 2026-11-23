@@ -6,7 +6,10 @@ import (
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
+	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 	"testing"
+	"time"
 )
 
 func TestExpiredSendingBecomesUnknownAndRejectsLateReceipt(t *testing.T) {
@@ -97,7 +100,7 @@ func TestDeliveryListAcceptsMissingToolCallID(t *testing.T) {
 	}
 }
 
-func TestJobFailureClosesUncertainDeliveryAndRefundsPrepared(t *testing.T) {
+func TestJobFailurePreservesKnownReceiptAndRefundsPrepared(t *testing.T) {
 	f := newLedgerFixture(t)
 	ctx := context.Background()
 	var target int64
@@ -135,8 +138,9 @@ func TestJobFailureClosesUncertainDeliveryAndRefundsPrepared(t *testing.T) {
 	var status, jobState string
 	var live bool
 	var budget, histories int
-	if err := f.pool.QueryRow(ctx, "SELECT status FROM agent_outbound_messages WHERE id=$1", sent.ID).Scan(&status); err != nil || status != "unknown" {
-		t.Fatalf("uncertain send stranded: %s %v", status, err)
+	var receipt int64
+	if err := f.pool.QueryRow(ctx, "SELECT status,platform_message_id FROM agent_outbound_messages WHERE id=$1", sent.ID).Scan(&status, &receipt); err != nil || status != "sent" || receipt != 112233 {
+		t.Fatalf("known receipt stranded: %s %v", status, err)
 	}
 	if err := f.pool.QueryRow(ctx, "SELECT status FROM agent_outbound_messages WHERE id=$1", pending.ID).Scan(&status); err != nil || status != "cancelled" {
 		t.Fatalf("reservation stranded: %s %v", status, err)
@@ -147,13 +151,100 @@ func TestJobFailureClosesUncertainDeliveryAndRefundsPrepared(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, "SELECT reserved_messages FROM agent_run_budgets WHERE job_id=$1", f.jobID).Scan(&budget); err != nil || budget != 1 {
 		t.Fatalf("budget=%d err=%v", budget, err)
 	}
-	if err := f.pool.QueryRow(ctx, "SELECT count(*) FROM messages WHERE outbound_id=$1 AND sent_status='unknown'", sent.ID).Scan(&histories); err != nil || histories != 1 {
-		t.Fatalf("uncertain history=%d err=%v", histories, err)
+	if err := f.pool.QueryRow(ctx, "SELECT count(*) FROM messages WHERE outbound_id=$1 AND sent_status='sent' AND platform_message_id=112233", sent.ID).Scan(&histories); err != nil || histories != 1 {
+		t.Fatalf("acknowledged history=%d err=%v", histories, err)
 	}
 	if err := conversations.RecoverStaleJobs(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.repo.Settle(ctx, sent.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 112233}, f.claim); !errors.Is(err, ErrLeaseLost) {
-		t.Fatalf("late receipt overwrote finalized unknown: %v", err)
+	if err := f.repo.Settle(ctx, sent.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: 112233}, f.claim); err != nil {
+		t.Fatalf("same receipt did not reconcile idempotently: %v", err)
+	}
+}
+
+func TestDeliveryScopeLockSerializesTargetTemplateFallback(t *testing.T) {
+	f := newLedgerFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	scopes, err := scopeinfra.NewRepo(f.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := f.botID + 31781
+	template := scopedomain.Policy{ScopeType: scopedomain.ScopePrivate, Enabled: true, StoreMessages: true}
+	if err := scopes.Upsert(ctx, f.botID, template); err != nil {
+		t.Fatal(err)
+	}
+	independent := template
+	independent.ScopeID, independent.Enabled = target, false
+	if err := scopes.Upsert(ctx, f.botID, independent); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = f.pool.Exec(context.Background(), "DELETE FROM scope_policies WHERE bot_id=$1 AND scope_type='private' AND scope_id IN (0,$2)", f.botID, target)
+	})
+	record, err := f.repo.Reserve(ctx, domain.ReserveInput{
+		ClaimToken: f.claim, JobID: f.jobID, ConversationID: f.conversationID, BotID: f.botID,
+		Text: "scope lock", TargetKind: "private", TargetID: target,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockScopedDelivery(ctx, tx, record.ID, f.claim); err != nil {
+		t.Fatal(err)
+	}
+	var blocker int
+	if err := tx.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&blocker); err != nil {
+		t.Fatal(err)
+	}
+	deleted := make(chan error, 1)
+	go func() {
+		ok, err := scopes.Delete(ctx, f.botID, scopedomain.ScopePrivate, target)
+		if err == nil && !ok {
+			err = errors.New("target override not deleted")
+		}
+		deleted <- err
+	}()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var waiting bool
+		if err := f.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE $1=ANY(pg_blocking_pids(pid)) AND wait_event='advisory'
+ AND query LIKE 'SELECT pg_advisory_xact_lock(%')`, blocker).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		select {
+		case err := <-deleted:
+			t.Fatalf("delete escaped shared target lock: %v", err)
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-deleted; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.repo.MarkSending(ctx, record.ID, f.claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.repo.Settle(ctx, record.ID, application.Outcome{Status: domain.StatusSent, PlatformMessageID: -41}, f.claim); err != nil {
+		t.Fatal(err)
+	}
+	var history int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM messages m JOIN conversations c ON c.id=m.conversation_id
+ WHERE m.outbound_id=$1 AND c.kind='private' AND c.target_id=$2`, record.ID, target).Scan(&history); err != nil || history != 1 {
+		t.Fatalf("history after fallback: %d %v", history, err)
 	}
 }

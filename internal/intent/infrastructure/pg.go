@@ -71,11 +71,25 @@ func (r *DecisionsRepo) Record(ctx context.Context, jobID int64, decision domain
 	if err != nil {
 		return err
 	}
-	rows, err = client.QueryContext(ctx, `SELECT id FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp() FOR UPDATE`, jobID, claim[0])
+	rows, err = client.QueryContext(ctx, `SELECT id FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp()`, jobID, claim[0])
 	if err != nil {
 		return err
 	}
 	valid := rows.Next()
+	rows.Close()
+	if !valid {
+		return fmt.Errorf("intent: lease lost")
+	}
+	if decision.Topic != nil && decision.Topic.Action != "personal_exit" {
+		if err := persistTopicChange(ctx, client, id, jobID, decision.Topic); err != nil {
+			return err
+		}
+	}
+	rows, err = client.QueryContext(ctx, `SELECT id FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp() FOR UPDATE`, jobID, claim[0])
+	if err != nil {
+		return err
+	}
+	valid = rows.Next()
 	rows.Close()
 	if !valid {
 		return fmt.Errorf("intent: lease lost")
@@ -519,4 +533,43 @@ func nullableConversation(id string) any {
 		return nil
 	}
 	return id
+}
+
+// persistTopicChange records the immutable input version before generation.
+// persistTopicChange 在生成前登记不可变的输入版本。
+func persistTopicChange(ctx context.Context, client *ent.Client, conversation string, jobID int64, topic *domain.TopicChange) error {
+	action := topic.Action
+	opening := action == "opened" || action == "waiting"
+	if action == "reopened" {
+		action = "follow_up"
+	}
+	if _, err := client.ExecContext(ctx, `WITH origin AS (
+ SELECT r.id FROM message_jobs j JOIN group_topic_routes r ON r.id=j.incoming_message_id AND r.conversation_id=$1
+ WHERE j.id=$2 AND NOT EXISTS (SELECT 1 FROM group_topic_inputs i WHERE i.route_id=r.id)
+ ), created AS (
+ INSERT INTO group_topics (id,conversation_id,version,expires_at)
+ SELECT $3,$1,1,$4 FROM origin WHERE $6 AND $4>clock_timestamp()
+ ON CONFLICT(id) DO NOTHING RETURNING id,version
+ ), advanced AS (
+ UPDATE group_topics t SET version=t.version+1,expires_at=$4,closed=($5='close')
+ FROM origin WHERE NOT $6 AND t.id=$3 AND t.conversation_id=$1
+ RETURNING t.id,t.version
+ ) INSERT INTO group_topic_inputs (id,conversation_id,topic_id,version,route_id,action)
+ SELECT gen_random_uuid(),$1,changed.id,changed.version,origin.id,$5 FROM origin CROSS JOIN (
+ SELECT * FROM created UNION ALL SELECT * FROM advanced
+ ) changed`, conversation, jobID, topic.ID, topic.ExpiresAt, action, opening); err != nil {
+		return err
+	}
+	if _, err := client.ExecContext(ctx, `UPDATE group_topics t SET closed=true FROM group_topic_inputs i JOIN message_jobs j ON j.incoming_message_id=i.route_id
+ WHERE j.id=$2 AND t.conversation_id=$1 AND (t.id,t.version)=(i.topic_id,i.version) AND $3='close'`, conversation, jobID, action); err != nil {
+		return err
+	}
+	_, err := client.ExecContext(ctx, `INSERT INTO group_topic_route_candidates (id,conversation_id,route_id,topic_id,version)
+ SELECT gen_random_uuid(),r.conversation_id,r.id,t.id,t.version
+ FROM group_topic_inputs i JOIN message_jobs j ON j.incoming_message_id=i.route_id
+ JOIN group_topics t ON (t.id,t.conversation_id,t.version)=(i.topic_id,i.conversation_id,i.version)
+ JOIN group_topic_routes r ON r.conversation_id=t.conversation_id AND r.id>i.route_id
+ WHERE j.id=$2 AND t.conversation_id=$1 AND NOT t.closed AND r.status IN ('pending','routing','expired','unavailable')
+ ON CONFLICT (route_id,topic_id) DO NOTHING`, conversation, jobID)
+	return err
 }

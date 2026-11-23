@@ -198,11 +198,19 @@ func TestReciprocalCrossConversationSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.repo.MarkSending(ctx, one.ID, f.claim); err != nil {
-		t.Fatal(err)
+	claimStart := make(chan struct{})
+	claimResults := make(chan error, 2)
+	for _, record := range []domain.Record{one, two} {
+		go func(record domain.Record) {
+			<-claimStart
+			claimResults <- f.repo.MarkSending(ctx, record.ID, record.ClaimToken)
+		}(record)
 	}
-	if err := f.repo.MarkSending(ctx, two.ID, claim); err != nil {
-		t.Fatal(err)
+	close(claimStart)
+	for i := 0; i < 2; i++ {
+		if err := <-claimResults; err != nil {
+			t.Fatal(err)
+		}
 	}
 	start := make(chan struct{})
 	results := make(chan error, 2)

@@ -224,6 +224,20 @@ func (_c *MessageJobCreate) SetNillableDeniedCount(v *int) *MessageJobCreate {
 	return _c
 }
 
+// SetDeliveryContinuation sets the "delivery_continuation" field.
+func (_c *MessageJobCreate) SetDeliveryContinuation(v bool) *MessageJobCreate {
+	_c.mutation.SetDeliveryContinuation(v)
+	return _c
+}
+
+// SetNillableDeliveryContinuation sets the "delivery_continuation" field if the given value is not nil.
+func (_c *MessageJobCreate) SetNillableDeliveryContinuation(v *bool) *MessageJobCreate {
+	if v != nil {
+		_c.SetDeliveryContinuation(*v)
+	}
+	return _c
+}
+
 // SetClaimToken sets the "claim_token" field.
 func (_c *MessageJobCreate) SetClaimToken(v uuid.UUID) *MessageJobCreate {
 	_c.mutation.SetClaimToken(v)
@@ -406,10 +420,17 @@ func (_c *MessageJobCreate) defaults() {
 		v := messagejob.DefaultDeniedCount
 		_c.mutation.SetDeniedCount(v)
 	}
+	if _, ok := _c.mutation.DeliveryContinuation(); !ok {
+		v := messagejob.DefaultDeliveryContinuation
+		_c.mutation.SetDeliveryContinuation(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *MessageJobCreate) check() error {
+	if _, ok := _c.mutation.DeliveryContinuation(); !ok {
+		return &ValidationError{Name: "delivery_continuation", err: errors.New(`ent: missing required field "MessageJob.delivery_continuation"`)}
+	}
 	return nil
 }
 
@@ -490,6 +511,10 @@ func (_c *MessageJobCreate) createSpec() (*MessageJob, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DeniedCount(); ok {
 		_spec.SetField(messagejob.FieldDeniedCount, field.TypeInt, value)
 		_node.DeniedCount = value
+	}
+	if value, ok := _c.mutation.DeliveryContinuation(); ok {
+		_spec.SetField(messagejob.FieldDeliveryContinuation, field.TypeBool, value)
+		_node.DeliveryContinuation = value
 	}
 	if value, ok := _c.mutation.ClaimToken(); ok {
 		_spec.SetField(messagejob.FieldClaimToken, field.TypeUUID, value)
@@ -831,6 +856,18 @@ func (u *MessageJobUpsert) AddDeniedCount(v int) *MessageJobUpsert {
 	return u
 }
 
+// SetDeliveryContinuation sets the "delivery_continuation" field.
+func (u *MessageJobUpsert) SetDeliveryContinuation(v bool) *MessageJobUpsert {
+	u.Set(messagejob.FieldDeliveryContinuation, v)
+	return u
+}
+
+// UpdateDeliveryContinuation sets the "delivery_continuation" field to the value that was provided on create.
+func (u *MessageJobUpsert) UpdateDeliveryContinuation() *MessageJobUpsert {
+	u.SetExcluded(messagejob.FieldDeliveryContinuation)
+	return u
+}
+
 // SetClaimToken sets the "claim_token" field.
 func (u *MessageJobUpsert) SetClaimToken(v uuid.UUID) *MessageJobUpsert {
 	u.Set(messagejob.FieldClaimToken, v)
@@ -1143,6 +1180,20 @@ func (u *MessageJobUpsertOne) AddDeniedCount(v int) *MessageJobUpsertOne {
 func (u *MessageJobUpsertOne) UpdateDeniedCount() *MessageJobUpsertOne {
 	return u.Update(func(s *MessageJobUpsert) {
 		s.UpdateDeniedCount()
+	})
+}
+
+// SetDeliveryContinuation sets the "delivery_continuation" field.
+func (u *MessageJobUpsertOne) SetDeliveryContinuation(v bool) *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetDeliveryContinuation(v)
+	})
+}
+
+// UpdateDeliveryContinuation sets the "delivery_continuation" field to the value that was provided on create.
+func (u *MessageJobUpsertOne) UpdateDeliveryContinuation() *MessageJobUpsertOne {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateDeliveryContinuation()
 	})
 }
 
@@ -1630,6 +1681,20 @@ func (u *MessageJobUpsertBulk) AddDeniedCount(v int) *MessageJobUpsertBulk {
 func (u *MessageJobUpsertBulk) UpdateDeniedCount() *MessageJobUpsertBulk {
 	return u.Update(func(s *MessageJobUpsert) {
 		s.UpdateDeniedCount()
+	})
+}
+
+// SetDeliveryContinuation sets the "delivery_continuation" field.
+func (u *MessageJobUpsertBulk) SetDeliveryContinuation(v bool) *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.SetDeliveryContinuation(v)
+	})
+}
+
+// UpdateDeliveryContinuation sets the "delivery_continuation" field to the value that was provided on create.
+func (u *MessageJobUpsertBulk) UpdateDeliveryContinuation() *MessageJobUpsertBulk {
+	return u.Update(func(s *MessageJobUpsert) {
+		s.UpdateDeliveryContinuation()
 	})
 }
 

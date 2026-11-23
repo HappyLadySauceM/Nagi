@@ -344,7 +344,13 @@ func addTopicState(state map[string]any, topics *domain.TopicContext) {
 	candidates := make(map[string]any, len(topics.Candidates))
 	for i, candidate := range topics.Candidates {
 		key := domain.TopicQuestionKey(i)
-		candidates[key] = map[string]any{"messages": candidate.History, "active": candidate.Active, "waiting": candidate.Waiting}
+		history := make([]domain.Message, len(candidate.History))
+		for j, msg := range candidate.History {
+			msg.Segments = nil
+			msg.Text = semanticText(msg.Text)
+			history[j] = msg
+		}
+		candidates[key] = map[string]any{"messages": history, "active": candidate.Active, "waiting": candidate.Waiting}
 		if candidate.ID == topics.QuotedID {
 			state["quoted_topic"] = key
 		}

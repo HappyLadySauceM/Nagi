@@ -5,16 +5,18 @@ package infrastructure
 import (
 	"context"
 	"encoding/json"
-	entsql "entgo.io/ent/dialect/sql"
-	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
-	sp "github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"fmt"
 	"time"
 
-	"fmt"
+	entsql "entgo.io/ent/dialect/sql"
+	"github.com/google/uuid"
 
-	"github.com/HappyLadySauceM/Nagi/pkg/db"
-
+	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
+	"github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/pkg/db"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
+	sp "github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
 )
 
 // Repo is the pgx-backed scope policy repository.
@@ -140,7 +142,7 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 	}
 	defer tx.Rollback()
 	client := tx.Client()
-	if _, err := client.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("scope:%d:%s", botID, policy.ScopeType)); err != nil {
+	if err := contracts.LockPolicies(ctx, client, true, contracts.PolicyLockKey{BotID: botID, Kind: string(policy.ScopeType)}); err != nil {
 		return err
 	}
 	if err := lockMemoryAuthorization(ctx, client, botID, string(policy.ScopeType), policy.ScopeID); err != nil {
@@ -162,6 +164,29 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 	previous, err := client.ScopePolicy.Query().Where(sp.BotID(botID), sp.ScopeType(string(policy.ScopeType)), sp.ScopeID(policy.ScopeID)).Only(ctx)
 	if err != nil && !ent.IsNotFound(err) {
 		return err
+	}
+	if previous == nil && policy.ScopeID != 0 {
+		if err := advanceSendSelection(ctx, client, botID, string(policy.ScopeType), policy.ScopeID); err != nil {
+			return err
+		}
+	}
+	var generations map[string]string
+	if previous != nil {
+		previousOverrides, err := decodeToolPermissions(previous.ToolPermissions)
+		if err != nil {
+			return err
+		}
+		generations = pc.AdvancePermissionGenerations(previous.SendPermitGenerations, previousOverrides, policy.ToolPermissions)
+		for key, changed := range map[string]bool{
+			":state":   previous.Enabled != policy.Enabled || (previous.ReplyMode == string(domain.ModeObserveOnly)) != (policy.ReplyMode == domain.ModeObserveOnly),
+			":store":   previous.StoreMessages != policy.StoreMessages,
+			":history": previous.AllowHistoryRead != policy.AllowHistoryRead,
+			":memory":  previous.AllowMemoryRead != policy.AllowMemoryRead,
+		} {
+			if changed {
+				generations[key] = uuid.NewString()
+			}
+		}
 	}
 	var eventID int64
 	if previous != nil && previous.MemoryAuthorizationEventID != nil {
@@ -199,6 +224,9 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 		u.UpdateMaxTotalCharsPerRun()
 		u.UpdateMessageIntervalMs()
 		u.UpdateToolPermissions()
+		if previous != nil {
+			u.SetSendPermitGenerations(generations)
+		}
 		u.UpdateUpdatedAt()
 		u.AddVersion(1)
 		if relevantChanged {
@@ -220,7 +248,7 @@ func (r *Repo) Delete(ctx context.Context, botID int64, scopeType domain.ScopeTy
 	}
 	defer tx.Rollback()
 	client := tx.Client()
-	if _, err := client.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", fmt.Sprintf("scope:%d:%s", botID, scopeType)); err != nil {
+	if err := contracts.LockPolicies(ctx, client, true, contracts.PolicyLockKey{BotID: botID, Kind: string(scopeType)}); err != nil {
 		return false, err
 	}
 	if err := lockMemoryAuthorization(ctx, client, botID, string(scopeType), scopeID); err != nil {
@@ -257,10 +285,23 @@ func (r *Repo) Delete(ctx context.Context, botID int64, scopeType domain.ScopeTy
 	if _, err := client.ScopePolicy.Delete().Where(sp.BotID(botID), sp.ScopeType(string(scopeType)), sp.ScopeID(scopeID)).Exec(ctx); err != nil {
 		return false, err
 	}
+	if scopeID != 0 {
+		if err := advanceSendSelection(ctx, client, botID, string(scopeType), scopeID); err != nil {
+			return false, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// advanceSendSelection preserves the selection stamp across policy deletion.
+// advanceSendSelection 在独立策略删除后仍保留精确作用域的选择代际。
+func advanceSendSelection(ctx context.Context, client *ent.Client, botID int64, kind string, scopeID int64) error {
+	_, err := client.ExecContext(ctx, `INSERT INTO send_scope_selections(bot_id,scope_type,scope_id) VALUES ($1,$2,$3)
+ ON CONFLICT(bot_id,scope_type,scope_id) DO UPDATE SET id=gen_random_uuid()`, botID, kind, scopeID)
+	return err
 }
 
 func policyModel(v *ent.ScopePolicy) (domain.Policy, error) {

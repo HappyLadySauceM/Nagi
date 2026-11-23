@@ -8,6 +8,7 @@ import (
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
+	"github.com/google/uuid"
 	"time"
 )
 
@@ -15,6 +16,8 @@ type ScopePolicy struct{ ent.Schema }
 
 func (ScopePolicy) Fields() []ent.Field {
 	return []ent.Field{
+		field.UUID("send_permit_instance", uuid.UUID{}).Default(uuid.New).Annotations(entsql.DefaultExpr("gen_random_uuid()")),
+		field.JSON("send_permit_generations", map[string]string{}).Default(map[string]string{}).Annotations(entsql.DefaultExpr("'{}'::jsonb")),
 		field.Int64("id"),
 		field.Int64("bot_id").SchemaType(map[string]string{"postgres": "bigint"}),
 		field.String("scope_type").SchemaType(map[string]string{"postgres": "text"}),

@@ -22,6 +22,48 @@
       "owner": "reviewed versioned SQL",
       "exclude": "message_jobs.message_jobs_bound_incoming[type=fk]",
       "purpose": "Ordinary jobs reference only incoming messages"
+    },
+    {
+      "name": "group_topics_conversation_fk",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "group_topics.group_topics_conversation_fk[type=fk]",
+      "purpose": "Cascade topics with their source conversation"
+    },
+    {
+      "name": "group_topic_routes_inbound_fk",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "group_topic_routes.group_topic_routes_inbound_fk[type=fk]",
+      "purpose": "Bind each route to an inbound message in its source conversation"
+    },
+    {
+      "name": "group_topic_candidates_route_fk",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "group_topic_route_candidates.group_topic_candidates_route_fk[type=fk]",
+      "purpose": "Bind candidates to their route in the same conversation"
+    },
+    {
+      "name": "group_topic_candidates_topic_fk",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "group_topic_route_candidates.group_topic_candidates_topic_fk[type=fk]",
+      "purpose": "Bind candidates to their topic in the same conversation"
+    },
+    {
+      "name": "group_topic_inputs_route_fk",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "group_topic_inputs.group_topic_inputs_route_fk[type=fk]",
+      "purpose": "Bind a version input to its inbound route in the same conversation"
+    },
+    {
+      "name": "group_topic_inputs_topic_fk",
+      "kind": "foreign_key",
+      "owner": "reviewed versioned SQL",
+      "exclude": "group_topic_inputs.group_topic_inputs_topic_fk[type=fk]",
+      "purpose": "Bind a version input to its topic in the same conversation"
     }
   ],
   "expression_indexes": [],

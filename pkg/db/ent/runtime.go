@@ -16,6 +16,10 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopic"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicinput"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroute"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
@@ -37,6 +41,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/sendscopeselection"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/schema/nagi"
 	"github.com/google/uuid"
@@ -177,15 +182,15 @@ func init() {
 	// agentoutboundmessage.DefaultChargeChars holds the default value on creation for the charge_chars field.
 	agentoutboundmessage.DefaultChargeChars = agentoutboundmessageDescChargeChars.Default.(int64)
 	// agentoutboundmessageDescCreatedAt is the schema descriptor for created_at field.
-	agentoutboundmessageDescCreatedAt := agentoutboundmessageFields[16].Descriptor()
+	agentoutboundmessageDescCreatedAt := agentoutboundmessageFields[20].Descriptor()
 	// agentoutboundmessage.DefaultCreatedAt holds the default value on creation for the created_at field.
 	agentoutboundmessage.DefaultCreatedAt = agentoutboundmessageDescCreatedAt.Default.(func() time.Time)
 	// agentoutboundmessageDescUpdatedAt is the schema descriptor for updated_at field.
-	agentoutboundmessageDescUpdatedAt := agentoutboundmessageFields[17].Descriptor()
+	agentoutboundmessageDescUpdatedAt := agentoutboundmessageFields[21].Descriptor()
 	// agentoutboundmessage.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	agentoutboundmessage.DefaultUpdatedAt = agentoutboundmessageDescUpdatedAt.Default.(func() time.Time)
 	// agentoutboundmessageDescClaimToken is the schema descriptor for claim_token field.
-	agentoutboundmessageDescClaimToken := agentoutboundmessageFields[18].Descriptor()
+	agentoutboundmessageDescClaimToken := agentoutboundmessageFields[22].Descriptor()
 	// agentoutboundmessage.DefaultClaimToken holds the default value on creation for the claim_token field.
 	agentoutboundmessage.DefaultClaimToken = agentoutboundmessageDescClaimToken.Default.(func() uuid.UUID)
 	agentrunbudgetFields := nagi.AgentRunBudget{}.Fields()
@@ -254,6 +259,34 @@ func init() {
 	groupmemberDescRole := groupmemberFields[6].Descriptor()
 	// groupmember.DefaultRole holds the default value on creation for the role field.
 	groupmember.DefaultRole = groupmemberDescRole.Default.(string)
+	grouptopicFields := nagi.GroupTopic{}.Fields()
+	_ = grouptopicFields
+	// grouptopicDescClosed is the schema descriptor for closed field.
+	grouptopicDescClosed := grouptopicFields[4].Descriptor()
+	// grouptopic.DefaultClosed holds the default value on creation for the closed field.
+	grouptopic.DefaultClosed = grouptopicDescClosed.Default.(bool)
+	grouptopicinputFields := nagi.GroupTopicInput{}.Fields()
+	_ = grouptopicinputFields
+	// grouptopicinputDescID is the schema descriptor for id field.
+	grouptopicinputDescID := grouptopicinputFields[0].Descriptor()
+	// grouptopicinput.DefaultID holds the default value on creation for the id field.
+	grouptopicinput.DefaultID = grouptopicinputDescID.Default.(func() uuid.UUID)
+	grouptopicrouteFields := nagi.GroupTopicRoute{}.Fields()
+	_ = grouptopicrouteFields
+	// grouptopicrouteDescMessageDirection is the schema descriptor for message_direction field.
+	grouptopicrouteDescMessageDirection := grouptopicrouteFields[2].Descriptor()
+	// grouptopicroute.DefaultMessageDirection holds the default value on creation for the message_direction field.
+	grouptopicroute.DefaultMessageDirection = grouptopicrouteDescMessageDirection.Default.(string)
+	// grouptopicrouteDescStatus is the schema descriptor for status field.
+	grouptopicrouteDescStatus := grouptopicrouteFields[6].Descriptor()
+	// grouptopicroute.DefaultStatus holds the default value on creation for the status field.
+	grouptopicroute.DefaultStatus = grouptopicrouteDescStatus.Default.(string)
+	grouptopicroutecandidateFields := nagi.GroupTopicRouteCandidate{}.Fields()
+	_ = grouptopicroutecandidateFields
+	// grouptopicroutecandidateDescID is the schema descriptor for id field.
+	grouptopicroutecandidateDescID := grouptopicroutecandidateFields[0].Descriptor()
+	// grouptopicroutecandidate.DefaultID holds the default value on creation for the id field.
+	grouptopicroutecandidate.DefaultID = grouptopicroutecandidateDescID.Default.(func() uuid.UUID)
 	inboundattachmentFields := nagi.InboundAttachment{}.Fields()
 	_ = inboundattachmentFields
 	// inboundattachmentDescSegmentIndex is the schema descriptor for segment_index field.
@@ -722,6 +755,10 @@ func init() {
 	messagejobDescDeniedCount := messagejobFields[14].Descriptor()
 	// messagejob.DefaultDeniedCount holds the default value on creation for the denied_count field.
 	messagejob.DefaultDeniedCount = messagejobDescDeniedCount.Default.(int)
+	// messagejobDescDeliveryContinuation is the schema descriptor for delivery_continuation field.
+	messagejobDescDeliveryContinuation := messagejobFields[15].Descriptor()
+	// messagejob.DefaultDeliveryContinuation holds the default value on creation for the delivery_continuation field.
+	messagejob.DefaultDeliveryContinuation = messagejobDescDeliveryContinuation.Default.(bool)
 	qqgroupFields := nagi.QQGroup{}.Fields()
 	_ = qqgroupFields
 	// qqgroupDescName is the schema descriptor for name field.
@@ -748,78 +785,100 @@ func init() {
 	scopememoryauthorizationevent.DefaultCreatedAt = scopememoryauthorizationeventDescCreatedAt.Default.(func() time.Time)
 	scopepolicyFields := nagi.ScopePolicy{}.Fields()
 	_ = scopepolicyFields
+	// scopepolicyDescSendPermitInstance is the schema descriptor for send_permit_instance field.
+	scopepolicyDescSendPermitInstance := scopepolicyFields[0].Descriptor()
+	// scopepolicy.DefaultSendPermitInstance holds the default value on creation for the send_permit_instance field.
+	scopepolicy.DefaultSendPermitInstance = scopepolicyDescSendPermitInstance.Default.(func() uuid.UUID)
+	// scopepolicyDescSendPermitGenerations is the schema descriptor for send_permit_generations field.
+	scopepolicyDescSendPermitGenerations := scopepolicyFields[1].Descriptor()
+	// scopepolicy.DefaultSendPermitGenerations holds the default value on creation for the send_permit_generations field.
+	scopepolicy.DefaultSendPermitGenerations = scopepolicyDescSendPermitGenerations.Default.(map[string]string)
 	// scopepolicyDescEnabled is the schema descriptor for enabled field.
-	scopepolicyDescEnabled := scopepolicyFields[4].Descriptor()
+	scopepolicyDescEnabled := scopepolicyFields[6].Descriptor()
 	// scopepolicy.DefaultEnabled holds the default value on creation for the enabled field.
 	scopepolicy.DefaultEnabled = scopepolicyDescEnabled.Default.(bool)
 	// scopepolicyDescReplyMode is the schema descriptor for reply_mode field.
-	scopepolicyDescReplyMode := scopepolicyFields[5].Descriptor()
+	scopepolicyDescReplyMode := scopepolicyFields[7].Descriptor()
 	// scopepolicy.DefaultReplyMode holds the default value on creation for the reply_mode field.
 	scopepolicy.DefaultReplyMode = scopepolicyDescReplyMode.Default.(string)
 	// scopepolicyDescStoreMessages is the schema descriptor for store_messages field.
-	scopepolicyDescStoreMessages := scopepolicyFields[6].Descriptor()
+	scopepolicyDescStoreMessages := scopepolicyFields[8].Descriptor()
 	// scopepolicy.DefaultStoreMessages holds the default value on creation for the store_messages field.
 	scopepolicy.DefaultStoreMessages = scopepolicyDescStoreMessages.Default.(bool)
 	// scopepolicyDescAllowMemoryWrite is the schema descriptor for allow_memory_write field.
-	scopepolicyDescAllowMemoryWrite := scopepolicyFields[7].Descriptor()
+	scopepolicyDescAllowMemoryWrite := scopepolicyFields[9].Descriptor()
 	// scopepolicy.DefaultAllowMemoryWrite holds the default value on creation for the allow_memory_write field.
 	scopepolicy.DefaultAllowMemoryWrite = scopepolicyDescAllowMemoryWrite.Default.(bool)
 	// scopepolicyDescAllowMemoryRead is the schema descriptor for allow_memory_read field.
-	scopepolicyDescAllowMemoryRead := scopepolicyFields[8].Descriptor()
+	scopepolicyDescAllowMemoryRead := scopepolicyFields[10].Descriptor()
 	// scopepolicy.DefaultAllowMemoryRead holds the default value on creation for the allow_memory_read field.
 	scopepolicy.DefaultAllowMemoryRead = scopepolicyDescAllowMemoryRead.Default.(bool)
 	// scopepolicyDescAllowHistoryRead is the schema descriptor for allow_history_read field.
-	scopepolicyDescAllowHistoryRead := scopepolicyFields[9].Descriptor()
+	scopepolicyDescAllowHistoryRead := scopepolicyFields[11].Descriptor()
 	// scopepolicy.DefaultAllowHistoryRead holds the default value on creation for the allow_history_read field.
 	scopepolicy.DefaultAllowHistoryRead = scopepolicyDescAllowHistoryRead.Default.(bool)
 	// scopepolicyDescMinReplyIntervalMs is the schema descriptor for min_reply_interval_ms field.
-	scopepolicyDescMinReplyIntervalMs := scopepolicyFields[11].Descriptor()
+	scopepolicyDescMinReplyIntervalMs := scopepolicyFields[13].Descriptor()
 	// scopepolicy.DefaultMinReplyIntervalMs holds the default value on creation for the min_reply_interval_ms field.
 	scopepolicy.DefaultMinReplyIntervalMs = scopepolicyDescMinReplyIntervalMs.Default.(int)
 	// scopepolicyDescMaxRepliesPerHour is the schema descriptor for max_replies_per_hour field.
-	scopepolicyDescMaxRepliesPerHour := scopepolicyFields[12].Descriptor()
+	scopepolicyDescMaxRepliesPerHour := scopepolicyFields[14].Descriptor()
 	// scopepolicy.DefaultMaxRepliesPerHour holds the default value on creation for the max_replies_per_hour field.
 	scopepolicy.DefaultMaxRepliesPerHour = scopepolicyDescMaxRepliesPerHour.Default.(int)
 	// scopepolicyDescUpdatedAt is the schema descriptor for updated_at field.
-	scopepolicyDescUpdatedAt := scopepolicyFields[13].Descriptor()
+	scopepolicyDescUpdatedAt := scopepolicyFields[15].Descriptor()
 	// scopepolicy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	scopepolicy.DefaultUpdatedAt = scopepolicyDescUpdatedAt.Default.(func() time.Time)
 	// scopepolicyDescToolPermissions is the schema descriptor for tool_permissions field.
-	scopepolicyDescToolPermissions := scopepolicyFields[14].Descriptor()
+	scopepolicyDescToolPermissions := scopepolicyFields[16].Descriptor()
 	// scopepolicy.DefaultToolPermissions holds the default value on creation for the tool_permissions field.
 	scopepolicy.DefaultToolPermissions = scopepolicyDescToolPermissions.Default.(jsontext.Value)
 	// scopepolicyDescVersion is the schema descriptor for version field.
-	scopepolicyDescVersion := scopepolicyFields[15].Descriptor()
+	scopepolicyDescVersion := scopepolicyFields[17].Descriptor()
 	// scopepolicy.DefaultVersion holds the default value on creation for the version field.
 	scopepolicy.DefaultVersion = scopepolicyDescVersion.Default.(int64)
 	// scopepolicyDescMaxMessagesPerRun is the schema descriptor for max_messages_per_run field.
-	scopepolicyDescMaxMessagesPerRun := scopepolicyFields[17].Descriptor()
+	scopepolicyDescMaxMessagesPerRun := scopepolicyFields[19].Descriptor()
 	// scopepolicy.DefaultMaxMessagesPerRun holds the default value on creation for the max_messages_per_run field.
 	scopepolicy.DefaultMaxMessagesPerRun = scopepolicyDescMaxMessagesPerRun.Default.(int)
 	// scopepolicyDescMaxCharsPerMessage is the schema descriptor for max_chars_per_message field.
-	scopepolicyDescMaxCharsPerMessage := scopepolicyFields[18].Descriptor()
+	scopepolicyDescMaxCharsPerMessage := scopepolicyFields[20].Descriptor()
 	// scopepolicy.DefaultMaxCharsPerMessage holds the default value on creation for the max_chars_per_message field.
 	scopepolicy.DefaultMaxCharsPerMessage = scopepolicyDescMaxCharsPerMessage.Default.(int)
 	// scopepolicyDescMaxTotalCharsPerRun is the schema descriptor for max_total_chars_per_run field.
-	scopepolicyDescMaxTotalCharsPerRun := scopepolicyFields[19].Descriptor()
+	scopepolicyDescMaxTotalCharsPerRun := scopepolicyFields[21].Descriptor()
 	// scopepolicy.DefaultMaxTotalCharsPerRun holds the default value on creation for the max_total_chars_per_run field.
 	scopepolicy.DefaultMaxTotalCharsPerRun = scopepolicyDescMaxTotalCharsPerRun.Default.(int)
 	// scopepolicyDescMessageIntervalMs is the schema descriptor for message_interval_ms field.
-	scopepolicyDescMessageIntervalMs := scopepolicyFields[20].Descriptor()
+	scopepolicyDescMessageIntervalMs := scopepolicyFields[22].Descriptor()
 	// scopepolicy.DefaultMessageIntervalMs holds the default value on creation for the message_interval_ms field.
 	scopepolicy.DefaultMessageIntervalMs = scopepolicyDescMessageIntervalMs.Default.(int)
+	sendscopeselectionFields := nagi.SendScopeSelection{}.Fields()
+	_ = sendscopeselectionFields
+	// sendscopeselectionDescID is the schema descriptor for id field.
+	sendscopeselectionDescID := sendscopeselectionFields[0].Descriptor()
+	// sendscopeselection.DefaultID holds the default value on creation for the id field.
+	sendscopeselection.DefaultID = sendscopeselectionDescID.Default.(func() uuid.UUID)
 	systemsettingFields := nagi.SystemSetting{}.Fields()
 	_ = systemsettingFields
+	// systemsettingDescSendPermitInstance is the schema descriptor for send_permit_instance field.
+	systemsettingDescSendPermitInstance := systemsettingFields[0].Descriptor()
+	// systemsetting.DefaultSendPermitInstance holds the default value on creation for the send_permit_instance field.
+	systemsetting.DefaultSendPermitInstance = systemsettingDescSendPermitInstance.Default.(func() uuid.UUID)
+	// systemsettingDescSendPermitGenerations is the schema descriptor for send_permit_generations field.
+	systemsettingDescSendPermitGenerations := systemsettingFields[1].Descriptor()
+	// systemsetting.DefaultSendPermitGenerations holds the default value on creation for the send_permit_generations field.
+	systemsetting.DefaultSendPermitGenerations = systemsettingDescSendPermitGenerations.Default.(map[string]string)
 	// systemsettingDescVersion is the schema descriptor for version field.
-	systemsettingDescVersion := systemsettingFields[2].Descriptor()
+	systemsettingDescVersion := systemsettingFields[4].Descriptor()
 	// systemsetting.DefaultVersion holds the default value on creation for the version field.
 	systemsetting.DefaultVersion = systemsettingDescVersion.Default.(int64)
 	// systemsettingDescUpdatedAt is the schema descriptor for updated_at field.
-	systemsettingDescUpdatedAt := systemsettingFields[3].Descriptor()
+	systemsettingDescUpdatedAt := systemsettingFields[5].Descriptor()
 	// systemsetting.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	systemsetting.DefaultUpdatedAt = systemsettingDescUpdatedAt.Default.(func() time.Time)
 	// systemsettingDescUpdatedBy is the schema descriptor for updated_by field.
-	systemsettingDescUpdatedBy := systemsettingFields[4].Descriptor()
+	systemsettingDescUpdatedBy := systemsettingFields[6].Descriptor()
 	// systemsetting.DefaultUpdatedBy holds the default value on creation for the updated_by field.
 	systemsetting.DefaultUpdatedBy = systemsettingDescUpdatedBy.Default.(string)
 }

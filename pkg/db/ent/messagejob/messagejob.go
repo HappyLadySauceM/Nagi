@@ -42,6 +42,8 @@ const (
 	FieldDeliveryReason = "delivery_reason"
 	// FieldDeniedCount holds the string denoting the denied_count field in the database.
 	FieldDeniedCount = "denied_count"
+	// FieldDeliveryContinuation holds the string denoting the delivery_continuation field in the database.
+	FieldDeliveryContinuation = "delivery_continuation"
 	// FieldClaimToken holds the string denoting the claim_token field in the database.
 	FieldClaimToken = "claim_token"
 	// FieldLeaseExpiresAt holds the string denoting the lease_expires_at field in the database.
@@ -112,6 +114,7 @@ var Columns = []string{
 	FieldDeliveryOutcome,
 	FieldDeliveryReason,
 	FieldDeniedCount,
+	FieldDeliveryContinuation,
 	FieldClaimToken,
 	FieldLeaseExpiresAt,
 }
@@ -149,6 +152,8 @@ var (
 	DefaultDeliveryReason string
 	// DefaultDeniedCount holds the default value on creation for the "denied_count" field.
 	DefaultDeniedCount int
+	// DefaultDeliveryContinuation holds the default value on creation for the "delivery_continuation" field.
+	DefaultDeliveryContinuation bool
 )
 
 // OrderOption defines the ordering options for the MessageJob queries.
@@ -227,6 +232,11 @@ func ByDeliveryReason(opts ...sql.OrderTermOption) OrderOption {
 // ByDeniedCount orders the results by the denied_count field.
 func ByDeniedCount(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDeniedCount, opts...).ToFunc()
+}
+
+// ByDeliveryContinuation orders the results by the delivery_continuation field.
+func ByDeliveryContinuation(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDeliveryContinuation, opts...).ToFunc()
 }
 
 // ByClaimToken orders the results by the claim_token field.

@@ -6,6 +6,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	"io"
 	"testing"
+	"time"
 )
 
 type deliveryLedger struct {
@@ -47,4 +48,33 @@ func TestDeliverySettlesAfterCallerCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) || o.Status != domain.StatusUnknown || l.settleContext != nil {
 		t.Fatalf("outcome %+v error %v settle context %v", o, err, l.settleContext)
 	}
+}
+
+func TestDeliveryRechecksIntervalAndReusesKnownReceipt(t *testing.T) {
+	l := &intervalReceiptLedger{}
+	sends := 0
+	out, err := Deliver(context.Background(), l, "original", func(context.Context) (int64, error) { sends++; return 881, nil }, "original-claim")
+	if err != nil || out.PlatformMessageID != 881 || sends != 1 || l.gates != 2 || l.settles != 2 {
+		t.Fatalf("out=%+v sends=%d gates=%d settles=%d err=%v", out, sends, l.gates, l.settles, err)
+	}
+}
+
+type intervalReceiptLedger struct{ gates, settles int }
+
+func (l *intervalReceiptLedger) MarkSending(_ context.Context, _ string, _ ...string) error {
+	l.gates++
+	if l.gates == 1 {
+		return &domain.GateError{Reason: domain.GateInterval, RetryAfter: time.Millisecond}
+	}
+	return nil
+}
+func (l *intervalReceiptLedger) Settle(_ context.Context, id string, o Outcome, claim ...string) error {
+	if id != "original" || o.PlatformMessageID != 881 || len(claim) != 1 || claim[0] != "original-claim" {
+		return &domain.TransitionError{}
+	}
+	l.settles++
+	if l.settles == 1 {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
 }

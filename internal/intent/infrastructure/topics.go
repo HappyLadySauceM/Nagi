@@ -7,6 +7,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	outbound "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
 
 // Topics projects the latest completed decision per source message. The decision
@@ -15,7 +16,11 @@ import (
 // Topics 从每条来源消息的最新已完成决策投影状态。由决策事务唯一写入，
 // 已确认发送的消息通过同一会话中对应的来源任务关联话题。
 func (r *DecisionsRepo) Topics(ctx context.Context, task domain.Task, reference int64, idleSeconds int) (*domain.TopicContext, error) {
-	result := &domain.TopicContext{IdleSeconds: idleSeconds}
+	result, err := r.boundTopic(ctx, task, reference, idleSeconds)
+	if err != nil || result != nil {
+		return result, err
+	}
+	result = &domain.TopicContext{IdleSeconds: idleSeconds}
 	rows, err := r.pool.Query(ctx, `
 WITH current AS (
 	SELECT m.id, m.bot_id, m.conversation_id, m.created_at
@@ -147,4 +152,85 @@ ORDER BY COALESCE(s.topic_id = (SELECT topic_id FROM quoted), false) DESC,
 		result.Candidates = append(result.Candidates, candidate)
 	}
 	return result, rows.Err()
+}
+
+// boundTopic loads the exact inputs seen by routing, including turns whose drafts never shipped.
+// boundTopic 加载归属版本的精确输入，包含旧稿未送达的回合。
+func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, reference int64, idleSeconds int) (*domain.TopicContext, error) {
+	rows, err := r.pool.Query(ctx, `WITH binding AS (
+ SELECT i.topic_id,i.version,i.conversation_id,i.route_id,t.expires_at,t.closed,t.version AS current_version
+ FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
+ JOIN group_topic_inputs i ON (i.route_id,i.conversation_id)=(m.id,m.conversation_id)
+ JOIN group_topics t ON (t.id,t.conversation_id)=(i.topic_id,i.conversation_id)
+ WHERE j.id=$1 AND m.bot_id=$2 AND m.conversation_id=$3
+), related AS (
+ SELECT m.id,m.platform_message_id,m.sender_id,m.text_content,m.segments,m.created_at,m.direction
+ FROM binding b JOIN group_topic_inputs i ON (i.topic_id,i.conversation_id)=(b.topic_id,b.conversation_id) AND i.version<b.version
+ JOIN messages m ON (m.id,m.conversation_id)=(i.route_id,b.conversation_id) AND m.bot_id=$2 AND m.direction='incoming' AND m.control_kind=''
+ UNION ALL
+ SELECT m.id,m.platform_message_id,m.sender_id,m.text_content,m.segments,m.created_at,m.direction
+ FROM binding b JOIN group_topic_inputs i ON (i.topic_id,i.conversation_id)=(b.topic_id,b.conversation_id) AND i.version<b.version
+ JOIN message_jobs j ON j.incoming_message_id=i.route_id JOIN agent_outbound_messages o ON o.job_id=j.id AND o.status='sent'
+ JOIN messages m ON m.outbound_id=o.id AND m.conversation_id=b.conversation_id AND m.bot_id=$2 AND m.sent_status='sent' AND m.control_kind=''
+ CROSS JOIN LATERAL (SELECT created_at FROM messages WHERE id=b.route_id) current
+ WHERE (m.created_at,m.id)<(current.created_at,b.route_id)
+) SELECT b.topic_id,b.version,b.expires_at,NOT b.closed AND b.version=b.current_version AND b.expires_at>clock_timestamp(),
+ COALESCE((SELECT jsonb_agg(jsonb_build_object('MessageID',COALESCE(m.platform_message_id,0),'SenderID',m.sender_id,
+ 'Text',m.text_content,'Wire',m.segments,'CreatedAt',m.created_at,'IsBot',m.direction='outgoing') ORDER BY m.created_at,m.id) FROM related m),'[]'::jsonb)
+ FROM binding b`, task.JobID, task.BotID, task.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	var candidate domain.TopicCandidate
+	var version int64
+	var raw []byte
+	if err := rows.Scan(&candidate.ID, &version, &candidate.ExpiresAt, &candidate.Active, &raw); err != nil {
+		return nil, err
+	}
+	var history []struct {
+		domain.Message
+		Wire json.RawMessage
+	}
+	if err := json.Unmarshal(raw, &history); err != nil {
+		return nil, err
+	}
+	result := &domain.TopicContext{BoundID: candidate.ID, BoundVersion: version, IdleSeconds: idleSeconds}
+	for _, entry := range history {
+		entry.Segments, err = ob.SegmentsFromWire(entry.Wire)
+		if err != nil {
+			return nil, err
+		}
+		candidate.History = append(candidate.History, entry.Message)
+		if reference != 0 && entry.MessageID == reference {
+			m := entry.Message
+			result.Reference = &m
+			result.QuotedID = candidate.ID
+			result.QuotedBot = m.IsBot
+		}
+	}
+	result.Candidates = []domain.TopicCandidate{candidate}
+	return result, rows.Err()
+}
+
+// CheckTopicGeneration verifies the original input binding before starting generation.
+// CheckTopicGeneration 在启动生成前核验原输入绑定。
+func (r *DecisionsRepo) CheckTopicGeneration(ctx context.Context, task domain.Task, topic, expectedVersion int64) error {
+	var valid bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(
+ SELECT 1 FROM message_jobs j JOIN group_topic_inputs i ON i.route_id=j.incoming_message_id
+ JOIN group_topics t ON (t.id,t.conversation_id)=(i.topic_id,i.conversation_id)
+ WHERE j.id=$1 AND j.claim_token=$2 AND j.status='processing' AND j.lease_expires_at>clock_timestamp()
+ AND i.conversation_id=$3 AND i.topic_id=$4 AND ($5=0 OR i.version=$5)
+ AND t.version=i.version AND NOT t.closed AND t.expires_at>clock_timestamp())`, task.JobID, task.ClaimToken, task.ConversationID, topic, expectedVersion).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return &outbound.GateError{Reason: outbound.GateStale}
+	}
+	return nil
 }

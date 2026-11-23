@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
+	"github.com/google/uuid"
 )
 
 // SystemSettingCreate is the builder for creating a SystemSetting entity.
@@ -21,6 +22,26 @@ type SystemSettingCreate struct {
 	mutation *SystemSettingMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (_c *SystemSettingCreate) SetSendPermitInstance(v uuid.UUID) *SystemSettingCreate {
+	_c.mutation.SetSendPermitInstance(v)
+	return _c
+}
+
+// SetNillableSendPermitInstance sets the "send_permit_instance" field if the given value is not nil.
+func (_c *SystemSettingCreate) SetNillableSendPermitInstance(v *uuid.UUID) *SystemSettingCreate {
+	if v != nil {
+		_c.SetSendPermitInstance(*v)
+	}
+	return _c
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (_c *SystemSettingCreate) SetSendPermitGenerations(v map[string]string) *SystemSettingCreate {
+	_c.mutation.SetSendPermitGenerations(v)
+	return _c
 }
 
 // SetPayload sets the "payload" field.
@@ -112,6 +133,14 @@ func (_c *SystemSettingCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *SystemSettingCreate) defaults() {
+	if _, ok := _c.mutation.SendPermitInstance(); !ok {
+		v := systemsetting.DefaultSendPermitInstance()
+		_c.mutation.SetSendPermitInstance(v)
+	}
+	if _, ok := _c.mutation.SendPermitGenerations(); !ok {
+		v := systemsetting.DefaultSendPermitGenerations
+		_c.mutation.SetSendPermitGenerations(v)
+	}
 	if _, ok := _c.mutation.Version(); !ok {
 		v := systemsetting.DefaultVersion
 		_c.mutation.SetVersion(v)
@@ -164,6 +193,14 @@ func (_c *SystemSettingCreate) createSpec() (*SystemSetting, *sqlgraph.CreateSpe
 		_node.ID = id
 		_spec.ID.Value = id
 	}
+	if value, ok := _c.mutation.SendPermitInstance(); ok {
+		_spec.SetField(systemsetting.FieldSendPermitInstance, field.TypeUUID, value)
+		_node.SendPermitInstance = value
+	}
+	if value, ok := _c.mutation.SendPermitGenerations(); ok {
+		_spec.SetField(systemsetting.FieldSendPermitGenerations, field.TypeJSON, value)
+		_node.SendPermitGenerations = value
+	}
 	if value, ok := _c.mutation.Payload(); ok {
 		_spec.SetField(systemsetting.FieldPayload, field.TypeJSON, value)
 		_node.Payload = value
@@ -187,7 +224,7 @@ func (_c *SystemSettingCreate) createSpec() (*SystemSetting, *sqlgraph.CreateSpe
 // of the `INSERT` statement. For example:
 //
 //	client.SystemSetting.Create().
-//		SetPayload(v).
+//		SetSendPermitInstance(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -196,7 +233,7 @@ func (_c *SystemSettingCreate) createSpec() (*SystemSetting, *sqlgraph.CreateSpe
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.SystemSettingUpsert) {
-//			SetPayload(v+v).
+//			SetSendPermitInstance(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *SystemSettingCreate) OnConflict(opts ...sql.ConflictOption) *SystemSettingUpsertOne {
@@ -231,6 +268,30 @@ type (
 		*sql.UpdateSet
 	}
 )
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (u *SystemSettingUpsert) SetSendPermitInstance(v uuid.UUID) *SystemSettingUpsert {
+	u.Set(systemsetting.FieldSendPermitInstance, v)
+	return u
+}
+
+// UpdateSendPermitInstance sets the "send_permit_instance" field to the value that was provided on create.
+func (u *SystemSettingUpsert) UpdateSendPermitInstance() *SystemSettingUpsert {
+	u.SetExcluded(systemsetting.FieldSendPermitInstance)
+	return u
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (u *SystemSettingUpsert) SetSendPermitGenerations(v map[string]string) *SystemSettingUpsert {
+	u.Set(systemsetting.FieldSendPermitGenerations, v)
+	return u
+}
+
+// UpdateSendPermitGenerations sets the "send_permit_generations" field to the value that was provided on create.
+func (u *SystemSettingUpsert) UpdateSendPermitGenerations() *SystemSettingUpsert {
+	u.SetExcluded(systemsetting.FieldSendPermitGenerations)
+	return u
+}
 
 // SetPayload sets the "payload" field.
 func (u *SystemSettingUpsert) SetPayload(v jsontext.Value) *SystemSettingUpsert {
@@ -332,6 +393,34 @@ func (u *SystemSettingUpsertOne) Update(set func(*SystemSettingUpsert)) *SystemS
 		set(&SystemSettingUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (u *SystemSettingUpsertOne) SetSendPermitInstance(v uuid.UUID) *SystemSettingUpsertOne {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.SetSendPermitInstance(v)
+	})
+}
+
+// UpdateSendPermitInstance sets the "send_permit_instance" field to the value that was provided on create.
+func (u *SystemSettingUpsertOne) UpdateSendPermitInstance() *SystemSettingUpsertOne {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.UpdateSendPermitInstance()
+	})
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (u *SystemSettingUpsertOne) SetSendPermitGenerations(v map[string]string) *SystemSettingUpsertOne {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.SetSendPermitGenerations(v)
+	})
+}
+
+// UpdateSendPermitGenerations sets the "send_permit_generations" field to the value that was provided on create.
+func (u *SystemSettingUpsertOne) UpdateSendPermitGenerations() *SystemSettingUpsertOne {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.UpdateSendPermitGenerations()
+	})
 }
 
 // SetPayload sets the "payload" field.
@@ -532,7 +621,7 @@ func (_c *SystemSettingCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.SystemSettingUpsert) {
-//			SetPayload(v+v).
+//			SetSendPermitInstance(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *SystemSettingCreateBulk) OnConflict(opts ...sql.ConflictOption) *SystemSettingUpsertBulk {
@@ -609,6 +698,34 @@ func (u *SystemSettingUpsertBulk) Update(set func(*SystemSettingUpsert)) *System
 		set(&SystemSettingUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (u *SystemSettingUpsertBulk) SetSendPermitInstance(v uuid.UUID) *SystemSettingUpsertBulk {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.SetSendPermitInstance(v)
+	})
+}
+
+// UpdateSendPermitInstance sets the "send_permit_instance" field to the value that was provided on create.
+func (u *SystemSettingUpsertBulk) UpdateSendPermitInstance() *SystemSettingUpsertBulk {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.UpdateSendPermitInstance()
+	})
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (u *SystemSettingUpsertBulk) SetSendPermitGenerations(v map[string]string) *SystemSettingUpsertBulk {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.SetSendPermitGenerations(v)
+	})
+}
+
+// UpdateSendPermitGenerations sets the "send_permit_generations" field to the value that was provided on create.
+func (u *SystemSettingUpsertBulk) UpdateSendPermitGenerations() *SystemSettingUpsertBulk {
+	return u.Update(func(s *SystemSettingUpsert) {
+		s.UpdateSendPermitGenerations()
+	})
 }
 
 // SetPayload sets the "payload" field.

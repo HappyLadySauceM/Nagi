@@ -10,6 +10,7 @@ import (
 
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	outbound "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	pa "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	pc "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
@@ -260,6 +261,9 @@ func (p publicProvider) invoke(ctx context.Context, s publicSpec, d pc.ToolDescr
 		}
 		var receipt pc.SendReceipt
 		receipt, err = p.opts.Send(ctx, c)
+		if errors.Is(err, outbound.ErrContinuation) {
+			return "", err
+		}
 		if receipt.Status != "" {
 			out, marshalErr := json.Marshal(map[string]any{"sequence": receipt.Sequence, "status": receipt.Status, "data": receipt.Data})
 			return string(out), marshalErr

@@ -8,6 +8,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // ID filters vertices based on their ID field.
@@ -53,6 +54,11 @@ func IDLT(id int64) predicate.ScopePolicy {
 // IDLTE applies the LTE predicate on the ID field.
 func IDLTE(id int64) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldLTE(FieldID, id))
+}
+
+// SendPermitInstance applies equality check predicate on the "send_permit_instance" field. It's identical to SendPermitInstanceEQ.
+func SendPermitInstance(v uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldEQ(FieldSendPermitInstance, v))
 }
 
 // BotID applies equality check predicate on the "bot_id" field. It's identical to BotIDEQ.
@@ -143,6 +149,46 @@ func MaxTotalCharsPerRun(v int) predicate.ScopePolicy {
 // MessageIntervalMs applies equality check predicate on the "message_interval_ms" field. It's identical to MessageIntervalMsEQ.
 func MessageIntervalMs(v int) predicate.ScopePolicy {
 	return predicate.ScopePolicy(sql.FieldEQ(FieldMessageIntervalMs, v))
+}
+
+// SendPermitInstanceEQ applies the EQ predicate on the "send_permit_instance" field.
+func SendPermitInstanceEQ(v uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldEQ(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceNEQ applies the NEQ predicate on the "send_permit_instance" field.
+func SendPermitInstanceNEQ(v uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldNEQ(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceIn applies the In predicate on the "send_permit_instance" field.
+func SendPermitInstanceIn(vs ...uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldIn(FieldSendPermitInstance, vs...))
+}
+
+// SendPermitInstanceNotIn applies the NotIn predicate on the "send_permit_instance" field.
+func SendPermitInstanceNotIn(vs ...uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldNotIn(FieldSendPermitInstance, vs...))
+}
+
+// SendPermitInstanceGT applies the GT predicate on the "send_permit_instance" field.
+func SendPermitInstanceGT(v uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldGT(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceGTE applies the GTE predicate on the "send_permit_instance" field.
+func SendPermitInstanceGTE(v uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldGTE(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceLT applies the LT predicate on the "send_permit_instance" field.
+func SendPermitInstanceLT(v uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldLT(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceLTE applies the LTE predicate on the "send_permit_instance" field.
+func SendPermitInstanceLTE(v uuid.UUID) predicate.ScopePolicy {
+	return predicate.ScopePolicy(sql.FieldLTE(FieldSendPermitInstance, v))
 }
 
 // BotIDEQ applies the EQ predicate on the "bot_id" field.

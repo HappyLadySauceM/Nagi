@@ -182,6 +182,38 @@ func (_c *AgentOutboundMessageCreate) SetNillableErrorCode(v *string) *AgentOutb
 	return _c
 }
 
+// SetResumeDigest sets the "resume_digest" field.
+func (_c *AgentOutboundMessageCreate) SetResumeDigest(v string) *AgentOutboundMessageCreate {
+	_c.mutation.SetResumeDigest(v)
+	return _c
+}
+
+// SetNillableResumeDigest sets the "resume_digest" field if the given value is not nil.
+func (_c *AgentOutboundMessageCreate) SetNillableResumeDigest(v *string) *AgentOutboundMessageCreate {
+	if v != nil {
+		_c.SetResumeDigest(*v)
+	}
+	return _c
+}
+
+// SetMemoryDependencies sets the "memory_dependencies" field.
+func (_c *AgentOutboundMessageCreate) SetMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageCreate {
+	_c.mutation.SetMemoryDependencies(v)
+	return _c
+}
+
+// SetSendPermit sets the "send_permit" field.
+func (_c *AgentOutboundMessageCreate) SetSendPermit(v []map[string]interface{}) *AgentOutboundMessageCreate {
+	_c.mutation.SetSendPermit(v)
+	return _c
+}
+
+// SetResumeResult sets the "resume_result" field.
+func (_c *AgentOutboundMessageCreate) SetResumeResult(v map[string]interface{}) *AgentOutboundMessageCreate {
+	_c.mutation.SetResumeResult(v)
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *AgentOutboundMessageCreate) SetCreatedAt(v time.Time) *AgentOutboundMessageCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -475,6 +507,22 @@ func (_c *AgentOutboundMessageCreate) createSpec() (*AgentOutboundMessage, *sqlg
 	if value, ok := _c.mutation.ErrorCode(); ok {
 		_spec.SetField(agentoutboundmessage.FieldErrorCode, field.TypeString, value)
 		_node.ErrorCode = &value
+	}
+	if value, ok := _c.mutation.ResumeDigest(); ok {
+		_spec.SetField(agentoutboundmessage.FieldResumeDigest, field.TypeString, value)
+		_node.ResumeDigest = &value
+	}
+	if value, ok := _c.mutation.MemoryDependencies(); ok {
+		_spec.SetField(agentoutboundmessage.FieldMemoryDependencies, field.TypeJSON, value)
+		_node.MemoryDependencies = value
+	}
+	if value, ok := _c.mutation.SendPermit(); ok {
+		_spec.SetField(agentoutboundmessage.FieldSendPermit, field.TypeJSON, value)
+		_node.SendPermit = value
+	}
+	if value, ok := _c.mutation.ResumeResult(); ok {
+		_spec.SetField(agentoutboundmessage.FieldResumeResult, field.TypeJSON, value)
+		_node.ResumeResult = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(agentoutboundmessage.FieldCreatedAt, field.TypeTime, value)
@@ -829,6 +877,78 @@ func (u *AgentOutboundMessageUpsert) ClearErrorCode() *AgentOutboundMessageUpser
 	return u
 }
 
+// SetResumeDigest sets the "resume_digest" field.
+func (u *AgentOutboundMessageUpsert) SetResumeDigest(v string) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldResumeDigest, v)
+	return u
+}
+
+// UpdateResumeDigest sets the "resume_digest" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateResumeDigest() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldResumeDigest)
+	return u
+}
+
+// ClearResumeDigest clears the value of the "resume_digest" field.
+func (u *AgentOutboundMessageUpsert) ClearResumeDigest() *AgentOutboundMessageUpsert {
+	u.SetNull(agentoutboundmessage.FieldResumeDigest)
+	return u
+}
+
+// SetMemoryDependencies sets the "memory_dependencies" field.
+func (u *AgentOutboundMessageUpsert) SetMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldMemoryDependencies, v)
+	return u
+}
+
+// UpdateMemoryDependencies sets the "memory_dependencies" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateMemoryDependencies() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldMemoryDependencies)
+	return u
+}
+
+// ClearMemoryDependencies clears the value of the "memory_dependencies" field.
+func (u *AgentOutboundMessageUpsert) ClearMemoryDependencies() *AgentOutboundMessageUpsert {
+	u.SetNull(agentoutboundmessage.FieldMemoryDependencies)
+	return u
+}
+
+// SetSendPermit sets the "send_permit" field.
+func (u *AgentOutboundMessageUpsert) SetSendPermit(v []map[string]interface{}) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldSendPermit, v)
+	return u
+}
+
+// UpdateSendPermit sets the "send_permit" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateSendPermit() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldSendPermit)
+	return u
+}
+
+// ClearSendPermit clears the value of the "send_permit" field.
+func (u *AgentOutboundMessageUpsert) ClearSendPermit() *AgentOutboundMessageUpsert {
+	u.SetNull(agentoutboundmessage.FieldSendPermit)
+	return u
+}
+
+// SetResumeResult sets the "resume_result" field.
+func (u *AgentOutboundMessageUpsert) SetResumeResult(v map[string]interface{}) *AgentOutboundMessageUpsert {
+	u.Set(agentoutboundmessage.FieldResumeResult, v)
+	return u
+}
+
+// UpdateResumeResult sets the "resume_result" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsert) UpdateResumeResult() *AgentOutboundMessageUpsert {
+	u.SetExcluded(agentoutboundmessage.FieldResumeResult)
+	return u
+}
+
+// ClearResumeResult clears the value of the "resume_result" field.
+func (u *AgentOutboundMessageUpsert) ClearResumeResult() *AgentOutboundMessageUpsert {
+	u.SetNull(agentoutboundmessage.FieldResumeResult)
+	return u
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (u *AgentOutboundMessageUpsert) SetCreatedAt(v time.Time) *AgentOutboundMessageUpsert {
 	u.Set(agentoutboundmessage.FieldCreatedAt, v)
@@ -1169,6 +1289,90 @@ func (u *AgentOutboundMessageUpsertOne) UpdateErrorCode() *AgentOutboundMessageU
 func (u *AgentOutboundMessageUpsertOne) ClearErrorCode() *AgentOutboundMessageUpsertOne {
 	return u.Update(func(s *AgentOutboundMessageUpsert) {
 		s.ClearErrorCode()
+	})
+}
+
+// SetResumeDigest sets the "resume_digest" field.
+func (u *AgentOutboundMessageUpsertOne) SetResumeDigest(v string) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetResumeDigest(v)
+	})
+}
+
+// UpdateResumeDigest sets the "resume_digest" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateResumeDigest() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateResumeDigest()
+	})
+}
+
+// ClearResumeDigest clears the value of the "resume_digest" field.
+func (u *AgentOutboundMessageUpsertOne) ClearResumeDigest() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearResumeDigest()
+	})
+}
+
+// SetMemoryDependencies sets the "memory_dependencies" field.
+func (u *AgentOutboundMessageUpsertOne) SetMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetMemoryDependencies(v)
+	})
+}
+
+// UpdateMemoryDependencies sets the "memory_dependencies" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateMemoryDependencies() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateMemoryDependencies()
+	})
+}
+
+// ClearMemoryDependencies clears the value of the "memory_dependencies" field.
+func (u *AgentOutboundMessageUpsertOne) ClearMemoryDependencies() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearMemoryDependencies()
+	})
+}
+
+// SetSendPermit sets the "send_permit" field.
+func (u *AgentOutboundMessageUpsertOne) SetSendPermit(v []map[string]interface{}) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetSendPermit(v)
+	})
+}
+
+// UpdateSendPermit sets the "send_permit" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateSendPermit() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateSendPermit()
+	})
+}
+
+// ClearSendPermit clears the value of the "send_permit" field.
+func (u *AgentOutboundMessageUpsertOne) ClearSendPermit() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearSendPermit()
+	})
+}
+
+// SetResumeResult sets the "resume_result" field.
+func (u *AgentOutboundMessageUpsertOne) SetResumeResult(v map[string]interface{}) *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetResumeResult(v)
+	})
+}
+
+// UpdateResumeResult sets the "resume_result" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertOne) UpdateResumeResult() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateResumeResult()
+	})
+}
+
+// ClearResumeResult clears the value of the "resume_result" field.
+func (u *AgentOutboundMessageUpsertOne) ClearResumeResult() *AgentOutboundMessageUpsertOne {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearResumeResult()
 	})
 }
 
@@ -1685,6 +1889,90 @@ func (u *AgentOutboundMessageUpsertBulk) UpdateErrorCode() *AgentOutboundMessage
 func (u *AgentOutboundMessageUpsertBulk) ClearErrorCode() *AgentOutboundMessageUpsertBulk {
 	return u.Update(func(s *AgentOutboundMessageUpsert) {
 		s.ClearErrorCode()
+	})
+}
+
+// SetResumeDigest sets the "resume_digest" field.
+func (u *AgentOutboundMessageUpsertBulk) SetResumeDigest(v string) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetResumeDigest(v)
+	})
+}
+
+// UpdateResumeDigest sets the "resume_digest" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateResumeDigest() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateResumeDigest()
+	})
+}
+
+// ClearResumeDigest clears the value of the "resume_digest" field.
+func (u *AgentOutboundMessageUpsertBulk) ClearResumeDigest() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearResumeDigest()
+	})
+}
+
+// SetMemoryDependencies sets the "memory_dependencies" field.
+func (u *AgentOutboundMessageUpsertBulk) SetMemoryDependencies(v []map[string]interface{}) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetMemoryDependencies(v)
+	})
+}
+
+// UpdateMemoryDependencies sets the "memory_dependencies" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateMemoryDependencies() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateMemoryDependencies()
+	})
+}
+
+// ClearMemoryDependencies clears the value of the "memory_dependencies" field.
+func (u *AgentOutboundMessageUpsertBulk) ClearMemoryDependencies() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearMemoryDependencies()
+	})
+}
+
+// SetSendPermit sets the "send_permit" field.
+func (u *AgentOutboundMessageUpsertBulk) SetSendPermit(v []map[string]interface{}) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetSendPermit(v)
+	})
+}
+
+// UpdateSendPermit sets the "send_permit" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateSendPermit() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateSendPermit()
+	})
+}
+
+// ClearSendPermit clears the value of the "send_permit" field.
+func (u *AgentOutboundMessageUpsertBulk) ClearSendPermit() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearSendPermit()
+	})
+}
+
+// SetResumeResult sets the "resume_result" field.
+func (u *AgentOutboundMessageUpsertBulk) SetResumeResult(v map[string]interface{}) *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.SetResumeResult(v)
+	})
+}
+
+// UpdateResumeResult sets the "resume_result" field to the value that was provided on create.
+func (u *AgentOutboundMessageUpsertBulk) UpdateResumeResult() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.UpdateResumeResult()
+	})
+}
+
+// ClearResumeResult clears the value of the "resume_result" field.
+func (u *AgentOutboundMessageUpsertBulk) ClearResumeResult() *AgentOutboundMessageUpsertBulk {
+	return u.Update(func(s *AgentOutboundMessageUpsert) {
+		s.ClearResumeResult()
 	})
 }
 

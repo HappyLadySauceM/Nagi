@@ -15,6 +15,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
+	"github.com/google/uuid"
 )
 
 // SystemSettingUpdate is the builder for updating SystemSetting entities.
@@ -27,6 +28,26 @@ type SystemSettingUpdate struct {
 // Where appends a list predicates to the SystemSettingUpdate builder.
 func (_u *SystemSettingUpdate) Where(ps ...predicate.SystemSetting) *SystemSettingUpdate {
 	_u.mutation.Where(ps...)
+	return _u
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (_u *SystemSettingUpdate) SetSendPermitInstance(v uuid.UUID) *SystemSettingUpdate {
+	_u.mutation.SetSendPermitInstance(v)
+	return _u
+}
+
+// SetNillableSendPermitInstance sets the "send_permit_instance" field if the given value is not nil.
+func (_u *SystemSettingUpdate) SetNillableSendPermitInstance(v *uuid.UUID) *SystemSettingUpdate {
+	if v != nil {
+		_u.SetSendPermitInstance(*v)
+	}
+	return _u
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (_u *SystemSettingUpdate) SetSendPermitGenerations(v map[string]string) *SystemSettingUpdate {
+	_u.mutation.SetSendPermitGenerations(v)
 	return _u
 }
 
@@ -132,6 +153,12 @@ func (_u *SystemSettingUpdate) sqlSave(ctx context.Context) (_node int, err erro
 			}
 		}
 	}
+	if value, ok := _u.mutation.SendPermitInstance(); ok {
+		_spec.SetField(systemsetting.FieldSendPermitInstance, field.TypeUUID, value)
+	}
+	if value, ok := _u.mutation.SendPermitGenerations(); ok {
+		_spec.SetField(systemsetting.FieldSendPermitGenerations, field.TypeJSON, value)
+	}
 	if value, ok := _u.mutation.Payload(); ok {
 		_spec.SetField(systemsetting.FieldPayload, field.TypeJSON, value)
 	}
@@ -170,6 +197,26 @@ type SystemSettingUpdateOne struct {
 	fields   []string
 	hooks    []Hook
 	mutation *SystemSettingMutation
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (_u *SystemSettingUpdateOne) SetSendPermitInstance(v uuid.UUID) *SystemSettingUpdateOne {
+	_u.mutation.SetSendPermitInstance(v)
+	return _u
+}
+
+// SetNillableSendPermitInstance sets the "send_permit_instance" field if the given value is not nil.
+func (_u *SystemSettingUpdateOne) SetNillableSendPermitInstance(v *uuid.UUID) *SystemSettingUpdateOne {
+	if v != nil {
+		_u.SetSendPermitInstance(*v)
+	}
+	return _u
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (_u *SystemSettingUpdateOne) SetSendPermitGenerations(v map[string]string) *SystemSettingUpdateOne {
+	_u.mutation.SetSendPermitGenerations(v)
+	return _u
 }
 
 // SetPayload sets the "payload" field.
@@ -303,6 +350,12 @@ func (_u *SystemSettingUpdateOne) sqlSave(ctx context.Context) (_node *SystemSet
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.SendPermitInstance(); ok {
+		_spec.SetField(systemsetting.FieldSendPermitInstance, field.TypeUUID, value)
+	}
+	if value, ok := _u.mutation.SendPermitGenerations(); ok {
+		_spec.SetField(systemsetting.FieldSendPermitGenerations, field.TypeJSON, value)
 	}
 	if value, ok := _u.mutation.Payload(); ok {
 		_spec.SetField(systemsetting.FieldPayload, field.TypeJSON, value)

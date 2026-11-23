@@ -300,12 +300,12 @@ func (_q *ScopePolicyQuery) WithBotIDRef(opts ...func(*BotAccountQuery)) *ScopeP
 // Example:
 //
 //	var v []struct {
-//		BotID int64 `json:"bot_id,omitempty"`
+//		SendPermitInstance uuid.UUID `json:"send_permit_instance,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.ScopePolicy.Query().
-//		GroupBy(scopepolicy.FieldBotID).
+//		GroupBy(scopepolicy.FieldSendPermitInstance).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *ScopePolicyQuery) GroupBy(field string, fields ...string) *ScopePolicyGroupBy {
@@ -323,11 +323,11 @@ func (_q *ScopePolicyQuery) GroupBy(field string, fields ...string) *ScopePolicy
 // Example:
 //
 //	var v []struct {
-//		BotID int64 `json:"bot_id,omitempty"`
+//		SendPermitInstance uuid.UUID `json:"send_permit_instance,omitempty"`
 //	}
 //
 //	client.ScopePolicy.Query().
-//		Select(scopepolicy.FieldBotID).
+//		Select(scopepolicy.FieldSendPermitInstance).
 //		Scan(ctx, &v)
 func (_q *ScopePolicyQuery) Select(fields ...string) *ScopePolicySelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)

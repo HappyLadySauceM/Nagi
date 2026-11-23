@@ -39,6 +39,18 @@ type Conversation func(*sql.Selector)
 // GroupMember is the predicate function for groupmember builders.
 type GroupMember func(*sql.Selector)
 
+// GroupTopic is the predicate function for grouptopic builders.
+type GroupTopic func(*sql.Selector)
+
+// GroupTopicInput is the predicate function for grouptopicinput builders.
+type GroupTopicInput func(*sql.Selector)
+
+// GroupTopicRoute is the predicate function for grouptopicroute builders.
+type GroupTopicRoute func(*sql.Selector)
+
+// GroupTopicRouteCandidate is the predicate function for grouptopicroutecandidate builders.
+type GroupTopicRouteCandidate func(*sql.Selector)
+
 // InboundAttachment is the predicate function for inboundattachment builders.
 type InboundAttachment func(*sql.Selector)
 
@@ -101,6 +113,9 @@ type ScopeMemoryAuthorizationEvent func(*sql.Selector)
 
 // ScopePolicy is the predicate function for scopepolicy builders.
 type ScopePolicy func(*sql.Selector)
+
+// SendScopeSelection is the predicate function for sendscopeselection builders.
+type SendScopeSelection func(*sql.Selector)
 
 // SystemSetting is the predicate function for systemsetting builders.
 type SystemSetting func(*sql.Selector)

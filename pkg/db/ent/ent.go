@@ -23,6 +23,10 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/contact"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/groupmember"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopic"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicinput"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroute"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/grouptopicroutecandidate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/inboundattachment"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecision"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/intentdecisionsnapshot"
@@ -44,6 +48,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/qqgroup"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopememoryauthorizationevent"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/sendscopeselection"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/systemsetting"
 )
 
@@ -116,6 +121,10 @@ func checkColumn(t, c string) error {
 			contact.Table:                       contact.ValidColumn,
 			conversation.Table:                  conversation.ValidColumn,
 			groupmember.Table:                   groupmember.ValidColumn,
+			grouptopic.Table:                    grouptopic.ValidColumn,
+			grouptopicinput.Table:               grouptopicinput.ValidColumn,
+			grouptopicroute.Table:               grouptopicroute.ValidColumn,
+			grouptopicroutecandidate.Table:      grouptopicroutecandidate.ValidColumn,
 			inboundattachment.Table:             inboundattachment.ValidColumn,
 			intentdecision.Table:                intentdecision.ValidColumn,
 			intentdecisionsnapshot.Table:        intentdecisionsnapshot.ValidColumn,
@@ -137,6 +146,7 @@ func checkColumn(t, c string) error {
 			qqgroup.Table:                       qqgroup.ValidColumn,
 			scopememoryauthorizationevent.Table: scopememoryauthorizationevent.ValidColumn,
 			scopepolicy.Table:                   scopepolicy.ValidColumn,
+			sendscopeselection.Table:            sendscopeselection.ValidColumn,
 			systemsetting.Table:                 systemsetting.ValidColumn,
 		})
 	})

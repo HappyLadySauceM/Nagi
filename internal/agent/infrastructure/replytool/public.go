@@ -216,12 +216,13 @@ func SendPublic(ctx context.Context, opts Options, c ob.PublicCommand, send func
 	return pc.SendReceipt{Data: result.Data, MessageID: result.MessageID, Async: result.Async, Sequence: record.Sequence, Status: string(outcome.Status)}, err
 }
 
-// explicitSlot binds a framework call to its live execution. An independently generated call in a new claim cannot prove continuity.
-// explicitSlot 将框架调用绑定到当前领取。新领取独立生成的调用无法证明是原调用。
 func explicitSlot(ctx context.Context, scope pa.Scope) (string, error) {
 	id := pa.ToolCallID(ctx)
 	if id == "" || scope.ClaimToken == "" {
 		return "", pa.Denied("无法核验本次发送的工具调用")
+	}
+	if mc.CrossGroupReadUsed(ctx) {
+		return fmt.Sprintf("explicit:consent:v1:%x", sha256.Sum256([]byte(id))), nil
 	}
 	return fmt.Sprintf("explicit:v1:%x", sha256.Sum256([]byte(scope.ClaimToken+"\x00"+id))), nil
 }

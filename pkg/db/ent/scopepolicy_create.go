@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"github.com/google/uuid"
 )
 
 // ScopePolicyCreate is the builder for creating a ScopePolicy entity.
@@ -22,6 +23,26 @@ type ScopePolicyCreate struct {
 	mutation *ScopePolicyMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (_c *ScopePolicyCreate) SetSendPermitInstance(v uuid.UUID) *ScopePolicyCreate {
+	_c.mutation.SetSendPermitInstance(v)
+	return _c
+}
+
+// SetNillableSendPermitInstance sets the "send_permit_instance" field if the given value is not nil.
+func (_c *ScopePolicyCreate) SetNillableSendPermitInstance(v *uuid.UUID) *ScopePolicyCreate {
+	if v != nil {
+		_c.SetSendPermitInstance(*v)
+	}
+	return _c
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (_c *ScopePolicyCreate) SetSendPermitGenerations(v map[string]string) *ScopePolicyCreate {
+	_c.mutation.SetSendPermitGenerations(v)
+	return _c
 }
 
 // SetBotID sets the "bot_id" field.
@@ -316,6 +337,14 @@ func (_c *ScopePolicyCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *ScopePolicyCreate) defaults() {
+	if _, ok := _c.mutation.SendPermitInstance(); !ok {
+		v := scopepolicy.DefaultSendPermitInstance()
+		_c.mutation.SetSendPermitInstance(v)
+	}
+	if _, ok := _c.mutation.SendPermitGenerations(); !ok {
+		v := scopepolicy.DefaultSendPermitGenerations
+		_c.mutation.SetSendPermitGenerations(v)
+	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		v := scopepolicy.DefaultEnabled
 		_c.mutation.SetEnabled(v)
@@ -425,6 +454,14 @@ func (_c *ScopePolicyCreate) createSpec() (*ScopePolicy, *sqlgraph.CreateSpec) {
 		_node.ID = id
 		_spec.ID.Value = id
 	}
+	if value, ok := _c.mutation.SendPermitInstance(); ok {
+		_spec.SetField(scopepolicy.FieldSendPermitInstance, field.TypeUUID, value)
+		_node.SendPermitInstance = value
+	}
+	if value, ok := _c.mutation.SendPermitGenerations(); ok {
+		_spec.SetField(scopepolicy.FieldSendPermitGenerations, field.TypeJSON, value)
+		_node.SendPermitGenerations = value
+	}
 	if value, ok := _c.mutation.ScopeType(); ok {
 		_spec.SetField(scopepolicy.FieldScopeType, field.TypeString, value)
 		_node.ScopeType = value
@@ -525,7 +562,7 @@ func (_c *ScopePolicyCreate) createSpec() (*ScopePolicy, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.ScopePolicy.Create().
-//		SetBotID(v).
+//		SetSendPermitInstance(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -534,7 +571,7 @@ func (_c *ScopePolicyCreate) createSpec() (*ScopePolicy, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ScopePolicyUpsert) {
-//			SetBotID(v+v).
+//			SetSendPermitInstance(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ScopePolicyCreate) OnConflict(opts ...sql.ConflictOption) *ScopePolicyUpsertOne {
@@ -569,6 +606,30 @@ type (
 		*sql.UpdateSet
 	}
 )
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (u *ScopePolicyUpsert) SetSendPermitInstance(v uuid.UUID) *ScopePolicyUpsert {
+	u.Set(scopepolicy.FieldSendPermitInstance, v)
+	return u
+}
+
+// UpdateSendPermitInstance sets the "send_permit_instance" field to the value that was provided on create.
+func (u *ScopePolicyUpsert) UpdateSendPermitInstance() *ScopePolicyUpsert {
+	u.SetExcluded(scopepolicy.FieldSendPermitInstance)
+	return u
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (u *ScopePolicyUpsert) SetSendPermitGenerations(v map[string]string) *ScopePolicyUpsert {
+	u.Set(scopepolicy.FieldSendPermitGenerations, v)
+	return u
+}
+
+// UpdateSendPermitGenerations sets the "send_permit_generations" field to the value that was provided on create.
+func (u *ScopePolicyUpsert) UpdateSendPermitGenerations() *ScopePolicyUpsert {
+	u.SetExcluded(scopepolicy.FieldSendPermitGenerations)
+	return u
+}
 
 // SetBotID sets the "bot_id" field.
 func (u *ScopePolicyUpsert) SetBotID(v int64) *ScopePolicyUpsert {
@@ -922,6 +983,34 @@ func (u *ScopePolicyUpsertOne) Update(set func(*ScopePolicyUpsert)) *ScopePolicy
 		set(&ScopePolicyUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (u *ScopePolicyUpsertOne) SetSendPermitInstance(v uuid.UUID) *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetSendPermitInstance(v)
+	})
+}
+
+// UpdateSendPermitInstance sets the "send_permit_instance" field to the value that was provided on create.
+func (u *ScopePolicyUpsertOne) UpdateSendPermitInstance() *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateSendPermitInstance()
+	})
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (u *ScopePolicyUpsertOne) SetSendPermitGenerations(v map[string]string) *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetSendPermitGenerations(v)
+	})
+}
+
+// UpdateSendPermitGenerations sets the "send_permit_generations" field to the value that was provided on create.
+func (u *ScopePolicyUpsertOne) UpdateSendPermitGenerations() *ScopePolicyUpsertOne {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateSendPermitGenerations()
+	})
 }
 
 // SetBotID sets the "bot_id" field.
@@ -1416,7 +1505,7 @@ func (_c *ScopePolicyCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ScopePolicyUpsert) {
-//			SetBotID(v+v).
+//			SetSendPermitInstance(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ScopePolicyCreateBulk) OnConflict(opts ...sql.ConflictOption) *ScopePolicyUpsertBulk {
@@ -1493,6 +1582,34 @@ func (u *ScopePolicyUpsertBulk) Update(set func(*ScopePolicyUpsert)) *ScopePolic
 		set(&ScopePolicyUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (u *ScopePolicyUpsertBulk) SetSendPermitInstance(v uuid.UUID) *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetSendPermitInstance(v)
+	})
+}
+
+// UpdateSendPermitInstance sets the "send_permit_instance" field to the value that was provided on create.
+func (u *ScopePolicyUpsertBulk) UpdateSendPermitInstance() *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateSendPermitInstance()
+	})
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (u *ScopePolicyUpsertBulk) SetSendPermitGenerations(v map[string]string) *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.SetSendPermitGenerations(v)
+	})
+}
+
+// UpdateSendPermitGenerations sets the "send_permit_generations" field to the value that was provided on create.
+func (u *ScopePolicyUpsertBulk) UpdateSendPermitGenerations() *ScopePolicyUpsertBulk {
+	return u.Update(func(s *ScopePolicyUpsert) {
+		s.UpdateSendPermitGenerations()
+	})
 }
 
 // SetBotID sets the "bot_id" field.

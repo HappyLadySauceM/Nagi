@@ -16,6 +16,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/scopepolicy"
+	"github.com/google/uuid"
 )
 
 // ScopePolicyUpdate is the builder for updating ScopePolicy entities.
@@ -28,6 +29,26 @@ type ScopePolicyUpdate struct {
 // Where appends a list predicates to the ScopePolicyUpdate builder.
 func (_u *ScopePolicyUpdate) Where(ps ...predicate.ScopePolicy) *ScopePolicyUpdate {
 	_u.mutation.Where(ps...)
+	return _u
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (_u *ScopePolicyUpdate) SetSendPermitInstance(v uuid.UUID) *ScopePolicyUpdate {
+	_u.mutation.SetSendPermitInstance(v)
+	return _u
+}
+
+// SetNillableSendPermitInstance sets the "send_permit_instance" field if the given value is not nil.
+func (_u *ScopePolicyUpdate) SetNillableSendPermitInstance(v *uuid.UUID) *ScopePolicyUpdate {
+	if v != nil {
+		_u.SetSendPermitInstance(*v)
+	}
+	return _u
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (_u *ScopePolicyUpdate) SetSendPermitGenerations(v map[string]string) *ScopePolicyUpdate {
+	_u.mutation.SetSendPermitGenerations(v)
 	return _u
 }
 
@@ -451,6 +472,12 @@ func (_u *ScopePolicyUpdate) sqlSave(ctx context.Context) (_node int, err error)
 			}
 		}
 	}
+	if value, ok := _u.mutation.SendPermitInstance(); ok {
+		_spec.SetField(scopepolicy.FieldSendPermitInstance, field.TypeUUID, value)
+	}
+	if value, ok := _u.mutation.SendPermitGenerations(); ok {
+		_spec.SetField(scopepolicy.FieldSendPermitGenerations, field.TypeJSON, value)
+	}
 	if value, ok := _u.mutation.ScopeType(); ok {
 		_spec.SetField(scopepolicy.FieldScopeType, field.TypeString, value)
 	}
@@ -598,6 +625,26 @@ type ScopePolicyUpdateOne struct {
 	fields   []string
 	hooks    []Hook
 	mutation *ScopePolicyMutation
+}
+
+// SetSendPermitInstance sets the "send_permit_instance" field.
+func (_u *ScopePolicyUpdateOne) SetSendPermitInstance(v uuid.UUID) *ScopePolicyUpdateOne {
+	_u.mutation.SetSendPermitInstance(v)
+	return _u
+}
+
+// SetNillableSendPermitInstance sets the "send_permit_instance" field if the given value is not nil.
+func (_u *ScopePolicyUpdateOne) SetNillableSendPermitInstance(v *uuid.UUID) *ScopePolicyUpdateOne {
+	if v != nil {
+		_u.SetSendPermitInstance(*v)
+	}
+	return _u
+}
+
+// SetSendPermitGenerations sets the "send_permit_generations" field.
+func (_u *ScopePolicyUpdateOne) SetSendPermitGenerations(v map[string]string) *ScopePolicyUpdateOne {
+	_u.mutation.SetSendPermitGenerations(v)
+	return _u
 }
 
 // SetBotID sets the "bot_id" field.
@@ -1049,6 +1096,12 @@ func (_u *ScopePolicyUpdateOne) sqlSave(ctx context.Context) (_node *ScopePolicy
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.SendPermitInstance(); ok {
+		_spec.SetField(scopepolicy.FieldSendPermitInstance, field.TypeUUID, value)
+	}
+	if value, ok := _u.mutation.SendPermitGenerations(); ok {
+		_spec.SetField(scopepolicy.FieldSendPermitGenerations, field.TypeJSON, value)
 	}
 	if value, ok := _u.mutation.ScopeType(); ok {
 		_spec.SetField(scopepolicy.FieldScopeType, field.TypeString, value)

@@ -387,7 +387,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
 	decision.Snapshot = &domain.DecisionSnapshot{
 		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: in.Topics, TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+		Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
 		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
 	}
 
@@ -454,6 +454,19 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) error {
 	// console explains that replies need both switches on.
 	// 关闭生成模型时仍记录决策但不发送；控制台的说明是回复需要两个开关同时开启。
 	if decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled {
+		if decision.Topic != nil {
+			if guard, ok := d.recorder.(interface {
+				CheckTopicGeneration(context.Context, domain.Task, int64, int64) error
+			}); ok {
+				var version int64
+				if in.Topics != nil {
+					version = in.Topics.BoundVersion
+				}
+				if err := guard.CheckTopicGeneration(ctx, task, decision.Topic.ID, version); err != nil {
+					return err
+				}
+			}
+		}
 		return d.executor.ExecuteReply(ctx, task, topicReplyHistory(in, decision))
 	}
 	return nil

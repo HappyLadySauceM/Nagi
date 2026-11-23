@@ -224,3 +224,42 @@ func (e *TransitionError) Error() string {
 // ToolStatus classifies a budget refusal independently of transport errors.
 // ToolStatus 独立于传输错误标记预算拒绝。
 func (e *BudgetError) ToolStatus() string { return "denied" }
+
+// GateError identifies a prepared delivery that did not cross the dispatch boundary.
+// GateError 表示没有越过派发边界的预留投递。
+type GateError struct {
+	Reason     string
+	HandedOff  bool
+	RetryAfter time.Duration
+}
+
+func (e *GateError) Error() string     { return "outbound: " + e.Reason }
+func (e *GateError) ErrorCode() string { return e.Reason }
+
+const (
+	GatePending     = "topic_routing_pending"
+	GateStale       = "topic_version_stale"
+	GateExpired     = "topic_routing_expired"
+	GateUnavailable = "topic_routing_unavailable"
+	GateRevoked     = "authorization_revoked"
+	GateBudget      = "budget_changed"
+	GatePayload     = "pending_payload_unrecoverable"
+	GateAudio       = "pending_audio_unrecoverable"
+	GateInterval    = "delivery_interval"
+	GateOffline     = "delivery_account_offline"
+)
+
+// ErrDispatchNotWritten marks a continuation that could not begin the platform write.
+// ErrDispatchNotWritten 标记续办时尚未开始写入平台连接。
+var ErrDispatchNotWritten = errors.New("outbound: continuation dispatch not written")
+
+// ErrContinuation marks an original execution whose delivery has been handed off.
+// ErrContinuation 表示原执行的投递已交给持久续办。
+var ErrContinuation = errors.New("outbound: execution handed off")
+
+func (e *GateError) Unwrap() error {
+	if e.HandedOff {
+		return ErrContinuation
+	}
+	return nil
+}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"github.com/google/uuid"
 )
 
 const (
@@ -13,6 +14,10 @@ const (
 	Label = "system_setting"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldSendPermitInstance holds the string denoting the send_permit_instance field in the database.
+	FieldSendPermitInstance = "send_permit_instance"
+	// FieldSendPermitGenerations holds the string denoting the send_permit_generations field in the database.
+	FieldSendPermitGenerations = "send_permit_generations"
 	// FieldPayload holds the string denoting the payload field in the database.
 	FieldPayload = "payload"
 	// FieldVersion holds the string denoting the version field in the database.
@@ -28,6 +33,8 @@ const (
 // Columns holds all SQL columns for systemsetting fields.
 var Columns = []string{
 	FieldID,
+	FieldSendPermitInstance,
+	FieldSendPermitGenerations,
 	FieldPayload,
 	FieldVersion,
 	FieldUpdatedAt,
@@ -45,6 +52,10 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// DefaultSendPermitInstance holds the default value on creation for the "send_permit_instance" field.
+	DefaultSendPermitInstance func() uuid.UUID
+	// DefaultSendPermitGenerations holds the default value on creation for the "send_permit_generations" field.
+	DefaultSendPermitGenerations map[string]string
 	// DefaultVersion holds the default value on creation for the "version" field.
 	DefaultVersion int64
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -59,6 +70,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// BySendPermitInstance orders the results by the send_permit_instance field.
+func BySendPermitInstance(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSendPermitInstance, opts...).ToFunc()
 }
 
 // ByVersion orders the results by the version field.

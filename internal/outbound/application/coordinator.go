@@ -122,6 +122,17 @@ func (c *Coordinator) MarkSending(ctx context.Context, id string, claim ...strin
 	return c.repo.MarkSending(ctx, id, claim...)
 }
 
+// RememberReceipt keeps the acknowledged platform ID available for recovery during settlement.
+// RememberReceipt 结算期间保存已确认的平台 ID 供恢复使用。
+func (c *Coordinator) RememberReceipt(ctx context.Context, id string, receipt int64, claim string) error {
+	if repo, ok := c.repo.(interface {
+		RememberReceipt(context.Context, string, int64, string) error
+	}); ok {
+		return repo.RememberReceipt(ctx, id, receipt, claim)
+	}
+	return nil
+}
+
 // Settle records the terminal state of one sending record.
 // Settle 记录一条 sending 记录的终态。
 func (c *Coordinator) Settle(ctx context.Context, id string, outcome Outcome, claim ...string) error {

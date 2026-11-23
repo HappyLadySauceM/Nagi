@@ -7,6 +7,7 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // ID filters vertices based on their ID field.
@@ -54,6 +55,11 @@ func IDLTE(id int) predicate.SystemSetting {
 	return predicate.SystemSetting(sql.FieldLTE(FieldID, id))
 }
 
+// SendPermitInstance applies equality check predicate on the "send_permit_instance" field. It's identical to SendPermitInstanceEQ.
+func SendPermitInstance(v uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldEQ(FieldSendPermitInstance, v))
+}
+
 // Version applies equality check predicate on the "version" field. It's identical to VersionEQ.
 func Version(v int64) predicate.SystemSetting {
 	return predicate.SystemSetting(sql.FieldEQ(FieldVersion, v))
@@ -67,6 +73,46 @@ func UpdatedAt(v time.Time) predicate.SystemSetting {
 // UpdatedBy applies equality check predicate on the "updated_by" field. It's identical to UpdatedByEQ.
 func UpdatedBy(v string) predicate.SystemSetting {
 	return predicate.SystemSetting(sql.FieldEQ(FieldUpdatedBy, v))
+}
+
+// SendPermitInstanceEQ applies the EQ predicate on the "send_permit_instance" field.
+func SendPermitInstanceEQ(v uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldEQ(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceNEQ applies the NEQ predicate on the "send_permit_instance" field.
+func SendPermitInstanceNEQ(v uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldNEQ(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceIn applies the In predicate on the "send_permit_instance" field.
+func SendPermitInstanceIn(vs ...uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldIn(FieldSendPermitInstance, vs...))
+}
+
+// SendPermitInstanceNotIn applies the NotIn predicate on the "send_permit_instance" field.
+func SendPermitInstanceNotIn(vs ...uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldNotIn(FieldSendPermitInstance, vs...))
+}
+
+// SendPermitInstanceGT applies the GT predicate on the "send_permit_instance" field.
+func SendPermitInstanceGT(v uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldGT(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceGTE applies the GTE predicate on the "send_permit_instance" field.
+func SendPermitInstanceGTE(v uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldGTE(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceLT applies the LT predicate on the "send_permit_instance" field.
+func SendPermitInstanceLT(v uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldLT(FieldSendPermitInstance, v))
+}
+
+// SendPermitInstanceLTE applies the LTE predicate on the "send_permit_instance" field.
+func SendPermitInstanceLTE(v uuid.UUID) predicate.SystemSetting {
+	return predicate.SystemSetting(sql.FieldLTE(FieldSendPermitInstance, v))
 }
 
 // VersionEQ applies the EQ predicate on the "version" field.

@@ -126,6 +126,11 @@ func ErrorCode(v string) predicate.AgentOutboundMessage {
 	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldErrorCode, v))
 }
 
+// ResumeDigest applies equality check predicate on the "resume_digest" field. It's identical to ResumeDigestEQ.
+func ResumeDigest(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldResumeDigest, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.AgentOutboundMessage {
 	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldCreatedAt, v))
@@ -844,6 +849,111 @@ func ErrorCodeEqualFold(v string) predicate.AgentOutboundMessage {
 // ErrorCodeContainsFold applies the ContainsFold predicate on the "error_code" field.
 func ErrorCodeContainsFold(v string) predicate.AgentOutboundMessage {
 	return predicate.AgentOutboundMessage(sql.FieldContainsFold(FieldErrorCode, v))
+}
+
+// ResumeDigestEQ applies the EQ predicate on the "resume_digest" field.
+func ResumeDigestEQ(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEQ(FieldResumeDigest, v))
+}
+
+// ResumeDigestNEQ applies the NEQ predicate on the "resume_digest" field.
+func ResumeDigestNEQ(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNEQ(FieldResumeDigest, v))
+}
+
+// ResumeDigestIn applies the In predicate on the "resume_digest" field.
+func ResumeDigestIn(vs ...string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIn(FieldResumeDigest, vs...))
+}
+
+// ResumeDigestNotIn applies the NotIn predicate on the "resume_digest" field.
+func ResumeDigestNotIn(vs ...string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotIn(FieldResumeDigest, vs...))
+}
+
+// ResumeDigestGT applies the GT predicate on the "resume_digest" field.
+func ResumeDigestGT(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGT(FieldResumeDigest, v))
+}
+
+// ResumeDigestGTE applies the GTE predicate on the "resume_digest" field.
+func ResumeDigestGTE(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldGTE(FieldResumeDigest, v))
+}
+
+// ResumeDigestLT applies the LT predicate on the "resume_digest" field.
+func ResumeDigestLT(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLT(FieldResumeDigest, v))
+}
+
+// ResumeDigestLTE applies the LTE predicate on the "resume_digest" field.
+func ResumeDigestLTE(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldLTE(FieldResumeDigest, v))
+}
+
+// ResumeDigestContains applies the Contains predicate on the "resume_digest" field.
+func ResumeDigestContains(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldContains(FieldResumeDigest, v))
+}
+
+// ResumeDigestHasPrefix applies the HasPrefix predicate on the "resume_digest" field.
+func ResumeDigestHasPrefix(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldHasPrefix(FieldResumeDigest, v))
+}
+
+// ResumeDigestHasSuffix applies the HasSuffix predicate on the "resume_digest" field.
+func ResumeDigestHasSuffix(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldHasSuffix(FieldResumeDigest, v))
+}
+
+// ResumeDigestIsNil applies the IsNil predicate on the "resume_digest" field.
+func ResumeDigestIsNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIsNull(FieldResumeDigest))
+}
+
+// ResumeDigestNotNil applies the NotNil predicate on the "resume_digest" field.
+func ResumeDigestNotNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotNull(FieldResumeDigest))
+}
+
+// ResumeDigestEqualFold applies the EqualFold predicate on the "resume_digest" field.
+func ResumeDigestEqualFold(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldEqualFold(FieldResumeDigest, v))
+}
+
+// ResumeDigestContainsFold applies the ContainsFold predicate on the "resume_digest" field.
+func ResumeDigestContainsFold(v string) predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldContainsFold(FieldResumeDigest, v))
+}
+
+// MemoryDependenciesIsNil applies the IsNil predicate on the "memory_dependencies" field.
+func MemoryDependenciesIsNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIsNull(FieldMemoryDependencies))
+}
+
+// MemoryDependenciesNotNil applies the NotNil predicate on the "memory_dependencies" field.
+func MemoryDependenciesNotNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotNull(FieldMemoryDependencies))
+}
+
+// SendPermitIsNil applies the IsNil predicate on the "send_permit" field.
+func SendPermitIsNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIsNull(FieldSendPermit))
+}
+
+// SendPermitNotNil applies the NotNil predicate on the "send_permit" field.
+func SendPermitNotNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotNull(FieldSendPermit))
+}
+
+// ResumeResultIsNil applies the IsNil predicate on the "resume_result" field.
+func ResumeResultIsNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldIsNull(FieldResumeResult))
+}
+
+// ResumeResultNotNil applies the NotNil predicate on the "resume_result" field.
+func ResumeResultNotNil() predicate.AgentOutboundMessage {
+	return predicate.AgentOutboundMessage(sql.FieldNotNull(FieldResumeResult))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
