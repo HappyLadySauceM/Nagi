@@ -50,11 +50,11 @@ description: 在 Nagi 仓库提交、改写提交（amend/rebase/squash/cherry-p
 
 ## 提交粒度
 
-- 一个提交只做一件事，能独立 review 与回滚；大改动按可编译、可回滚的最小单元拆分。
-- 这个单元就是一个功能模块。模块的实现和必要验证一完成，就按 [review 技能](../review/SKILL.md) 的模块提交检查停下来；检查通过就提交，不把多个模块留在未提交差异里一起审查。
-- 格式化、重命名与行为改动分开提交，避免 reviewer 在噪声里找逻辑。
-- 不提交调试输出、临时文件、生成物、密钥与本地配置；不提交 WIP 中间态。
-- 功能改动提交前先按 [review 技能](../review/SKILL.md) 完成审查与功能测试。
+- 一个提交只做一件事，并能独立回滚。大改动按可编译、可回滚的最小单元拆分。
+- 模块实现和必要验证完成后，检查暂存、未暂存差异和未跟踪文件，只将本任务的该模块纳入提交。
+- 格式化、重命名与行为改动分开提交，便于核对实际行为变化。
+- 不提交调试输出、临时文件、生成物、密钥、本地配置或 WIP 中间态。
+- 功能改动提交前完成 [功能交付验证](../coding/references/testing.md#功能交付验证)。
 
 ## 分支与 PR
 
@@ -65,7 +65,8 @@ description: 在 Nagi 仓库提交、改写提交（amend/rebase/squash/cherry-p
 - 一个分支只服务一个功能或修复：多个独立改动分别开分支、分别开 PR，不要攒成一个 PR；
   同一功能的后续修改继续追加到原分支。
 - PR 标题复用同一条提交信息格式；正文写清动机、影响面与验证方式。
-- 合并方式固定 Squash and merge，禁止 merge commit 与 rebase merge：优先开启自动合并
+- 创建或更新 PR 后，记录实际 CI 检查结果及跳过项。
+- 已获合并授权的应用 PR 使用 Squash and merge，禁止 merge commit 与 rebase merge：优先开启自动合并
   `gh pr merge --auto --squash --delete-branch`。
 - squash 合并必须同时显式指定 subject 与 body，不用 `--auto` 代替：`--auto` 无法同时指定
   subject，只给 `--squash` 时 GitHub 会把 PR 号追加成 `(#123)`，合入 `main` 的提交变成
@@ -80,7 +81,8 @@ description: 在 Nagi 仓库提交、改写提交（amend/rebase/squash/cherry-p
   就拆成多个 PR。
 - 合并后清理本地：`git switch main && git pull --ff-only && git branch -d <branch>`，
   远端源分支由 `--delete-branch` 删除，本地不保留已合并分支与临时文件。
-- 例外：仓库文档写明必须人工审批的改动保持人工合并，例如 prod 镜像更新与 Renovate 的版本升级。
+- GitOps 镜像更新 PR 由人工合并，再由 ArgoCD 同步。仓库规定须人工审批的其他改动也保持人工合并，
+  例如 Renovate 版本升级。
 - 合并前保持分支与目标分支同步，优先 rebase，避免无意义的 merge 提交。
 
 ## 自动化提交
@@ -105,6 +107,6 @@ docs: 修改 README.md         # 描述写文件名，应写改了什么
 
 ## 完成条件
 
-改动已在 `<type>/<scope>/<description>` 分支上提交、PR 标题与提交信息一致、自动合并已启用，
-且单个提交可独立回滚时，即可结束本次提交操作。不要重写已推送的他人提交，也不为满足规范
-扩大改动范围。
+改动已在 `<type>/<scope>/<description>` 分支上提交，单个提交可独立回滚。任务要求提交 PR 时，
+核对 PR 标题与提交信息一致并报告 CI 结果。按任务授权处理后续合并。不要重写已推送的他人提交，
+也不为满足规范扩大改动范围。

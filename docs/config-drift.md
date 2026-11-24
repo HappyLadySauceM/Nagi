@@ -31,7 +31,7 @@ go test ./internal/intent/application -run TestDefaultIntentThresholdsMatchParti
    逐行审查 golden diff，确认没有顺带改变无关配置项。
 4. **阈值变化**：默认阈值与参与判断基线（`0.80 / 0.95 / 0.60`）绑定。确认调整时，同步更新 `pkg/config` 快照和[离线参与判断基线](../internal/intent/application/participation_baseline_test.go)中的 `baselineThresholds`，复核样本预期，并在 PR 中记录对照结果。
 5. **流程版本变化**：`FlowVersion` 或节点/边结构变化要同步前端契约；`SnapshotVersion` 变化要评估历史决策快照的兼容与回放策略，不能只改常量。
-6. **验证**：执行 `just verify`；涉及前端展示时按仓库 review 技能做页面联调。
+6. **验证**：执行 `just verify`。涉及前端展示时，按[功能交付验证](../.agents/skills/coding/references/testing.md#功能交付验证)从正常入口做浏览器联调。
 
 ## 测试失败时
 
