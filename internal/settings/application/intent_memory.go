@@ -92,7 +92,67 @@ func (s *Service) MayDiscloseIntentMemory(ctx context.Context, botID, groupID in
 	if err != nil || current != destination {
 		return false
 	}
-	return slices.Contains(rev.Settings.IntentMemoryGrants, settingsdomain.IntentMemoryGrant{BotID: botID, GroupID: groupID, Destination: destination.Fingerprint})
+	_, reason := intentDisclosureState(rev.Settings, botID, groupID, destination, true)
+	return reason == ""
+}
+
+func intentGrant(stored settingsdomain.Settings, botID, groupID int64, destination string) (settingsdomain.IntentMemoryGrant, bool) {
+	for _, grant := range stored.IntentMemoryGrants {
+		if grant.BotID == botID && grant.GroupID == groupID && grant.Destination == destination {
+			return grant, true
+		}
+	}
+	return settingsdomain.IntentMemoryGrant{}, false
+}
+
+func intentDisclosureState(stored settingsdomain.Settings, botID, groupID int64, destination settingscontracts.IntentDestination, memory bool) (int64, string) {
+	current, err := storedIntentDestination(stored)
+	if err != nil || !stored.Intent.Enabled || current != destination {
+		return 0, "background_destination_changed"
+	}
+	if !memory {
+		return 0, ""
+	}
+	grant, allowed := intentGrant(stored, botID, groupID, destination.Fingerprint)
+	if !allowed {
+		return 0, "background_disclosure_denied"
+	}
+	return grant.Generation, ""
+}
+
+func (s *Service) IntentDisclosureRevision(ctx context.Context, botID, groupID int64, dest settingscontracts.IntentDestination, memory bool) (int64, string) {
+	if s.repo == nil {
+		return 0, "background_destination_changed"
+	}
+	current, found, err := s.repo.Load(ctx)
+	if err != nil || !found {
+		return 0, "background_destination_changed"
+	}
+	return intentDisclosureState(current.Settings, botID, groupID, dest, memory)
+}
+
+func (s *Service) WithIntentDisclosure(ctx context.Context, botID, groupID int64, dest settingscontracts.IntentDestination, memory bool, revision int64, fn func() error) (reason string, err error) {
+	locker, ok := s.repo.(interface {
+		WithIntentSettings(context.Context, func(settingsdomain.Revision) error) error
+	})
+	if !ok {
+		return "background_destination_changed", nil
+	}
+	err = locker.WithIntentSettings(ctx, func(current settingsdomain.Revision) error {
+		generation, currentReason := intentDisclosureState(current.Settings, botID, groupID, dest, memory)
+		reason = currentReason
+		if reason == "" && memory && generation != revision {
+			reason = "background_disclosure_denied"
+		}
+		if reason != "" {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return fn()
+	})
+	return reason, err
 }
 
 func (s *Service) IntentMemoryGrant(ctx context.Context, botID, groupID int64) (bool, string, int64, error) {
@@ -110,8 +170,8 @@ func (s *Service) IntentMemoryGrant(ctx context.Context, botID, groupID int64) (
 	if err != nil {
 		return false, "", rev.Version, nil
 	}
-	grant := settingsdomain.IntentMemoryGrant{BotID: botID, GroupID: groupID, Destination: dest.Fingerprint}
-	return slices.Contains(rev.Settings.IntentMemoryGrants, grant), dest.Fingerprint, rev.Version, nil
+	_, allowed := intentGrant(rev.Settings, botID, groupID, dest.Fingerprint)
+	return allowed, dest.Fingerprint, rev.Version, nil
 }
 
 func (s *Service) SetIntentMemoryGrant(ctx context.Context, botID, groupID int64, allow bool, expectedDestination string, version int64, actor string) (int64, error) {
@@ -133,7 +193,11 @@ func (s *Service) SetIntentMemoryGrant(ctx context.Context, botID, groupID int64
 		return grant.BotID == botID && grant.GroupID == groupID
 	})
 	if allow {
-		next.IntentMemoryGrants = append(next.IntentMemoryGrants, settingsdomain.IntentMemoryGrant{BotID: botID, GroupID: groupID, Destination: dest.Fingerprint})
+		grant, exists := intentGrant(current.Settings, botID, groupID, dest.Fingerprint)
+		if !exists {
+			grant = settingsdomain.IntentMemoryGrant{BotID: botID, GroupID: groupID, Destination: dest.Fingerprint, Generation: version + 1}
+		}
+		next.IntentMemoryGrants = append(next.IntentMemoryGrants, grant)
 	}
 	rev, applied, err := s.repo.Update(ctx, next, version, actor)
 	if err != nil {

@@ -33,6 +33,10 @@ import (
 // SemanticDecider asks the external semantic service; implementations must be
 // fail-closed on malformed or out-of-range responses.
 // SemanticDecider 请求外部语义服务；实现必须对畸形或越界响应关闭式失败。
+type semanticResultGuard interface {
+	WithSemanticResult(context.Context, domain.Input, domain.SemanticAnswer, func() error) (string, error)
+}
+
 type SemanticDecider interface {
 	Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error)
 }
@@ -488,72 +492,94 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		}
 		return err
 	}
-	if err := step(5, "semantic", contracts.LiveDecisionFacts{Branch: semanticBranch(asked, semantic), LatencyMS: latency}); err != nil {
-		return errOrStartFailure(err)
-	}
-	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime, cooldown.Branch == "deferred")
-	decision.RulesetVersion = rulesetVersion
-	decision.RunID = runID
-	decision.FlowVersion = domain.FlowVersion
-	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
-	events := cooldownEvents(cooldown, decision)
-	decision.Steps[2].Detail["RuleEvents"] = events
-	if len(events) > 1 {
-		resolution := events[len(events)-1]
-		if err := step(6, "cooldown_resolved", contracts.LiveDecisionFacts{RuleID: resolution.RuleID, Branch: resolution.Branch, ThresholdMS: resolution.ThresholdMS, ElapsedMS: resolution.ElapsedMS}); err != nil {
+	var decision domain.FinalDecision
+	var finishAudit func(context.Context, string, string, map[string]any) error
+	commitDecision := func() error {
+		if err := step(5, "semantic", contracts.LiveDecisionFacts{Branch: semanticBranch(asked, semantic), LatencyMS: latency}); err != nil {
+			return errOrStartFailure(err)
+		}
+		decision = d.applyPolicy(ctx, in, rule, semantic, latency, runtime, cooldown.Branch == "deferred")
+		decision.RulesetVersion = rulesetVersion
+		decision.RunID = runID
+		decision.FlowVersion = domain.FlowVersion
+		decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, historyDegraded)
+		events := cooldownEvents(cooldown, decision)
+		decision.Steps[2].Detail["RuleEvents"] = events
+		if len(events) > 1 {
+			resolution := events[len(events)-1]
+			if err := step(6, "cooldown_resolved", contracts.LiveDecisionFacts{RuleID: resolution.RuleID, Branch: resolution.Branch, ThresholdMS: resolution.ThresholdMS, ElapsedMS: resolution.ElapsedMS}); err != nil {
+				return err
+			}
+		}
+		decision.Snapshot = &domain.DecisionSnapshot{
+			Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
+			Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+			Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
+		}
+
+		// The durable decision record remains the source used by evaluation. Mirror
+		// its explainable, non-message facts into the run timeline before persisting
+		// it, so a missing local audit write prevents a later reply from being sent.
+		// 决策表仍是评估的事实来源。先把不含消息正文的可解释事实写入运行时间线，
+		// 这样本地审计写入失败时不会继续到后续回复。
+		event, err := auditcontracts.StartEvent(ctx, "intent.decision", map[string]any{
+			"job_id":          task.JobID,
+			"conversation_id": task.ConversationID,
+			"config": map[string]any{
+				"provider":      runtime.Provider,
+				"model":         runtime.Model,
+				"history_limit": runtime.HistoryLimit,
+				"thresholds":    runtime.Thresholds,
+			},
+			"ruleset_version": rulesetVersion,
+		})
+		if err != nil {
+			if startFailed {
+				return auditcontracts.ErrModelMediaStart
+			}
+			if modelReturned && journal != nil {
+				return decisionPersistenceError{cause: err}
+			}
 			return err
 		}
-	}
-	decision.Snapshot = &domain.DecisionSnapshot{
-		Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-		Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
-		Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
-	}
-
-	// The durable decision record remains the source used by evaluation. Mirror
-	// its explainable, non-message facts into the run timeline before persisting
-	// it, so a missing local audit write prevents a later reply from being sent.
-	// 决策表仍是评估的事实来源。先把不含消息正文的可解释事实写入运行时间线，
-	// 这样本地审计写入失败时不会继续到后续回复。
-	auditEvent, err := auditcontracts.StartEvent(ctx, "intent.decision", map[string]any{
-		"job_id":          task.JobID,
-		"conversation_id": task.ConversationID,
-		"config": map[string]any{
-			"provider":      runtime.Provider,
-			"model":         runtime.Model,
-			"history_limit": runtime.HistoryLimit,
-			"thresholds":    runtime.Thresholds,
-		},
-		"ruleset_version": rulesetVersion,
-	})
-	if err != nil {
-		if startFailed {
-			return auditcontracts.ErrModelMediaStart
+		finishAudit = func(ctx context.Context, status, reason string, output map[string]any) error {
+			return auditcontracts.FinishEvent(ctx, event, status, reason, output)
 		}
-		if modelReturned && journal != nil {
+		if recovery != nil && !startFailed {
+			if err := persist(func(writeCtx context.Context) error {
+				return recovery.SaveDecisionRecovery(writeCtx, task, decision)
+			}); err != nil {
+				return err
+			}
+			recoverySaved = true
+		}
+		var recordErr error
+		if journal != nil {
+			recordErr = persist(func(writeCtx context.Context) error {
+				return journal.RecordDecisionRun(writeCtx, task.JobID, decision, task.ClaimToken)
+			})
+		} else {
+			recordErr = d.recorder.Record(ctx, task.JobID, decision, task.ClaimToken)
+		}
+		if err := recordErr; err != nil {
+			_ = finishAudit(ctx, "failed", "decision_record_failed", nil)
+			return errOrStartFailure(fmt.Errorf("intent: record decision: %w", err))
+		}
+		return nil
+	}
+	if guard, ok := d.semantic.(semanticResultGuard); ok && semantic.Available && semantic.BackgroundEvidence != nil {
+		reason, err := guard.WithSemanticResult(ctx, in, semantic, commitDecision)
+		if err != nil {
 			return decisionPersistenceError{cause: err}
 		}
-		return err
-	}
-	if recovery != nil && !startFailed {
-		if err := persist(func(writeCtx context.Context) error {
-			return recovery.SaveDecisionRecovery(writeCtx, task, decision)
-		}); err != nil {
-			return err
+		if reason != "" {
+			semantic = discardSemantic(in, rule, semantic, reason)
+			if err := commitDecision(); err != nil {
+				return err
+			}
 		}
-		recoverySaved = true
-	}
-	var recordErr error
-	if journal != nil {
-		recordErr = persist(func(writeCtx context.Context) error {
-			return journal.RecordDecisionRun(writeCtx, task.JobID, decision, task.ClaimToken)
-		})
-	} else {
-		recordErr = d.recorder.Record(ctx, task.JobID, decision, task.ClaimToken)
-	}
-	if err := recordErr; err != nil {
-		_ = auditcontracts.FinishEvent(ctx, auditEvent, "failed", "decision_record_failed", nil)
-		return errOrStartFailure(fmt.Errorf("intent: record decision: %w", err))
+	} else if err := commitDecision(); err != nil {
+		return err
 	}
 	// Audit keeps only decision facts. Snapshot.Input contains message bodies,
 	// so the audit projection deliberately omits the snapshot and raw steps.
@@ -586,13 +612,13 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		auditDecision["Topic"] = decision.Topic
 	}
 	if startFailed {
-		if err := auditcontracts.FinishEvent(ctx, auditEvent, "failed", auditcontracts.ModelMediaStartFailureCode, map[string]any{"decision": auditDecision}); err != nil {
+		if err := finishAudit(ctx, "failed", auditcontracts.ModelMediaStartFailureCode, map[string]any{"decision": auditDecision}); err != nil {
 			d.logger.Warn("record model audit start failure failed", "job_id", task.JobID)
 		}
 		return auditcontracts.ErrModelMediaStart
 	}
 	if err := persist(func(writeCtx context.Context) error {
-		return auditcontracts.FinishEvent(writeCtx, auditEvent, "succeeded", "", map[string]any{"decision": auditDecision})
+		return finishAudit(writeCtx, "succeeded", "", map[string]any{"decision": auditDecision})
 	}); err != nil {
 		return err
 	}
@@ -1144,6 +1170,16 @@ func callAddressingAudit(in domain.Input, answer domain.SemanticAnswer) map[stri
 // unusable answer; it is never turned into a guessed decision.
 // decideSemantic 在独立 span 内调用 Jev，使网络耗时、返回分数与降级可归因。
 // 失败时返回不可用回答，绝不臆测决策。
+func discardSemantic(in domain.Input, rule domain.RuleResult, answer domain.SemanticAnswer, reason string) domain.SemanticAnswer {
+	out := initialCallAddressing(in, rule)
+	out.FailureCode = "semantic_unavailable"
+	out.BackgroundFailure = reason
+	out.BackgroundEvidence = answer.BackgroundEvidence
+	out.ExternalRequests, out.UnknownRequests = answer.ExternalRequests, answer.UnknownRequests
+	out.Attempts, out.Usage = answer.Attempts, answer.Usage
+	return out
+}
+
 func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime RuntimeConfig, rule domain.RuleResult) (domain.SemanticAnswer, int64) {
 	ctx, span := tracer().Start(ctx, "nagi.intent.jev")
 	defer span.End()

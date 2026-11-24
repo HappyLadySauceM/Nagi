@@ -250,3 +250,28 @@ func (b IntentBackground) VerifyFacts(ctx context.Context, task intentdomain.Tas
 	}
 	return ordered, ""
 }
+
+func (b IntentBackground) CheckDispatch(ctx context.Context, in intentdomain.Input, dest settingscontracts.IntentDestination, endpoint string, evidence *intentdomain.BackgroundEvidence) string {
+	if endpoint != dest.Endpoint {
+		return "background_destination_changed"
+	}
+	if reason := b.CheckScope(ctx, in); reason != "" {
+		return reason
+	}
+	if reason := b.CheckRoute(ctx, dest); reason != "" {
+		return reason
+	}
+	var reason string
+	if in.FixedBackground {
+		_, _, reason = b.Restore(ctx, in, dest, evidence)
+	} else if evidence != nil && len(in.Background.Memories) > 0 {
+		_, reason = b.VerifyFacts(ctx, in.Task, dest, endpoint, evidence.Memories)
+	}
+	if reason != "" {
+		return reason
+	}
+	if reason := b.CheckRoute(ctx, dest); reason != "" {
+		return reason
+	}
+	return b.CheckScope(ctx, in)
+}

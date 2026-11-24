@@ -20,6 +20,7 @@ import (
 // LocalClient scores fixed labels through an OpenAI-compatible endpoint.
 // LocalClient 通过 OpenAI 兼容端点为固定标签打分。
 type LocalQuestion struct {
+	Index                      int
 	System, Question, Template string
 	Labels                     []string
 }
@@ -55,12 +56,12 @@ type LocalClient struct {
 
 func (c *LocalClient) Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error) {
 	if in.FixedBackground {
-		var requests int
+		var requests atomic.Int32
 		answer, err := c.decide(ctx, in, func(ctx context.Context, q LocalQuestion) ([]float64, domain.SemanticUsage, error) {
-			requests++
+			requests.Add(1)
 			return c.ScoreQuestion(ctx, in, q)
 		})
-		answer.ExternalRequests = requests
+		answer.ExternalRequests = int(requests.Load())
 		return answer, err
 	}
 	return c.decide(ctx, in, nil)
@@ -99,26 +100,27 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 	}
 	c.gateOnce.Do(func() { c.gate = make(chan struct{}, 2) })
 	sem := c.gate
-	var wg sync.WaitGroup
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
 	var mu sync.Mutex
 	var first error
 	var startFailed bool
 	if askCall && in.CallIdentity != nil {
 		configuredTemplate = userTemplate
 	}
-	score := func(q string, labels []string) ([]float64, error) {
+	score := func(i int, q string, labels []string) ([]float64, error) {
 		if dispatch != nil {
-			values, measured, err := dispatch(ctx, LocalQuestion{System: systemPrompt, Question: q, Labels: labels, Template: configuredTemplate})
+			values, measured, err := dispatch(runCtx, LocalQuestion{Index: i, System: systemPrompt, Question: q, Labels: labels, Template: configuredTemplate})
 			usage.add(measured)
 			return values, err
 		}
 		select {
 		case sem <- struct{}{}:
 			defer func() { <-sem }()
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		case <-runCtx.Done():
+			return nil, runCtx.Err()
 		}
-		return c.score(ctx, systemPrompt, state, q, labels, userTemplate, shape, &requests, usage, false)
+		return c.score(runCtx, systemPrompt, state, q, labels, userTemplate, shape, &requests, usage, false)
 	}
 	ask := func(i int) {
 		q := "当前消息是在告别、结束或不再期待回复吗？ A=是，B=否。"
@@ -130,13 +132,16 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 			labels = []string{"A", "B", "C"}
 			q = callQuestion.Instructions + " A=" + callQuestion.Criteria["yes"] + " B=" + callQuestion.Criteria["no"] + " C=" + callQuestion.Criteria["uncertain"]
 		}
-		probs, err := score(q, labels)
+		probs, err := score(i, q, labels)
 		mu.Lock()
 		defer mu.Unlock()
 		if err != nil {
 			startFailed = startFailed || errors.Is(err, audit.ErrModelMediaStart)
 			if first == nil {
 				first = err
+			}
+			if dispatch != nil || startFailed {
+				stop()
 			}
 			return
 		}
@@ -155,17 +160,28 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 			intentScore = probs[0]
 		}
 	}
-	for i := 0; i < 5; i++ {
-		if dispatch != nil {
-			ask(i)
-			if first != nil {
-				break
+	var slots sync.WaitGroup
+	var queue sync.Mutex
+	next := 0
+	for range 2 {
+		slots.Go(func() {
+			for {
+				queue.Lock()
+				if next == 5 || runCtx.Err() != nil {
+					queue.Unlock()
+					return
+				}
+				i := next
+				next++
+				queue.Unlock()
+				ask(i)
 			}
-			continue
-		}
-		wg.Go(func() { ask(i) })
+		})
 	}
-	wg.Wait()
+	slots.Wait()
+	if first == nil && ctx.Err() != nil {
+		first = ctx.Err()
+	}
 	if startFailed {
 		return domain.SemanticAnswer{ExternalRequests: int(requests.Load()), Usage: usage.value()}, audit.ErrModelMediaStart
 	}
@@ -177,7 +193,7 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 		answer.FailureCode = "decision_questions_degraded"
 	}
 	if in.Topics != nil && len(in.Topics.Candidates) > 0 {
-		if err := scoreTopic(in.Topics, &answer, score); err != nil && (errors.Is(err, audit.ErrModelMediaStart) || in.FixedBackground || dispatch != nil) {
+		if err := scoreTopic(in.Topics, &answer, func(q string, labels []string) ([]float64, error) { return score(5, q, labels) }); err != nil && (errors.Is(err, audit.ErrModelMediaStart) || in.FixedBackground || dispatch != nil) {
 			return domain.SemanticAnswer{ExternalRequests: int(requests.Load()), Usage: usage.value()}, err
 		}
 	}

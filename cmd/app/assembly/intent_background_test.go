@@ -160,7 +160,7 @@ func TestFixedIntentBackgroundStopsAfterRevocation(t *testing.T) {
 		t.Fatalf("preflight with grant: %s", got)
 	}
 	result, err := router.Decide(context.Background(), in)
-	if err != nil || result.Available || result.BackgroundFailure != "background_disclosure_denied" || result.ExternalRequests != 1 || sent.Load() != 1 || result.Usage.Responses != 1 || result.Usage.InputTokens != 7 || result.Usage.OutputTokens != 2 {
+	if err != nil || result.Available || result.BackgroundFailure != "background_disclosure_denied" || result.ExternalRequests != int(sent.Load()) || sent.Load() < 1 || sent.Load() > 2 || result.Usage.Responses > int64(sent.Load()) {
 		t.Fatalf("answer=%+v sent=%d err=%v", result, sent.Load(), err)
 	}
 }
@@ -198,20 +198,15 @@ func TestIntentMemoryRevokedDuringConnect(t *testing.T) {
 			}))
 			defer server.Close()
 			router, probe, in := newBackgroundFixture(protocol, server.URL)
-			var dialing atomic.Bool
-			router.transport.dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			router.transport.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
 				conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
-				if err == nil && dialing.CompareAndSwap(false, true) {
+				if err == nil {
 					probe.allowed.Store(false)
 				}
 				return conn, err
 			}
 			out, _ := router.Decide(context.Background(), in)
-			want := 1
-			if protocol == "openai" {
-				want = 5
-			}
-			if int(requests.Load()) != want || leaked.Load() != 0 || out.ExternalRequests != want || out.UnknownRequests != 0 || out.BackgroundFailure != "background_disclosure_denied" {
+			if requests.Load() != 0 || leaked.Load() != 0 || out.ExternalRequests != 0 || out.UnknownRequests != 0 || out.BackgroundFailure != "background_disclosure_denied" {
 				t.Fatalf("requests=%d old=%d counted=%d unknown=%d reason=%s", requests.Load(), leaked.Load(), out.ExternalRequests, out.UnknownRequests, out.BackgroundFailure)
 			}
 			t.Logf("requests=%d old_memory=%d counted=%d", requests.Load(), leaked.Load(), out.ExternalRequests)
@@ -219,47 +214,83 @@ func TestIntentMemoryRevokedDuringConnect(t *testing.T) {
 	}
 }
 
-func TestLiveIntentRemainingQuestionsDropMemory(t *testing.T) {
-	for _, mode := range []string{"revoke", "timeout", "revoke_during_read"} {
-		t.Run(mode, func(t *testing.T) {
-			var total, old atomic.Int32
-			var probe *backgroundProbe
+func TestLiveIntentRevocationDiscardsInFlightScores(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(fmt.Sprint(partial), func(t *testing.T) {
+			var total atomic.Int32
+			arrivals := make(chan int32, 5)
+			respond := make(chan struct{})
+			cancelled := make(chan struct{}, 5)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				body, _ := io.ReadAll(r.Body)
-				if strings.Contains(string(body), "SYNTH_FACT") {
-					old.Add(1)
+				_, _ = io.Copy(io.Discard, r.Body)
+				n := total.Add(1)
+				arrivals <- n
+				if partial && n == 1 {
+					select {
+					case <-respond:
+						_, _ = io.WriteString(w, backgroundOpenAIAnswer)
+					case <-r.Context().Done():
+					}
+					return
 				}
-				if total.Add(1) == 1 && mode == "revoke" {
-					probe.allowed.Store(false)
+				select {
+				case <-r.Context().Done():
+					cancelled <- struct{}{}
+				case <-time.After(5 * time.Second):
+					t.Error("loopback response was not cancelled")
 				}
-				_, _ = io.WriteString(w, backgroundOpenAIAnswer)
 			}))
 			defer server.Close()
-			router, fixture, in := newBackgroundFixture("openai", server.URL)
-			probe = fixture
-			probe.readHook = func(ctx context.Context, ids []string) error {
-				if len(ids) == 0 || total.Load() != 1 {
-					return nil
-				}
-				if mode == "timeout" {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+			defer cancel()
+			router, probe, in := newBackgroundFixture("openai", server.URL)
+			firstPair := make(chan struct{})
+			var dials atomic.Int32
+			router.transport.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if partial && dials.Add(1) == 3 {
+					close(firstPair)
 					<-ctx.Done()
-					return ctx.Err()
+					return nil, ctx.Err()
 				}
-				if mode == "revoke_during_read" {
-					probe.allowed.Store(false)
-				}
-				return nil
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
 			}
-			answer, err := router.Decide(context.Background(), in)
-			if err != nil || !answer.Available || total.Load() != 5 || old.Load() != 1 || answer.ExternalRequests != 5 || answer.UnknownRequests != 0 || answer.BackgroundEvidence == nil || answer.BackgroundEvidence.MemoryOutcome != "mixed" || len(answer.Attempts) != 5 {
-				t.Fatalf("requests=%d with_memory=%d counted=%d evidence=%+v err=%v", total.Load(), old.Load(), answer.ExternalRequests, answer.BackgroundEvidence, err)
-			}
-			for i, attempt := range answer.Attempts {
-				if attempt.Memory != (i == 0) || attempt.InputTokens == nil || *attempt.InputTokens != 0 || attempt.OutputTokens != nil {
-					t.Fatalf("attempt %d: %+v", i, attempt)
+			result := make(chan intentdomain.SemanticAnswer, 1)
+			go func() { out, _ := router.Decide(ctx, in); result <- out }()
+			for range 2 {
+				select {
+				case <-arrivals:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
 				}
 			}
-			t.Logf("with_memory=%d without_memory=%d accounted=%d reason=%s", old.Load(), total.Load()-old.Load(), answer.ExternalRequests, answer.BackgroundFailure)
+			if partial {
+				close(respond)
+				select {
+				case <-firstPair:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+			probe.allowed.Store(false)
+			select {
+			case out := <-result:
+				if out.Available || len(out.Scores) != 0 || out.ExternalRequests != 2 || out.UnknownRequests != 0 || total.Load() != 2 || out.BackgroundFailure != "background_disclosure_denied" || (out.Usage.InputResponses == 1) != partial {
+					t.Fatalf("arrivals=%d result=%+v", total.Load(), out)
+				}
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			want := 2
+			if partial {
+				want = 1
+			}
+			for range want {
+				select {
+				case <-cancelled:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
 		})
 	}
 }
@@ -340,14 +371,9 @@ func TestLiveIntentRemainingQuestionsUseCurrentRoute(t *testing.T) {
 				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
 			}
 			out, err := router.Decide(context.Background(), in)
-			want := int32(4)
-			if fixed {
-				want = 0
-			}
-			if err != nil || oldCount.Load() != 1 || newCount.Load() != want || out.ExternalRequests != 1+int(want) || out.Available == fixed || out.BackgroundFailure != "background_destination_changed" {
+			if (err == nil) != fixed || oldCount.Load() < 1 || oldCount.Load() > 2 || newCount.Load() != 0 || out.ExternalRequests != int(oldCount.Load()) || out.Available || out.BackgroundFailure != "background_destination_changed" {
 				t.Fatalf("old=%d new=%d out=%+v err=%v", oldCount.Load(), newCount.Load(), out, err)
 			}
-			t.Logf("fixed=%t old_with_memory=%d new_without_memory=%d", fixed, oldCount.Load(), newCount.Load())
 		})
 	}
 }
@@ -389,6 +415,7 @@ func TestFixedIntentMalformedProbabilityStopsDispatch(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			var count atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
 				count.Add(1)
 				body := backgroundOpenAIAnswer
 				if value == "missing" {
@@ -408,11 +435,12 @@ func TestFixedIntentMalformedProbabilityStopsDispatch(t *testing.T) {
 			in.FixedBackground = true
 			in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
 			out, err := router.Decide(context.Background(), in)
-			want := 1
+			minRequests, maxRequests := 1, 2
 			if value == "0" {
-				want = 5
+				minRequests, maxRequests = 5, 5
 			}
-			if out.Available != (value == "0") || (err == nil) != (value == "0") || out.Usage.InputResponses != int64(want) || out.Usage.OutputResponses != 0 || out.ExternalRequests != want || count.Load() != int32(want) {
+			want := int(count.Load())
+			if out.Available != (value == "0") || (err == nil) != (value == "0") || out.Usage.InputResponses < 1 || out.Usage.InputResponses > int64(want) || out.Usage.OutputResponses != 0 || out.ExternalRequests < minRequests || out.ExternalRequests > maxRequests || want < minRequests || want > out.ExternalRequests {
 				t.Fatalf("value=%s requests=%d answer=%+v err=%v", value, count.Load(), out, err)
 			}
 			t.Logf("value=%s requests=%d verified_input_usage=%d verified_output_usage=%d", value, out.ExternalRequests, out.Usage.InputResponses, out.Usage.OutputResponses)
@@ -437,7 +465,7 @@ func TestIntentBackgroundRedirectLeavesTargetUntouched(t *testing.T) {
 			defer server.Close()
 			router, _, in := newBackgroundFixture(protocol, server.URL)
 			answer, err := router.Decide(context.Background(), in)
-			if err == nil || source.Load() != 1 || target.Load() != 0 || answer.ExternalRequests != 1 {
+			if err == nil || source.Load() < 1 || source.Load() > 2 || target.Load() != 0 || answer.ExternalRequests != int(source.Load()) {
 				t.Fatalf("source=%d target=%d accounted=%d err=%v", source.Load(), target.Load(), answer.ExternalRequests, err)
 			}
 			t.Logf("source=%d redirect_target=%d", source.Load(), target.Load())
@@ -470,7 +498,7 @@ func TestIntentUnobservedDispatchDoesNotRepeatQuestion(t *testing.T) {
 	defer server.Close()
 	router, probe, in := newBackgroundFixture("openai", server.URL)
 	var dials atomic.Int32
-	router.transport.dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	router.transport.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 		if err == nil && dials.Add(1) == 2 {
 			return fixtureIntentWriteFailure{Conn: conn}, nil
@@ -482,7 +510,7 @@ func TestIntentUnobservedDispatchDoesNotRepeatQuestion(t *testing.T) {
 	in.FixedBackground = true
 	in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
 	out, err := router.Decide(context.Background(), in)
-	if err != nil || out.BackgroundFailure != "semantic_dispatch_unknown" || out.ExternalRequests != 1 || out.UnknownRequests != 1 || dials.Load() != 2 || confirmed.Load() != 1 || len(out.Attempts) != 2 || !out.Attempts[1].ReservationHeld {
+	if err != nil || out.BackgroundFailure != "semantic_dispatch_unknown" || out.ExternalRequests != 1 || out.UnknownRequests != 1 || dials.Load() != 2 || confirmed.Load() != 1 || len(out.Attempts) != 2 || !out.Attempts[0].ReservationHeld || !out.Attempts[1].ReservationHeld {
 		t.Fatalf("confirmed=%d dials=%d result=%+v err=%v", confirmed.Load(), dials.Load(), out, err)
 	}
 	t.Logf("confirmed=%d total_unknown=true unresolved_reservations=%d", out.ExternalRequests, out.UnknownRequests)
@@ -633,12 +661,14 @@ func TestIntentMemoryDurableRevocationBeforeFirstWrite(t *testing.T) {
 			connected := make(chan struct{})
 			resume := make(chan struct{})
 			var first atomic.Bool
-			router.transport.dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			router.transport.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
 				conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
-				if err != nil || !first.CompareAndSwap(false, true) {
+				if err != nil {
 					return conn, err
 				}
-				close(connected)
+				if first.CompareAndSwap(false, true) {
+					close(connected)
+				}
 				select {
 				case <-resume:
 					return conn, nil
@@ -650,15 +680,15 @@ func TestIntentMemoryDurableRevocationBeforeFirstWrite(t *testing.T) {
 			if tc.https {
 				roots := x509.NewCertPool()
 				roots.AddCert(server.Certificate())
-				router.transport.dial = (&net.Dialer{}).DialContext
-				router.transport.tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, VerifyConnection: func(state tls.ConnectionState) error {
+				router.transport.Dial = (&net.Dialer{}).DialContext
+				router.transport.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, VerifyConnection: func(state tls.ConnectionState) error {
 					if len(state.VerifiedChains) == 0 {
 						return fmt.Errorf("fixture TLS peer is unverified")
 					}
 					if first.CompareAndSwap(false, true) {
 						close(connected)
-						<-resume
 					}
+					<-resume
 					return nil
 				}}
 			}
@@ -682,11 +712,7 @@ func TestIntentMemoryDurableRevocationBeforeFirstWrite(t *testing.T) {
 			case <-runCtx.Done():
 				t.Fatal(runCtx.Err())
 			}
-			want := 1
-			if protocol == "openai" {
-				want = 5
-			}
-			if out.ExternalRequests != want || int(requests.Load()) != want || leaked.Load() != 0 || out.UnknownRequests != 0 || out.BackgroundFailure != "background_disclosure_denied" {
+			if out.ExternalRequests != 0 || requests.Load() != 0 || leaked.Load() != 0 || out.UnknownRequests != 0 || out.BackgroundFailure != "background_disclosure_denied" {
 				t.Fatalf("requests=%d old_memory=%d answer=%+v", requests.Load(), leaked.Load(), out)
 			}
 			t.Logf("committed_revocation=true https=%t requests=%d old_memory=%d unknown=%d", tc.https, requests.Load(), leaked.Load(), out.UnknownRequests)
@@ -697,7 +723,7 @@ func TestIntentMemoryDurableRevocationBeforeFirstWrite(t *testing.T) {
 func TestIntentLivePolicyRecheckedAfterFacts(t *testing.T) {
 	for _, mode := range []string{"mention_only", "history_during_fact_read"} {
 		t.Run(mode, func(t *testing.T) {
-			var requests atomic.Int32
+			var requests, reads atomic.Int32
 			var probe *backgroundProbe
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if requests.Add(1) == 1 && mode == "mention_only" {
@@ -715,7 +741,7 @@ func TestIntentLivePolicyRecheckedAfterFacts(t *testing.T) {
 			in.Policy = probe.policy
 			in.Recent = []intentdomain.Message{{Text: "SYNTH_HISTORY", MessageID: 3}}
 			probe.readHook = func(_ context.Context, ids []string) error {
-				if mode == "history_during_fact_read" && requests.Load() == 1 && len(ids) > 0 {
+				if mode == "history_during_fact_read" && len(ids) > 0 && reads.Add(1) == 1 {
 					changed := probe.policy
 					changed.AllowHistoryRead = false
 					probe.currentPolicy.Store(&changed)
@@ -727,10 +753,10 @@ func TestIntentLivePolicyRecheckedAfterFacts(t *testing.T) {
 			if mode != "mention_only" {
 				want = "background_history_denied"
 			}
-			if requests.Load() != 1 || answer.ExternalRequests != 1 || answer.BackgroundFailure != want {
+			if requests.Load() > 2 || answer.ExternalRequests != int(requests.Load()) || answer.Available || answer.BackgroundFailure != want {
 				t.Fatalf("requests=%d reason=%s answer=%+v", requests.Load(), want, answer)
 			}
-			t.Logf("first request retained, remaining=0 reason=%s", want)
+			t.Logf("requests=%d reason=%s", requests.Load(), want)
 		})
 	}
 }
@@ -763,7 +789,7 @@ func TestFixedIntentRejectsWholeResponseViolations(t *testing.T) {
 				in.FixedBackground = true
 				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "not_allowed"}
 				out, err := router.Decide(context.Background(), in)
-				if err == nil || requests.Load() != 1 || out.ExternalRequests != 1 || len(out.Attempts) != 1 || out.Attempts[0].Outcome != "response_unusable" || out.Usage.InputResponses != 0 {
+				if err == nil || requests.Load() < 1 || requests.Load() > 2 || out.ExternalRequests != int(requests.Load()) || len(out.Attempts) != out.ExternalRequests || out.Attempts[0].Outcome != "response_unusable" || out.Usage.InputResponses != 0 {
 					t.Fatalf("requests=%d result=%+v err=%v", requests.Load(), out, err)
 				}
 				t.Log("one physical request, rejected whole response, no later dispatch")
@@ -788,35 +814,121 @@ func TestConfirmedIntentReplayBudgetThroughHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name, wantReason                 string
+		name, wantReason, protocol       string
 		cap, perRequest, wantAmount      int64
 		confirmed, target, unknown, held int
 	}{
 		{name: "request-only", confirmed: 5, target: 5, held: 5},
+		{name: "jev-one", protocol: "jev", confirmed: 1, target: 1, held: 1},
+		{name: "revoke-two", confirmed: 2, target: 2, held: 2, wantReason: "background_disclosure_denied"},
+		{name: "revoke-partial", confirmed: 2, target: 2, held: 2, wantReason: "background_disclosure_denied"},
+		{name: "last-amount", cap: 4, perRequest: 4, confirmed: 1, target: 1, held: 1, wantReason: "semantic_replay_budget_exhausted"},
 		{name: "amount-unverified", cap: 10, wantReason: "semantic_replay_price_unverified"},
 		{name: "blocked", cap: 10, perRequest: 4, wantAmount: 10, wantReason: "background_disclosure_denied"},
 		{name: "dial-failed", cap: 10, perRequest: 4, wantAmount: 10, wantReason: "semantic_response_unusable"},
-		{name: "missing-answer", cap: 10, perRequest: 4, wantAmount: 6, confirmed: 1, target: 1, held: 1, wantReason: "semantic_response_unusable"},
+		{name: "missing-answer", cap: 10, perRequest: 4, wantAmount: 2, confirmed: 2, target: 2, held: 2, wantReason: "semantic_response_unusable"},
 		{name: "unknown-write", cap: 10, perRequest: 4, wantAmount: 2, confirmed: 1, target: 1, unknown: 1, held: 2, wantReason: "semantic_dispatch_unknown"},
 		{name: "partial-write", cap: 10, perRequest: 4, wantAmount: 6, confirmed: 1, held: 1, wantReason: "semantic_response_unusable"},
 		{name: "exhausted", cap: 10, perRequest: 4, wantAmount: 2, confirmed: 2, target: 2, held: 2, wantReason: "semantic_replay_budget_exhausted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var target, dials atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				target.Add(1)
+			protocol, limit := tc.protocol, 5
+			if protocol == "" {
+				protocol = "openai"
+			} else {
+				limit = 1
+			}
+			var target, dials, active, peak atomic.Int32
+			entered := make(chan int32, 5)
+			firstResponse := make(chan struct{})
+			thirdDial := make(chan struct{})
+			late := make(chan struct{})
+			isRevoke := strings.HasPrefix(tc.name, "revoke-")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				body, _ := io.ReadAll(req.Body)
+				n := target.Add(1)
+				current := active.Add(1)
+				for prior := peak.Load(); current > prior && !peak.CompareAndSwap(prior, current); prior = peak.Load() {
+				}
+				defer active.Add(-1)
+				entered <- n
+				if isRevoke {
+					wait := late
+					if tc.name == "revoke-partial" && n == 1 {
+						wait = firstResponse
+					}
+					select {
+					case <-wait:
+					case <-time.After(4 * time.Second):
+						t.Error("loopback response was not released")
+						return
+					}
+				}
+				if tc.name == "request-only" || tc.name == "missing-answer" {
+					if n == 1 && tc.name == "request-only" {
+						select {
+						case <-firstResponse:
+						case <-time.After(4 * time.Second):
+							t.Error("second request did not reach the loopback provider")
+							return
+						}
+					}
+					if n == 2 && tc.name == "request-only" {
+						defer close(firstResponse)
+					}
+				}
 				if tc.name == "missing-answer" {
+					if n == 1 {
+						select {
+						case <-firstResponse:
+						case <-time.After(4 * time.Second):
+							t.Error("missing-answer second request did not arrive")
+							return
+						}
+					} else if n == 2 {
+						close(firstResponse)
+					}
 					_, _ = io.WriteString(w, `{"choices":[],"usage":{"prompt_tokens":0}}`)
+					return
+				}
+				if protocol == "jev" {
+					var request struct {
+						Questions map[string]struct {
+							Type     string
+							Criteria map[string]string
+						}
+					}
+					if err := json.Unmarshal(body, &request); err != nil {
+						t.Error(err)
+						return
+					}
+					answers := make(map[string]any, len(request.Questions))
+					for key, question := range request.Questions {
+						answer := map[string]any{"noul": .9}
+						if question.Type == "choice" {
+							for choice := range question.Criteria {
+								answer = map[string]any{"choice": choice}
+								break
+							}
+						}
+						answers[key] = answer
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"answers": answers, "usage": map[string]int{"prompt_tokens": 7, "completion_tokens": 2}})
 					return
 				}
 				_, _ = io.WriteString(w, strings.Replace(backgroundOpenAIAnswer, `{"token":"B","logprob":0}`, `{"token":"B","logprob":0},{"token":"C","logprob":-4}`, 1))
 			}))
 			defer server.Close()
-			router, probe, in := newBackgroundFixture("openai", server.URL)
+			router, probe, in := newBackgroundFixture(protocol, server.URL)
 			probe.policy.ReplyMode = scopedomain.ModeIntentBased
 			probe.policy.AllowHistoryRead = true
-			router.transport.dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			router.transport.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
 				n := dials.Add(1)
+				if tc.name == "revoke-partial" && n == 3 {
+					close(thirdDial)
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
 				if tc.name == "dial-failed" {
 					return nil, io.ErrClosedPipe
 				}
@@ -831,6 +943,11 @@ func TestConfirmedIntentReplayBudgetThroughHTTP(t *testing.T) {
 					return fixtureIntentWriteFailure{Conn: c}, nil
 				}
 				if tc.name == "partial-write" {
+					if n != 1 {
+						<-ctx.Done()
+						_ = c.Close()
+						return nil, ctx.Err()
+					}
 					return fixtureIntentWriteFailure{Conn: c, partial: true}, nil
 				}
 				return c, nil
@@ -852,15 +969,15 @@ func TestConfirmedIntentReplayBudgetThroughHTTP(t *testing.T) {
 			in.Policy = probe.policy
 			role, _, _ := probe.IntentRoleBackground(ctx, in)
 			evidence := intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: router.ReplayDestination(ctx), RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
-			snapshot := intentdomain.DecisionSnapshot{Version: intentdomain.SnapshotVersion, Input: intentdomain.SnapshotInput{Task: in.Task, BotName: "Fixture", Policy: in.Policy, Now: time.Now()}, Semantic: intentdomain.SemanticAnswer{BackgroundEvidence: &evidence}, Prompt: intentdomain.BuiltinPrompt(intentdomain.PromptProviderOpenAI), Rule: intentdomain.RuleResult{NeedSemantic: true}}
-			if err := decisions.Record(ctx, inserted.JobID, intentdomain.FinalDecision{Decision: intentdomain.DecisionSilent, Provider: "openai", Model: "fixture", Snapshot: &snapshot}, dbtest.Claim(t, pool, inserted.JobID)); err != nil {
+			snapshot := intentdomain.DecisionSnapshot{Version: intentdomain.SnapshotVersion, Input: intentdomain.SnapshotInput{Task: in.Task, BotName: "Fixture", Policy: in.Policy, Now: time.Now()}, Semantic: intentdomain.SemanticAnswer{BackgroundEvidence: &evidence}, Prompt: intentdomain.BuiltinPrompt(map[string]string{"openai": intentdomain.PromptProviderOpenAI, "jev": intentdomain.PromptProviderJev}[protocol]), Rule: intentdomain.RuleResult{NeedSemantic: true}}
+			if err := decisions.Record(ctx, inserted.JobID, intentdomain.FinalDecision{Decision: intentdomain.DecisionSilent, Provider: protocol, Model: "fixture", Snapshot: &snapshot}, dbtest.Claim(t, pool, inserted.JobID)); err != nil {
 				t.Fatal(err)
 			}
 			var id int64
 			if err := pool.QueryRow(ctx, `SELECT id FROM intent_decisions WHERE job_id=$1`, inserted.JobID).Scan(&id); err != nil {
 				t.Fatalf("fixture decision: %v", err)
 			}
-			d, err := intentapp.NewDecider(intentapp.Options{Scopes: probe, Recorder: decisions, Semantic: router, Provider: "openai", Model: "fixture", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			d, err := intentapp.NewDecider(intentapp.Options{Scopes: probe, Recorder: decisions, Semantic: router, Provider: protocol, Model: "fixture", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -900,11 +1017,45 @@ func TestConfirmedIntentReplayBudgetThroughHTTP(t *testing.T) {
 				t.Log("unverified amount bound: provider=0 reservation=0")
 				return
 			}
-			if token == "" || estimate.Data.Budget == nil || estimate.Data.Budget.RequestLimit != 5 {
+			if token == "" || estimate.Data.Budget == nil || estimate.Data.Budget.RequestLimit != limit {
 				t.Fatalf("estimate=%+v", estimate.Data)
 			}
 			body := fmt.Sprintf(`{"ConfirmationToken":%q}`, token)
-			result := call(path, body)
+			var result *httptest.ResponseRecorder
+			if isRevoke {
+				results := make(chan *httptest.ResponseRecorder, 1)
+				go func() { results <- call(path, body) }()
+				deadline := time.After(4 * time.Second)
+				for range 2 {
+					select {
+					case <-entered:
+					case <-deadline:
+						close(late)
+						t.Fatal("expected two in-flight requests")
+					}
+				}
+				if tc.name == "revoke-partial" {
+					close(firstResponse)
+					select {
+					case <-thirdDial:
+					case <-deadline:
+						close(late)
+						t.Fatal("first response was not collected")
+					}
+				}
+				revoked := time.Now()
+				probe.allowed.Store(false)
+				select {
+				case result = <-results:
+				case <-deadline:
+					close(late)
+					t.Fatal("replay did not settle after revocation")
+				}
+				close(late)
+				t.Logf("revoked=%s terminal=%s late_response_released=%s target=%d peak=%d", revoked.Format(time.RFC3339Nano), time.Now().Format(time.RFC3339Nano), time.Now().Format(time.RFC3339Nano), target.Load(), peak.Load())
+			} else {
+				result = call(path, body)
+			}
 			var decoded struct {
 				Data struct {
 					Evaluation intentcontracts.ReplayEvaluation
@@ -918,7 +1069,7 @@ func TestConfirmedIntentReplayBudgetThroughHTTP(t *testing.T) {
 				t.Fatal(err)
 			}
 			report := persisted.After.Replay
-			if report == nil || report.Budget == nil || report.Budget.RemainingRequests != 5-tc.held || report.ExternalRequests != tc.confirmed || report.UnresolvedReservations != tc.unknown || report.ReasonCode != tc.wantReason || int(target.Load()) != tc.target {
+			if report == nil || report.Budget == nil || report.Budget.RemainingRequests != limit-tc.held || report.ExternalRequests != tc.confirmed || report.UnresolvedReservations != tc.unknown || report.ReasonCode != tc.wantReason || int(target.Load()) != tc.target {
 				t.Fatalf("report=%+v target=%d dials=%d", report, target.Load(), dials.Load())
 			}
 			if tc.cap > 0 && (report.Budget.RemainingAmountMicros == nil || *report.Budget.RemainingAmountMicros != tc.wantAmount) {
@@ -943,9 +1094,15 @@ func TestConfirmedIntentReplayBudgetThroughHTTP(t *testing.T) {
 				t.Fatalf("partial evidence=%+v", report.Attempts)
 			}
 			if tc.name == "blocked" || tc.name == "dial-failed" {
-				if len(report.Attempts) != 1 || report.Attempts[0].Outcome != "not_sent" || report.Attempts[0].Budget.RequestHeld {
+				if len(report.Attempts) != 0 {
 					t.Fatalf("release=%+v", report.Attempts)
 				}
+			}
+			if isRevoke && (report.Status != "not_comparable" || peak.Load() != 2 || report.InputUsageResponses > 1 || (report.InputUsageResponses == 1) != (tc.name == "revoke-partial")) {
+				t.Fatalf("revoked report=%+v peak=%d", report, peak.Load())
+			}
+			if tc.name == "request-only" && peak.Load() != 2 {
+				t.Fatalf("expected two in flight, got %d", peak.Load())
 			}
 			repeated := call(path, body)
 			if repeated.Code < 400 || int(target.Load()) != tc.target {

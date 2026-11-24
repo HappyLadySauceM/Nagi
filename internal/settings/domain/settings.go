@@ -42,6 +42,7 @@ type IntentMemoryGrant struct {
 	BotID       int64  `json:"bot_id"`
 	GroupID     int64  `json:"group_id"`
 	Destination string `json:"destination"`
+	Generation  int64  `json:"generation,omitempty"`
 }
 
 type Settings struct {

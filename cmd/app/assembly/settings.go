@@ -193,7 +193,7 @@ func modelFingerprint(settings settingsdomain.Settings) string {
 // semanticRouter 依据实时配置选择 jev 或 openai 客户端，
 // 端点、模型或超时变化时重建。
 type semanticRouter struct {
-	transport   intentTransport
+	transport   intentinfra.RequestTransport
 	mu          sync.Mutex
 	settings    *settingsapp.Provider
 	models      models.Resolver
@@ -204,7 +204,7 @@ type semanticRouter struct {
 }
 
 func newSemanticRouter(settings *settingsapp.Provider, resolver models.Resolver, logger *slog.Logger) *semanticRouter {
-	return &semanticRouter{settings: settings, models: resolver, logger: logger, transport: newIntentTransport()}
+	return &semanticRouter{settings: settings, models: resolver, logger: logger, transport: intentinfra.NewRequestTransport()}
 }
 
 func (r *semanticRouter) ReplayDestination(ctx context.Context) string {
@@ -250,154 +250,7 @@ func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (int
 		}
 		return answer, err
 	}
-	var sent, unknown, withMemory int
-	var attempts []intentdomain.SemanticAttempt
-	var fallbackReason, stopReason string
-	check := func(background bool, destination settingscontracts.IntentDestination) *intentRequestGuard {
-		settle, budgetReason := intentapp.ReserveReplayRequest(ctx, destination.Fingerprint)
-		guard := &intentRequestGuard{settle: settle, check: func(ctx context.Context, endpoint string) string {
-			if endpoint != destination.Endpoint {
-				return "background_destination_changed"
-			}
-			if reason := r.background.CheckScope(ctx, in); reason != "" {
-				return reason
-			}
-			if reason := r.background.CheckRoute(ctx, destination); reason != "" {
-				return reason
-			}
-			var reason string
-			if in.FixedBackground {
-				_, _, reason = r.background.Restore(ctx, in, destination, evidence)
-			} else if background {
-				_, reason = r.background.VerifyFacts(ctx, in.Task, destination, endpoint, evidence.Memories)
-			}
-			if routeReason := r.background.CheckRoute(ctx, destination); routeReason != "" {
-				return routeReason
-			}
-			if scopeReason := r.background.CheckScope(ctx, in); scopeReason != "" {
-				return scopeReason
-			}
-			return reason
-		}}
-		if budgetReason != "" {
-			guard.failure.Store(&budgetReason)
-		}
-		return guard
-	}
-	account := func(guard *intentRequestGuard, memory bool, usage intentdomain.SemanticUsage, callErr error) (string, bool) {
-		confirmed, unresolved := int(guard.sent.Load()), int(guard.unknown.Load())
-		sent += confirmed
-		unknown += unresolved
-		if memory {
-			withMemory += confirmed
-		}
-		var budget *intentdomain.SemanticAttemptBudget
-		if guard.settle != nil {
-			result := guard.settle(confirmed+unresolved > 0)
-			if result.RequestReserved {
-				row := intentdomain.SemanticAttemptBudget(result)
-				budget = &row
-			}
-		}
-		switch {
-		case unresolved > 0:
-			attempts = append(attempts, intentdomain.SemanticAttempt{Outcome: "dispatch_unknown", Budget: budget, Memory: memory, CostBasis: "unknown", ReservationHeld: true})
-			return "semantic_dispatch_unknown", false
-		case confirmed > 0:
-			outcome := "sent"
-			if callErr != nil {
-				outcome = "response_unusable"
-			}
-			attempts = append(attempts, intentdomain.SemanticAttempt{Outcome: outcome, Budget: budget, Memory: memory, CostBasis: "unknown", ReservationHeld: true, PartialWrite: guard.partial.Load(), InputTokens: usage.InputValue(), OutputTokens: usage.OutputValue()})
-		case budget != nil:
-			attempts = append(attempts, intentdomain.SemanticAttempt{Outcome: "not_sent", Budget: budget, Memory: memory, CostBasis: "not_applicable"})
-		}
-		if reason := guard.failure.Load(); reason != nil {
-			return *reason, confirmed == 0 && *reason != "background_scope_denied" && *reason != "background_history_denied"
-		}
-		return "", false
-	}
-	var answer intentdomain.SemanticAnswer
-	if local, ok := decider.(*intentinfra.LocalClient); ok {
-		answer, err = local.DecideWithDispatch(ctx, in, func(ctx context.Context, q intentinfra.LocalQuestion) ([]float64, intentdomain.SemanticUsage, error) {
-			if fallbackReason == "" {
-				guard := check(len(in.Background.Memories) > 0, dest)
-				if reason := guard.failure.Load(); reason != nil {
-					stopReason = *reason
-					return nil, intentdomain.SemanticUsage{}, errIntentBackgroundDenied
-				}
-				values, usage, err := local.ScoreQuestion(context.WithValue(ctx, intentRequestGuardKey{}, guard), in, q)
-				reason, blocked := account(guard, len(in.Background.Memories) > 0, usage, err)
-				if reason == "" {
-					return values, usage, err
-				}
-				if in.FixedBackground || !blocked || len(in.Background.Memories) == 0 {
-					stopReason = reason
-					return nil, usage, errIntentBackgroundDenied
-				}
-				fallbackReason = reason
-			}
-			current, destination, err := r.resolveCurrent(ctx)
-			plain, ok := current.(*intentinfra.LocalClient)
-			if err != nil || !ok {
-				stopReason = "background_destination_changed"
-				return nil, intentdomain.SemanticUsage{}, errIntentBackgroundDenied
-			}
-			plainInput := in
-			plainInput.Background.Memories = nil
-			guard := check(false, destination)
-			values, usage, err := plain.ScoreQuestion(context.WithValue(ctx, intentRequestGuardKey{}, guard), plainInput, q)
-			if reason, _ := account(guard, false, usage, err); reason != "" {
-				stopReason = reason
-			}
-			return values, usage, err
-		})
-	} else {
-		guard := check(len(in.Background.Memories) > 0, dest)
-		if reason := guard.failure.Load(); reason != nil {
-			return intentdomain.SemanticAnswer{BackgroundFailure: *reason}, nil
-		}
-		answer, err = decider.Decide(context.WithValue(ctx, intentRequestGuardKey{}, guard), in)
-		reason, blocked := account(guard, len(in.Background.Memories) > 0, answer.Usage, err)
-		if reason != "" {
-			if in.FixedBackground || !blocked || len(in.Background.Memories) == 0 {
-				stopReason = reason
-			} else {
-				fallbackReason = reason
-				current, destination, routeErr := r.resolveCurrent(ctx)
-				if _, ok := current.(*intentinfra.JevClient); routeErr != nil || !ok {
-					stopReason = "background_destination_changed"
-				} else {
-					in.Background.Memories = nil
-					plainGuard := check(false, destination)
-					answer, err = current.Decide(context.WithValue(ctx, intentRequestGuardKey{}, plainGuard), in)
-					stopReason, _ = account(plainGuard, false, answer.Usage, err)
-				}
-			}
-		}
-	}
-	answer.ExternalRequests = sent
-	answer.UnknownRequests = unknown
-	answer.Attempts = attempts
-	if fallbackReason != "" {
-		answer.BackgroundFailure = fallbackReason
-		if withMemory > 0 {
-			evidence.MemoryOutcome = "mixed"
-		} else {
-			evidence.MemoryOutcome = "unavailable_at_send"
-			evidence.Memories = nil
-		}
-	}
-	if stopReason != "" {
-		answer.BackgroundFailure = stopReason
-		answer.Available = false
-		if in.FixedBackground {
-			err = nil
-		}
-	}
-	if sent > 0 || unknown > 0 {
-		answer.BackgroundEvidence = evidence
-	}
+	answer, err := r.dispatch(ctx, decider, in, dest, evidence)
 	return answer, err
 }
 

@@ -197,6 +197,7 @@ func (in Input) BotRepliesLastHour() int {
 // 具名字段对应已配置的具名角色，使内置规则仅在其角色确实被提问时运行。
 // ParticipationScore 是非零权重 noul 问题的加权综合分。
 type SemanticAnswer struct {
+	disclosureRevision int64
 	CallAddressing     CallAddressing
 	CallFailureCode    string
 	ExternalRequests   int
@@ -220,6 +221,10 @@ type SemanticAnswer struct {
 	HasParticipation   bool
 	TopicJudgments     []TopicJudgment
 }
+
+func (a SemanticAnswer) DisclosureRevision() int64 { return a.disclosureRevision }
+
+func (a *SemanticAnswer) BindDisclosureRevision(revision int64) { a.disclosureRevision = revision }
 
 // CallAddressing is the result of the versioned group addressing question.
 // CallAddressing 是版本化群聊寻址问题的结论。
