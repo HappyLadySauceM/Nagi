@@ -6,11 +6,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	"github.com/google/uuid"
 )
 
-func (r *Repo) IntentFacts(ctx context.Context, botID, groupID int64, conversationID, query, topicQuery string, subjects, fixedIDs []string) ([]domain.Memory, error) {
+func (r *Repo) IntentFacts(ctx context.Context, botID, groupID int64, conversationID, query, topicQuery string, subjects, fixedIDs []string) ([]contracts.IntentFact, error) {
 	const limit = 4
 	if _, err := uuid.Parse(conversationID); err != nil || botID <= 0 || groupID <= 0 {
 		return nil, nil
@@ -90,7 +91,7 @@ func (r *Repo) IntentFacts(ctx context.Context, botID, groupID int64, conversati
 		return nil, err
 	}
 	rows.Close()
-	valid := facts[:0]
+	valid := make([]contracts.IntentFact, 0, len(facts))
 	for _, fact := range facts {
 		sources, err := readFactSourcesInConversation(ctx, r.pool, fact, conversationID)
 		if err != nil {
@@ -98,7 +99,7 @@ func (r *Repo) IntentFacts(ctx context.Context, botID, groupID int64, conversati
 		}
 		if len(sources) > 0 {
 			projectFactSources(&fact, sources)
-			valid = append(valid, fact)
+			valid = append(valid, contracts.IntentFact{ID: fact.ID, Content: fact.Content, UpdatedAt: fact.UpdatedAt, SourceMessageID: fact.SourceMessageID})
 		}
 	}
 	return valid, nil

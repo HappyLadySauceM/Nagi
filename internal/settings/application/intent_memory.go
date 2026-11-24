@@ -12,23 +12,19 @@ import (
 	"strings"
 
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
+	settingscontracts "github.com/HappyLadySauceM/Nagi/internal/settings/contracts"
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 )
 
 var ErrIntentMemoryDestination = errors.New("settings: intent memory destination unavailable")
 
-type IntentDestination struct {
-	Endpoint    string
-	Fingerprint string
-}
-
-func IntentModelDestination(profile models.Profile) (IntentDestination, error) {
+func IntentModelDestination(profile models.Profile) (settingscontracts.IntentDestination, error) {
 	endpoint := profile.BaseURL
 	if profile.Protocol == "openai" {
 		endpoint = strings.TrimRight(endpoint, "/") + "/chat/completions"
 	}
 	fingerprint, err := intentDestinationFingerprint(profile, endpoint)
-	return IntentDestination{Endpoint: endpoint, Fingerprint: fingerprint}, err
+	return settingscontracts.IntentDestination{Endpoint: endpoint, Fingerprint: fingerprint}, err
 }
 
 func intentDestinationFingerprint(profile models.Profile, endpoint string) (string, error) {
@@ -62,17 +58,17 @@ func (s *Service) settingsAtVersion(ctx context.Context, expected int64) (Snapsh
 	return current, nil
 }
 
-func storedIntentDestination(stored settingsdomain.Settings) (IntentDestination, error) {
+func storedIntentDestination(stored settingsdomain.Settings) (settingscontracts.IntentDestination, error) {
 	id := stored.Models.Defaults["intent"]
 	for _, profile := range stored.Models.Profiles {
 		if profile.ID == id && profile.Usage == "intent" && profile.Verified() {
 			return IntentModelDestination(profile)
 		}
 	}
-	return IntentDestination{}, ErrIntentMemoryDestination
+	return settingscontracts.IntentDestination{}, ErrIntentMemoryDestination
 }
 
-func (s *Service) IntentMemoryRouteCurrent(ctx context.Context, destination IntentDestination) bool {
+func (s *Service) IntentMemoryRouteCurrent(ctx context.Context, destination settingscontracts.IntentDestination) bool {
 	if s.repo == nil || destination.Fingerprint == "" {
 		return false
 	}
@@ -84,7 +80,7 @@ func (s *Service) IntentMemoryRouteCurrent(ctx context.Context, destination Inte
 	return err == nil && current == destination
 }
 
-func (s *Service) MayDiscloseIntentMemory(ctx context.Context, botID, groupID int64, destination IntentDestination, requestEndpoint string) bool {
+func (s *Service) MayDiscloseIntentMemory(ctx context.Context, botID, groupID int64, destination settingscontracts.IntentDestination, requestEndpoint string) bool {
 	if s.repo == nil || destination.Fingerprint == "" || destination.Endpoint != requestEndpoint || botID <= 0 || groupID <= 0 {
 		return false
 	}

@@ -488,7 +488,7 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	semantic.background = intentBackground{roles: promptService, facts: facts, grants: catalog, scopes: scope}
+	semantic.background = intentapp.IntentBackground{Roles: promptService, Facts: facts, Grants: catalog, Scopes: scope}
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err

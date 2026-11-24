@@ -30,6 +30,7 @@ import (
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingscontracts "github.com/HappyLadySauceM/Nagi/internal/settings/contracts"
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	settingsinfra "github.com/HappyLadySauceM/Nagi/internal/settings/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
@@ -199,7 +200,7 @@ type semanticRouter struct {
 	logger      *slog.Logger
 	current     intentapp.SemanticDecider
 	fingerprint string
-	background  intentBackground
+	background  intentapp.IntentBackground
 }
 
 func newSemanticRouter(settings *settingsapp.Provider, resolver models.Resolver, logger *slog.Logger) *semanticRouter {
@@ -219,10 +220,10 @@ func (r *semanticRouter) CheckFrozenBackground(ctx context.Context, in intentdom
 	if err != nil {
 		return "background_destination_unavailable"
 	}
-	if reason := r.background.checkFixedRoute(ctx, destination); reason != "" {
+	if reason := r.background.CheckRoute(ctx, destination); reason != "" {
 		return reason
 	}
-	_, _, reason := r.background.restore(ctx, in, destination, in.FrozenBackground)
+	_, _, reason := r.background.Restore(ctx, in, destination, in.FrozenBackground)
 	return reason
 }
 
@@ -237,7 +238,7 @@ func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (int
 		}
 		return intentdomain.SemanticAnswer{}, err
 	}
-	projection, evidence, reason := r.background.prepare(ctx, in, dest)
+	projection, evidence, reason := r.background.Prepare(ctx, in, dest)
 	if reason != "" {
 		return intentdomain.SemanticAnswer{BackgroundFailure: reason}, nil
 	}
@@ -252,28 +253,28 @@ func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (int
 	var sent, unknown, withMemory int
 	var attempts []intentdomain.SemanticAttempt
 	var fallbackReason, stopReason string
-	check := func(background bool, destination settingsapp.IntentDestination) *intentRequestGuard {
+	check := func(background bool, destination settingscontracts.IntentDestination) *intentRequestGuard {
 		settle, budgetReason := intentapp.ReserveReplayRequest(ctx, destination.Fingerprint)
 		guard := &intentRequestGuard{settle: settle, check: func(ctx context.Context, endpoint string) string {
 			if endpoint != destination.Endpoint {
 				return "background_destination_changed"
 			}
-			if reason := r.background.baseAllowed(ctx, in); reason != "" {
+			if reason := r.background.CheckScope(ctx, in); reason != "" {
 				return reason
 			}
-			if reason := r.background.checkFixedRoute(ctx, destination); reason != "" {
+			if reason := r.background.CheckRoute(ctx, destination); reason != "" {
 				return reason
 			}
 			var reason string
 			if in.FixedBackground {
-				_, _, reason = r.background.restore(ctx, in, destination, evidence)
+				_, _, reason = r.background.Restore(ctx, in, destination, evidence)
 			} else if background {
-				_, reason = r.background.verifyFacts(ctx, in.Task, destination, endpoint, evidence.Memories)
+				_, reason = r.background.VerifyFacts(ctx, in.Task, destination, endpoint, evidence.Memories)
 			}
-			if routeReason := r.background.checkFixedRoute(ctx, destination); routeReason != "" {
+			if routeReason := r.background.CheckRoute(ctx, destination); routeReason != "" {
 				return routeReason
 			}
-			if scopeReason := r.background.baseAllowed(ctx, in); scopeReason != "" {
+			if scopeReason := r.background.CheckScope(ctx, in); scopeReason != "" {
 				return scopeReason
 			}
 			return reason
@@ -400,7 +401,7 @@ func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (int
 	return answer, err
 }
 
-func (r *semanticRouter) resolveCurrent(ctx context.Context) (intentapp.SemanticDecider, settingsapp.IntentDestination, error) {
+func (r *semanticRouter) resolveCurrent(ctx context.Context) (intentapp.SemanticDecider, settingscontracts.IntentDestination, error) {
 	loader, ok := r.models.(interface {
 		ResolveCurrentIntent(context.Context) (models.Resolved, error)
 	})
@@ -409,20 +410,20 @@ func (r *semanticRouter) resolveCurrent(ctx context.Context) (intentapp.Semantic
 	}
 	resolved, err := loader.ResolveCurrentIntent(ctx)
 	if err != nil {
-		return nil, settingsapp.IntentDestination{}, err
+		return nil, settingscontracts.IntentDestination{}, err
 	}
 	return r.clientFor(ctx, resolved)
 }
 
-func (r *semanticRouter) resolve(ctx context.Context) (intentapp.SemanticDecider, settingsapp.IntentDestination, error) {
+func (r *semanticRouter) resolve(ctx context.Context) (intentapp.SemanticDecider, settingscontracts.IntentDestination, error) {
 	resolved, err := r.models.ResolveModel(ctx, "intent", 0, "", 0)
 	if err != nil {
-		return nil, settingsapp.IntentDestination{}, err
+		return nil, settingscontracts.IntentDestination{}, err
 	}
 	return r.clientFor(ctx, resolved)
 }
 
-func (r *semanticRouter) clientFor(ctx context.Context, resolved models.Resolved) (intentapp.SemanticDecider, settingsapp.IntentDestination, error) {
+func (r *semanticRouter) clientFor(ctx context.Context, resolved models.Resolved) (intentapp.SemanticDecider, settingscontracts.IntentDestination, error) {
 	p := resolved.Profile
 	dest, err := settingsapp.IntentModelDestination(p)
 	if err != nil {

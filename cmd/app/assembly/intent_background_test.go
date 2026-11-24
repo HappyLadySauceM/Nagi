@@ -24,6 +24,7 @@ import (
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
+	memorycontracts "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	memorydomain "github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
@@ -31,6 +32,7 @@ import (
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingscontracts "github.com/HappyLadySauceM/Nagi/internal/settings/contracts"
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	settingsinfra "github.com/HappyLadySauceM/Nagi/internal/settings/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
@@ -47,10 +49,10 @@ type backgroundProbe struct {
 	reads         atomic.Int32
 	readHook      func(context.Context, []string) error
 	queryHook     func(string, string, []string)
-	route         atomic.Pointer[settingsapp.IntentDestination]
+	route         atomic.Pointer[settingscontracts.IntentDestination]
 	policy        scopedomain.Policy
 	currentPolicy atomic.Pointer[scopedomain.Policy]
-	fact          memorydomain.Memory
+	fact          memorycontracts.IntentFact
 }
 
 func (p *backgroundProbe) IntentRoleBackground(context.Context, intentdomain.Input) (*intentdomain.PromptIntentContext, []intentdomain.BackgroundRoleLayer, bool) {
@@ -60,7 +62,7 @@ func (p *backgroundProbe) FrozenIntentRole(_ context.Context, _ intentdomain.Inp
 	role := &intentdomain.PromptIntentContext{Identity: "SYNTH_ROLE"}
 	return role, digest == intentapp.RoleBackgroundHash(role)
 }
-func (p *backgroundProbe) IntentFacts(ctx context.Context, _ int64, _ int64, _, query, topic string, subjects, ids []string) ([]memorydomain.Memory, error) {
+func (p *backgroundProbe) IntentFacts(ctx context.Context, _ int64, _ int64, _, query, topic string, subjects, ids []string) ([]memorycontracts.IntentFact, error) {
 	p.reads.Add(1)
 	if len(ids) == 0 && p.queryHook != nil {
 		p.queryHook(query, topic, subjects)
@@ -70,12 +72,12 @@ func (p *backgroundProbe) IntentFacts(ctx context.Context, _ int64, _ int64, _, 
 			return nil, err
 		}
 	}
-	return []memorydomain.Memory{p.fact}, nil
+	return []memorycontracts.IntentFact{p.fact}, nil
 }
-func (p *backgroundProbe) MayDiscloseIntentMemory(_ context.Context, bot, group int64, dest settingsapp.IntentDestination, endpoint string) bool {
+func (p *backgroundProbe) MayDiscloseIntentMemory(_ context.Context, bot, group int64, dest settingscontracts.IntentDestination, endpoint string) bool {
 	return bot == 1 && group == 22 && dest.Endpoint == endpoint && p.allowed.Load()
 }
-func (p *backgroundProbe) IntentMemoryRouteCurrent(_ context.Context, dest settingsapp.IntentDestination) bool {
+func (p *backgroundProbe) IntentMemoryRouteCurrent(_ context.Context, dest settingscontracts.IntentDestination) bool {
 	active := p.route.Load()
 	return active == nil || *active == dest
 }
@@ -91,7 +93,7 @@ func TestSemanticBackgroundPhysicalRequests(t *testing.T) {
 		for _, history := range []bool{false, true} {
 			for _, memory := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/history=%v/memory=%v", protocol, history, memory), func(t *testing.T) {
-					probe := &backgroundProbe{policy: scopedomain.Policy{Enabled: true, AllowMemoryRead: memory, AllowHistoryRead: history}, fact: memorydomain.Memory{ID: "fixture", SourceMessageID: 21, Content: "SYNTH_FACT", UpdatedAt: time.Now()}}
+					probe := &backgroundProbe{policy: scopedomain.Policy{Enabled: true, AllowMemoryRead: memory, AllowHistoryRead: history}, fact: memorycontracts.IntentFact{ID: "fixture", SourceMessageID: 21, Content: "SYNTH_FACT", UpdatedAt: time.Now()}}
 					probe.allowed.Store(true)
 					var count atomic.Int32
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -113,7 +115,7 @@ func TestSemanticBackgroundPhysicalRequests(t *testing.T) {
 					defer server.Close()
 					profile := models.Profile{ID: "fixture", Version: 1, Protocol: protocol, Model: "fixture", BaseURL: server.URL + "/intent", TimeoutSeconds: 5}
 					router := newSemanticRouter(settingsapp.NewProvider(settingsapp.Snapshot{}), backgroundResolver{profile}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-					router.background = intentBackground{roles: probe, facts: probe, grants: probe, scopes: probe}
+					router.background = intentapp.IntentBackground{Roles: probe, Facts: probe, Grants: probe, Scopes: probe}
 					in := intentdomain.Input{Task: intentdomain.Task{JobID: 1, BotID: 1, Kind: "group", TargetID: 22, ConversationID: "fixture", Message: intentdomain.Message{MessageID: 12, Text: "message"}}, Policy: probe.policy}
 					if history {
 						in.Recent = []intentdomain.Message{{MessageID: 11, Text: "SYNTH_HISTORY"}}
@@ -136,7 +138,7 @@ func TestSemanticBackgroundPhysicalRequests(t *testing.T) {
 }
 
 func TestFixedIntentBackgroundStopsAfterRevocation(t *testing.T) {
-	probe := &backgroundProbe{policy: scopedomain.Policy{Enabled: true, AllowMemoryRead: true}, fact: memorydomain.Memory{ID: "fixture", SourceMessageID: 1, Content: "SYNTH_FACT", UpdatedAt: time.Now()}}
+	probe := &backgroundProbe{policy: scopedomain.Policy{Enabled: true, AllowMemoryRead: true}, fact: memorycontracts.IntentFact{ID: "fixture", SourceMessageID: 1, Content: "SYNTH_FACT", UpdatedAt: time.Now()}}
 	var sent atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		sent.Add(1)
@@ -147,9 +149,9 @@ func TestFixedIntentBackgroundStopsAfterRevocation(t *testing.T) {
 	profile := models.Profile{ID: "fixture", Version: 1, Protocol: "openai", Model: "fixture", BaseURL: server.URL + "/intent", TimeoutSeconds: 5}
 	route, _ := settingsapp.IntentModelDestination(profile)
 	router := newSemanticRouter(settingsapp.NewProvider(settingsapp.Snapshot{}), backgroundResolver{profile}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	router.background = intentBackground{roles: probe, facts: probe, grants: probe, scopes: probe}
+	router.background = intentapp.IntentBackground{Roles: probe, Facts: probe, Grants: probe, Scopes: probe}
 	role, _, _ := probe.IntentRoleBackground(context.Background(), intentdomain.Input{})
-	in := intentdomain.Input{Task: intentdomain.Task{BotID: 1, TargetID: 22, Kind: "group", ConversationID: "fixture"}, Policy: probe.policy, FixedBackground: true, FrozenBackground: &intentdomain.BackgroundEvidence{Version: backgroundVersion, Destination: route.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{factRef(probe.fact)}}}
+	in := intentdomain.Input{Task: intentdomain.Task{BotID: 1, TargetID: 22, Kind: "group", ConversationID: "fixture"}, Policy: probe.policy, FixedBackground: true, FrozenBackground: &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: route.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}}
 	if got := router.CheckFrozenBackground(context.Background(), in); got != "background_disclosure_denied" {
 		t.Fatalf("preflight without grant: %s", got)
 	}
@@ -169,11 +171,11 @@ const backgroundOpenAIAnswer = `{"choices":[{"logprobs":{"content":[{"token":"B"
 
 func newBackgroundFixture(protocol, endpoint string) (*semanticRouter, *backgroundProbe, intentdomain.Input) {
 	policy := scopedomain.Policy{Enabled: true, AllowMemoryRead: true}
-	probe := &backgroundProbe{policy: policy, fact: memorydomain.Memory{ID: "sample", SourceMessageID: 21, Content: "SYNTH_FACT", UpdatedAt: time.Now()}}
+	probe := &backgroundProbe{policy: policy, fact: memorycontracts.IntentFact{ID: "sample", SourceMessageID: 21, Content: "SYNTH_FACT", UpdatedAt: time.Now()}}
 	probe.allowed.Store(true)
 	profile := models.Profile{ID: "fixture", Version: 1, Protocol: protocol, Model: "fixture", BaseURL: endpoint, TimeoutSeconds: 8}
 	router := newSemanticRouter(settingsapp.NewProvider(settingsapp.Snapshot{}), backgroundResolver{profile}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	router.background = intentBackground{roles: probe, facts: probe, grants: probe, scopes: probe}
+	router.background = intentapp.IntentBackground{Roles: probe, Facts: probe, Grants: probe, Scopes: probe}
 	in := intentdomain.Input{Task: intentdomain.Task{JobID: 1, BotID: 1, Kind: "group", TargetID: 22, ConversationID: "fixture", Message: intentdomain.Message{MessageID: 12, Text: "message"}}, Policy: policy}
 	return router, probe, in
 }
@@ -279,7 +281,7 @@ func TestFixedIntentBackgroundRequiresConsistentEvidence(t *testing.T) {
 			role, _, _ = probe.IntentRoleBackground(context.Background(), in)
 		}
 		if tc.known {
-			in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: backgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: tc.outcome}
+			in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: tc.outcome}
 		}
 		if reason := router.CheckFrozenBackground(context.Background(), in); (reason == "") != tc.valid {
 			t.Errorf("%+v: %s", tc, reason)
@@ -335,7 +337,7 @@ func TestLiveIntentRemainingQuestionsUseCurrentRoute(t *testing.T) {
 				_, dest, _ := router.resolve(context.Background())
 				role, _, _ := probe.IntentRoleBackground(context.Background(), in)
 				in.FixedBackground = true
-				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: backgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{factRef(probe.fact)}}
+				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
 			}
 			out, err := router.Decide(context.Background(), in)
 			want := int32(4)
@@ -404,7 +406,7 @@ func TestFixedIntentMalformedProbabilityStopsDispatch(t *testing.T) {
 			_, dest, _ := router.resolve(context.Background())
 			role, _, _ := probe.IntentRoleBackground(context.Background(), in)
 			in.FixedBackground = true
-			in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: backgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{factRef(probe.fact)}}
+			in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
 			out, err := router.Decide(context.Background(), in)
 			want := 1
 			if value == "0" {
@@ -478,7 +480,7 @@ func TestIntentUnobservedDispatchDoesNotRepeatQuestion(t *testing.T) {
 	_, dest, _ := router.resolve(context.Background())
 	role, _, _ := probe.IntentRoleBackground(context.Background(), in)
 	in.FixedBackground = true
-	in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: backgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{factRef(probe.fact)}}
+	in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
 	out, err := router.Decide(context.Background(), in)
 	if err != nil || out.BackgroundFailure != "semantic_dispatch_unknown" || out.ExternalRequests != 1 || out.UnknownRequests != 1 || dials.Load() != 2 || confirmed.Load() != 1 || len(out.Attempts) != 2 || !out.Attempts[1].ReservationHeld {
 		t.Fatalf("confirmed=%d dials=%d result=%+v err=%v", confirmed.Load(), dials.Load(), out, err)
@@ -532,16 +534,16 @@ func TestIntentBackgroundIgnoresUnapprovedHistory(t *testing.T) {
 
 func TestIntentFactSubjectRequiresExplicitIdentity(t *testing.T) {
 	task := intentdomain.Task{BotID: 1, Message: intentdomain.Message{SenderID: 22, Text: "同名阿白是什么称呼"}}
-	if got := intentFactSubjects(task); len(got) != 0 {
+	if got := intentapp.IntentFactSubjects(task); len(got) != 0 {
 		t.Fatalf("name ambiguity inferred subject: %v", got)
 	}
 	task.Segments = []ob.Segment{{Type: ob.SegAt, Data: map[string]string{"qq": "33"}}}
-	if got := intentFactSubjects(task); len(got) != 1 || got[0] != "33" {
+	if got := intentapp.IntentFactSubjects(task); len(got) != 1 || got[0] != "33" {
 		t.Fatalf("structured subject unavailable: %v", got)
 	}
 	task.Segments = nil
 	task.Message.Text = "请称呼我阿白"
-	if got := intentFactSubjects(task); len(got) != 1 || got[0] != "22" {
+	if got := intentapp.IntentFactSubjects(task); len(got) != 1 || got[0] != "22" {
 		t.Fatalf("self reference unavailable: %v", got)
 	}
 }
@@ -627,7 +629,7 @@ func TestIntentMemoryDurableRevocationBeforeFirstWrite(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			router.background = intentBackground{roles: probe, facts: probe, scopes: probe, grants: reader}
+			router.background = intentapp.IntentBackground{Roles: probe, Facts: probe, Scopes: probe, Grants: reader}
 			connected := make(chan struct{})
 			resume := make(chan struct{})
 			var first atomic.Bool
@@ -759,7 +761,7 @@ func TestFixedIntentRejectsWholeResponseViolations(t *testing.T) {
 				_, dest, _ := router.resolve(context.Background())
 				role, _, _ := probe.IntentRoleBackground(context.Background(), in)
 				in.FixedBackground = true
-				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: backgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "not_allowed"}
+				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "not_allowed"}
 				out, err := router.Decide(context.Background(), in)
 				if err == nil || requests.Load() != 1 || out.ExternalRequests != 1 || len(out.Attempts) != 1 || out.Attempts[0].Outcome != "response_unusable" || out.Usage.InputResponses != 0 {
 					t.Fatalf("requests=%d result=%+v err=%v", requests.Load(), out, err)
@@ -849,7 +851,7 @@ func TestConfirmedIntentReplayBudgetThroughHTTP(t *testing.T) {
 			in.Task.ConversationID = inserted.ConversationID
 			in.Policy = probe.policy
 			role, _, _ := probe.IntentRoleBackground(ctx, in)
-			evidence := intentdomain.BackgroundEvidence{Version: backgroundVersion, Destination: router.ReplayDestination(ctx), RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{factRef(probe.fact)}}
+			evidence := intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: router.ReplayDestination(ctx), RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "matched", Memories: []intentdomain.BackgroundMemoryRef{intentapp.IntentFactRef(probe.fact)}}
 			snapshot := intentdomain.DecisionSnapshot{Version: intentdomain.SnapshotVersion, Input: intentdomain.SnapshotInput{Task: in.Task, BotName: "Fixture", Policy: in.Policy, Now: time.Now()}, Semantic: intentdomain.SemanticAnswer{BackgroundEvidence: &evidence}, Prompt: intentdomain.BuiltinPrompt(intentdomain.PromptProviderOpenAI), Rule: intentdomain.RuleResult{NeedSemantic: true}}
 			if err := decisions.Record(ctx, inserted.JobID, intentdomain.FinalDecision{Decision: intentdomain.DecisionSilent, Provider: "openai", Model: "fixture", Snapshot: &snapshot}, dbtest.Claim(t, pool, inserted.JobID)); err != nil {
 				t.Fatal(err)
@@ -1057,7 +1059,7 @@ func TestIntentAdaptersKeepQuotedTopicTermsBeforeLimit(t *testing.T) {
 			}))
 			defer server.Close()
 			router, probe, in := newBackgroundFixture(protocol, server.URL)
-			router.background.facts = repo
+			router.background.Facts = repo
 			in.Task.JobID = ingested.JobID
 			in.Task.ConversationID = ingested.ConversationID
 			in.Task.Message.SenderID = 123
