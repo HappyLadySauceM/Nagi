@@ -7,7 +7,7 @@ import { Card } from '../../../components/ui/card'
 import { ConfirmDialog } from '../../../components/confirm-dialog'
 import { describeError } from '../../../lib/errors'
 import type { IntentCost, IntentRun, ReplayEstimate } from '../../../lib/api/contracts'
-import { ReplaySourcePanel } from './replay-source-panel'
+import { ReplaySourcePanel, ReplayUsagePanel } from './replay-source-panel'
 import { ReplayEvaluationsPanel } from './replay-evaluations-panel'
 import {
   useRecalculateDecision,
@@ -16,7 +16,7 @@ import {
   useSaveReplayEvaluation,
 } from './queries'
 
-const DECISION_LABELS: Record<string, string> = { reply: '回复', silent: '沉默', defer: '延后' }
+const DECISION_LABELS: Record<string, string> = { reply: '回复', silent: '沉默', defer: '延后', not_comparable: '不可比较' }
 
 function summaryLabel(run: IntentRun) {
   return `${DECISION_LABELS[run.summary.decision] ?? run.summary.decision} · ${run.summary.reasonText || run.summary.reasonCode}`
@@ -41,6 +41,12 @@ function estimateDetails(estimate: ReplayEstimate): string[] {
     `样本数：${estimate.sampleCount}`,
     `预计外部请求：${estimate.estimatedExternalRequests} 次`,
   ]
+  if (estimate.budget) {
+    details.push(`请求次数上限：${estimate.budget.requestLimit} 笔`)
+    if (estimate.budget.amountLimitMicros !== undefined) {
+      details.push(`金额预算上限：${estimate.budget.amountLimitMicros} 微单位 ${estimate.budget.currency ?? ''}`)
+    }
+  }
   if (estimate.tokenEstimate) {
     details.push(
       `预计 token：输入 ${estimate.tokenEstimate.inputTokens} / 输出 ${estimate.tokenEstimate.outputTokens} / 合计 ${estimate.tokenEstimate.totalTokens}（${estimate.tokenEstimate.method}）`,
@@ -64,6 +70,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
   const startReplay = () => {
     estimate.mutate(undefined, {
       onSuccess: (data) => {
+        if (data.status === 'not_comparable') return
         setPendingEstimate(data)
         setConfirmReplay(true)
       },
@@ -102,6 +109,11 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
             {estimate.isPending ? '获取费用估算…' : '重新调用模型（可能产生费用）'}
           </Button>
         </div>
+        {estimate.data?.status === 'not_comparable' ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            本次回放不可比较，外部请求 0 次。原因：{estimate.data.reasonCode}
+          </p>
+        ) : null}
         {estimate.isError ? (
           <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {describeError(estimate.error).description}
@@ -163,6 +175,7 @@ export function ReplayControls({ decisionId }: { decisionId: number }) {
               ) : null}
             </div>
             <p>{summaryLabel(replay.data.run)}</p>
+            <ReplayUsagePanel replay={replay.data.run.replay} />
             <ReplaySourcePanel replay={replay.data.run.replay} />
             <p className="text-xs text-muted-foreground">
               费用提示：{replay.data.costEstimate || '费用未知'}

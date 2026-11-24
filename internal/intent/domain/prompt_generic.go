@@ -3,8 +3,10 @@ package domain
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Stable prompt identifiers, kinds, scopes and layers.
@@ -157,6 +159,55 @@ func builtinPromptName(kind string) string {
 	}
 }
 
+func ValidatePromptIntentContext(kind, scope string, context *PromptIntentContext) error {
+	if context == nil {
+		return nil
+	}
+	if kind != PromptKindChatReply {
+		return errInvalidPrompt("intent_context requires chat.reply")
+	}
+	if scope != PromptScopeAccount && (context.Identity != "" || len(context.Responsibilities) != 0) {
+		return errInvalidPrompt("intent_context identity and responsibilities require account scope")
+	}
+	if scope != PromptScopeGroup && len(context.GroupConventions) != 0 {
+		return errInvalidPrompt("intent_context group_conventions requires group scope")
+	}
+	return validatePromptIntentContextContent(context)
+}
+
+func validatePromptIntentContextContent(x *PromptIntentContext) error {
+	if x == nil {
+		return nil
+	}
+	if utf8.RuneCountInString(x.Identity) > 160 {
+		return errInvalidPrompt("intent_context identity exceeds 160 characters")
+	}
+	for _, values := range [][]string{x.Responsibilities, x.GroupConventions} {
+		if len(values) > 6 {
+			return errInvalidPrompt("intent_context list exceeds six entries")
+		}
+		for _, value := range values {
+			if strings.TrimSpace(value) == "" || utf8.RuneCountInString(value) > 160 {
+				return errInvalidPrompt("intent_context list entry requires 1 to 160 characters")
+			}
+		}
+	}
+	return nil
+}
+
+type PromptIntentContextWire struct {
+	Identity         string   `json:"identity"`
+	Responsibilities []string `json:"responsibilities"`
+	GroupConventions []string `json:"group_conventions"`
+}
+
+func (w *PromptIntentContextWire) Value() *PromptIntentContext {
+	if w == nil {
+		return nil
+	}
+	return &PromptIntentContext{Identity: w.Identity, Responsibilities: w.Responsibilities, GroupConventions: w.GroupConventions}
+}
+
 // ValidatePromptForKind checks the editable content against the fixed server
 // contract. Prompt content cannot change permissions or output schema.
 // ValidatePromptForKind 依据固定的服务端契约校验可编辑内容；
@@ -172,6 +223,12 @@ func ValidatePromptForKind(kind, provider string, p *Prompt) error {
 func ValidatePromptForKindWithVariables(kind, provider string, p *Prompt, extra []string) error {
 	if p == nil {
 		return errInvalidPrompt("prompt required")
+	}
+	if p.IntentContext != nil && kind != PromptKindChatReply {
+		return errInvalidPrompt("intent_context requires chat.reply")
+	}
+	if err := validatePromptIntentContextContent(p.IntentContext); err != nil {
+		return err
 	}
 	if kind != PromptKindChatReply && p.OpenAI != nil && p.OpenAI.ReplyStyle != "" {
 		return errInvalidPrompt("ReplyStyle is only supported by chat.reply")
@@ -233,6 +290,12 @@ func ValidatePromptSupplementWithVariables(kind, provider string, p *Prompt, ext
 	if p == nil {
 		return errInvalidPrompt("prompt required")
 	}
+	if p.IntentContext != nil && kind != PromptKindChatReply {
+		return errInvalidPrompt("intent_context requires chat.reply")
+	}
+	if err := validatePromptIntentContextContent(p.IntentContext); err != nil {
+		return err
+	}
 	if p.OpenAI != nil && p.OpenAI.ReplyStyle != "" {
 		return errInvalidPrompt("supplement cannot override ReplyStyle")
 	}
@@ -281,6 +344,18 @@ func promptVariableAllowSet(extra []string) map[string]struct{} {
 
 func validatePromptVariables(kind, provider string, p *Prompt, supplement bool, extra []string) error {
 	allowed := promptVariableAllowSet(extra)
+	if role := p.IntentContext; role != nil {
+		if err := validateAllowedVariables(role.Identity, allowed); err != nil {
+			return err
+		}
+		for _, values := range [][]string{role.Responsibilities, role.GroupConventions} {
+			for _, value := range values {
+				if err := validateAllowedVariables(value, allowed); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	switch kind {
 	case PromptKindChatReply, PromptKindMemoryRecall:
 		if p.OpenAI == nil {
@@ -407,9 +482,10 @@ func ParsePromptContentFor(kind, provider string, content json.RawMessage) (Prom
 // 允许已存储模板引用额外的自定义变量名。
 func ParsePromptContentForWithVariables(kind, provider string, content json.RawMessage, extra []string) (Prompt, error) {
 	var raw struct {
-		Provider  string
-		SystemOne *SystemOnePrompt
-		OpenAI    *OpenAIPrompt
+		Provider      string
+		SystemOne     *SystemOnePrompt
+		OpenAI        *OpenAIPrompt
+		IntentContext *PromptIntentContextWire `json:"intent_context"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -431,7 +507,7 @@ func ParsePromptContentForWithVariables(kind, provider string, content json.RawM
 			raw.OpenAI = &direct
 		}
 	}
-	p := Prompt{Kind: kind, Provider: provider, SystemOne: raw.SystemOne, OpenAI: raw.OpenAI}
+	p := Prompt{Kind: kind, Provider: provider, SystemOne: raw.SystemOne, OpenAI: raw.OpenAI, IntentContext: raw.IntentContext.Value()}
 	if err := ValidatePromptForKindWithVariables(kind, provider, &p, extra); err != nil {
 		return Prompt{}, err
 	}
@@ -461,6 +537,15 @@ func MergePromptContentWithVariables(kind, provider string, account, supplement 
 		return Prompt{}, err
 	}
 	out := account
+	if kind == PromptKindChatReply && supplement.IntentContext != nil {
+		role := PromptIntentContext{}
+		if account.IntentContext != nil {
+			role = *account.IntentContext
+			role.Responsibilities = slices.Clone(role.Responsibilities)
+		}
+		role.GroupConventions = slices.Clone(supplement.IntentContext.GroupConventions)
+		out.IntentContext = &role
+	}
 	switch kind {
 	case PromptKindChatReply, PromptKindMemoryExtraction, PromptKindMemoryRecall:
 		if supplement.OpenAI != nil && strings.TrimSpace(supplement.OpenAI.SystemPrompt) != "" {
@@ -521,6 +606,18 @@ func RenderPromptVariables(p Prompt, vars map[string]string) Prompt {
 		pairs = append(pairs, "{{"+name+"}}", vars[name])
 	}
 	render := strings.NewReplacer(pairs...)
+	if role := p.IntentContext; role != nil {
+		rendered := &PromptIntentContext{Identity: render.Replace(role.Identity), Responsibilities: slices.Clone(role.Responsibilities), GroupConventions: slices.Clone(role.GroupConventions)}
+		rendered.Identity = boundedIntentReference(rendered.Identity)
+		for _, values := range [][]string{rendered.Responsibilities, rendered.GroupConventions} {
+			for i, value := range values {
+				values[i] = boundedIntentReference(render.Replace(value))
+			}
+		}
+		rendered.Responsibilities = slices.DeleteFunc(rendered.Responsibilities, func(value string) bool { return value == "" })
+		rendered.GroupConventions = slices.DeleteFunc(rendered.GroupConventions, func(value string) bool { return value == "" })
+		p.IntentContext = rendered
+	}
 	if p.OpenAI != nil {
 		openAI := *p.OpenAI
 		openAI.SystemPrompt = render.Replace(openAI.SystemPrompt)
@@ -536,4 +633,9 @@ func RenderPromptVariables(p Prompt, vars map[string]string) Prompt {
 		p.SystemOne = systemOne
 	}
 	return p
+}
+
+func boundedIntentReference(value string) string {
+	text := []rune(strings.TrimSpace(value))
+	return string(text[:min(len(text), 160)])
 }

@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -25,10 +26,6 @@ type Revision struct {
 	UpdatedBy string
 }
 
-// Settings stores runtime-editable configuration and encrypted model credentials.
-// Public management views remove all ciphertext before serialization.
-// Settings 保存运行时可编辑配置和加密模型凭证；
-// 公开管理视图在序列化前移除全部密文。
 type Extraction struct {
 	Enabled          bool
 	Concurrency      int
@@ -41,16 +38,23 @@ type Extraction struct {
 	RetryDelaysMS    []int64
 }
 
+type IntentMemoryGrant struct {
+	BotID       int64  `json:"bot_id"`
+	GroupID     int64  `json:"group_id"`
+	Destination string `json:"destination"`
+}
+
 type Settings struct {
-	Extraction *Extraction    `json:"Extraction,omitempty"`
-	Models     models.Catalog `json:"Models"`
-	Role       Role           `json:"Role"`
-	Context    Context        `json:"Context"`
-	AI         AI             `json:"AI"`
-	Intent     Intent         `json:"Intent"`
-	Agent      Agent          `json:"Agent"`
-	Messages   Messages       `json:"Messages"`
-	Tools      Tools          `json:"Tools"`
+	IntentMemoryGrants []IntentMemoryGrant `json:"intent_memory_grants,omitempty"`
+	Extraction         *Extraction         `json:"Extraction,omitempty"`
+	Models             models.Catalog      `json:"Models"`
+	Role               Role                `json:"Role"`
+	Context            Context             `json:"Context"`
+	AI                 AI                  `json:"AI"`
+	Intent             Intent              `json:"Intent"`
+	Agent              Agent               `json:"Agent"`
+	Messages           Messages            `json:"Messages"`
+	Tools              Tools               `json:"Tools"`
 }
 
 // PromptVariable is one user-defined prompt variable substituted at runtime.
@@ -309,6 +313,7 @@ func (s *Settings) Normalize() {
 // Clone 返回深拷贝，默认基线因此不会被进行中的编辑改动。
 func (s Settings) Clone() Settings {
 	clone := s
+	clone.IntentMemoryGrants = slices.Clone(s.IntentMemoryGrants)
 	clone.Models = s.Models.Clone()
 	clone.Role.CallNames = maps.Clone(s.Role.CallNames)
 	if s.Extraction != nil {

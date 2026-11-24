@@ -118,12 +118,36 @@ type Delivery struct {
 // stored snapshot and which were evaluated against current configuration.
 // ReplayInfo 标记临时回放结果中来自快照与来自当前配置的部分。
 type ReplayInfo struct {
-	Input     string `json:",omitempty"`
-	Semantic  string `json:",omitempty"`
-	Prompt    string `json:",omitempty"`
-	Policy    string `json:",omitempty"`
-	Rules     string `json:",omitempty"`
-	Persisted bool
+	Budget                 *ReplayBudgetBalance `json:",omitempty"`
+	Status                 string               `json:",omitempty"`
+	ReasonCode             string               `json:",omitempty"`
+	ExternalRequests       int
+	RequestCountUnknown    bool `json:",omitempty"`
+	UnresolvedReservations int  `json:",omitempty"`
+	InputTokens            int64
+	OutputTokens           int64
+	UsageResponses         int64
+	Input                  string `json:",omitempty"`
+	Semantic               string `json:",omitempty"`
+	Prompt                 string `json:",omitempty"`
+	Policy                 string `json:",omitempty"`
+	Rules                  string `json:",omitempty"`
+	Persisted              bool
+	InputUsageResponses    int64           `json:",omitempty"`
+	OutputUsageResponses   int64           `json:",omitempty"`
+	Attempts               []ReplayAttempt `json:",omitempty"`
+}
+
+type ReplayAttempt struct {
+	Budget          *ReplayAttemptBudget `json:",omitempty"`
+	Outcome         string
+	Memory          bool
+	InputTokens     *int64 `json:",omitempty"`
+	OutputTokens    *int64 `json:",omitempty"`
+	CostBasis       string
+	Currency        string `json:",omitempty"`
+	PartialWrite    bool   `json:",omitempty"`
+	ReservationHeld bool
 }
 
 // PromptInfo identifies the immutable prompt version used by one run.

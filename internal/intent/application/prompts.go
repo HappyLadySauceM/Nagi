@@ -490,9 +490,10 @@ func DecodePromptRequestFor(kind, provider string, raw json.RawMessage) (domain.
 // DecodePromptSupplementRequestFor 解析仅追加的群聊/私聊类型补充层内容。
 func DecodePromptSupplementRequestFor(kind, provider string, raw json.RawMessage) (domain.Prompt, error) {
 	var payload struct {
-		Provider  string
-		SystemOne *domain.SystemOnePrompt
-		OpenAI    *domain.OpenAIPrompt
+		Provider      string
+		SystemOne     *domain.SystemOnePrompt
+		OpenAI        *domain.OpenAIPrompt
+		IntentContext *domain.PromptIntentContextWire `json:"intent_context"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -502,7 +503,7 @@ func DecodePromptSupplementRequestFor(kind, provider string, raw json.RawMessage
 	if payload.Provider != "" && payload.Provider != provider {
 		return domain.Prompt{}, fmt.Errorf("intent: invalid prompt: provider mismatch")
 	}
-	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: payload.SystemOne, OpenAI: payload.OpenAI}
+	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: payload.SystemOne, OpenAI: payload.OpenAI, IntentContext: payload.IntentContext.Value()}
 	if err := domain.ValidatePromptSupplementWithVariables(kind, provider, &p, promptContentVariableRefs(raw)); err != nil {
 		return domain.Prompt{}, err
 	}

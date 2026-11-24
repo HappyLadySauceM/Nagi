@@ -573,6 +573,15 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		"MediaEvidenceVersion": media.ModelMediaVersion,
 		"IntentAsked":          asked,
 	}
+	if evidence := semantic.BackgroundEvidence; evidence != nil {
+		auditDecision["SemanticBackground"] = map[string]any{
+			"Version": evidence.Version, "RoleLayers": evidence.RoleLayers, "RoleKnown": evidence.RoleHash != "",
+			"MemoryCount": len(evidence.Memories), "MemoryOutcome": evidence.MemoryOutcome,
+		}
+	}
+	if semantic.BackgroundFailure != "" {
+		auditDecision["SemanticBackgroundFailure"] = semantic.BackgroundFailure
+	}
 	if decision.Topic != nil {
 		auditDecision["Topic"] = decision.Topic
 	}
@@ -1095,6 +1104,13 @@ func initialCallAddressing(in domain.Input, rule domain.RuleResult) domain.Seman
 
 func callAddressingAudit(in domain.Input, answer domain.SemanticAnswer) map[string]any {
 	audit := map[string]any{"ExternalRequests": answer.ExternalRequests}
+	if len(answer.Attempts) > 0 {
+		audit["Attempts"] = answer.Attempts
+	}
+	if answer.UnknownRequests > 0 {
+		audit["RequestCountUnknown"] = true
+		audit["UnresolvedReservations"] = answer.UnknownRequests
+	}
 	if in.CallAddressingRequired() {
 		key, _, version := in.CallQuestionVersion()
 		audit["Question"], audit["QuestionVersion"] = key, version
@@ -1168,6 +1184,11 @@ func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime R
 			unavailable.FailureCode = auditcontracts.ModelMediaStartFailureCode
 		}
 		unavailable.ExternalRequests = answer.ExternalRequests
+		unavailable.UnknownRequests = answer.UnknownRequests
+		unavailable.Attempts = answer.Attempts
+		unavailable.BackgroundEvidence = answer.BackgroundEvidence
+		unavailable.BackgroundFailure = answer.BackgroundFailure
+		unavailable.Usage = answer.Usage
 		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
 			"degraded": true, "latency_ms": latency, "call_addressing": callAddressingAudit(in, unavailable),
 		})

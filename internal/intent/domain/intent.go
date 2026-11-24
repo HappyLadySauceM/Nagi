@@ -73,6 +73,9 @@ type Input struct {
 	AwaitedRequest       *Message
 	Topics               *TopicContext
 	HistoryWindowSkipped bool
+	Background           SemanticBackground
+	FrozenBackground     *BackgroundEvidence
+	FixedBackground      bool
 	// Activity holds DB-derived bot reply metadata; it takes precedence over
 	// Recent so cooldown and hourly limits cannot be bypassed by disabling
 	// history reads.
@@ -197,6 +200,11 @@ type SemanticAnswer struct {
 	CallAddressing     CallAddressing
 	CallFailureCode    string
 	ExternalRequests   int
+	UnknownRequests    int                 `json:",omitempty"`
+	BackgroundEvidence *BackgroundEvidence `json:",omitempty"`
+	Usage              SemanticUsage
+	Attempts           []SemanticAttempt `json:",omitempty"`
+	BackgroundFailure  string            `json:",omitempty"`
 	FailureCode        string
 	Available          bool
 	DirectedToBot      float64

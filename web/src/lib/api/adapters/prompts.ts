@@ -117,6 +117,17 @@ export function toManagedPromptContent(raw: unknown): ManagedPromptContent {
   const content: ManagedPromptContent = {
     provider: readEnum(record, 'Provider', PROMPTS_ENDPOINT, PROMPT_PROVIDERS),
   }
+  if (record.intent_context != null) {
+    const role = asRecord(record.intent_context, PROMPTS_ENDPOINT, 'intent_context')
+    const readList = (key: string) => role[key] == null
+      ? undefined
+      : asArray(role[key], PROMPTS_ENDPOINT, key).map((value) => readString({ value }, 'value', PROMPTS_ENDPOINT))
+    content.intentContext = {
+      identity: readOptionalString(role, 'identity', PROMPTS_ENDPOINT),
+      responsibilities: readList('responsibilities'),
+      groupConventions: readList('group_conventions'),
+    }
+  }
   if (record.OpenAI != null) {
     const openai = asRecord(record.OpenAI, PROMPTS_ENDPOINT, 'OpenAI')
     content.openai = {}

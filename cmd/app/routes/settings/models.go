@@ -3,9 +3,11 @@ package settings
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	app "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	"net/http"
 	"strings"
 )
@@ -106,44 +108,52 @@ func (h *Handler) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeModelBody(w, r, &body) {
 		return
 	}
-	next := h.svcCtx.Settings.View().Settings
-	for section, raw := range body.Sections {
-		var target any
-		switch section {
-		case "AI":
-			target = &next.AI
-		case "Role":
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(raw, &fields); err != nil {
-				common.WriteFailure(w, 400, "invalid settings section")
-				return
-			}
-			for name := range fields {
-				if strings.EqualFold(name, "CallNames") {
-					next.Role.CallNames = nil
-					break
+	invalidSection := fmt.Errorf("invalid settings section")
+	view, err := h.svcCtx.Settings.Patch(r.Context(), body.Version, middleware.ActorFrom(r.Context()), func(next *settingsdomain.Settings) error {
+		for section, raw := range body.Sections {
+			var target any
+			switch section {
+			case "AI":
+				target = &next.AI
+			case "Role":
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &fields); err != nil {
+					return invalidSection
 				}
+				for name := range fields {
+					if strings.EqualFold(name, "CallNames") {
+						next.Role.CallNames = nil
+						break
+					}
+				}
+				target = &next.Role
+			case "Context":
+				target = &next.Context
+			case "Intent":
+				target = &next.Intent
+			case "Agent":
+				target = &next.Agent
+			case "Messages":
+				target = &next.Messages
+			case "Tools":
+				target = &next.Tools
+			default:
+				return invalidSection
 			}
-			target = &next.Role
-		case "Context":
-			target = &next.Context
-		case "Intent":
-			target = &next.Intent
-		case "Agent":
-			target = &next.Agent
-		case "Messages":
-			target = &next.Messages
-		case "Tools":
-			target = &next.Tools
-		default:
-			common.WriteFailure(w, 400, "invalid settings section")
-			return
+			d := json.Unmarshal(raw, target)
+			if d != nil {
+				return invalidSection
+			}
 		}
-		d := json.Unmarshal(raw, target)
-		if d != nil {
-			common.WriteFailure(w, 400, "invalid settings section")
-			return
-		}
+		return nil
+	})
+	if errors.Is(err, invalidSection) {
+		common.WriteFailure(w, 400, invalidSection.Error())
+		return
 	}
-	h.apply(w, r, next, body.Version)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	common.WriteSuccess(w, view)
 }

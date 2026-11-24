@@ -108,6 +108,9 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 			builtin.FallbackReason = "invalid_local_prompt"
 			return finalizePrompt(builtin, variables)
 		}
+		if legacyFallback || domain.ValidatePromptIntentContext(kind, domain.PromptScopeAccount, parsed.IntentContext) != nil {
+			parsed.IntentContext = nil
+		}
 		parsed.ID = account.PromptID
 		parsed.Kind = kind
 		parsed.Name = account.Name
@@ -137,7 +140,7 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 		}
 		if err != nil {
 			s.logger.Warn("load scope supplement failed; continuing without supplement", "error", err, "prompt_id", promptID, "scope_type", targetType)
-			builtin.FallbackReason = "scope_supplement_error"
+			final.FallbackReason = "scope_supplement_error"
 		} else if found {
 			supplementPrompt, parseErr := domain.ParsePromptContentForWithVariables(kind, provider, supplement.Content, withContentVariables(extra, supplement.Content))
 			// Merge only needs to tolerate variables already present in stored
@@ -148,6 +151,9 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 			// parsed leniently through their own schema first.
 			applied := false
 			if parseErr == nil {
+				if domain.ValidatePromptIntentContext(kind, targetType, supplementPrompt.IntentContext) != nil {
+					supplementPrompt.IntentContext = nil
+				}
 				if merged, mergeErr := domain.MergePromptContentWithVariables(kind, provider, final, supplementPrompt, mergeExtra); mergeErr == nil {
 					final = merged
 					applied = true
@@ -158,11 +164,16 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 				lenient, lenientErr := decodePromptSupplement(kind, provider, supplement.Content, extra)
 				if lenientErr != nil {
 					s.logger.Warn("invalid scope supplement; ignoring", "error", lenientErr, "prompt_id", promptID)
-				} else if merged, mergeErr := domain.MergePromptContentWithVariables(kind, provider, final, lenient, mergeExtra); mergeErr == nil {
-					final = merged
-					applied = true
 				} else {
-					s.logger.Warn("invalid scope supplement; ignoring", "error", mergeErr, "prompt_id", promptID)
+					if domain.ValidatePromptIntentContext(kind, targetType, lenient.IntentContext) != nil {
+						lenient.IntentContext = nil
+					}
+					if merged, mergeErr := domain.MergePromptContentWithVariables(kind, provider, final, lenient, mergeExtra); mergeErr == nil {
+						final = merged
+						applied = true
+					} else {
+						s.logger.Warn("invalid scope supplement; ignoring", "error", mergeErr, "prompt_id", promptID)
+					}
 				}
 			}
 			if !applied {
@@ -284,14 +295,15 @@ func fillRuntimePromptVariables(variables map[string]string, botID int64, target
 
 func decodePromptSupplement(kind, provider string, content json.RawMessage, extra []string) (domain.Prompt, error) {
 	var raw struct {
-		Provider  string
-		SystemOne *domain.SystemOnePrompt
-		OpenAI    *domain.OpenAIPrompt
+		Provider      string
+		SystemOne     *domain.SystemOnePrompt
+		OpenAI        *domain.OpenAIPrompt
+		IntentContext *domain.PromptIntentContextWire `json:"intent_context"`
 	}
 	if err := json.Unmarshal(content, &raw); err != nil {
 		return domain.Prompt{}, fmt.Errorf("invalid supplement content: %w", err)
 	}
-	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: raw.SystemOne, OpenAI: raw.OpenAI}
+	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: raw.SystemOne, OpenAI: raw.OpenAI, IntentContext: raw.IntentContext.Value()}
 	if err := domain.ValidatePromptSupplementWithVariables(kind, provider, &p, withContentVariables(extra, content)); err != nil {
 		return domain.Prompt{}, err
 	}
@@ -356,6 +368,9 @@ func (s *PromptService) CreateDraftFor(ctx context.Context, promptID, kind, prov
 			return domain.PromptRecord{}, err
 		}
 	}
+	if err := domain.ValidatePromptIntentContext(kind, scopeType, final.IntentContext); err != nil {
+		return domain.PromptRecord{}, err
+	}
 	extra := s.customVariableNames()
 	if scopeType == domain.PromptScopeAccount {
 		if err := domain.ValidatePromptForKindWithVariables(kind, provider, &final, extra); err != nil {
@@ -390,6 +405,9 @@ func (s *PromptService) UpdateDraftFor(ctx context.Context, id int64, note strin
 	}
 	if content.Provider != "" && content.Provider != rec.Provider {
 		return domain.PromptRecord{}, fmt.Errorf("intent: invalid prompt provider")
+	}
+	if err := domain.ValidatePromptIntentContext(rec.Kind, rec.ScopeType, content.IntentContext); err != nil {
+		return domain.PromptRecord{}, err
 	}
 	extra := s.customVariableNames()
 	if rec.ScopeType == domain.PromptScopeAccount {

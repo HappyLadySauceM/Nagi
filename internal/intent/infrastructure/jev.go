@@ -35,6 +35,7 @@ var ErrDecisionModelUnavailable = errors.New("SystemOne服务端未找到指定�
 
 type JevConfig struct {
 	HTTPHeaders     map[string]string
+	Transport       http.RoundTripper
 	MaxOutputTokens int
 	Thinking        bool
 	ReasoningEffort string
@@ -65,7 +66,7 @@ func NewJevClient(cfg JevConfig, logger *slog.Logger) (*JevClient, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 3 * time.Second
 	}
-	return &JevClient{cfg: cfg, client: &http.Client{Timeout: cfg.Timeout}, logger: logger}, nil
+	return &JevClient{cfg: cfg, client: &http.Client{Timeout: cfg.Timeout, Transport: cfg.Transport}, logger: logger}, nil
 }
 
 // jevQuestion is one question entry of the SystemOne contract.
@@ -204,19 +205,38 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	}
 	var parsed struct {
 		Answers map[string]json.RawMessage `json:"answers"`
+		Usage   json.RawMessage            `json:"usage"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&parsed); err != nil {
+	if err := decodeSemanticResponse(resp.Body, &parsed, in.FixedBackground); err != nil {
 		return attempt, fmt.Errorf("jev: decode response: %w", err)
 	}
+	attempt.Usage = parseSemanticUsage(parsed.Usage)
 	if !askCall && len(specs) == 0 {
 		return attempt, fmt.Errorf("jev: no questions configured")
 	}
 	answer, err := parseAnswers(parsed.Answers, specs)
 	answer.ExternalRequests = attempt.ExternalRequests
+	answer.Usage = attempt.Usage
 	if askCall {
 		answer.CallAddressing, answer.CallFailureCode = decodeCallAddressing(parsed.Answers[callKey])
 	}
 	hasCall := askCall && answer.CallAddressing != domain.CallUnknown
+	if in.FixedBackground {
+		if askCall && !hasCall {
+			err = fmt.Errorf("jev: invalid explicit addressing answer")
+		}
+		for key, q := range specs {
+			if q.Type == "choice" && len(q.Criteria) > 0 {
+				if _, ok := q.Criteria[answer.Choices[key]]; !ok {
+					err = fmt.Errorf("jev: invalid choice category")
+					break
+				}
+			}
+		}
+		if err != nil {
+			return attempt, err
+		}
+	}
 	hasExit := false
 	if len(topicKeys) != 0 {
 		for i, candidate := range in.Topics.Candidates {
@@ -316,7 +336,12 @@ func (c *JevClient) buildState(in domain.Input) (map[string]any, media.ModelMedi
 		state["awaited_request"] = semanticText(in.AwaitedRequest.Text)
 	}
 	addCallIdentityState(state, in, c.cfg.BotName)
-	addTopicState(state, in.Topics)
+	if in.Policy.AllowHistoryRead {
+		addTopicState(state, in.Topics)
+	}
+	if in.Task.Kind == "group" {
+		addBackgroundState(state, in.Background)
+	}
 	return state, shape
 }
 

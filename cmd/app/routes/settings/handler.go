@@ -37,6 +37,8 @@ func NewHandler(svcCtx *svc.ServiceContext) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/settings", h.Get)
 	h.registerModels(mux)
+	mux.HandleFunc("GET /api/v1/settings/intent-memory/{bot}/{group}", h.intentMemoryGrant)
+	mux.HandleFunc("PUT /api/v1/settings/intent-memory/{bot}/{group}", h.intentMemoryGrant)
 	mux.HandleFunc("PUT /api/v1/settings", h.Put)
 	mux.HandleFunc("POST /api/v1/settings/reset", h.Reset)
 }
@@ -77,15 +79,6 @@ func (h *Handler) Reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, err := h.svcCtx.Settings.Reset(r.Context(), middleware.ActorFrom(r.Context()))
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	common.WriteSuccess(w, view)
-}
-
-func (h *Handler) apply(w http.ResponseWriter, r *http.Request, settings settingsdomain.Settings, version int64) {
-	view, err := h.svcCtx.Settings.Update(r.Context(), settings, version, middleware.ActorFrom(r.Context()))
 	if err != nil {
 		h.writeError(w, err)
 		return

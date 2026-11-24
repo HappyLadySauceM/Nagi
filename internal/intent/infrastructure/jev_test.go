@@ -407,3 +407,50 @@ func TestJevDistinguishesMissingTopicScoreFromZero(t *testing.T) {
 		})
 	}
 }
+
+func TestFixedJevValidatesEachAskedTopicAction(t *testing.T) {
+	for _, action := range []string{"missing", "null", "unsupported", "other"} {
+		t.Run(action, func(t *testing.T) {
+			var count atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				count.Add(1)
+				var request struct{ Questions map[string]jevQuestion }
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				answers := make(map[string]any)
+				for key, q := range request.Questions {
+					if q.Type == "noul" {
+						answers[key] = map[string]int{"noul": 0}
+					} else if key == domain.TopicActionKey(1) {
+						switch action {
+						case "missing":
+						case "null":
+							answers[key] = nil
+						default:
+							answers[key] = map[string]string{"choice": action}
+						}
+					} else {
+						answers[key] = map[string]string{"choice": "other"}
+					}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"answers": answers, "usage": map[string]any{"input_tokens": "unknown", "output_tokens": 0}})
+			}))
+			defer srv.Close()
+			in := testInput()
+			in.FixedBackground = true
+			in.Policy.AllowHistoryRead = true
+			in.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 1}, {ID: 2}}}
+			out, err := testClient(t, srv.URL).Decide(context.Background(), in)
+			valid := action == "other"
+			if count.Load() != 1 || (err == nil) != valid || out.Available != valid || out.Usage.InputValue() != nil || out.Usage.OutputValue() == nil || *out.Usage.OutputValue() != 0 {
+				t.Fatalf("action=%q requests=%d answer=%+v err=%v", action, count.Load(), out, err)
+			}
+			if valid && (len(out.TopicJudgments) != 2 || out.TopicJudgments[1].Action != "other" || out.TopicJudgments[1].AffinityMissing || out.TopicJudgments[1].Affinity != 0) {
+				t.Fatalf("explicit zero or valid action lost: %+v", out.TopicJudgments)
+			}
+			t.Logf("action=%s requests=%d accepted=%t explicit_output_zero=true", action, count.Load(), valid)
+		})
+	}
+}

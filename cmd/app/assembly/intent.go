@@ -484,6 +484,11 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	}
 
 	semantic := newSemanticRouter(settings, catalog, logger)
+	facts, err := memoryinfra.NewRepo(pool)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	semantic.background = intentBackground{roles: promptService, facts: facts, grants: catalog, scopes: scope}
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err

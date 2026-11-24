@@ -128,10 +128,7 @@ func (r *PromptsRepo) CreateDraft(ctx context.Context, promptID, name, provider 
 	} else if !ent.IsNotFound(err) {
 		return domain.PromptRecord{}, err
 	}
-	raw, err := json.Marshal(promptContentPayload(content))
-	if err != nil {
-		return domain.PromptRecord{}, err
-	}
+	raw := domain.PromptContentJSON(content)
 	row, err := c.IntentPromptVersion.Create().
 		SetPromptID(promptID).SetPromptKind(domain.PromptKindIntentParticipation).
 		SetName(name).SetProvider(provider).SetBotID(0).SetScopeType(domain.PromptScopeAccount).SetScopeID(0).SetVersion(latest + 1).
@@ -159,10 +156,7 @@ func (r *PromptsRepo) UpdateDraft(ctx context.Context, id int64, note string, co
 	if row.Status != domain.PromptStatusDraft {
 		return domain.PromptRecord{}, ErrPromptImmutable
 	}
-	raw, err := json.Marshal(promptContentPayload(content))
-	if err != nil {
-		return domain.PromptRecord{}, err
-	}
+	raw := domain.PromptContentJSON(content)
 	hash := domain.PromptHash(content)
 	update := r.pool.Client.IntentPromptVersion.UpdateOneID(id).
 		Where(ipv.StatusEQ(domain.PromptStatusDraft), ipv.DeletedAtIsNil()).
@@ -295,17 +289,6 @@ func promptRecord(row *ent.IntentPromptVersion) domain.PromptRecord {
 		rec.ArchivedAt = row.ArchivedAt.Format(time.RFC3339)
 	}
 	return rec
-}
-
-func promptContentPayload(p domain.Prompt) map[string]any {
-	out := map[string]any{"Provider": p.Provider}
-	if p.SystemOne != nil {
-		out["SystemOne"] = p.SystemOne
-	}
-	if p.OpenAI != nil {
-		out["OpenAI"] = p.OpenAI
-	}
-	return out
 }
 
 func promptContentHash(raw []byte) string {

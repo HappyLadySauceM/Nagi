@@ -2,7 +2,6 @@ package infrastructure
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -118,10 +117,7 @@ func (r *PromptsRepo) CreateDraftVersion(ctx context.Context, input domain.Promp
 	} else if !ent.IsNotFound(err) {
 		return domain.PromptRecord{}, err
 	}
-	raw, err := json.Marshal(promptContentPayload(input.Content))
-	if err != nil {
-		return domain.PromptRecord{}, err
-	}
+	raw := domain.PromptContentJSON(input.Content)
 	row, err := c.IntentPromptVersion.Create().
 		SetPromptID(input.PromptID).SetPromptKind(input.Kind).SetName(input.Name).SetProvider(input.Provider).
 		SetBotID(input.BotID).SetScopeType(input.ScopeType).SetScopeID(0).SetVersion(latest + 1).

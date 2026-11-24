@@ -375,6 +375,12 @@ type OpenAIPrompt struct {
 	ResponseShape string
 }
 
+type PromptIntentContext struct {
+	Identity         string
+	Responsibilities []string
+	GroupConventions []string
+}
+
 // Prompt is one immutable prompt snapshot used by a semantic call.
 // Prompt 是一次语义调用使用的不可变 Prompt 快照。
 type Prompt struct {
@@ -399,6 +405,7 @@ type Prompt struct {
 	SystemOne      *SystemOnePrompt
 	OpenAI         *OpenAIPrompt
 	Layers         []PromptLayer
+	IntentContext  *PromptIntentContext
 }
 
 // PromptRecord is one persisted prompt version returned by the admin API.
@@ -561,6 +568,21 @@ func promptContentMap(p Prompt) map[string]any {
 	}
 	if p.OpenAI != nil {
 		raw["OpenAI"] = p.OpenAI
+	}
+	if x := p.IntentContext; x != nil {
+		fields := map[string]any{}
+		if x.Identity != "" {
+			fields["identity"] = x.Identity
+		}
+		if len(x.Responsibilities) != 0 {
+			fields["responsibilities"] = x.Responsibilities
+		}
+		if len(x.GroupConventions) != 0 {
+			fields["group_conventions"] = x.GroupConventions
+		}
+		if len(fields) != 0 {
+			raw["intent_context"] = fields
+		}
 	}
 	return raw
 }

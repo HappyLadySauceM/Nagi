@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import type { ReplayEvaluation, ReplayEvaluationSummary, ReplayReproduction } from '../../../lib/api/contracts'
 import { formatRelativeTime } from '../../../lib/format'
 import { useReplayComparison, useReplayEvaluation, useReplayEvaluations } from './queries'
+import { ReplayUsagePanel } from './replay-source-panel'
 
 const MODE_LABELS: Record<ReplayEvaluationSummary['mode'], string> = {
   recalculate: '本地重算',
@@ -30,13 +31,14 @@ function ReproductionBadge({ reproduction }: { reproduction: ReplayReproduction 
 }
 
 function EvaluationSummary({ evaluation }: { evaluation: ReplayEvaluation }) {
+  const incomparable = evaluation.after.summary.decision === 'not_comparable' || evaluation.before.summary.decision === 'not_comparable'
   return (
     <div className="space-y-3 rounded-lg border border-border p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">评估 #{evaluation.id}</span>
         <Badge variant="outline">{MODE_LABELS[evaluation.mode]}</Badge>
-        <Badge variant={evaluation.changed ? 'warning' : 'success'}>
-          {evaluation.changed ? '结论有变化' : '结论一致'}
+        <Badge variant={incomparable || evaluation.changed ? 'warning' : 'success'}>
+          {incomparable ? '不可比较' : evaluation.changed ? '结论有变化' : '结论一致'}
         </Badge>
         <ReproductionBadge reproduction={evaluation.reproduction} />
       </div>
@@ -73,6 +75,7 @@ function EvaluationSummary({ evaluation }: { evaluation: ReplayEvaluation }) {
           非完全复现原因：{evaluation.reproduction.reasons.join('；')}
         </p>
       ) : null}
+      {evaluation.mode === 'model' ? <ReplayUsagePanel replay={evaluation.after.replay} /> : null}
       {evaluation.cost?.text || evaluation.cost?.costEstimate ? (
         <p className="text-xs text-muted-foreground">
           费用：{evaluation.cost.text ?? evaluation.cost.costEstimate}
@@ -93,6 +96,10 @@ export function ReplayEvaluationsPanel({ decisionId }: { decisionId: number }) {
   const [compareIds, setCompareIds] = useState<[number, number] | null>(null)
   const detail = useReplayEvaluation(detailId)
   const comparison = useReplayComparison(compareIds?.[0] ?? null, compareIds?.[1] ?? null)
+
+  const incomparableRuns = comparison.data
+    ? [comparison.data.original, comparison.data.replay].filter((run) => run.summary.decision === 'not_comparable')
+    : []
 
   const toggleSelected = (id: number) => {
     setSelectedIds((previous) => {
@@ -173,8 +180,8 @@ export function ReplayEvaluationsPanel({ decisionId }: { decisionId: number }) {
                   <TableCell>{evaluation.name || `评估 #${evaluation.id}`}</TableCell>
                   <TableCell><Badge variant="outline">{MODE_LABELS[evaluation.mode]}</Badge></TableCell>
                   <TableCell>
-                    <Badge variant={evaluation.changed ? 'warning' : 'success'}>
-                      {evaluation.changed ? '有变化' : '一致'}
+                    <Badge variant={evaluation.summary.decision === 'not_comparable' || evaluation.changed ? 'warning' : 'success'}>
+                      {evaluation.summary.decision === 'not_comparable' ? '不可比较' : evaluation.changed ? '有变化' : '一致'}
                     </Badge>
                     <span className="ml-2 text-meta text-muted-foreground">
                       {evaluation.summary.reasonText || evaluation.summary.reasonCode || '—'}
@@ -213,12 +220,16 @@ export function ReplayEvaluationsPanel({ decisionId }: { decisionId: number }) {
               <span className="font-medium">
                 对比 #{comparison.data.evaluationId} ↔ {againstLabel(comparison.data.against)}
               </span>
-              <Badge variant={comparison.data.changed ? 'warning' : 'success'}>
-                {comparison.data.changed ? '存在差异' : '无差异'}
+              <Badge variant={incomparableRuns.length > 0 || comparison.data.changed ? 'warning' : 'success'}>
+                {incomparableRuns.length > 0 ? '不可比较' : comparison.data.changed ? '存在差异' : '无差异'}
               </Badge>
               <ReproductionBadge reproduction={comparison.data.reproduction} />
             </div>
-            {comparison.data.differences.length === 0 ? (
+            {incomparableRuns.length > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {incomparableRuns.map((run) => run.summary.reasonText || run.summary.reasonCode).join('；')}
+              </p>
+            ) : comparison.data.differences.length === 0 ? (
               <p className="text-sm text-muted-foreground">两条记录的决策、原因和版本字段一致。</p>
             ) : (
               <Table label="回放对比差异">

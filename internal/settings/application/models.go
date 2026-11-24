@@ -28,6 +28,7 @@ type ModelsView struct {
 
 func publicSettings(s settingsdomain.Settings) settingsdomain.Settings {
 	out := s.Clone()
+	out.IntentMemoryGrants = nil
 	applyModelConnections(&out)
 	out.Models = out.Models.Public()
 	return out
@@ -41,9 +42,9 @@ func (s *Service) Models() ModelsView {
 }
 
 func (s *Service) storeModels(ctx context.Context, c models.Catalog, expected int64, actor string) error {
-	current := s.provider.Current()
-	if current.Version != expected {
-		return ErrConflict
+	current, err := s.settingsAtVersion(ctx, expected)
+	if err != nil {
+		return err
 	}
 	next := current.Settings.Clone()
 	next.Models = c.Clone()
@@ -110,7 +111,11 @@ func (s *Service) SaveModel(ctx context.Context, id string, edit ModelEdit, acto
 	if s.cipher == nil {
 		return ModelsView{}, fmt.Errorf("model credentials unavailable")
 	}
-	c := s.provider.Settings().Models.Clone()
+	current, err := s.settingsAtVersion(ctx, edit.Version)
+	if err != nil {
+		return ModelsView{}, err
+	}
+	c := current.Settings.Models.Clone()
 	p := edit.Profile
 	headers, err := modelhttp.Normalize(p.HTTPHeaders)
 	if err != nil {
@@ -209,9 +214,7 @@ func (s *Service) SaveModel(ctx context.Context, id string, edit ModelEdit, acto
 			return ModelsView{}, err
 		}
 	}
-	if s.provider.Current().Version != edit.Version {
-		return ModelsView{}, ErrConflict
-	}
+
 	key, err := s.cipher.Open(p.Secret)
 	if err != nil {
 		return ModelsView{}, fmt.Errorf("无法读取模型凭证")
@@ -239,9 +242,7 @@ func (s *Service) SaveModel(ctx context.Context, id string, edit ModelEdit, acto
 	}
 	s.modelMu.Lock()
 	locked = true
-	if s.provider.Current().Version != edit.Version {
-		return ModelsView{}, ErrConflict
-	}
+
 	p.VerifiedVersion = p.Version
 	p.VerifiedAt = time.Now().UTC()
 	if _, ready := c.Selected("generation", 0, "", 0); p.Usage == "generation" && !ready {
@@ -261,7 +262,11 @@ func (s *Service) SaveModel(ctx context.Context, id string, edit ModelEdit, acto
 func (s *Service) DeleteModel(ctx context.Context, id string, version int64, actor string) (ModelsView, error) {
 	s.modelMu.Lock()
 	defer s.modelMu.Unlock()
-	c := s.provider.Settings().Models.Clone()
+	current, err := s.settingsAtVersion(ctx, version)
+	if err != nil {
+		return ModelsView{}, err
+	}
+	c := current.Settings.Models.Clone()
 	for _, ref := range c.Defaults {
 		if ref == id {
 			return ModelsView{}, fmt.Errorf("无法删除：该模型仍被设为全局默认模型。请先在对应的默认模型下拉框中选择“未配置”或其他模型，再重试删除。")
@@ -296,7 +301,11 @@ func (s *Service) DeleteModel(ctx context.Context, id string, version int64, act
 func (s *Service) ConfigureModels(ctx context.Context, defaults map[string]string, cookie *string, clear bool, version int64, actor string) (ModelsView, error) {
 	s.modelMu.Lock()
 	defer s.modelMu.Unlock()
-	c := s.provider.Settings().Models.Clone()
+	current, err := s.settingsAtVersion(ctx, version)
+	if err != nil {
+		return ModelsView{}, err
+	}
+	c := current.Settings.Models.Clone()
 	for usage, id := range defaults {
 		if usage != "generation" && usage != "intent" && usage != "asr" && usage != "tts" {
 			return ModelsView{}, fmt.Errorf("invalid usage")
@@ -348,7 +357,11 @@ func (s *Service) SelectModel(ctx context.Context, bot int64, kind string, targe
 	if bot <= 0 || target < 0 || (kind != "private" && kind != "group") {
 		return fmt.Errorf("invalid model scope")
 	}
-	c := s.provider.Settings().Models.Clone()
+	current, err := s.settingsAtVersion(ctx, version)
+	if err != nil {
+		return err
+	}
+	c := current.Settings.Models.Clone()
 	if id != "" {
 		found := false
 		for _, p := range c.Profiles {
@@ -446,6 +459,21 @@ func (s *Service) resolveModel(c models.Catalog, usage string, bot int64, kind s
 	}
 	return models.Resolved{}, fmt.Errorf("%s model is not configured", usage)
 }
+
+func (s *Service) ResolveCurrentIntent(ctx context.Context) (models.Resolved, error) {
+	if s.repo == nil {
+		return s.ResolveModel(ctx, "intent", 0, "", 0)
+	}
+	stored, found, err := s.repo.Load(ctx)
+	if err != nil {
+		return models.Resolved{}, err
+	}
+	if !found || !stored.Settings.Intent.Enabled {
+		return models.Resolved{}, ErrIntentMemoryDestination
+	}
+	return s.ResolveModel(WithModelCatalog(ctx, stored.Settings.Models), "intent", 0, "", 0)
+}
+
 func (s *Service) BilibiliCredential(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

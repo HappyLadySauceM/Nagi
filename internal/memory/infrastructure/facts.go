@@ -47,9 +47,16 @@ func FactSupportPredicate(memoryAlias string) string {
 }
 
 func FactSupportsMessage(memoryAlias, messageExpression string) string {
+	return factSupportPredicate(memoryAlias, messageExpression, "")
+}
+
+func factSupportPredicate(memoryAlias, messageExpression, conversationExpression string) string {
 	messageConstraint := ""
 	if messageExpression != "" {
 		messageConstraint = " AND s.id=" + messageExpression
+	}
+	if conversationExpression != "" {
+		messageConstraint += " AND c.id=" + conversationExpression
 	}
 	return `EXISTS(SELECT 1 FROM memory_fact_sources f` + factSourceJoins + ` WHERE f.memory_id=` + memoryAlias + `.memory_id` + messageConstraint + `
  AND s.bot_id=` + memoryAlias + `.bot_id AND ` + memoryAlias + `.subject_type='user' AND ` + memoryAlias + `.subject_id=s.sender_id::text
@@ -58,14 +65,26 @@ func FactSupportsMessage(memoryAlias, messageExpression string) string {
  OR (` + memoryAlias + `.visibility='conversation' AND ` + memoryAlias + `.owner_key=c.id::text))` + factSourceConditions + `)`
 }
 
-func readFactSources(ctx context.Context, q interface {
+type factSourceQueryer interface {
 	Query(context.Context, string, ...any) (*sql.Rows, error)
-}, memory domain.Memory) ([]domain.FactSource, error) {
+}
+
+func readFactSources(ctx context.Context, q factSourceQueryer, memory domain.Memory) ([]domain.FactSource, error) {
+	return readFactSourcesInConversation(ctx, q, memory, "")
+}
+
+func readFactSourcesInConversation(ctx context.Context, q factSourceQueryer, memory domain.Memory, conversationID string) ([]domain.FactSource, error) {
+	args := []any{memory.ID, memory.BotID, memory.SubjectID, memory.Visibility, memory.OwnerKey}
+	conversationFilter := ""
+	if conversationID != "" {
+		args = append(args, conversationID)
+		conversationFilter = " AND c.id=$6::uuid"
+	}
 	rows, err := q.Query(ctx, `SELECT s.id,s.sender_id,s.text_content,c.id::text,c.kind,c.target_id,f.authorization_event_id FROM memory_fact_sources f`+factSourceJoins+`
  WHERE f.memory_id=$1::uuid AND s.bot_id=$2 AND s.sender_id::text=$3
  AND (($4='group' AND c.kind='group' AND $5=c.target_id::text)
  OR ($4='private_user' AND c.kind='private' AND $5=c.target_id::text AND c.target_id=s.sender_id)
- OR ($4='conversation' AND $5=c.id::text))`+factSourceConditions+` ORDER BY s.id`, memory.ID, memory.BotID, memory.SubjectID, memory.Visibility, memory.OwnerKey)
+ OR ($4='conversation' AND $5=c.id::text))`+factSourceConditions+conversationFilter+` ORDER BY s.id`, args...)
 	if err != nil {
 		return nil, err
 	}

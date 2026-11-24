@@ -202,12 +202,41 @@ function toDelivery(raw: unknown): IntentDelivery {
   }
 }
 
+function toReplayBudgetLimits(raw: unknown) {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'Replay.Budget')
+  return {
+    requestLimit: readNumber(record, 'RequestLimit', DECISIONS_ENDPOINT, 0),
+    currency: readOptionalString(record, 'Currency', DECISIONS_ENDPOINT),
+    amountLimitMicros: readOptionalNumber(record, 'AmountLimitMicros', DECISIONS_ENDPOINT),
+  }
+}
+
+function toReplayBudgetBalance(raw: unknown) {
+  const record = asRecord(raw, DECISIONS_ENDPOINT, 'Replay.Budget')
+  return {
+    ...toReplayBudgetLimits(record),
+    remainingRequests: readNumber(record, 'RemainingRequests', DECISIONS_ENDPOINT, 0),
+    remainingAmountMicros: readOptionalNumber(record, 'RemainingAmountMicros', DECISIONS_ENDPOINT),
+  }
+}
+
 function toReplayInfo(raw: unknown): IntentReplayInfo | undefined {
   if (raw == null) {
     return undefined
   }
   const record = asRecord(raw, DECISIONS_ENDPOINT, 'Replay')
   return {
+    budget: record.Budget == null ? undefined : toReplayBudgetBalance(record.Budget),
+    status: readOptionalString(record, 'Status', DECISIONS_ENDPOINT),
+    reasonCode: readOptionalString(record, 'ReasonCode', DECISIONS_ENDPOINT),
+    externalRequests: readOptionalNumber(record, 'ExternalRequests', DECISIONS_ENDPOINT),
+    requestCountUnknown: record.RequestCountUnknown === true ? true : undefined,
+    unresolvedReservations: readOptionalNumber(record, 'UnresolvedReservations', DECISIONS_ENDPOINT),
+    inputUsageResponses: readOptionalNumber(record, 'InputUsageResponses', DECISIONS_ENDPOINT),
+    outputUsageResponses: readOptionalNumber(record, 'OutputUsageResponses', DECISIONS_ENDPOINT),
+    inputTokens: readOptionalNumber(record, 'InputTokens', DECISIONS_ENDPOINT),
+    outputTokens: readOptionalNumber(record, 'OutputTokens', DECISIONS_ENDPOINT),
+    usageResponses: readOptionalNumber(record, 'UsageResponses', DECISIONS_ENDPOINT),
     input: readString(record, 'Input', DECISIONS_ENDPOINT, ''),
     semantic: readString(record, 'Semantic', DECISIONS_ENDPOINT, ''),
     prompt: readString(record, 'Prompt', DECISIONS_ENDPOINT, ''),
@@ -220,7 +249,7 @@ function toReplayInfo(raw: unknown): IntentReplayInfo | undefined {
 function toRunSummary(raw: unknown): IntentRunSummary {
   const record = asRecord(raw, DECISIONS_ENDPOINT, 'Summary')
   return {
-    decision: readEnum(record, 'Decision', DECISIONS_ENDPOINT, ['reply', 'silent', 'defer'] as const),
+    decision: readEnum(record, 'Decision', DECISIONS_ENDPOINT, ['reply', 'silent', 'defer', 'not_comparable'] as const),
     reasonCode: readString(record, 'ReasonCode', DECISIONS_ENDPOINT, ''),
     reasonText: readString(record, 'ReasonText', DECISIONS_ENDPOINT, ''),
   }
@@ -477,6 +506,9 @@ function toReplayTokenEstimate(raw: unknown): ReplayEstimate['tokenEstimate'] {
 export function toReplayEstimate(raw: unknown): ReplayEstimate {
   const record = asRecord(raw, DECISIONS_ENDPOINT, 'replay estimate')
   return {
+    budget: record.Budget == null ? undefined : toReplayBudgetLimits(record.Budget),
+    status: readOptionalString(record, 'Status', DECISIONS_ENDPOINT),
+    reasonCode: readOptionalString(record, 'ReasonCode', DECISIONS_ENDPOINT),
     decisionId: readNumber(record, 'DecisionID', DECISIONS_ENDPOINT, 0),
     provider: readString(record, 'Provider', DECISIONS_ENDPOINT, ''),
     model: readString(record, 'Model', DECISIONS_ENDPOINT, ''),

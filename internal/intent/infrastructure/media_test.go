@@ -308,7 +308,7 @@ func TestLocalMediaResponseStatesPreserveAdapterResult(t *testing.T) {
 			defer cancel()
 			client := &LocalClient{Client: server.Client(), Config: JevConfig{Endpoint: server.URL, Model: "fixture"}}
 			var requests atomic.Int32
-			scores, err := client.score(ctx, "fixture", "{}", "fixture", []string{"A", "B"}, "{{state}}{{question}}", media.ModelMediaAttempt{Shape: media.MediaTextOnly}, &requests)
+			scores, err := client.score(ctx, "fixture", "{}", "fixture", []string{"A", "B"}, "{{state}}{{question}}", media.ModelMediaAttempt{Shape: media.MediaTextOnly}, &requests, &semanticUsageCounter{}, false)
 			if (err != nil) != c.wantError || err == nil && (len(scores) != 2 || scores[0] <= scores[1]) || served.Load() != 1 || requests.Load() != 1 || len(recorder.calls) != 1 {
 				t.Fatalf("scores=%v err=%v requests=%d received=%d", scores, err, requests.Load(), served.Load())
 			}
