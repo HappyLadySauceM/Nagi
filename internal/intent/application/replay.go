@@ -43,6 +43,63 @@ var (
 // 回放确认令牌有效期短且只能使用一次。
 const replayConfirmationTTL = 10 * time.Minute
 
+type frozenBackgroundChecker interface {
+	CheckFrozenBackground(context.Context, domain.Input) string
+}
+
+func (d *Decider) fixedBackground(ctx context.Context, in *domain.Input, snapshot domain.DecisionSnapshot) string {
+	if !in.Policy.AllowHistoryRead && (len(snapshot.Input.Recent) > 0 || snapshot.Input.AwaitedRequest != nil || snapshot.Input.Topics != nil) {
+		return "background_history_denied"
+	}
+	if snapshot.Input.Topics != nil && in.Topics == nil {
+		return "background_topic_unavailable"
+	}
+	checker, ok := d.semantic.(frozenBackgroundChecker)
+	if !ok {
+		return ""
+	}
+	if snapshot.Semantic.BackgroundFailure != "" {
+		return snapshot.Semantic.BackgroundFailure
+	}
+	in.FixedBackground = true
+	in.FrozenBackground = snapshot.Semantic.BackgroundEvidence
+	return checker.CheckFrozenBackground(ctx, *in)
+}
+
+func frozenSemanticNeeded(snapshot domain.DecisionSnapshot) bool {
+	return shouldAskSemantic(domain.Input{
+		Task: snapshot.Input.Task, BotName: snapshot.Input.BotName, CallIdentity: snapshot.Input.CallIdentity,
+		Topics: snapshot.Input.Topics, Policy: snapshot.Input.Policy,
+	}, snapshot.Rule)
+}
+
+func replayUsage(info *contracts.ReplayInfo, answer domain.SemanticAnswer) *contracts.ReplayInfo {
+	info.ExternalRequests = answer.ExternalRequests
+	info.RequestCountUnknown = answer.UnknownRequests > 0
+	info.UnresolvedReservations = answer.UnknownRequests
+	info.InputTokens = answer.Usage.InputTokens
+	info.OutputTokens = answer.Usage.OutputTokens
+	info.UsageResponses = answer.Usage.Responses
+	info.InputUsageResponses = answer.Usage.InputResponses
+	info.OutputUsageResponses = answer.Usage.OutputResponses
+	for _, attempt := range answer.Attempts {
+		row := contracts.ReplayAttempt{
+			Outcome: attempt.Outcome, Memory: attempt.Memory, InputTokens: attempt.InputTokens, OutputTokens: attempt.OutputTokens,
+			CostBasis: attempt.CostBasis, Currency: attempt.Currency, PartialWrite: attempt.PartialWrite, ReservationHeld: attempt.ReservationHeld,
+		}
+		if attempt.Budget != nil {
+			budget := contracts.ReplayAttemptBudget(*attempt.Budget)
+			row.Budget = &budget
+		}
+		info.Attempts = append(info.Attempts, row)
+	}
+	return info
+}
+
+func notComparableRun(decisionID int64, reason string, answer domain.SemanticAnswer) contracts.Run {
+	return contracts.Run{DecisionID: decisionID, SnapshotStatus: domain.SnapshotStatusComplete, Summary: contracts.RunSummary{Decision: "not_comparable", ReasonCode: reason}, Replay: replayUsage(&contracts.ReplayInfo{Status: "not_comparable", ReasonCode: reason}, answer)}
+}
+
 // SnapshotReader loads the immutable snapshot of one decision.
 // SnapshotReader 读取一条决策的不可变快照。
 type SnapshotReader interface {
@@ -60,6 +117,8 @@ type ReplayEvaluationRepository interface {
 type replayConfirmation struct {
 	decisionID  int64
 	fingerprint string
+	budget      contracts.ReplayBudgetPlan
+	destination string
 	expiresAt   time.Time
 }
 
@@ -72,6 +131,7 @@ type ReplayService struct {
 	evaluations   ReplayEvaluationRepository
 	mu            sync.Mutex
 	confirmations map[string]replayConfirmation
+	budgetPlanner func(context.Context, contracts.ReplayParameters) contracts.ReplayBudgetPlan
 }
 
 func NewReplayService(decider *Decider, records contracts.DecisionReader, snapshots SnapshotReader, evaluations ...ReplayEvaluationRepository) *ReplayService {
@@ -80,6 +140,11 @@ func NewReplayService(decider *Decider, records contracts.DecisionReader, snapsh
 		svc.evaluations = evaluations[0]
 	}
 	return svc
+}
+
+func (s *ReplayService) WithReplayBudgetPlanner(planner func(context.Context, contracts.ReplayParameters) contracts.ReplayBudgetPlan) *ReplayService {
+	s.budgetPlanner = planner
+	return s
 }
 
 // Recalculate re-runs policy and rules from the stored semantic answer.
@@ -130,10 +195,15 @@ func (s *ReplayService) Recalculate(ctx context.Context, decisionID int64) (cont
 // the stored rule state. It never writes or sends anything.
 // ReplayModel 使用固定保存的输入与规则状态调用当前语义模型；不写入、不发送。
 func (s *ReplayService) ReplayModel(ctx context.Context, decisionID int64) (contracts.Run, error) {
-	return s.replayModel(ctx, decisionID, nil)
+	return s.replayModel(ctx, decisionID, nil, nil)
 }
 
-func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confirmed *contracts.ReplayParameters) (contracts.Run, error) {
+type replaySemanticResult struct {
+	input  domain.Input
+	answer domain.SemanticAnswer
+}
+
+func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confirmed *contracts.ReplayParameters, capture *replaySemanticResult) (contracts.Run, error) {
 	if s == nil || s.decider == nil || s.snapshots == nil {
 		return contracts.Run{}, fmt.Errorf("intent: replay unavailable")
 	}
@@ -157,22 +227,60 @@ func (s *ReplayService) replayModel(ctx context.Context, decisionID int64, confi
 	semantic.FailureCode = "semantic_unavailable"
 	latency := int64(0)
 	asked := shouldAskSemantic(in, rule) && s.decider.semantic != nil
+	if confirmed != nil && confirmed.BackgroundReason != "" {
+		return notComparableRun(decisionID, confirmed.BackgroundReason, domain.SemanticAnswer{}), nil
+	}
+	if asked || (s.decider.semantic != nil && frozenSemanticNeeded(snapshot)) {
+		if reason := s.decider.fixedBackground(ctx, &in, snapshot); reason != "" {
+			return notComparableRun(decisionID, reason, domain.SemanticAnswer{}), nil
+		}
+	}
 	if confirmed != nil && (runtime.Provider != confirmed.Provider || runtime.Model != confirmed.Model ||
 		replayRequestCount(runtime.Provider, asked, in.Topics) != confirmed.EstimatedExternalRequests) {
 		return contracts.Run{}, ErrReplayConfirmationStale
 	}
 	if asked {
+		if confirmed != nil && confirmed.DestinationFingerprint != "" {
+			route, ok := s.decider.semantic.(interface{ ReplayDestination(context.Context) string })
+			if !ok || route.ReplayDestination(ctx) != confirmed.DestinationFingerprint {
+				return notComparableRun(decisionID, "background_destination_changed", domain.SemanticAnswer{}), nil
+			}
+		}
 		semantic, latency = s.decider.decideSemantic(ctx, in, runtime, rule)
+		if semantic.BackgroundFailure != "" {
+			return notComparableRun(decisionID, semantic.BackgroundFailure, semantic), nil
+		}
+		if !semantic.Available || semantic.FailureCode != "" {
+			return notComparableRun(decisionID, "semantic_response_unusable", semantic), nil
+		}
 	}
-	decision := s.decider.applyPolicy(ctx, in, rule, semantic, latency, runtime)
-	decision.RulesetVersion = snapshot.RulesetVersion
-	decision.RunID = "replay-" + uuid.NewString()
-	decision.FlowVersion = domain.FlowVersion
-	decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, false)
-	run := BuildRunFromDecision(decision, contracts.Delivery{})
-	run.DecisionID = decisionID
-	run.Prompt = promptInfoFromDomain(snapshot.Prompt)
-	run.Replay = &contracts.ReplayInfo{Input: "snapshot", Semantic: "current", Prompt: "snapshot", Policy: "current", Rules: "snapshot", Persisted: false}
+	var run contracts.Run
+	build := func() error {
+		decision := s.decider.applyPolicy(ctx, in, rule, semantic, latency, runtime)
+		decision.RulesetVersion = snapshot.RulesetVersion
+		decision.RunID = "replay-" + uuid.NewString()
+		decision.FlowVersion = domain.FlowVersion
+		decision.Steps = decisionSteps(in, rule, semantic, decision, latency, asked, false)
+		run = BuildRunFromDecision(decision, contracts.Delivery{})
+		run.DecisionID = decisionID
+		run.Prompt = promptInfoFromDomain(snapshot.Prompt)
+		run.Replay = replayUsage(&contracts.ReplayInfo{Input: "snapshot", Semantic: "current", Prompt: "snapshot", Policy: "current", Rules: "snapshot", Persisted: false}, semantic)
+		return nil
+	}
+	if guard, ok := s.decider.semantic.(semanticResultGuard); ok && asked {
+		reason, err := guard.WithSemanticResult(ctx, in, semantic, build)
+		if err != nil {
+			return notComparableRun(decisionID, "semantic_response_unusable", semantic), nil
+		}
+		if reason != "" {
+			return notComparableRun(decisionID, reason, semantic), nil
+		}
+		if capture != nil {
+			*capture = replaySemanticResult{input: in, answer: semantic}
+		}
+	} else if err := build(); err != nil {
+		return contracts.Run{}, err
+	}
 	return run, nil
 }
 
@@ -185,6 +293,9 @@ func (s *ReplayService) EstimateModelReplay(ctx context.Context, decisionID int6
 	params, err := s.modelReplayParameters(ctx, decisionID)
 	if err != nil {
 		return contracts.ReplayCostEstimate{}, err
+	}
+	if params.BackgroundReason != "" {
+		return contracts.ReplayCostEstimate{DecisionID: decisionID, Provider: params.Provider, Model: params.Model, SampleCount: params.SampleCount, Status: "not_comparable", ReasonCode: params.BackgroundReason, Cost: replayCostForModel(0)}, nil
 	}
 	fingerprint := replayFingerprint(decisionID, params)
 	token := newReplayToken()
@@ -199,7 +310,7 @@ func (s *ReplayService) EstimateModelReplay(ctx context.Context, decisionID int6
 			delete(s.confirmations, key)
 		}
 	}
-	s.confirmations[token] = replayConfirmation{decisionID: decisionID, fingerprint: fingerprint, expiresAt: expires}
+	s.confirmations[token] = replayConfirmation{decisionID: decisionID, fingerprint: fingerprint, budget: params.Budget, destination: params.DestinationFingerprint, expiresAt: expires}
 	s.mu.Unlock()
 	return contracts.ReplayCostEstimate{
 		DecisionID:                decisionID,
@@ -207,6 +318,7 @@ func (s *ReplayService) EstimateModelReplay(ctx context.Context, decisionID int6
 		Model:                     params.Model,
 		SampleCount:               params.SampleCount,
 		EstimatedExternalRequests: params.EstimatedExternalRequests,
+		Budget:                    &params.Budget,
 		TokenEstimate:             params.TokenEstimate,
 		Cost:                      replayCostForModel(params.EstimatedExternalRequests),
 		ConfirmationToken:         token,
@@ -231,10 +343,6 @@ func (s *ReplayService) ReplayModelConfirmed(ctx context.Context, decisionID int
 	if err != nil {
 		return contracts.ReplayEvaluation{}, err
 	}
-	run, err := s.replayModel(ctx, decisionID, &params)
-	if err != nil {
-		return contracts.ReplayEvaluation{}, err
-	}
 	record, err := s.records.Get(ctx, decisionID)
 	if err != nil {
 		return contracts.ReplayEvaluation{}, err
@@ -243,16 +351,49 @@ func (s *ReplayService) ReplayModelConfirmed(ctx context.Context, decisionID int
 	if err != nil {
 		return contracts.ReplayEvaluation{}, err
 	}
-	before := BuildRunFromRecord(record, contracts.Delivery{})
-	before.Prompt = promptInfoFromDomain(snapshot.Prompt)
-	run.JobID = before.JobID
-	evaluation := contracts.ReplayEvaluation{
-		DecisionID: decisionID, BotID: record.BotID, Mode: contracts.ReplayModeModel, Name: name, Note: note,
-		Changed: changed(before, run), Before: before, After: run,
-		Parameters: params, Cost: replayCostForModel(params.EstimatedExternalRequests),
-		Reproduction: reproductionFrom(run, snapshot), CreatedAt: time.Now(),
+	budget := &replayBudget{plan: params.Budget, destination: params.DestinationFingerprint}
+	var result replaySemanticResult
+	run, err := s.replayModel(context.WithValue(ctx, replayBudgetKey{}, budget), decisionID, &params, &result)
+	if err != nil {
+		return contracts.ReplayEvaluation{}, err
 	}
-	return s.evaluations.Create(ctx, evaluation)
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	save := func(run contracts.Run) (contracts.ReplayEvaluation, error) {
+		if run.Replay != nil {
+			balance := budget.summary()
+			run.Replay.Budget = &balance
+		}
+		before := BuildRunFromRecord(record, contracts.Delivery{})
+		before.Prompt = promptInfoFromDomain(snapshot.Prompt)
+		run.JobID = before.JobID
+		evaluation := contracts.ReplayEvaluation{
+			DecisionID: decisionID, BotID: record.BotID, Mode: contracts.ReplayModeModel, Name: name, Note: note,
+			Changed: (run.Replay == nil || run.Replay.Status != "not_comparable") && changed(before, run), Before: before, After: run,
+			Parameters: params, Cost: replayCostForModel(params.EstimatedExternalRequests),
+			Reproduction: reproductionFrom(run, snapshot), CreatedAt: time.Now(),
+		}
+		if run.Replay != nil {
+			evaluation.Cost = replayCostForModel(run.Replay.ExternalRequests + run.Replay.UnresolvedReservations)
+		}
+		return s.evaluations.Create(persistCtx, evaluation)
+	}
+	if guard, ok := s.decider.semantic.(semanticResultGuard); ok && result.answer.Available {
+		var evaluation contracts.ReplayEvaluation
+		reason, err := guard.WithSemanticResult(persistCtx, result.input, result.answer, func() error {
+			var saveErr error
+			evaluation, saveErr = save(run)
+			return saveErr
+		})
+		if err != nil {
+			return contracts.ReplayEvaluation{}, err
+		}
+		if reason == "" {
+			return evaluation, nil
+		}
+		run = notComparableRun(decisionID, reason, result.answer)
+	}
+	return save(run)
 }
 
 // SaveRecalculateEvaluation runs the free local recalculation and persists an
@@ -330,12 +471,18 @@ func (s *ReplayService) CompareEvaluation(ctx context.Context, evaluationID, aga
 		}
 		original = other.After
 		against = fmt.Sprintf("evaluation:%d", againstEvaluationID)
-		changedResult = runsDiffer(original, replay)
+		changedResult = (original.Replay == nil || original.Replay.Status != "not_comparable") && (replay.Replay == nil || replay.Replay.Status != "not_comparable") && runsDiffer(original, replay)
+	}
+	var differences []contracts.ReplayDifference
+	if original.Summary.Decision == "not_comparable" || replay.Summary.Decision == "not_comparable" {
+		changedResult = false
+	} else {
+		differences = diffRuns(original, replay)
 	}
 	return contracts.ReplayComparison{
 		EvaluationID: evaluationID, DecisionID: evaluation.DecisionID, Against: against,
 		Changed: changedResult, Original: original, Replay: replay,
-		Differences: diffRuns(original, replay), Reproduction: evaluation.Reproduction,
+		Differences: differences, Reproduction: evaluation.Reproduction,
 	}, nil
 }
 
@@ -355,19 +502,55 @@ func (s *ReplayService) modelReplayParameters(ctx context.Context, decisionID in
 	}
 	runtime := s.decider.runtimeFor(ctx)
 	requests := 0
+	reason, backgroundHash := "", ""
+	backgroundRunes := 0
 	if snapshot.Rule.NeedSemantic && !snapshot.Rule.Blocked && s.decider.semantic != nil {
 		in, err := s.decider.replayInput(ctx, snapshot)
 		if err != nil {
 			return contracts.ReplayParameters{}, err
 		}
-		requests = replayRequestCount(runtime.Provider, shouldAskSemantic(in, replayRule(in, snapshot.Rule)), in.Topics)
+		asked := shouldAskSemantic(in, replayRule(in, snapshot.Rule))
+		if asked || frozenSemanticNeeded(snapshot) {
+			reason = s.decider.fixedBackground(ctx, &in, snapshot)
+			if reason == "" && in.FixedBackground {
+				raw, _ := json.Marshal(in.FrozenBackground)
+				backgroundHash = domain.PromptTextHash(string(raw))
+				backgroundRunes = len(in.FrozenBackground.RoleLayers)*1000 + len(in.FrozenBackground.Memories)*240
+			}
+		}
+		requests = replayRequestCount(runtime.Provider, asked && reason == "", in.Topics)
 	}
-	return contracts.ReplayParameters{
+	params := contracts.ReplayParameters{
 		Provider: runtime.Provider, Model: runtime.Model,
 		PromptID: snapshot.Prompt.ID, PromptVersion: snapshot.Prompt.Version, PromptHash: snapshot.Prompt.Hash,
 		RulesetVersion: snapshot.RulesetVersion, SampleCount: 1,
-		EstimatedExternalRequests: requests, TokenEstimate: estimateReplayTokens(snapshot, requests),
-	}, nil
+		EstimatedExternalRequests: requests, TokenEstimate: estimateReplayTokens(snapshot, requests, backgroundRunes),
+		BackgroundReason: reason, BackgroundFingerprint: backgroundHash,
+	}
+	if requests > 0 {
+		if route, ok := s.decider.semantic.(interface{ ReplayDestination(context.Context) string }); ok {
+			params.DestinationFingerprint = route.ReplayDestination(ctx)
+			if params.DestinationFingerprint == "" {
+				params.BackgroundReason = "background_destination_unavailable"
+			}
+		}
+	}
+	params.Budget = contracts.ReplayBudgetPlan{RequestLimit: requests, Destination: params.DestinationFingerprint}
+	if s.budgetPlanner != nil {
+		params.Budget = s.budgetPlanner(ctx, params)
+	}
+	if params.Budget.RequestLimit > requests {
+		params.Budget.RequestLimit = requests
+	}
+	if params.BackgroundReason == "" && requests > 0 {
+		if params.Budget.RequestLimit == 0 {
+			params.BackgroundReason = "semantic_replay_budget_exhausted"
+		}
+		if plan := (&replayBudget{plan: params.Budget, destination: params.DestinationFingerprint}); params.BackgroundReason == "" {
+			params.BackgroundReason = plan.validationReason()
+		}
+	}
+	return params, nil
 }
 
 func (s *ReplayService) consumeConfirmation(ctx context.Context, decisionID int64, token string) (contracts.ReplayParameters, error) {
@@ -389,6 +572,11 @@ func (s *ReplayService) consumeConfirmation(ctx context.Context, decisionID int6
 	params, err := s.modelReplayParameters(ctx, decisionID)
 	if err != nil {
 		return contracts.ReplayParameters{}, err
+	}
+	if params.BackgroundReason != "" {
+		params.Budget = record.budget
+		params.DestinationFingerprint = record.destination
+		return params, nil
 	}
 	if replayFingerprint(decisionID, params) != record.fingerprint {
 		return contracts.ReplayParameters{}, ErrReplayConfirmationStale
@@ -418,13 +606,13 @@ func replayRequestCount(provider string, asked bool, topics *domain.TopicContext
 	return 1
 }
 
-func estimateReplayTokens(snapshot domain.DecisionSnapshot, requests int) contracts.ReplayTokenEstimate {
+func estimateReplayTokens(snapshot domain.DecisionSnapshot, requests int, backgroundRunes int) contracts.ReplayTokenEstimate {
 	if requests <= 0 {
 		return contracts.ReplayTokenEstimate{Method: "no_external_call"}
 	}
 	input, _ := json.Marshal(snapshot.Input)
 	prompt, _ := json.Marshal(snapshot.Prompt)
-	runes := utf8.RuneCount(input) + utf8.RuneCount(prompt)
+	runes := utf8.RuneCount(input) + utf8.RuneCount(prompt) + backgroundRunes
 	inputTokens := (runes + 3) / 4
 	if inputTokens < 1 {
 		inputTokens = 1
@@ -477,6 +665,9 @@ func promptInfoFromDomain(prompt domain.Prompt) contracts.PromptInfo {
 
 func reproductionFrom(run contracts.Run, snapshot domain.DecisionSnapshot) contracts.ReplayReproduction {
 	reasons := make([]string, 0, 4)
+	if run.Replay != nil && run.Replay.Status == "not_comparable" {
+		return contracts.ReplayReproduction{Reasons: []string{run.Replay.ReasonCode}}
+	}
 	if run.Replay != nil {
 		add := func(field, source string) {
 			if source != "" && source != "snapshot" {

@@ -50,9 +50,9 @@ func (s *Service) UpdateExtraction(ctx context.Context, extraction settingsdomai
 	}
 	s.modelMu.Lock()
 	defer s.modelMu.Unlock()
-	current := s.provider.Current()
-	if current.Version != expected {
-		return View{}, ErrConflict
+	current, err := s.settingsAtVersion(ctx, expected)
+	if err != nil {
+		return View{}, err
 	}
 	next := current.Settings
 	next.Extraction = &extraction

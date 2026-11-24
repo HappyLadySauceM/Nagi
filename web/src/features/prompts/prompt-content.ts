@@ -193,6 +193,20 @@ export function emptyPromptContent(kind: ManagedPromptKind, provider: ManagedPro
  */
 export function promptContentToWire(content: ManagedPromptContent, scope: ManagedPromptScope = 'account'): Record<string, unknown> {
   const wire: Record<string, unknown> = { Provider: content.provider }
+  const role = content.intentContext
+  if (role) {
+    const fields: Record<string, unknown> = {}
+    if (scope === 'account') {
+      if (role.identity) fields.identity = role.identity
+      const responsibilities = role.responsibilities?.map((item) => item.trim()).filter(Boolean)
+      if (responsibilities?.length) fields.responsibilities = responsibilities
+    }
+    if (scope === 'group') {
+      const conventions = role.groupConventions?.map((item) => item.trim()).filter(Boolean)
+      if (conventions?.length) fields.group_conventions = conventions
+    }
+    if (Object.keys(fields).length) wire.intent_context = fields
+  }
   if (content.openai) {
     const openai: Record<string, unknown> = {}
     if (content.openai.systemPrompt !== undefined) openai.SystemPrompt = content.openai.systemPrompt
@@ -407,6 +421,14 @@ export function normaliseContentForScope(
       }
     }
     content.systemOne = { ...(content.systemOne ?? {}), questions }
+  }
+  if (kind === 'chat_reply' && source?.intentContext) {
+    const role = source.intentContext
+    if (scope === 'account') {
+      content.intentContext = { identity: role.identity, responsibilities: [...(role.responsibilities ?? [])] }
+    } else if (scope === 'group') {
+      content.intentContext = { groupConventions: [...(role.groupConventions ?? [])] }
+    }
   }
   if (scope !== 'account') {
     if (content.openai) {

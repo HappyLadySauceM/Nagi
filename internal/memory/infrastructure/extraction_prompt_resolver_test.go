@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	"io"
 	"log/slog"
 	"strings"
@@ -87,7 +88,7 @@ func TestExtractionPromptResolverRejectsHashMismatch(t *testing.T) {
 }
 
 func TestExtractionPromptResolverBuiltinRoundTrip(t *testing.T) {
-	promptService := intentapp.NewPromptService(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	promptService := intentapp.NewPromptService(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), intentinfra.PromptCodec{})
 	resolver := NewExtractionPromptResolver(promptService)
 	request := domain.ExtractionRequest{Scope: domain.ExtractionScope{BotID: 7, ConversationID: "conv-1", ScopeType: "group", ScopeID: 700}, BotName: "Nagi"}
 	first, err := resolver.Resolve(context.Background(), request)

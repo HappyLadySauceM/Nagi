@@ -115,7 +115,7 @@ func TestPromptVersionSoftDeleteArchivedKeepsHistorySnapshot(t *testing.T) {
 		t.Fatalf("get deleted archived err = %v, want ErrPromptNotFound", err)
 	}
 
-	svc := intentapp.NewPromptService(repo, slog.Default())
+	svc := intentapp.NewPromptService(repo, slog.Default(), PromptCodec{})
 	snapshot, err := svc.VersionPrompt(ctx, first.ID, kind, provider)
 	if err != nil {
 		t.Fatalf("rebuild historical prompt: %v", err)

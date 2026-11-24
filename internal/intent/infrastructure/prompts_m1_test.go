@@ -70,7 +70,7 @@ func TestPromptLayersPublishRollbackRestore(t *testing.T) {
 	if err := repo.Publish(ctx, second.ID); err != nil {
 		t.Fatalf("publish second: %v", err)
 	}
-	service := intentapp.NewPromptService(repo, slog.Default())
+	service := intentapp.NewPromptService(repo, slog.Default(), PromptCodec{})
 	layered := service.ResolveFor(ctx, domain.PromptIDChatReply, domain.PromptKindChatReply, domain.PromptProviderOpenAI, botID, domain.PromptScopeGroup, 700, map[string]string{"bot_name": "Nagi", "scope_type": "group"})
 	if layered.OpenAI == nil || !strings.Contains(layered.OpenAI.SystemPrompt, "账号新版本") || !strings.Contains(layered.OpenAI.SystemPrompt, "补充：") {
 		t.Fatalf("account+group composition = %+v", layered.OpenAI)
@@ -175,7 +175,7 @@ func TestPromptResolveLegacyFallbackAndRestoreBuiltin(t *testing.T) {
 	if err := repo.Publish(ctx, legacy.ID); err != nil {
 		t.Fatalf("publish legacy: %v", err)
 	}
-	service := intentapp.NewPromptService(repo, slog.Default())
+	service := intentapp.NewPromptService(repo, slog.Default(), PromptCodec{})
 	resolved := service.ResolveFor(ctx, domain.PromptIDChatReply, domain.PromptKindChatReply, domain.PromptProviderOpenAI, botID, domain.PromptScopeGroup, 700, map[string]string{"bot_name": "Nagi", "scope_type": "group"})
 	if resolved.OpenAI == nil || !strings.Contains(resolved.OpenAI.SystemPrompt, "legacy global") {
 		t.Fatalf("legacy fallback = %+v", resolved.OpenAI)

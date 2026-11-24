@@ -30,6 +30,7 @@ import (
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
+	settingscontracts "github.com/HappyLadySauceM/Nagi/internal/settings/contracts"
 	settingsdomain "github.com/HappyLadySauceM/Nagi/internal/settings/domain"
 	settingsinfra "github.com/HappyLadySauceM/Nagi/internal/settings/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
@@ -192,59 +193,116 @@ func modelFingerprint(settings settingsdomain.Settings) string {
 // semanticRouter 依据实时配置选择 jev 或 openai 客户端，
 // 端点、模型或超时变化时重建。
 type semanticRouter struct {
-	transport   *http.Transport
+	transport   intentinfra.RequestTransport
 	mu          sync.Mutex
 	settings    *settingsapp.Provider
 	models      models.Resolver
 	logger      *slog.Logger
 	current     intentapp.SemanticDecider
 	fingerprint string
+	background  intentapp.IntentBackground
 }
 
-// newSemanticRouter builds the proxy around the semantic clients.
-// newSemanticRouter 构建语义客户端代理。
 func newSemanticRouter(settings *settingsapp.Provider, resolver models.Resolver, logger *slog.Logger) *semanticRouter {
-	return &semanticRouter{settings: settings, models: resolver, logger: logger, transport: &http.Transport{Proxy: nil}}
+	return &semanticRouter{settings: settings, models: resolver, logger: logger, transport: intentinfra.NewRequestTransport()}
 }
 
-// Decide forwards one semantic question to the currently configured client.
-// Decide 把一次语义判定转发给当前配置的客户端。
-func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (intentdomain.SemanticAnswer, error) {
-	decider, err := r.resolve(ctx)
+func (r *semanticRouter) ReplayDestination(ctx context.Context) string {
+	_, dest, err := r.resolveCurrent(ctx)
 	if err != nil {
+		return ""
+	}
+	return dest.Fingerprint
+}
+
+func (r *semanticRouter) CheckFrozenBackground(ctx context.Context, in intentdomain.Input) string {
+	_, destination, err := r.resolve(ctx)
+	if err != nil {
+		return "background_destination_unavailable"
+	}
+	if reason := r.background.CheckRoute(ctx, destination); reason != "" {
+		return reason
+	}
+	_, _, reason := r.background.Restore(ctx, in, destination, in.FrozenBackground)
+	return reason
+}
+
+func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (intentdomain.SemanticAnswer, error) {
+	if !in.Policy.AllowHistoryRead {
+		in.Recent, in.AwaitedRequest, in.Topics = nil, nil, nil
+	}
+	decider, dest, err := r.resolve(ctx)
+	if err != nil {
+		if in.FixedBackground {
+			return intentdomain.SemanticAnswer{BackgroundFailure: "background_destination_unavailable"}, nil
+		}
 		return intentdomain.SemanticAnswer{}, err
 	}
-	return decider.Decide(ctx, in)
+	projection, evidence, reason := r.background.Prepare(ctx, in, dest)
+	if reason != "" {
+		return intentdomain.SemanticAnswer{BackgroundFailure: reason}, nil
+	}
+	in.Background = projection
+	if !in.FixedBackground && evidence == nil {
+		answer, err := decider.Decide(ctx, in)
+		if answer.ExternalRequests > 0 {
+			answer.BackgroundEvidence = evidence
+		}
+		return answer, err
+	}
+	answer, err := r.dispatch(ctx, decider, in, dest, evidence)
+	return answer, err
 }
 
-func (r *semanticRouter) resolve(ctx context.Context) (intentapp.SemanticDecider, error) {
+func (r *semanticRouter) resolveCurrent(ctx context.Context) (intentapp.SemanticDecider, settingscontracts.IntentDestination, error) {
+	loader, ok := r.models.(interface {
+		ResolveCurrentIntent(context.Context) (models.Resolved, error)
+	})
+	if !ok {
+		return r.resolve(ctx)
+	}
+	resolved, err := loader.ResolveCurrentIntent(ctx)
+	if err != nil {
+		return nil, settingscontracts.IntentDestination{}, err
+	}
+	return r.clientFor(ctx, resolved)
+}
+
+func (r *semanticRouter) resolve(ctx context.Context) (intentapp.SemanticDecider, settingscontracts.IntentDestination, error) {
 	resolved, err := r.models.ResolveModel(ctx, "intent", 0, "", 0)
 	if err != nil {
-		return nil, err
+		return nil, settingscontracts.IntentDestination{}, err
 	}
+	return r.clientFor(ctx, resolved)
+}
+
+func (r *semanticRouter) clientFor(ctx context.Context, resolved models.Resolved) (intentapp.SemanticDecider, settingscontracts.IntentDestination, error) {
 	p := resolved.Profile
+	dest, err := settingsapp.IntentModelDestination(p)
+	if err != nil {
+		return nil, dest, err
+	}
 	botName := executionSettings(ctx, r.settings).Role.BotName
-	fingerprint := fmt.Sprintf("%s:%d:%s", p.ID, p.Version, botName)
+	fingerprint := fmt.Sprintf("%s:%d:%s:%s:%s:%s", p.ID, p.Version, p.Protocol, p.Model, dest.Endpoint, botName)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.current != nil && r.fingerprint == fingerprint {
-		return r.current, nil
+		return r.current, dest, nil
 	}
 	timeout := time.Duration(p.TimeoutSeconds) * time.Second
-	cfg := intentinfra.JevConfig{HTTPHeaders: p.HTTPHeaders, MaxOutputTokens: p.MaxOutputTokens, Thinking: p.Thinking, ReasoningEffort: p.ReasoningEffort, ContextWindow: p.ContextWindow, Endpoint: p.BaseURL, APIKey: resolved.APIKey, Model: p.Model, BotName: botName, Timeout: timeout}
+	cfg := intentinfra.JevConfig{Transport: r.transport, HTTPHeaders: p.HTTPHeaders, MaxOutputTokens: p.MaxOutputTokens, Thinking: p.Thinking, ReasoningEffort: p.ReasoningEffort, ContextWindow: p.ContextWindow, Endpoint: dest.Endpoint, APIKey: resolved.APIKey, Model: p.Model, BotName: botName, Timeout: timeout}
 	var decider intentapp.SemanticDecider
 	if p.Protocol == "openai" {
-		cfg.Endpoint = strings.TrimRight(p.BaseURL, "/") + "/chat/completions"
 		decider = &intentinfra.LocalClient{Config: cfg, Client: &http.Client{Timeout: timeout, Transport: r.transport}}
 	} else {
 		decider, err = intentinfra.NewJevClient(cfg, r.logger)
 		if err != nil {
-			return nil, err
+			return nil, dest, err
 		}
 	}
 	r.current = decider
 	r.fingerprint = fingerprint
-	return decider, nil
+	return decider, dest, nil
 }
 
 // mediaAccounts binds media lookups to the account that received the message.

@@ -38,6 +38,9 @@ type ReplayCost struct {
 // ReplayCostEstimate 是一次模型回放的服务端确认载荷。
 // ConfirmationToken 绑定 ParametersFingerprint 并会过期。
 type ReplayCostEstimate struct {
+	Budget                    *ReplayBudgetPlan `json:",omitempty"`
+	Status                    string            `json:",omitempty"`
+	ReasonCode                string            `json:",omitempty"`
 	DecisionID                int64
 	Provider                  string
 	Model                     string
@@ -53,6 +56,10 @@ type ReplayCostEstimate struct {
 // ReplayParameters records the exact parameters used by one saved evaluation.
 // ReplayParameters 记录一次已保存评估使用的精确参数。
 type ReplayParameters struct {
+	Budget                    ReplayBudgetPlan
+	DestinationFingerprint    string `json:",omitempty"`
+	BackgroundReason          string `json:",omitempty"`
+	BackgroundFingerprint     string `json:",omitempty"`
 	Provider                  string
 	Model                     string
 	PromptID                  string
@@ -62,6 +69,34 @@ type ReplayParameters struct {
 	SampleCount               int
 	EstimatedExternalRequests int
 	TokenEstimate             ReplayTokenEstimate
+}
+
+type ReplayBudgetPlan struct {
+	RequestLimit            int
+	Destination             string `json:",omitempty"`
+	AmountLimitMicros       *int64 `json:",omitempty"`
+	RequestUpperBoundMicros *int64 `json:",omitempty"`
+	Currency                string `json:",omitempty"`
+	PriceVersion            string `json:",omitempty"`
+}
+
+type ReplayBudgetBalance struct {
+	RequestLimit          int
+	RemainingRequests     int
+	Currency              string `json:",omitempty"`
+	AmountLimitMicros     *int64 `json:",omitempty"`
+	RemainingAmountMicros *int64 `json:",omitempty"`
+}
+
+type ReplayAttemptBudget struct {
+	RequestReserved       bool
+	RequestHeld           bool
+	RemainingRequests     int
+	ReservedAmountMicros  *int64 `json:",omitempty"`
+	HeldAmountMicros      *int64 `json:",omitempty"`
+	RemainingAmountMicros *int64 `json:",omitempty"`
+	ReservationCurrency   string `json:",omitempty"`
+	PriceVersion          string `json:",omitempty"`
 }
 
 // ReplayReproduction marks whether a replay fully reproduced the original run.

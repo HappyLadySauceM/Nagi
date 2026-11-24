@@ -307,3 +307,33 @@ func TestReplayBlocksExternalCallAfterScopeRevocation(t *testing.T) {
 		})
 	}
 }
+
+func TestReplayTopicOnlyDependencySurvivesHistoryRevocation(t *testing.T) {
+	ctx := context.Background()
+	semantic := &fakeSemantic{answer: domain.SemanticAnswer{Available: true}}
+	snapshot := replaySnapshot()
+	snapshot.Input.BotName = ""
+	snapshot.Input.Policy = scopedomain.Policy{Enabled: true, ReplyMode: scopedomain.ModeIntentBased, AllowHistoryRead: true}
+	snapshot.Input.Topics = &domain.TopicContext{Candidates: []domain.TopicCandidate{{ID: 2}}}
+	scopes := authorizedReplayScope()
+	d := newDecider(t, Options{Scopes: scopes, Recorder: &fakeRecorder{}, Semantic: semantic, Thresholds: thresholds, Provider: "jev", Model: "decision-model"})
+	evals := &fakeReplayEvaluations{}
+	svc := NewReplayService(d, &fakeDecisionReader{record: replayDecisionRecord()}, &fakeSnapshotReader{snapshot: snapshot}, evals)
+	before, err := svc.EstimateModelReplay(ctx, 7)
+	if err != nil || before.ConfirmationToken == "" {
+		t.Fatalf("allowed estimate: %+v %v", before, err)
+	}
+	scopes.policies[keyOf(100, "group", 700)] = scopedomain.Policy{Enabled: true, ReplyMode: scopedomain.ModeIntentBased}
+	after, err := svc.EstimateModelReplay(ctx, 7)
+	if err != nil || after.Status != "not_comparable" || after.ReasonCode != "background_history_denied" || after.ConfirmationToken != "" {
+		t.Fatalf("revoked estimate: %+v %v", after, err)
+	}
+	result, err := svc.ReplayModelConfirmed(ctx, 7, before.ConfirmationToken, "fixture", "")
+	if err != nil || result.After.Summary.Decision != "not_comparable" || result.After.Replay.ExternalRequests != 0 || semantic.calls != 0 {
+		t.Fatalf("revoked execution: %+v %v", result.After, err)
+	}
+	if result.After.Replay.Budget.RemainingRequests != before.Budget.RequestLimit {
+		t.Fatal("revocation spent request budget")
+	}
+	t.Log("topic-only frozen arm: estimate and confirmation rejected disclosure, requests=0")
+}

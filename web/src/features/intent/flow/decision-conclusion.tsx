@@ -18,6 +18,12 @@ const DECISION_STYLE = {
     icon: MinusCircle,
     className: 'border-border bg-muted/50 text-foreground',
   },
+  not_comparable: {
+    label: '不可比较',
+    badge: 'warning' as const,
+    icon: AlertTriangle,
+    className: 'border-warning/30 bg-warning/10 text-warning',
+  },
   defer: {
     label: '延后',
     badge: 'warning' as const,

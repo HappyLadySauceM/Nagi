@@ -439,7 +439,7 @@ func buildPromptService(cfg *config.Config, logger *slog.Logger, pool *db.Pool, 
 		BaseURL: cfg.Observability.BaseURL, PublicKey: cfg.Observability.PublicKey,
 		SecretKey: cfg.Observability.SecretKey, Timeout: 5 * time.Second,
 	}, logger)
-	promptService := intentapp.NewPromptService(repo, logger, remote)
+	promptService := intentapp.NewPromptService(repo, logger, intentinfra.PromptCodec{}, remote)
 	if settings != nil {
 		// Read custom variables per resolve so console edits apply live.
 		// 每次解析都读取自定义变量，控制台的改动因此实时生效。
@@ -484,6 +484,11 @@ func buildWorker(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	}
 
 	semantic := newSemanticRouter(settings, catalog, logger)
+	facts, err := memoryinfra.NewRepo(pool)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	semantic.background = intentapp.IntentBackground{Roles: promptService, Facts: facts, Grants: catalog, Scopes: scope}
 	decisionsRepo, err := intentinfra.NewDecisionsRepo(pool)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err

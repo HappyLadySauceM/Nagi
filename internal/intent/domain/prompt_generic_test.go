@@ -169,23 +169,6 @@ func TestRenderPromptVariablesReplacesCustomVariable(t *testing.T) {
 	}
 }
 
-func TestParsePromptContentForWithVariablesAllowsExtra(t *testing.T) {
-	// 存储内容解析同样需要在 extra 允许时接受自定义变量。
-	p := BuiltinPromptFor(PromptKindChatReply, PromptProviderOpenAI)
-	p.OpenAI.SystemPrompt = "你好 {{user_name}}"
-	content := PromptContentJSON(p)
-	if _, err := ParsePromptContentFor(PromptKindChatReply, PromptProviderOpenAI, content); err == nil {
-		t.Fatal("stored content with custom variable accepted without extra")
-	}
-	parsed, err := ParsePromptContentForWithVariables(PromptKindChatReply, PromptProviderOpenAI, content, []string{"user_name"})
-	if err != nil {
-		t.Fatalf("parse with extra: %v", err)
-	}
-	if !strings.Contains(parsed.OpenAI.SystemPrompt, "{{user_name}}") {
-		t.Fatalf("parsed = %+v", parsed.OpenAI)
-	}
-}
-
 // validIntentQuestion builds one intent score question.
 // validIntentQuestion 构造一个 intent 分数题。
 func validIntentQuestion(instructions string) PromptQuestion {

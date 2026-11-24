@@ -94,6 +94,7 @@ func NewService(opts Options) (*Service, error) {
 	if opts.Logger == nil {
 		return nil, fmt.Errorf("settings: logger required")
 	}
+	opts.Defaults.IntentMemoryGrants = nil
 	opts.Defaults.Normalize()
 	return &Service{
 		modelTester: opts.ModelTester, cipher: opts.Cipher, legacyAIKey: opts.LegacyAIKey, legacyIntentKey: opts.LegacyIntentKey,
@@ -180,9 +181,12 @@ func (s *Service) View() View {
 func (s *Service) Update(ctx context.Context, incoming settingsdomain.Settings, expected int64, actor string) (View, error) {
 	s.modelMu.Lock()
 	defer s.modelMu.Unlock()
-	current := s.provider.Settings()
-	incoming.Extraction = current.Extraction
-	return s.updateLocked(ctx, incoming, current, expected, actor)
+	current, err := s.settingsAtVersion(ctx, expected)
+	if err != nil {
+		return View{}, err
+	}
+	incoming.Extraction = current.Settings.Extraction
+	return s.updateLocked(ctx, incoming, current.Settings, expected, actor)
 }
 
 // Replace persists a whole-console save while preserving bindings omitted by
@@ -191,16 +195,9 @@ func (s *Service) Update(ctx context.Context, incoming settingsdomain.Settings, 
 func (s *Service) Replace(ctx context.Context, incoming settingsdomain.Settings, expected int64, actor string) (View, error) {
 	s.modelMu.Lock()
 	defer s.modelMu.Unlock()
-	current := s.provider.Current()
-	if s.repo != nil {
-		revision, found, err := s.repo.Load(ctx)
-		if err != nil {
-			return View{}, fmt.Errorf("settings: load revision for replace: %w", err)
-		}
-		if !found || revision.Version != expected {
-			return View{}, ErrConflict
-		}
-		current = snapshotOf(revision)
+	current, err := s.settingsAtVersion(ctx, expected)
+	if err != nil {
+		return View{}, err
 	}
 	if incoming.Role.CallNames == nil {
 		incoming.Role.CallNames = maps.Clone(current.Settings.Role.CallNames)
@@ -209,7 +206,22 @@ func (s *Service) Replace(ctx context.Context, incoming settingsdomain.Settings,
 	return s.updateLocked(ctx, incoming, current.Settings, expected, actor)
 }
 
+func (s *Service) Patch(ctx context.Context, expected int64, actor string, change func(*settingsdomain.Settings) error) (View, error) {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	current, err := s.settingsAtVersion(ctx, expected)
+	if err != nil {
+		return View{}, err
+	}
+	next := current.Settings.Clone()
+	if err := change(&next); err != nil {
+		return View{}, err
+	}
+	return s.updateLocked(ctx, next, current.Settings, expected, actor)
+}
+
 func (s *Service) updateLocked(ctx context.Context, incoming, current settingsdomain.Settings, expected int64, actor string) (View, error) {
+	incoming.IntentMemoryGrants = current.IntentMemoryGrants
 	incoming.Models = current.Models.Clone()
 	applyModelConnections(&incoming)
 	incoming.Normalize()

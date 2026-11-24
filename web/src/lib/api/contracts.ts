@@ -867,12 +867,31 @@ export interface IntentDelivery {
 }
 
 export interface IntentRunSummary {
-  decision: IntentDecisionKind
+  decision: IntentDecisionKind | 'not_comparable'
   reasonCode: string
   reasonText: string
 }
 
+export interface ReplayBudgetBalance {
+  requestLimit: number
+  remainingRequests: number
+  currency?: string
+  amountLimitMicros?: number
+  remainingAmountMicros?: number
+}
+
 export interface IntentReplayInfo {
+  budget?: ReplayBudgetBalance
+  status?: string
+  reasonCode?: string
+  externalRequests?: number
+  requestCountUnknown?: boolean
+  unresolvedReservations?: number
+  inputUsageResponses?: number
+  outputUsageResponses?: number
+  inputTokens?: number
+  outputTokens?: number
+  usageResponses?: number
   input: string
   semantic: string
   prompt: string
@@ -1004,6 +1023,9 @@ export interface ReplayTokenEstimate {
 }
 
 export interface ReplayEstimate {
+  budget?: Omit<ReplayBudgetBalance, 'remainingRequests' | 'remainingAmountMicros'>
+  status?: string
+  reasonCode?: string
   decisionId: number
   provider: string
   model: string
@@ -1124,6 +1146,11 @@ export interface ManagedPromptQuestion {
 /** Provider-specific content of one Prompt version; absent branches are not sent to the server. */
 export interface ManagedPromptContent {
   provider: ManagedPromptProvider
+  intentContext?: {
+    identity?: string
+    responsibilities?: string[]
+    groupConventions?: string[]
+  }
   openai?: {
     systemPrompt?: string
     replyStyle?: string

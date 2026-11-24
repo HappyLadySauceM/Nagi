@@ -116,6 +116,21 @@ export function PromptContentView({
           {openai?.systemPrompt || '未记录'}
         </pre>
       </div>
+      {kind === 'chat_reply' && content.intentContext ? (
+        <section className="space-y-1 rounded-md border border-border p-3 text-xs">
+          <p className="font-medium">意图判断背景</p>
+          {content.intentContext.identity ? <p>{content.intentContext.identity}</p> : null}
+          {content.intentContext.responsibilities?.map((item, index) => <p key={`responsibility-${index}`}>{item}</p>)}
+          {content.intentContext.groupConventions?.length ? (
+            <div>
+              <p>群聊参与约定适用于此账号所有群。</p>
+              <ul className="list-disc pl-4">
+                {content.intentContext.groupConventions.map((item, index) => <li key={`convention-${index}`}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
       {openai?.replyStyle ? (
         <div>
           <div className="text-xs text-muted-foreground">回复风格</div>
@@ -446,6 +461,38 @@ export function PromptEditor({ kind, provider, scope, content, onChange, insertR
           <span className="block text-xs text-muted-foreground">补充层只追加文本，不覆盖账号默认内容。</span>
         ) : null}
       </label>
+      {kind === 'chat_reply' && (account || scope === 'group') ? (
+        <fieldset className="space-y-3 rounded-md border border-border p-3">
+          <legend className="px-1 text-sm font-medium">意图判断背景</legend>
+          <p className="text-xs text-muted-foreground">
+            {account ? '发布后供此账号的群聊意图判断参考。' : '适用于此账号所有群。单个群的约定可在本群记忆中审批。'}
+          </p>
+          {account ? (
+            <label className="block space-y-1 text-sm">
+              <span>角色身份</span>
+              <Input
+                value={content.intentContext?.identity ?? ''}
+                onChange={(event) => onChange({ ...content, intentContext: { ...content.intentContext, identity: event.target.value } })}
+              />
+            </label>
+          ) : null}
+          <label className="block space-y-1 text-sm">
+            <span>{account ? '角色职责' : '群聊参与约定'}</span>
+            <Textarea
+              rows={3}
+              placeholder="每行一项，最多六项"
+              value={(account ? content.intentContext?.responsibilities : content.intentContext?.groupConventions)?.join('\n') ?? ''}
+              onChange={(event) => onChange({
+                ...content,
+                intentContext: {
+                  ...content.intentContext,
+                  [account ? 'responsibilities' : 'groupConventions']: event.target.value.split('\n'),
+                },
+              })}
+            />
+          </label>
+        </fieldset>
+      ) : null}
       {kind === 'chat_reply' && account ? (
         <label className="block space-y-1">
           <span className="text-sm font-medium">回复风格</span>

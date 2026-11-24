@@ -34,6 +34,23 @@ func (r *Repo) Load(ctx context.Context) (settingsdomain.Revision, bool, error) 
 	out, err := revision(v)
 	return out, err == nil, err
 }
+func (r *Repo) WithIntentSettings(ctx context.Context, fn func(settingsdomain.Revision) error) error {
+	tx, err := r.pool.Client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	row, err := tx.Client().SystemSetting.Query().Where(s.ID(1)).ForShare().Only(ctx)
+	if err != nil {
+		return err
+	}
+	current, err := revision(row)
+	if err != nil {
+		return err
+	}
+	return fn(current)
+}
+
 func (r *Repo) Insert(ctx context.Context, settings settingsdomain.Settings, actor string) (settingsdomain.Revision, error) {
 	payload, err := json.Marshal(settings)
 	if err != nil {
