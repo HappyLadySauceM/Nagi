@@ -24,6 +24,7 @@ import {
   type MemoryEntry,
   type MemoryStatus,
 } from '../../lib/api/contracts'
+import { ApiError } from '../../lib/api/client'
 import { describeError } from '../../lib/errors'
 import type { MemorySearch } from '../../lib/search-params'
 import { formatDateTime, formatRelativeTime } from '../../lib/format'
@@ -116,8 +117,20 @@ function MemoriesEntriesPage() {
         toast.success('记忆已审批并启用')
         setApproving(null)
       },
-      onError: (error) =>
-        toast.error('审批失败', { description: describeError(error).description }),
+      onError: (error) => {
+        const existingId = error instanceof ApiError ? error.existingMemoryId : undefined
+        const account = approving.botId
+        const feedback = describeError(error)
+        if (existingId) {
+          setApproving(null)
+          toast.error(feedback.title, {
+            description: feedback.description,
+            action: { label: '查看已有记忆', onClick: () => setManaging({ id: existingId, botId: account }) },
+          })
+        } else {
+          toast.error('审批失败', { description: feedback.description })
+        }
+      },
     })
   }
 
@@ -290,8 +303,8 @@ function MemoriesEntriesPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label="查看替代关系"
-                        title="查看替代关系"
+                        aria-label="查看记忆详情"
+                        title="查看记忆详情"
                         onClick={() => setManaging({ id: memory.id, botId: memory.botId })}
                       >
                         <History className="size-3.5" aria-hidden />
@@ -357,7 +370,7 @@ function MemoriesEntriesPage() {
         }}
       />
       <MemoryManagementSheet
-        memoryId={managing?.id ?? null}
+        memoryId={managing && (botId === undefined || managing.botId === botId) ? managing.id : null}
         botId={managing?.botId}
         onOpenChange={(open) => !open && setManaging(null)}
       />

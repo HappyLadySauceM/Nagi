@@ -77,6 +77,24 @@ export function describeError(error: unknown): ErrorPresentation {
           canRetry: false,
         }
       case 'conflict':
+        if (error.message === 'memory_fact_conflict') {
+          return {
+            variant: 'error',
+            title: '记忆事实重复',
+            description: error.existingMemoryId
+              ? `已有同一事实生效（${error.existingMemoryId}）。此次修改未保存。`
+              : '已有同一事实占用此范围。此次修改未保存。',
+            canRetry: false,
+          }
+        }
+        if (error.message === 'memory_fact_evidence_required') {
+          return {
+            variant: 'error',
+            title: '缺少有效来源',
+            description: '当前有效来源不足以确认这条事实。此次修改未保存。',
+            canRetry: false,
+          }
+        }
         return {
           variant: 'error',
           title: '后端拒绝该操作',

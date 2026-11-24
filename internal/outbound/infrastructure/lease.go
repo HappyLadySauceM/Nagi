@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
-	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
@@ -43,21 +42,31 @@ func loadDeliveryPolicyScope(ctx context.Context, tx *db.Tx, id string) (deliver
 	return scope, err
 }
 
-func lockScopedDelivery(ctx context.Context, tx *db.Tx, id, claim string) error {
-	_, err := lockScopedDeliveryConversations(ctx, tx, id)
+func (r *Repo) lockScopedDelivery(ctx context.Context, tx *db.Tx, id, claim string) error {
+	_, err := r.lockScopedDeliveryConversations(ctx, tx, id)
 	if err != nil {
 		return err
 	}
 	return lockDeliveryJob(ctx, tx, id, claim)
 }
 
-func lockScopedDeliveryConversations(ctx context.Context, tx *db.Tx, id string, proposals ...string) (deliveryPolicyScope, error) {
+func (r *Repo) lockScopedDeliveryConversations(ctx context.Context, tx *db.Tx, id string, proposals ...string) (deliveryPolicyScope, error) {
 	scope, err := loadDeliveryPolicyScope(ctx, tx, id)
 	if err != nil {
 		return scope, err
 	}
-	if scope.hasMemoryReads || scope.derived || scope.control {
-		if err := memoryinfra.LockMemoryMutation(ctx, tx, scope.botID); err != nil {
+	if scope.derived || scope.control {
+		if r.consentGate == nil {
+			return scope, domain.ErrConsentSendDenied
+		}
+		if err := r.consentGate.LockConsentSend(ctx, tx, scope.botID); err != nil {
+			return scope, err
+		}
+	} else if scope.hasMemoryReads {
+		if r.memoryReads == nil {
+			return scope, domain.ErrConsentSendDenied
+		}
+		if err := r.memoryReads.LockDeliveryReads(ctx, tx, scope.botID); err != nil {
 			return scope, err
 		}
 	}

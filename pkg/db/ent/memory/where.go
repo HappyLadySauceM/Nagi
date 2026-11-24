@@ -111,6 +111,11 @@ func SubjectID(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldEQ(FieldSubjectID, v))
 }
 
+// FactKey applies equality check predicate on the "fact_key" field. It's identical to FactKeyEQ.
+func FactKey(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldFactKey, v))
+}
+
 // DedupeKey applies equality check predicate on the "dedupe_key" field. It's identical to DedupeKeyEQ.
 func DedupeKey(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldEQ(FieldDedupeKey, v))
@@ -766,6 +771,81 @@ func SubjectIDContainsFold(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldContainsFold(FieldSubjectID, v))
 }
 
+// FactKeyEQ applies the EQ predicate on the "fact_key" field.
+func FactKeyEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEQ(FieldFactKey, v))
+}
+
+// FactKeyNEQ applies the NEQ predicate on the "fact_key" field.
+func FactKeyNEQ(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldNEQ(FieldFactKey, v))
+}
+
+// FactKeyIn applies the In predicate on the "fact_key" field.
+func FactKeyIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldIn(FieldFactKey, vs...))
+}
+
+// FactKeyNotIn applies the NotIn predicate on the "fact_key" field.
+func FactKeyNotIn(vs ...string) predicate.Memory {
+	return predicate.Memory(sql.FieldNotIn(FieldFactKey, vs...))
+}
+
+// FactKeyGT applies the GT predicate on the "fact_key" field.
+func FactKeyGT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGT(FieldFactKey, v))
+}
+
+// FactKeyGTE applies the GTE predicate on the "fact_key" field.
+func FactKeyGTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldGTE(FieldFactKey, v))
+}
+
+// FactKeyLT applies the LT predicate on the "fact_key" field.
+func FactKeyLT(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLT(FieldFactKey, v))
+}
+
+// FactKeyLTE applies the LTE predicate on the "fact_key" field.
+func FactKeyLTE(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldLTE(FieldFactKey, v))
+}
+
+// FactKeyContains applies the Contains predicate on the "fact_key" field.
+func FactKeyContains(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContains(FieldFactKey, v))
+}
+
+// FactKeyHasPrefix applies the HasPrefix predicate on the "fact_key" field.
+func FactKeyHasPrefix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasPrefix(FieldFactKey, v))
+}
+
+// FactKeyHasSuffix applies the HasSuffix predicate on the "fact_key" field.
+func FactKeyHasSuffix(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldHasSuffix(FieldFactKey, v))
+}
+
+// FactKeyIsNil applies the IsNil predicate on the "fact_key" field.
+func FactKeyIsNil() predicate.Memory {
+	return predicate.Memory(sql.FieldIsNull(FieldFactKey))
+}
+
+// FactKeyNotNil applies the NotNil predicate on the "fact_key" field.
+func FactKeyNotNil() predicate.Memory {
+	return predicate.Memory(sql.FieldNotNull(FieldFactKey))
+}
+
+// FactKeyEqualFold applies the EqualFold predicate on the "fact_key" field.
+func FactKeyEqualFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldEqualFold(FieldFactKey, v))
+}
+
+// FactKeyContainsFold applies the ContainsFold predicate on the "fact_key" field.
+func FactKeyContainsFold(v string) predicate.Memory {
+	return predicate.Memory(sql.FieldContainsFold(FieldFactKey, v))
+}
+
 // DedupeKeyEQ applies the EQ predicate on the "dedupe_key" field.
 func DedupeKeyEQ(v string) predicate.Memory {
 	return predicate.Memory(sql.FieldEQ(FieldDedupeKey, v))
@@ -1204,6 +1284,29 @@ func UpdatedAtLT(v time.Time) predicate.Memory {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.Memory {
 	return predicate.Memory(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasFactSources applies the HasEdge predicate on the "fact_sources" edge.
+func HasFactSources() predicate.Memory {
+	return predicate.Memory(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, FactSourcesTable, FactSourcesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasFactSourcesWith applies the HasEdge predicate on the "fact_sources" edge with a given conditions (other predicates).
+func HasFactSourcesWith(preds ...predicate.MemoryFactSource) predicate.Memory {
+	return predicate.Memory(func(s *sql.Selector) {
+		step := newFactSourcesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // HasBotIDRef applies the HasEdge predicate on the "bot_id_ref" edge.

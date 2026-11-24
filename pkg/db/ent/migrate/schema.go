@@ -930,6 +930,7 @@ var (
 		{Name: "origin", Type: field.TypeString, Default: schema.Expr("'manual'::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "subject_type", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "subject_id", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "fact_key", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "dedupe_key", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "review_reason", Type: field.TypeString, Default: schema.Expr("''::text"), SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "confidence", Type: field.TypeFloat32, Default: schema.Expr("0")},
@@ -949,27 +950,35 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "memories_bot_accounts_memories_bot_id",
-				Columns:    []*schema.Column{MemoriesColumns[18]},
+				Columns:    []*schema.Column{MemoriesColumns[19]},
 				RefColumns: []*schema.Column{BotAccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "memories_messages_memories_source_message_id",
-				Columns:    []*schema.Column{MemoriesColumns[19]},
+				Columns:    []*schema.Column{MemoriesColumns[20]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
+				Name:    "memories_fact_key_live",
+				Unique:  true,
+				Columns: []*schema.Column{MemoriesColumns[19], MemoriesColumns[1], MemoriesColumns[2], MemoriesColumns[10]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "((fact_key IS NOT NULL) AND (status = ANY (ARRAY['candidate'::text, 'active'::text])))",
+				},
+			},
+			{
 				Name:    "memories_visibility",
 				Unique:  false,
-				Columns: []*schema.Column{MemoriesColumns[18], MemoriesColumns[1], MemoriesColumns[2], MemoriesColumns[13]},
+				Columns: []*schema.Column{MemoriesColumns[19], MemoriesColumns[1], MemoriesColumns[2], MemoriesColumns[14]},
 			},
 			{
 				Name:    "memories_dedupe_key",
 				Unique:  true,
-				Columns: []*schema.Column{MemoriesColumns[10]},
+				Columns: []*schema.Column{MemoriesColumns[11]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "((dedupe_key IS NOT NULL) AND (status = ANY (ARRAY['candidate'::text, 'active'::text])))",
 				},
@@ -1205,6 +1214,46 @@ var (
 				Annotation: &entsql.IndexAnnotation{
 					Where: "(message_id IS NOT NULL)",
 				},
+			},
+		},
+	}
+	// MemoryFactSourcesColumns holds the columns for the "memory_fact_sources" table.
+	MemoryFactSourcesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "authorization_event_id", Type: field.TypeInt64},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true},
+		{Name: "memory_id", Type: field.TypeUUID},
+		{Name: "message_id", Type: field.TypeInt64, SchemaType: map[string]string{"postgres": "bigint"}},
+	}
+	// MemoryFactSourcesTable holds the schema information for the "memory_fact_sources" table.
+	MemoryFactSourcesTable = &schema.Table{
+		Name:       "memory_fact_sources",
+		Columns:    MemoryFactSourcesColumns,
+		PrimaryKey: []*schema.Column{MemoryFactSourcesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "memory_fact_sources_memories_fact_sources",
+				Columns:    []*schema.Column{MemoryFactSourcesColumns[3]},
+				RefColumns: []*schema.Column{MemoriesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "memory_fact_sources_messages_memory_fact_sources",
+				Columns:    []*schema.Column{MemoryFactSourcesColumns[4]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "memory_fact_sources_memory_message_key",
+				Unique:  true,
+				Columns: []*schema.Column{MemoryFactSourcesColumns[3], MemoryFactSourcesColumns[4]},
+			},
+			{
+				Name:    "memory_fact_sources_message",
+				Unique:  false,
+				Columns: []*schema.Column{MemoryFactSourcesColumns[4]},
 			},
 		},
 	}
@@ -1574,6 +1623,7 @@ var (
 		MemoryConsentProposalsTable,
 		MemoryExtractionCursorsTable,
 		MemoryExtractionJobsTable,
+		MemoryFactSourcesTable,
 		MemoryReplacementsTable,
 		MessagesTable,
 		MessageJobsTable,
@@ -1786,6 +1836,11 @@ func init() {
 		"memory_extraction_jobs_round_attempts_check": "(round_attempts >= 0)",
 		"memory_extraction_jobs_scope_type_check":     "((scope_type = ANY (ARRAY['group'::text, 'private'::text])))",
 		"memory_extraction_jobs_status_check":         "((status = ANY (ARRAY['pending'::text, 'processing'::text, 'done'::text, 'failed'::text, 'cancelled'::text])))",
+	}
+	MemoryFactSourcesTable.ForeignKeys[0].RefTable = MemoriesTable
+	MemoryFactSourcesTable.ForeignKeys[1].RefTable = MessagesTable
+	MemoryFactSourcesTable.Annotation = &entsql.Annotation{
+		Table: "memory_fact_sources",
 	}
 	MemoryReplacementsTable.Annotation = &entsql.Annotation{
 		Table: "memory_replacements",

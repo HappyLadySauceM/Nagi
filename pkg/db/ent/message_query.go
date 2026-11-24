@@ -18,6 +18,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -31,6 +32,7 @@ type MessageQuery struct {
 	order                             []message.OrderOption
 	inters                            []Interceptor
 	predicates                        []predicate.Message
+	withMemoryFactSources             *MemoryFactSourceQuery
 	withConversationIDRef             *ConversationQuery
 	withBotIDRef                      *BotAccountQuery
 	withMessageJobsIncomingMessageID  *MessageJobQuery
@@ -72,6 +74,28 @@ func (_q *MessageQuery) Unique(unique bool) *MessageQuery {
 func (_q *MessageQuery) Order(o ...message.OrderOption) *MessageQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryMemoryFactSources chains the current query on the "memory_fact_sources" edge.
+func (_q *MessageQuery) QueryMemoryFactSources() *MemoryFactSourceQuery {
+	query := (&MemoryFactSourceClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, selector),
+			sqlgraph.To(memoryfactsource.Table, memoryfactsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, message.MemoryFactSourcesTable, message.MemoryFactSourcesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryConversationIDRef chains the current query on the "conversation_id_ref" edge.
@@ -398,6 +422,7 @@ func (_q *MessageQuery) Clone() *MessageQuery {
 		order:                             append([]message.OrderOption{}, _q.order...),
 		inters:                            append([]Interceptor{}, _q.inters...),
 		predicates:                        append([]predicate.Message{}, _q.predicates...),
+		withMemoryFactSources:             _q.withMemoryFactSources.Clone(),
 		withConversationIDRef:             _q.withConversationIDRef.Clone(),
 		withBotIDRef:                      _q.withBotIDRef.Clone(),
 		withMessageJobsIncomingMessageID:  _q.withMessageJobsIncomingMessageID.Clone(),
@@ -408,6 +433,17 @@ func (_q *MessageQuery) Clone() *MessageQuery {
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithMemoryFactSources tells the query-builder to eager-load the nodes that are connected to
+// the "memory_fact_sources" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MessageQuery) WithMemoryFactSources(opts ...func(*MemoryFactSourceQuery)) *MessageQuery {
+	query := (&MemoryFactSourceClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withMemoryFactSources = query
+	return _q
 }
 
 // WithConversationIDRef tells the query-builder to eager-load the nodes that are connected to
@@ -554,7 +590,8 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 	var (
 		nodes       = []*Message{}
 		_spec       = _q.querySpec()
-		loadedTypes = [6]bool{
+		loadedTypes = [7]bool{
+			_q.withMemoryFactSources != nil,
 			_q.withConversationIDRef != nil,
 			_q.withBotIDRef != nil,
 			_q.withMessageJobsIncomingMessageID != nil,
@@ -583,6 +620,15 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withMemoryFactSources; query != nil {
+		if err := _q.loadMemoryFactSources(ctx, query, nodes,
+			func(n *Message) { n.Edges.MemoryFactSources = []*MemoryFactSource{} },
+			func(n *Message, e *MemoryFactSource) {
+				n.Edges.MemoryFactSources = append(n.Edges.MemoryFactSources, e)
+			}); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withConversationIDRef; query != nil {
 		if err := _q.loadConversationIDRef(ctx, query, nodes, nil,
@@ -632,6 +678,36 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 	return nodes, nil
 }
 
+func (_q *MessageQuery) loadMemoryFactSources(ctx context.Context, query *MemoryFactSourceQuery, nodes []*Message, init func(*Message), assign func(*Message, *MemoryFactSource)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Message)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(memoryfactsource.FieldMessageID)
+	}
+	query.Where(predicate.MemoryFactSource(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(message.MemoryFactSourcesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.MessageID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "message_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
 func (_q *MessageQuery) loadConversationIDRef(ctx context.Context, query *ConversationQuery, nodes []*Message, init func(*Message), assign func(*Message, *Conversation)) error {
 	ids := make([]uuid.UUID, 0, len(nodes))
 	nodeids := make(map[uuid.UUID][]*Message)

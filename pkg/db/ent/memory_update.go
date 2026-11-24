@@ -13,8 +13,10 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
+	"github.com/google/uuid"
 )
 
 // MemoryUpdate is the builder for updating Memory entities.
@@ -222,6 +224,26 @@ func (_u *MemoryUpdate) ClearSubjectID() *MemoryUpdate {
 	return _u
 }
 
+// SetFactKey sets the "fact_key" field.
+func (_u *MemoryUpdate) SetFactKey(v string) *MemoryUpdate {
+	_u.mutation.SetFactKey(v)
+	return _u
+}
+
+// SetNillableFactKey sets the "fact_key" field if the given value is not nil.
+func (_u *MemoryUpdate) SetNillableFactKey(v *string) *MemoryUpdate {
+	if v != nil {
+		_u.SetFactKey(*v)
+	}
+	return _u
+}
+
+// ClearFactKey clears the value of the "fact_key" field.
+func (_u *MemoryUpdate) ClearFactKey() *MemoryUpdate {
+	_u.mutation.ClearFactKey()
+	return _u
+}
+
 // SetDedupeKey sets the "dedupe_key" field.
 func (_u *MemoryUpdate) SetDedupeKey(v string) *MemoryUpdate {
 	_u.mutation.SetDedupeKey(v)
@@ -353,6 +375,21 @@ func (_u *MemoryUpdate) SetNillableUpdatedAt(v *time.Time) *MemoryUpdate {
 	return _u
 }
 
+// AddFactSourceIDs adds the "fact_sources" edge to the MemoryFactSource entity by IDs.
+func (_u *MemoryUpdate) AddFactSourceIDs(ids ...uuid.UUID) *MemoryUpdate {
+	_u.mutation.AddFactSourceIDs(ids...)
+	return _u
+}
+
+// AddFactSources adds the "fact_sources" edges to the MemoryFactSource entity.
+func (_u *MemoryUpdate) AddFactSources(v ...*MemoryFactSource) *MemoryUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddFactSourceIDs(ids...)
+}
+
 // SetBotIDRefID sets the "bot_id_ref" edge to the BotAccount entity by ID.
 func (_u *MemoryUpdate) SetBotIDRefID(id int64) *MemoryUpdate {
 	_u.mutation.SetBotIDRefID(id)
@@ -386,6 +423,27 @@ func (_u *MemoryUpdate) SetSourceMessageIDRef(v *Message) *MemoryUpdate {
 // Mutation returns the MemoryMutation object of the builder.
 func (_u *MemoryUpdate) Mutation() *MemoryMutation {
 	return _u.mutation
+}
+
+// ClearFactSources clears all "fact_sources" edges to the MemoryFactSource entity.
+func (_u *MemoryUpdate) ClearFactSources() *MemoryUpdate {
+	_u.mutation.ClearFactSources()
+	return _u
+}
+
+// RemoveFactSourceIDs removes the "fact_sources" edge to MemoryFactSource entities by IDs.
+func (_u *MemoryUpdate) RemoveFactSourceIDs(ids ...uuid.UUID) *MemoryUpdate {
+	_u.mutation.RemoveFactSourceIDs(ids...)
+	return _u
+}
+
+// RemoveFactSources removes "fact_sources" edges to MemoryFactSource entities.
+func (_u *MemoryUpdate) RemoveFactSources(v ...*MemoryFactSource) *MemoryUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveFactSourceIDs(ids...)
 }
 
 // ClearBotIDRef clears the "bot_id_ref" edge to the BotAccount entity.
@@ -489,6 +547,12 @@ func (_u *MemoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.SubjectIDCleared() {
 		_spec.ClearField(memory.FieldSubjectID, field.TypeString)
 	}
+	if value, ok := _u.mutation.FactKey(); ok {
+		_spec.SetField(memory.FieldFactKey, field.TypeString, value)
+	}
+	if _u.mutation.FactKeyCleared() {
+		_spec.ClearField(memory.FieldFactKey, field.TypeString)
+	}
 	if value, ok := _u.mutation.DedupeKey(); ok {
 		_spec.SetField(memory.FieldDedupeKey, field.TypeString, value)
 	}
@@ -521,6 +585,51 @@ func (_u *MemoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(memory.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.FactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   memory.FactSourcesTable,
+			Columns: []string{memory.FactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedFactSourcesIDs(); len(nodes) > 0 && !_u.mutation.FactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   memory.FactSourcesTable,
+			Columns: []string{memory.FactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FactSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   memory.FactSourcesTable,
+			Columns: []string{memory.FactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.BotIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -792,6 +901,26 @@ func (_u *MemoryUpdateOne) ClearSubjectID() *MemoryUpdateOne {
 	return _u
 }
 
+// SetFactKey sets the "fact_key" field.
+func (_u *MemoryUpdateOne) SetFactKey(v string) *MemoryUpdateOne {
+	_u.mutation.SetFactKey(v)
+	return _u
+}
+
+// SetNillableFactKey sets the "fact_key" field if the given value is not nil.
+func (_u *MemoryUpdateOne) SetNillableFactKey(v *string) *MemoryUpdateOne {
+	if v != nil {
+		_u.SetFactKey(*v)
+	}
+	return _u
+}
+
+// ClearFactKey clears the value of the "fact_key" field.
+func (_u *MemoryUpdateOne) ClearFactKey() *MemoryUpdateOne {
+	_u.mutation.ClearFactKey()
+	return _u
+}
+
 // SetDedupeKey sets the "dedupe_key" field.
 func (_u *MemoryUpdateOne) SetDedupeKey(v string) *MemoryUpdateOne {
 	_u.mutation.SetDedupeKey(v)
@@ -923,6 +1052,21 @@ func (_u *MemoryUpdateOne) SetNillableUpdatedAt(v *time.Time) *MemoryUpdateOne {
 	return _u
 }
 
+// AddFactSourceIDs adds the "fact_sources" edge to the MemoryFactSource entity by IDs.
+func (_u *MemoryUpdateOne) AddFactSourceIDs(ids ...uuid.UUID) *MemoryUpdateOne {
+	_u.mutation.AddFactSourceIDs(ids...)
+	return _u
+}
+
+// AddFactSources adds the "fact_sources" edges to the MemoryFactSource entity.
+func (_u *MemoryUpdateOne) AddFactSources(v ...*MemoryFactSource) *MemoryUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddFactSourceIDs(ids...)
+}
+
 // SetBotIDRefID sets the "bot_id_ref" edge to the BotAccount entity by ID.
 func (_u *MemoryUpdateOne) SetBotIDRefID(id int64) *MemoryUpdateOne {
 	_u.mutation.SetBotIDRefID(id)
@@ -956,6 +1100,27 @@ func (_u *MemoryUpdateOne) SetSourceMessageIDRef(v *Message) *MemoryUpdateOne {
 // Mutation returns the MemoryMutation object of the builder.
 func (_u *MemoryUpdateOne) Mutation() *MemoryMutation {
 	return _u.mutation
+}
+
+// ClearFactSources clears all "fact_sources" edges to the MemoryFactSource entity.
+func (_u *MemoryUpdateOne) ClearFactSources() *MemoryUpdateOne {
+	_u.mutation.ClearFactSources()
+	return _u
+}
+
+// RemoveFactSourceIDs removes the "fact_sources" edge to MemoryFactSource entities by IDs.
+func (_u *MemoryUpdateOne) RemoveFactSourceIDs(ids ...uuid.UUID) *MemoryUpdateOne {
+	_u.mutation.RemoveFactSourceIDs(ids...)
+	return _u
+}
+
+// RemoveFactSources removes "fact_sources" edges to MemoryFactSource entities.
+func (_u *MemoryUpdateOne) RemoveFactSources(v ...*MemoryFactSource) *MemoryUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveFactSourceIDs(ids...)
 }
 
 // ClearBotIDRef clears the "bot_id_ref" edge to the BotAccount entity.
@@ -1089,6 +1254,12 @@ func (_u *MemoryUpdateOne) sqlSave(ctx context.Context) (_node *Memory, err erro
 	if _u.mutation.SubjectIDCleared() {
 		_spec.ClearField(memory.FieldSubjectID, field.TypeString)
 	}
+	if value, ok := _u.mutation.FactKey(); ok {
+		_spec.SetField(memory.FieldFactKey, field.TypeString, value)
+	}
+	if _u.mutation.FactKeyCleared() {
+		_spec.ClearField(memory.FieldFactKey, field.TypeString)
+	}
 	if value, ok := _u.mutation.DedupeKey(); ok {
 		_spec.SetField(memory.FieldDedupeKey, field.TypeString, value)
 	}
@@ -1121,6 +1292,51 @@ func (_u *MemoryUpdateOne) sqlSave(ctx context.Context) (_node *Memory, err erro
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(memory.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.FactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   memory.FactSourcesTable,
+			Columns: []string{memory.FactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedFactSourcesIDs(); len(nodes) > 0 && !_u.mutation.FactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   memory.FactSourcesTable,
+			Columns: []string{memory.FactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FactSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   memory.FactSourcesTable,
+			Columns: []string{memory.FactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.BotIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{

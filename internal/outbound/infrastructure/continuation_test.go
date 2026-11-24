@@ -11,6 +11,7 @@ import (
 	conversation "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
+	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	plugins "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
@@ -66,6 +67,12 @@ func TestContinuationOriginalSlot(t *testing.T) {
 				f.repo.SetGatePermissions(tools)
 				repo.SetGatePermissions(tools)
 				if scenario == "memory_changed" {
+					validator, err := memoryinfra.NewRepo(f.pool)
+					if err != nil {
+						t.Fatal(err)
+					}
+					f.repo.SetDeliveryReadValidator(validator)
+					repo.SetDeliveryReadValidator(validator)
 					var updated time.Time
 					if err := f.pool.QueryRow(ctx, `INSERT INTO memories(memory_id,bot_id,visibility,owner_key,content,status) VALUES ($1,$2,'conversation',$3,'fixture','active') RETURNING updated_at`, memoryID, f.botID, f.conversationID).Scan(&updated); err != nil {
 						t.Fatal(err)

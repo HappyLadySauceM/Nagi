@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -32,12 +33,15 @@ func (r *recordingExtractor) Extract(_ context.Context, request domain.Extractio
 	r.requests = append(r.requests, request)
 	out := make([]domain.ExtractionCandidate, 0, len(request.Messages))
 	for _, message := range request.Messages {
-		out = append(out, domain.ExtractionCandidate{
-			Content:         "记忆:" + message.Text,
-			Confidence:      0.9,
-			SourceMessageID: message.ID,
-			Subject:         "sender",
-		})
+		for _, text := range strings.Split(message.Text, "；") {
+			subject := "sender"
+			if strings.HasPrefix(text, "本群") {
+				subject = "group"
+			}
+			out = append(out, domain.ExtractionCandidate{
+				Content: text, Confidence: 0.9, SourceMessageID: message.ID, Subject: subject,
+			})
+		}
 	}
 	return out, nil
 }
@@ -103,8 +107,9 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 	if err != nil || !authorized || eventID == 0 {
 		t.Fatalf("resolve authorization: event=%d authorized=%v err=%v", eventID, authorized, err)
 	}
-	for _, text := range []string{"用户A喜欢乌龙茶", "用户A周末喜欢爬山"} {
-		if _, err := pool.Exec(ctx, `INSERT INTO messages (conversation_id, bot_id, direction, platform_message_id, sender_id, text_content, segments, memory_authorization_event_id) VALUES ($1,$2,'incoming',$3,997203,$4,'[]'::jsonb,$5)`, conversationID, botID, time.Now().UnixNano(), text, eventID); err != nil {
+	messages := []string{"我喜欢乌龙茶", "我喜欢爬山", "我住在雾港；我在晨灯书店工作", "I live in Mist Harbor", "本群每周五读书", "我住在雾港", "小灯铃，你在吗", "她说我住在雾港", "我住在雾港还是云港"}
+	for _, text := range messages {
+		if _, err := pool.Exec(ctx, `INSERT INTO messages (conversation_id, bot_id, direction, platform_message_id, sender_id, text_content, segments, memory_authorization_event_id) VALUES ($1,$2,'incoming',$3,997203,$4,jsonb_build_array(jsonb_build_object('type','text','data',jsonb_build_object('text',$4::text))),$5)`, conversationID, botID, time.Now().UnixNano(), text, eventID); err != nil {
 			t.Fatalf("seed message: %v", err)
 		}
 	}
@@ -151,10 +156,10 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 		}
 	}()
 
-	waitForExtractionCount(t, pool, botID, `SELECT count(*) FROM memory_extraction_jobs WHERE bot_id=$1 AND status='done'`, 2)
+	waitForExtractionCount(t, pool, botID, `SELECT count(*) FROM memory_extraction_jobs WHERE bot_id=$1 AND status='done'`, len(messages))
 	extractor.mu.Lock()
-	if len(extractor.requests) != 1 || len(extractor.requests[0].Messages) != 2 {
-		t.Fatalf("extractor requests = %+v, want one request with two messages", extractor.requests)
+	if len(extractor.requests) != 1 || len(extractor.requests[0].Messages) != len(messages) {
+		t.Fatalf("extractor requests = %+v, want one request with the entire fixture", extractor.requests)
 	}
 	if extractor.requests[0].MaxRunes != 4000 {
 		t.Fatalf("max runes = %d, want 4000", extractor.requests[0].MaxRunes)
@@ -167,10 +172,10 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 	}
 	memoryService.SetReadPolicies(scopeService)
 	var memoryID, subjectID string
-	if err := pool.QueryRow(ctx, `SELECT memory_id::text, subject_id FROM memories WHERE bot_id=$1 AND status='candidate' ORDER BY created_at LIMIT 1`, botID).Scan(&memoryID, &subjectID); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT memory_id::text, subject_id FROM memories WHERE bot_id=$1 AND content='本人自述：我喜欢乌龙茶'`, botID).Scan(&memoryID, &subjectID); err != nil {
 		t.Fatalf("read candidate: %v", err)
 	}
-	req := memorycontracts.RecallRequest{BotID: botID, Kind: "group", TargetID: groupID, Query: "记忆", Limit: 5, SubjectType: "user", SubjectID: subjectID}
+	req := memorycontracts.RecallRequest{BotID: botID, Kind: "group", TargetID: groupID, Query: "喜欢", Limit: 5, SubjectType: "user", SubjectID: subjectID}
 	before, err := memoryService.Recall(ctx, req)
 	if err != nil || len(before.Items) != 0 {
 		t.Fatalf("candidate recall before approval = %d err=%v", len(before.Items), err)
@@ -179,8 +184,54 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 		t.Fatalf("approve candidate: %v", err)
 	}
 	after, err := memoryService.Recall(ctx, req)
-	if err != nil || len(after.Items) != 1 || !strings.Contains(after.Items[0].Content, "记忆:") {
+	if err != nil || len(after.Items) != 1 || !strings.Contains(after.Items[0].Content, "本人自述：我喜欢") {
 		t.Fatalf("approved recall = %+v err=%v", after, err)
+	}
+	for _, sample := range []struct {
+		content, edit, subject, subjectID string
+	}{
+		{"我住在雾港", "", "user", "997203"},
+		{"我在晨灯书店工作", "在晨灯书店工作", "user", "997203"},
+		{"I live in Mist Harbor", "", "user", "997203"},
+		{"本群每周五读书", "本群周五举办读书活动", "group", "997202"},
+	} {
+		var id string
+		var total int
+		if err := pool.QueryRow(ctx, `SELECT min(memory_id::text),count(*) FROM memories WHERE bot_id=$1 AND content=$2 AND fact_key IS NULL AND subject_type=$3 AND subject_id=$4 AND review_reason=''`, botID, sample.content, sample.subject, sample.subjectID).Scan(&id, &total); err != nil || total != 1 {
+			t.Fatalf("exact candidate %q count=%d: %v", sample.content, total, err)
+		}
+		if sample.edit == "" {
+			err = memoryService.Approve(ctx, id, "admin")
+			sample.edit = sample.content
+		} else {
+			err = memoryService.ApproveWithEdit(ctx, id, "admin", sample.edit, "", nil)
+		}
+		got, ok, readErr := repo.Get(ctx, id)
+		if err != nil || readErr != nil || !ok || got.Content != sample.edit || got.Status != domain.StatusActive || got.FactKey != "" {
+			t.Fatalf("approval for %q: %+v %v %v", sample.content, got, err, readErr)
+		}
+	}
+	rows, err := pool.Query(ctx, `SELECT memory_id::text FROM memories WHERE bot_id=$1 AND subject_type='unknown' AND review_reason='evidence_insufficient'`, botID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unknown []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		unknown = append(unknown, id)
+	}
+	rows.Close()
+	if len(unknown) != 3 || rows.Err() != nil {
+		t.Fatalf("unverified candidates: %v %v", unknown, rows.Err())
+	}
+	for _, id := range unknown {
+		if err := memoryService.ApproveWithEdit(ctx, id, "admin", "我住在雾港", "", nil); !errors.Is(err, memoryapp.ErrFactEvidenceRequired) {
+			t.Fatalf("unverified approval: %v", err)
+		}
 	}
 }
 

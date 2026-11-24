@@ -414,6 +414,7 @@ func (w *ExtractionWorker) materializeCandidates(batch domain.ExtractionBatch, c
 			SubjectID:       subjectID,
 			DedupeKey:       domain.ComputeDedupeKey(batch.Scope.BotID, visibility, ownerKey, subjectType, subjectID, content),
 			ReviewReason:    reviewReason,
+			FactProposal:    &candidate.Fact,
 			Confidence:      candidate.Confidence,
 			Status:          domain.StatusCandidate,
 		})

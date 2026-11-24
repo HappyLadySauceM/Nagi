@@ -45,6 +45,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
@@ -99,6 +100,7 @@ const (
 	TypeMemoryConsentProposal         = "MemoryConsentProposal"
 	TypeMemoryExtractionCursor        = "MemoryExtractionCursor"
 	TypeMemoryExtractionJob           = "MemoryExtractionJob"
+	TypeMemoryFactSource              = "MemoryFactSource"
 	TypeMemoryReplacement             = "MemoryReplacement"
 	TypeMessage                       = "Message"
 	TypeMessageJob                    = "MessageJob"
@@ -26384,6 +26386,7 @@ type MemoryMutation struct {
 	origin                       *string
 	subject_type                 *string
 	subject_id                   *string
+	fact_key                     *string
 	dedupe_key                   *string
 	review_reason                *string
 	confidence                   *float32
@@ -26394,6 +26397,9 @@ type MemoryMutation struct {
 	created_at                   *time.Time
 	updated_at                   *time.Time
 	clearedFields                map[string]struct{}
+	fact_sources                 map[uuid.UUID]struct{}
+	removedfact_sources          map[uuid.UUID]struct{}
+	clearedfact_sources          bool
 	bot_id_ref                   *int64
 	clearedbot_id_ref            bool
 	source_message_id_ref        *int64
@@ -26996,6 +27002,55 @@ func (m *MemoryMutation) ResetSubjectID() {
 	delete(m.clearedFields, memory.FieldSubjectID)
 }
 
+// SetFactKey sets the "fact_key" field.
+func (m *MemoryMutation) SetFactKey(s string) {
+	m.fact_key = &s
+}
+
+// FactKey returns the value of the "fact_key" field in the mutation.
+func (m *MemoryMutation) FactKey() (r string, exists bool) {
+	v := m.fact_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFactKey returns the old "fact_key" field's value of the Memory entity.
+// If the Memory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryMutation) OldFactKey(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFactKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFactKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFactKey: %w", err)
+	}
+	return oldValue.FactKey, nil
+}
+
+// ClearFactKey clears the value of the "fact_key" field.
+func (m *MemoryMutation) ClearFactKey() {
+	m.fact_key = nil
+	m.clearedFields[memory.FieldFactKey] = struct{}{}
+}
+
+// FactKeyCleared returns if the "fact_key" field was cleared in this mutation.
+func (m *MemoryMutation) FactKeyCleared() bool {
+	_, ok := m.clearedFields[memory.FieldFactKey]
+	return ok
+}
+
+// ResetFactKey resets all changes to the "fact_key" field.
+func (m *MemoryMutation) ResetFactKey() {
+	m.fact_key = nil
+	delete(m.clearedFields, memory.FieldFactKey)
+}
+
 // SetDedupeKey sets the "dedupe_key" field.
 func (m *MemoryMutation) SetDedupeKey(s string) {
 	m.dedupe_key = &s
@@ -27330,6 +27385,60 @@ func (m *MemoryMutation) ResetUpdatedAt() {
 	m.updated_at = nil
 }
 
+// AddFactSourceIDs adds the "fact_sources" edge to the MemoryFactSource entity by ids.
+func (m *MemoryMutation) AddFactSourceIDs(ids ...uuid.UUID) {
+	if m.fact_sources == nil {
+		m.fact_sources = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		m.fact_sources[ids[i]] = struct{}{}
+	}
+}
+
+// ClearFactSources clears the "fact_sources" edge to the MemoryFactSource entity.
+func (m *MemoryMutation) ClearFactSources() {
+	m.clearedfact_sources = true
+}
+
+// FactSourcesCleared reports if the "fact_sources" edge to the MemoryFactSource entity was cleared.
+func (m *MemoryMutation) FactSourcesCleared() bool {
+	return m.clearedfact_sources
+}
+
+// RemoveFactSourceIDs removes the "fact_sources" edge to the MemoryFactSource entity by IDs.
+func (m *MemoryMutation) RemoveFactSourceIDs(ids ...uuid.UUID) {
+	if m.removedfact_sources == nil {
+		m.removedfact_sources = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		delete(m.fact_sources, ids[i])
+		m.removedfact_sources[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedFactSources returns the removed IDs of the "fact_sources" edge to the MemoryFactSource entity.
+func (m *MemoryMutation) RemovedFactSourcesIDs() (ids []uuid.UUID) {
+	for id := range m.removedfact_sources {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// FactSourcesIDs returns the "fact_sources" edge IDs in the mutation.
+func (m *MemoryMutation) FactSourcesIDs() (ids []uuid.UUID) {
+	for id := range m.fact_sources {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetFactSources resets all changes to the "fact_sources" edge.
+func (m *MemoryMutation) ResetFactSources() {
+	m.fact_sources = nil
+	m.clearedfact_sources = false
+	m.removedfact_sources = nil
+}
+
 // SetBotIDRefID sets the "bot_id_ref" edge to the BotAccount entity by id.
 func (m *MemoryMutation) SetBotIDRefID(id int64) {
 	m.bot_id_ref = &id
@@ -27444,7 +27553,7 @@ func (m *MemoryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MemoryMutation) Fields() []string {
-	fields := make([]string, 0, 19)
+	fields := make([]string, 0, 20)
 	if m.bot_id_ref != nil {
 		fields = append(fields, memory.FieldBotID)
 	}
@@ -27477,6 +27586,9 @@ func (m *MemoryMutation) Fields() []string {
 	}
 	if m.subject_id != nil {
 		fields = append(fields, memory.FieldSubjectID)
+	}
+	if m.fact_key != nil {
+		fields = append(fields, memory.FieldFactKey)
 	}
 	if m.dedupe_key != nil {
 		fields = append(fields, memory.FieldDedupeKey)
@@ -27532,6 +27644,8 @@ func (m *MemoryMutation) Field(name string) (ent.Value, bool) {
 		return m.SubjectType()
 	case memory.FieldSubjectID:
 		return m.SubjectID()
+	case memory.FieldFactKey:
+		return m.FactKey()
 	case memory.FieldDedupeKey:
 		return m.DedupeKey()
 	case memory.FieldReviewReason:
@@ -27579,6 +27693,8 @@ func (m *MemoryMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldSubjectType(ctx)
 	case memory.FieldSubjectID:
 		return m.OldSubjectID(ctx)
+	case memory.FieldFactKey:
+		return m.OldFactKey(ctx)
 	case memory.FieldDedupeKey:
 		return m.OldDedupeKey(ctx)
 	case memory.FieldReviewReason:
@@ -27680,6 +27796,13 @@ func (m *MemoryMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetSubjectID(v)
+		return nil
+	case memory.FieldFactKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFactKey(v)
 		return nil
 	case memory.FieldDedupeKey:
 		v, ok := value.(string)
@@ -27818,6 +27941,9 @@ func (m *MemoryMutation) ClearedFields() []string {
 	if m.FieldCleared(memory.FieldSubjectID) {
 		fields = append(fields, memory.FieldSubjectID)
 	}
+	if m.FieldCleared(memory.FieldFactKey) {
+		fields = append(fields, memory.FieldFactKey)
+	}
 	if m.FieldCleared(memory.FieldDedupeKey) {
 		fields = append(fields, memory.FieldDedupeKey)
 	}
@@ -27849,6 +27975,9 @@ func (m *MemoryMutation) ClearField(name string) error {
 		return nil
 	case memory.FieldSubjectID:
 		m.ClearSubjectID()
+		return nil
+	case memory.FieldFactKey:
+		m.ClearFactKey()
 		return nil
 	case memory.FieldDedupeKey:
 		m.ClearDedupeKey()
@@ -27897,6 +28026,9 @@ func (m *MemoryMutation) ResetField(name string) error {
 	case memory.FieldSubjectID:
 		m.ResetSubjectID()
 		return nil
+	case memory.FieldFactKey:
+		m.ResetFactKey()
+		return nil
 	case memory.FieldDedupeKey:
 		m.ResetDedupeKey()
 		return nil
@@ -27927,7 +28059,10 @@ func (m *MemoryMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *MemoryMutation) AddedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
+	if m.fact_sources != nil {
+		edges = append(edges, memory.EdgeFactSources)
+	}
 	if m.bot_id_ref != nil {
 		edges = append(edges, memory.EdgeBotIDRef)
 	}
@@ -27941,6 +28076,12 @@ func (m *MemoryMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *MemoryMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case memory.EdgeFactSources:
+		ids := make([]ent.Value, 0, len(m.fact_sources))
+		for id := range m.fact_sources {
+			ids = append(ids, id)
+		}
+		return ids
 	case memory.EdgeBotIDRef:
 		if id := m.bot_id_ref; id != nil {
 			return []ent.Value{*id}
@@ -27955,19 +28096,33 @@ func (m *MemoryMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MemoryMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
+	if m.removedfact_sources != nil {
+		edges = append(edges, memory.EdgeFactSources)
+	}
 	return edges
 }
 
 // RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
 // the given name in this mutation.
 func (m *MemoryMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case memory.EdgeFactSources:
+		ids := make([]ent.Value, 0, len(m.removedfact_sources))
+		for id := range m.removedfact_sources {
+			ids = append(ids, id)
+		}
+		return ids
+	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *MemoryMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
+	if m.clearedfact_sources {
+		edges = append(edges, memory.EdgeFactSources)
+	}
 	if m.clearedbot_id_ref {
 		edges = append(edges, memory.EdgeBotIDRef)
 	}
@@ -27981,6 +28136,8 @@ func (m *MemoryMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *MemoryMutation) EdgeCleared(name string) bool {
 	switch name {
+	case memory.EdgeFactSources:
+		return m.clearedfact_sources
 	case memory.EdgeBotIDRef:
 		return m.clearedbot_id_ref
 	case memory.EdgeSourceMessageIDRef:
@@ -28007,6 +28164,9 @@ func (m *MemoryMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *MemoryMutation) ResetEdge(name string) error {
 	switch name {
+	case memory.EdgeFactSources:
+		m.ResetFactSources()
+		return nil
 	case memory.EdgeBotIDRef:
 		m.ResetBotIDRef()
 		return nil
@@ -34025,6 +34185,658 @@ func (m *MemoryExtractionJobMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown MemoryExtractionJob edge %s", name)
 }
 
+// MemoryFactSourceMutation represents an operation that mutates the MemoryFactSource nodes in the graph.
+type MemoryFactSourceMutation struct {
+	config
+	op                        Op
+	typ                       string
+	id                        *uuid.UUID
+	authorization_event_id    *int64
+	addauthorization_event_id *int64
+	expires_at                *time.Time
+	clearedFields             map[string]struct{}
+	memory                    *uuid.UUID
+	clearedmemory             bool
+	message                   *int64
+	clearedmessage            bool
+	done                      bool
+	oldValue                  func(context.Context) (*MemoryFactSource, error)
+	predicates                []predicate.MemoryFactSource
+}
+
+var _ ent.Mutation = (*MemoryFactSourceMutation)(nil)
+
+// memoryfactsourceOption allows management of the mutation configuration using functional options.
+type memoryfactsourceOption func(*MemoryFactSourceMutation)
+
+// newMemoryFactSourceMutation creates new mutation for the MemoryFactSource entity.
+func newMemoryFactSourceMutation(c config, op Op, opts ...memoryfactsourceOption) *MemoryFactSourceMutation {
+	m := &MemoryFactSourceMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMemoryFactSource,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMemoryFactSourceID sets the ID field of the mutation.
+func withMemoryFactSourceID(id uuid.UUID) memoryfactsourceOption {
+	return func(m *MemoryFactSourceMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MemoryFactSource
+		)
+		m.oldValue = func(ctx context.Context) (*MemoryFactSource, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MemoryFactSource.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMemoryFactSource sets the old MemoryFactSource of the mutation.
+func withMemoryFactSource(node *MemoryFactSource) memoryfactsourceOption {
+	return func(m *MemoryFactSourceMutation) {
+		m.oldValue = func(context.Context) (*MemoryFactSource, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MemoryFactSourceMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MemoryFactSourceMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of MemoryFactSource entities.
+func (m *MemoryFactSourceMutation) SetID(id uuid.UUID) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MemoryFactSourceMutation) ID() (id uuid.UUID, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MemoryFactSourceMutation) IDs(ctx context.Context) ([]uuid.UUID, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []uuid.UUID{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MemoryFactSource.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetMemoryID sets the "memory_id" field.
+func (m *MemoryFactSourceMutation) SetMemoryID(u uuid.UUID) {
+	m.memory = &u
+}
+
+// MemoryID returns the value of the "memory_id" field in the mutation.
+func (m *MemoryFactSourceMutation) MemoryID() (r uuid.UUID, exists bool) {
+	v := m.memory
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMemoryID returns the old "memory_id" field's value of the MemoryFactSource entity.
+// If the MemoryFactSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryFactSourceMutation) OldMemoryID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMemoryID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMemoryID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMemoryID: %w", err)
+	}
+	return oldValue.MemoryID, nil
+}
+
+// ResetMemoryID resets all changes to the "memory_id" field.
+func (m *MemoryFactSourceMutation) ResetMemoryID() {
+	m.memory = nil
+}
+
+// SetMessageID sets the "message_id" field.
+func (m *MemoryFactSourceMutation) SetMessageID(i int64) {
+	m.message = &i
+}
+
+// MessageID returns the value of the "message_id" field in the mutation.
+func (m *MemoryFactSourceMutation) MessageID() (r int64, exists bool) {
+	v := m.message
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMessageID returns the old "message_id" field's value of the MemoryFactSource entity.
+// If the MemoryFactSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryFactSourceMutation) OldMessageID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMessageID: %w", err)
+	}
+	return oldValue.MessageID, nil
+}
+
+// ResetMessageID resets all changes to the "message_id" field.
+func (m *MemoryFactSourceMutation) ResetMessageID() {
+	m.message = nil
+}
+
+// SetAuthorizationEventID sets the "authorization_event_id" field.
+func (m *MemoryFactSourceMutation) SetAuthorizationEventID(i int64) {
+	m.authorization_event_id = &i
+	m.addauthorization_event_id = nil
+}
+
+// AuthorizationEventID returns the value of the "authorization_event_id" field in the mutation.
+func (m *MemoryFactSourceMutation) AuthorizationEventID() (r int64, exists bool) {
+	v := m.authorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthorizationEventID returns the old "authorization_event_id" field's value of the MemoryFactSource entity.
+// If the MemoryFactSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryFactSourceMutation) OldAuthorizationEventID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthorizationEventID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthorizationEventID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthorizationEventID: %w", err)
+	}
+	return oldValue.AuthorizationEventID, nil
+}
+
+// AddAuthorizationEventID adds i to the "authorization_event_id" field.
+func (m *MemoryFactSourceMutation) AddAuthorizationEventID(i int64) {
+	if m.addauthorization_event_id != nil {
+		*m.addauthorization_event_id += i
+	} else {
+		m.addauthorization_event_id = &i
+	}
+}
+
+// AddedAuthorizationEventID returns the value that was added to the "authorization_event_id" field in this mutation.
+func (m *MemoryFactSourceMutation) AddedAuthorizationEventID() (r int64, exists bool) {
+	v := m.addauthorization_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAuthorizationEventID resets all changes to the "authorization_event_id" field.
+func (m *MemoryFactSourceMutation) ResetAuthorizationEventID() {
+	m.authorization_event_id = nil
+	m.addauthorization_event_id = nil
+}
+
+// SetExpiresAt sets the "expires_at" field.
+func (m *MemoryFactSourceMutation) SetExpiresAt(t time.Time) {
+	m.expires_at = &t
+}
+
+// ExpiresAt returns the value of the "expires_at" field in the mutation.
+func (m *MemoryFactSourceMutation) ExpiresAt() (r time.Time, exists bool) {
+	v := m.expires_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAt returns the old "expires_at" field's value of the MemoryFactSource entity.
+// If the MemoryFactSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MemoryFactSourceMutation) OldExpiresAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAt: %w", err)
+	}
+	return oldValue.ExpiresAt, nil
+}
+
+// ClearExpiresAt clears the value of the "expires_at" field.
+func (m *MemoryFactSourceMutation) ClearExpiresAt() {
+	m.expires_at = nil
+	m.clearedFields[memoryfactsource.FieldExpiresAt] = struct{}{}
+}
+
+// ExpiresAtCleared returns if the "expires_at" field was cleared in this mutation.
+func (m *MemoryFactSourceMutation) ExpiresAtCleared() bool {
+	_, ok := m.clearedFields[memoryfactsource.FieldExpiresAt]
+	return ok
+}
+
+// ResetExpiresAt resets all changes to the "expires_at" field.
+func (m *MemoryFactSourceMutation) ResetExpiresAt() {
+	m.expires_at = nil
+	delete(m.clearedFields, memoryfactsource.FieldExpiresAt)
+}
+
+// ClearMemory clears the "memory" edge to the Memory entity.
+func (m *MemoryFactSourceMutation) ClearMemory() {
+	m.clearedmemory = true
+	m.clearedFields[memoryfactsource.FieldMemoryID] = struct{}{}
+}
+
+// MemoryCleared reports if the "memory" edge to the Memory entity was cleared.
+func (m *MemoryFactSourceMutation) MemoryCleared() bool {
+	return m.clearedmemory
+}
+
+// MemoryIDs returns the "memory" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// MemoryID instead. It exists only for internal usage by the builders.
+func (m *MemoryFactSourceMutation) MemoryIDs() (ids []uuid.UUID) {
+	if id := m.memory; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetMemory resets all changes to the "memory" edge.
+func (m *MemoryFactSourceMutation) ResetMemory() {
+	m.memory = nil
+	m.clearedmemory = false
+}
+
+// ClearMessage clears the "message" edge to the Message entity.
+func (m *MemoryFactSourceMutation) ClearMessage() {
+	m.clearedmessage = true
+	m.clearedFields[memoryfactsource.FieldMessageID] = struct{}{}
+}
+
+// MessageCleared reports if the "message" edge to the Message entity was cleared.
+func (m *MemoryFactSourceMutation) MessageCleared() bool {
+	return m.clearedmessage
+}
+
+// MessageIDs returns the "message" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// MessageID instead. It exists only for internal usage by the builders.
+func (m *MemoryFactSourceMutation) MessageIDs() (ids []int64) {
+	if id := m.message; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetMessage resets all changes to the "message" edge.
+func (m *MemoryFactSourceMutation) ResetMessage() {
+	m.message = nil
+	m.clearedmessage = false
+}
+
+// Where appends a list predicates to the MemoryFactSourceMutation builder.
+func (m *MemoryFactSourceMutation) Where(ps ...predicate.MemoryFactSource) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MemoryFactSourceMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MemoryFactSourceMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MemoryFactSource, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MemoryFactSourceMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MemoryFactSourceMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MemoryFactSource).
+func (m *MemoryFactSourceMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MemoryFactSourceMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.memory != nil {
+		fields = append(fields, memoryfactsource.FieldMemoryID)
+	}
+	if m.message != nil {
+		fields = append(fields, memoryfactsource.FieldMessageID)
+	}
+	if m.authorization_event_id != nil {
+		fields = append(fields, memoryfactsource.FieldAuthorizationEventID)
+	}
+	if m.expires_at != nil {
+		fields = append(fields, memoryfactsource.FieldExpiresAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MemoryFactSourceMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case memoryfactsource.FieldMemoryID:
+		return m.MemoryID()
+	case memoryfactsource.FieldMessageID:
+		return m.MessageID()
+	case memoryfactsource.FieldAuthorizationEventID:
+		return m.AuthorizationEventID()
+	case memoryfactsource.FieldExpiresAt:
+		return m.ExpiresAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MemoryFactSourceMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case memoryfactsource.FieldMemoryID:
+		return m.OldMemoryID(ctx)
+	case memoryfactsource.FieldMessageID:
+		return m.OldMessageID(ctx)
+	case memoryfactsource.FieldAuthorizationEventID:
+		return m.OldAuthorizationEventID(ctx)
+	case memoryfactsource.FieldExpiresAt:
+		return m.OldExpiresAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown MemoryFactSource field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryFactSourceMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case memoryfactsource.FieldMemoryID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMemoryID(v)
+		return nil
+	case memoryfactsource.FieldMessageID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMessageID(v)
+		return nil
+	case memoryfactsource.FieldAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthorizationEventID(v)
+		return nil
+	case memoryfactsource.FieldExpiresAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryFactSource field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MemoryFactSourceMutation) AddedFields() []string {
+	var fields []string
+	if m.addauthorization_event_id != nil {
+		fields = append(fields, memoryfactsource.FieldAuthorizationEventID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MemoryFactSourceMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case memoryfactsource.FieldAuthorizationEventID:
+		return m.AddedAuthorizationEventID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MemoryFactSourceMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case memoryfactsource.FieldAuthorizationEventID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAuthorizationEventID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryFactSource numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MemoryFactSourceMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(memoryfactsource.FieldExpiresAt) {
+		fields = append(fields, memoryfactsource.FieldExpiresAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MemoryFactSourceMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MemoryFactSourceMutation) ClearField(name string) error {
+	switch name {
+	case memoryfactsource.FieldExpiresAt:
+		m.ClearExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryFactSource nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MemoryFactSourceMutation) ResetField(name string) error {
+	switch name {
+	case memoryfactsource.FieldMemoryID:
+		m.ResetMemoryID()
+		return nil
+	case memoryfactsource.FieldMessageID:
+		m.ResetMessageID()
+		return nil
+	case memoryfactsource.FieldAuthorizationEventID:
+		m.ResetAuthorizationEventID()
+		return nil
+	case memoryfactsource.FieldExpiresAt:
+		m.ResetExpiresAt()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryFactSource field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MemoryFactSourceMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.memory != nil {
+		edges = append(edges, memoryfactsource.EdgeMemory)
+	}
+	if m.message != nil {
+		edges = append(edges, memoryfactsource.EdgeMessage)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MemoryFactSourceMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case memoryfactsource.EdgeMemory:
+		if id := m.memory; id != nil {
+			return []ent.Value{*id}
+		}
+	case memoryfactsource.EdgeMessage:
+		if id := m.message; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MemoryFactSourceMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MemoryFactSourceMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MemoryFactSourceMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedmemory {
+		edges = append(edges, memoryfactsource.EdgeMemory)
+	}
+	if m.clearedmessage {
+		edges = append(edges, memoryfactsource.EdgeMessage)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MemoryFactSourceMutation) EdgeCleared(name string) bool {
+	switch name {
+	case memoryfactsource.EdgeMemory:
+		return m.clearedmemory
+	case memoryfactsource.EdgeMessage:
+		return m.clearedmessage
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MemoryFactSourceMutation) ClearEdge(name string) error {
+	switch name {
+	case memoryfactsource.EdgeMemory:
+		m.ClearMemory()
+		return nil
+	case memoryfactsource.EdgeMessage:
+		m.ClearMessage()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryFactSource unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MemoryFactSourceMutation) ResetEdge(name string) error {
+	switch name {
+	case memoryfactsource.EdgeMemory:
+		m.ResetMemory()
+		return nil
+	case memoryfactsource.EdgeMessage:
+		m.ResetMessage()
+		return nil
+	}
+	return fmt.Errorf("unknown MemoryFactSource edge %s", name)
+}
+
 // MemoryReplacementMutation represents an operation that mutates the MemoryReplacement nodes in the graph.
 type MemoryReplacementMutation struct {
 	config
@@ -34739,6 +35551,9 @@ type MessageMutation struct {
 	memory_authorization_event_id            *int64
 	addmemory_authorization_event_id         *int64
 	clearedFields                            map[string]struct{}
+	memory_fact_sources                      map[uuid.UUID]struct{}
+	removedmemory_fact_sources               map[uuid.UUID]struct{}
+	clearedmemory_fact_sources               bool
 	conversation_id_ref                      *uuid.UUID
 	clearedconversation_id_ref               bool
 	bot_id_ref                               *int64
@@ -35489,6 +36304,60 @@ func (m *MessageMutation) ResetMemoryAuthorizationEventID() {
 	delete(m.clearedFields, message.FieldMemoryAuthorizationEventID)
 }
 
+// AddMemoryFactSourceIDs adds the "memory_fact_sources" edge to the MemoryFactSource entity by ids.
+func (m *MessageMutation) AddMemoryFactSourceIDs(ids ...uuid.UUID) {
+	if m.memory_fact_sources == nil {
+		m.memory_fact_sources = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		m.memory_fact_sources[ids[i]] = struct{}{}
+	}
+}
+
+// ClearMemoryFactSources clears the "memory_fact_sources" edge to the MemoryFactSource entity.
+func (m *MessageMutation) ClearMemoryFactSources() {
+	m.clearedmemory_fact_sources = true
+}
+
+// MemoryFactSourcesCleared reports if the "memory_fact_sources" edge to the MemoryFactSource entity was cleared.
+func (m *MessageMutation) MemoryFactSourcesCleared() bool {
+	return m.clearedmemory_fact_sources
+}
+
+// RemoveMemoryFactSourceIDs removes the "memory_fact_sources" edge to the MemoryFactSource entity by IDs.
+func (m *MessageMutation) RemoveMemoryFactSourceIDs(ids ...uuid.UUID) {
+	if m.removedmemory_fact_sources == nil {
+		m.removedmemory_fact_sources = make(map[uuid.UUID]struct{})
+	}
+	for i := range ids {
+		delete(m.memory_fact_sources, ids[i])
+		m.removedmemory_fact_sources[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedMemoryFactSources returns the removed IDs of the "memory_fact_sources" edge to the MemoryFactSource entity.
+func (m *MessageMutation) RemovedMemoryFactSourcesIDs() (ids []uuid.UUID) {
+	for id := range m.removedmemory_fact_sources {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// MemoryFactSourcesIDs returns the "memory_fact_sources" edge IDs in the mutation.
+func (m *MessageMutation) MemoryFactSourcesIDs() (ids []uuid.UUID) {
+	for id := range m.memory_fact_sources {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetMemoryFactSources resets all changes to the "memory_fact_sources" edge.
+func (m *MessageMutation) ResetMemoryFactSources() {
+	m.memory_fact_sources = nil
+	m.clearedmemory_fact_sources = false
+	m.removedmemory_fact_sources = nil
+}
+
 // SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by id.
 func (m *MessageMutation) SetConversationIDRefID(id uuid.UUID) {
 	m.conversation_id_ref = &id
@@ -36180,7 +37049,10 @@ func (m *MessageMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *MessageMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
+	if m.memory_fact_sources != nil {
+		edges = append(edges, message.EdgeMemoryFactSources)
+	}
 	if m.conversation_id_ref != nil {
 		edges = append(edges, message.EdgeConversationIDRef)
 	}
@@ -36206,6 +37078,12 @@ func (m *MessageMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case message.EdgeMemoryFactSources:
+		ids := make([]ent.Value, 0, len(m.memory_fact_sources))
+		for id := range m.memory_fact_sources {
+			ids = append(ids, id)
+		}
+		return ids
 	case message.EdgeConversationIDRef:
 		if id := m.conversation_id_ref; id != nil {
 			return []ent.Value{*id}
@@ -36242,7 +37120,10 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MessageMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
+	if m.removedmemory_fact_sources != nil {
+		edges = append(edges, message.EdgeMemoryFactSources)
+	}
 	if m.removedmessage_jobs_incoming_message_id != nil {
 		edges = append(edges, message.EdgeMessageJobsIncomingMessageID)
 	}
@@ -36259,6 +37140,12 @@ func (m *MessageMutation) RemovedEdges() []string {
 // the given name in this mutation.
 func (m *MessageMutation) RemovedIDs(name string) []ent.Value {
 	switch name {
+	case message.EdgeMemoryFactSources:
+		ids := make([]ent.Value, 0, len(m.removedmemory_fact_sources))
+		for id := range m.removedmemory_fact_sources {
+			ids = append(ids, id)
+		}
+		return ids
 	case message.EdgeMessageJobsIncomingMessageID:
 		ids := make([]ent.Value, 0, len(m.removedmessage_jobs_incoming_message_id))
 		for id := range m.removedmessage_jobs_incoming_message_id {
@@ -36283,7 +37170,10 @@ func (m *MessageMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *MessageMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
+	if m.clearedmemory_fact_sources {
+		edges = append(edges, message.EdgeMemoryFactSources)
+	}
 	if m.clearedconversation_id_ref {
 		edges = append(edges, message.EdgeConversationIDRef)
 	}
@@ -36309,6 +37199,8 @@ func (m *MessageMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *MessageMutation) EdgeCleared(name string) bool {
 	switch name {
+	case message.EdgeMemoryFactSources:
+		return m.clearedmemory_fact_sources
 	case message.EdgeConversationIDRef:
 		return m.clearedconversation_id_ref
 	case message.EdgeBotIDRef:
@@ -36346,6 +37238,9 @@ func (m *MessageMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *MessageMutation) ResetEdge(name string) error {
 	switch name {
+	case message.EdgeMemoryFactSources:
+		m.ResetMemoryFactSources()
+		return nil
 	case message.EdgeConversationIDRef:
 		m.ResetConversationIDRef()
 		return nil

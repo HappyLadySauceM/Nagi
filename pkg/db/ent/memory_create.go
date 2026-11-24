@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/google/uuid"
 )
@@ -156,6 +157,20 @@ func (_c *MemoryCreate) SetNillableSubjectID(v *string) *MemoryCreate {
 	return _c
 }
 
+// SetFactKey sets the "fact_key" field.
+func (_c *MemoryCreate) SetFactKey(v string) *MemoryCreate {
+	_c.mutation.SetFactKey(v)
+	return _c
+}
+
+// SetNillableFactKey sets the "fact_key" field if the given value is not nil.
+func (_c *MemoryCreate) SetNillableFactKey(v *string) *MemoryCreate {
+	if v != nil {
+		_c.SetFactKey(*v)
+	}
+	return _c
+}
+
 // SetDedupeKey sets the "dedupe_key" field.
 func (_c *MemoryCreate) SetDedupeKey(v string) *MemoryCreate {
 	_c.mutation.SetDedupeKey(v)
@@ -272,6 +287,21 @@ func (_c *MemoryCreate) SetNillableUpdatedAt(v *time.Time) *MemoryCreate {
 func (_c *MemoryCreate) SetID(v uuid.UUID) *MemoryCreate {
 	_c.mutation.SetID(v)
 	return _c
+}
+
+// AddFactSourceIDs adds the "fact_sources" edge to the MemoryFactSource entity by IDs.
+func (_c *MemoryCreate) AddFactSourceIDs(ids ...uuid.UUID) *MemoryCreate {
+	_c.mutation.AddFactSourceIDs(ids...)
+	return _c
+}
+
+// AddFactSources adds the "fact_sources" edges to the MemoryFactSource entity.
+func (_c *MemoryCreate) AddFactSources(v ...*MemoryFactSource) *MemoryCreate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddFactSourceIDs(ids...)
 }
 
 // SetBotIDRefID sets the "bot_id_ref" edge to the BotAccount entity by ID.
@@ -467,6 +497,10 @@ func (_c *MemoryCreate) createSpec() (*Memory, *sqlgraph.CreateSpec) {
 		_spec.SetField(memory.FieldSubjectID, field.TypeString, value)
 		_node.SubjectID = &value
 	}
+	if value, ok := _c.mutation.FactKey(); ok {
+		_spec.SetField(memory.FieldFactKey, field.TypeString, value)
+		_node.FactKey = &value
+	}
 	if value, ok := _c.mutation.DedupeKey(); ok {
 		_spec.SetField(memory.FieldDedupeKey, field.TypeString, value)
 		_node.DedupeKey = &value
@@ -498,6 +532,22 @@ func (_c *MemoryCreate) createSpec() (*Memory, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(memory.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if nodes := _c.mutation.FactSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   memory.FactSourcesTable,
+			Columns: []string{memory.FactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.BotIDRefIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -750,6 +800,24 @@ func (u *MemoryUpsert) UpdateSubjectID() *MemoryUpsert {
 // ClearSubjectID clears the value of the "subject_id" field.
 func (u *MemoryUpsert) ClearSubjectID() *MemoryUpsert {
 	u.SetNull(memory.FieldSubjectID)
+	return u
+}
+
+// SetFactKey sets the "fact_key" field.
+func (u *MemoryUpsert) SetFactKey(v string) *MemoryUpsert {
+	u.Set(memory.FieldFactKey, v)
+	return u
+}
+
+// UpdateFactKey sets the "fact_key" field to the value that was provided on create.
+func (u *MemoryUpsert) UpdateFactKey() *MemoryUpsert {
+	u.SetExcluded(memory.FieldFactKey)
+	return u
+}
+
+// ClearFactKey clears the value of the "fact_key" field.
+func (u *MemoryUpsert) ClearFactKey() *MemoryUpsert {
+	u.SetNull(memory.FieldFactKey)
 	return u
 }
 
@@ -1108,6 +1176,27 @@ func (u *MemoryUpsertOne) UpdateSubjectID() *MemoryUpsertOne {
 func (u *MemoryUpsertOne) ClearSubjectID() *MemoryUpsertOne {
 	return u.Update(func(s *MemoryUpsert) {
 		s.ClearSubjectID()
+	})
+}
+
+// SetFactKey sets the "fact_key" field.
+func (u *MemoryUpsertOne) SetFactKey(v string) *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetFactKey(v)
+	})
+}
+
+// UpdateFactKey sets the "fact_key" field to the value that was provided on create.
+func (u *MemoryUpsertOne) UpdateFactKey() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateFactKey()
+	})
+}
+
+// ClearFactKey clears the value of the "fact_key" field.
+func (u *MemoryUpsertOne) ClearFactKey() *MemoryUpsertOne {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearFactKey()
 	})
 }
 
@@ -1652,6 +1741,27 @@ func (u *MemoryUpsertBulk) UpdateSubjectID() *MemoryUpsertBulk {
 func (u *MemoryUpsertBulk) ClearSubjectID() *MemoryUpsertBulk {
 	return u.Update(func(s *MemoryUpsert) {
 		s.ClearSubjectID()
+	})
+}
+
+// SetFactKey sets the "fact_key" field.
+func (u *MemoryUpsertBulk) SetFactKey(v string) *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.SetFactKey(v)
+	})
+}
+
+// UpdateFactKey sets the "fact_key" field to the value that was provided on create.
+func (u *MemoryUpsertBulk) UpdateFactKey() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.UpdateFactKey()
+	})
+}
+
+// ClearFactKey clears the value of the "fact_key" field.
+func (u *MemoryUpsertBulk) ClearFactKey() *MemoryUpsertBulk {
+	return u.Update(func(s *MemoryUpsert) {
+		s.ClearFactKey()
 	})
 }
 

@@ -57,6 +57,8 @@ type Message struct {
 
 // MessageEdges holds the relations/edges for other nodes in the graph.
 type MessageEdges struct {
+	// MemoryFactSources holds the value of the memory_fact_sources edge.
+	MemoryFactSources []*MemoryFactSource `json:"memory_fact_sources,omitempty"`
 	// ConversationIDRef holds the value of the conversation_id_ref edge.
 	ConversationIDRef *Conversation `json:"conversation_id_ref,omitempty"`
 	// BotIDRef holds the value of the bot_id_ref edge.
@@ -71,7 +73,16 @@ type MessageEdges struct {
 	MemoryExtractionJobsMessageID []*MemoryExtractionJob `json:"memory_extraction_jobs_message_id,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [7]bool
+}
+
+// MemoryFactSourcesOrErr returns the MemoryFactSources value or an error if the edge
+// was not loaded in eager-loading.
+func (e MessageEdges) MemoryFactSourcesOrErr() ([]*MemoryFactSource, error) {
+	if e.loadedTypes[0] {
+		return e.MemoryFactSources, nil
+	}
+	return nil, &NotLoadedError{edge: "memory_fact_sources"}
 }
 
 // ConversationIDRefOrErr returns the ConversationIDRef value or an error if the edge
@@ -79,7 +90,7 @@ type MessageEdges struct {
 func (e MessageEdges) ConversationIDRefOrErr() (*Conversation, error) {
 	if e.ConversationIDRef != nil {
 		return e.ConversationIDRef, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: conversation.Label}
 	}
 	return nil, &NotLoadedError{edge: "conversation_id_ref"}
@@ -90,7 +101,7 @@ func (e MessageEdges) ConversationIDRefOrErr() (*Conversation, error) {
 func (e MessageEdges) BotIDRefOrErr() (*BotAccount, error) {
 	if e.BotIDRef != nil {
 		return e.BotIDRef, nil
-	} else if e.loadedTypes[1] {
+	} else if e.loadedTypes[2] {
 		return nil, &NotFoundError{label: botaccount.Label}
 	}
 	return nil, &NotLoadedError{edge: "bot_id_ref"}
@@ -99,7 +110,7 @@ func (e MessageEdges) BotIDRefOrErr() (*BotAccount, error) {
 // MessageJobsIncomingMessageIDOrErr returns the MessageJobsIncomingMessageID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageEdges) MessageJobsIncomingMessageIDOrErr() ([]*MessageJob, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.MessageJobsIncomingMessageID, nil
 	}
 	return nil, &NotLoadedError{edge: "message_jobs_incoming_message_id"}
@@ -110,7 +121,7 @@ func (e MessageEdges) MessageJobsIncomingMessageIDOrErr() ([]*MessageJob, error)
 func (e MessageEdges) OutboundIDRefOrErr() (*AgentOutboundMessage, error) {
 	if e.OutboundIDRef != nil {
 		return e.OutboundIDRef, nil
-	} else if e.loadedTypes[3] {
+	} else if e.loadedTypes[4] {
 		return nil, &NotFoundError{label: agentoutboundmessage.Label}
 	}
 	return nil, &NotLoadedError{edge: "outbound_id_ref"}
@@ -119,7 +130,7 @@ func (e MessageEdges) OutboundIDRefOrErr() (*AgentOutboundMessage, error) {
 // MemoriesSourceMessageIDOrErr returns the MemoriesSourceMessageID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageEdges) MemoriesSourceMessageIDOrErr() ([]*Memory, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[5] {
 		return e.MemoriesSourceMessageID, nil
 	}
 	return nil, &NotLoadedError{edge: "memories_source_message_id"}
@@ -128,7 +139,7 @@ func (e MessageEdges) MemoriesSourceMessageIDOrErr() ([]*Memory, error) {
 // MemoryExtractionJobsMessageIDOrErr returns the MemoryExtractionJobsMessageID value or an error if the edge
 // was not loaded in eager-loading.
 func (e MessageEdges) MemoryExtractionJobsMessageIDOrErr() ([]*MemoryExtractionJob, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[6] {
 		return e.MemoryExtractionJobsMessageID, nil
 	}
 	return nil, &NotLoadedError{edge: "memory_extraction_jobs_message_id"}
@@ -269,6 +280,11 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 // This includes values selected through modifiers, order, etc.
 func (_m *Message) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
+}
+
+// QueryMemoryFactSources queries the "memory_fact_sources" edge of the Message entity.
+func (_m *Message) QueryMemoryFactSources() *MemoryFactSourceQuery {
+	return NewMessageClient(_m.config).QueryMemoryFactSources(_m)
 }
 
 // QueryConversationIDRef queries the "conversation_id_ref" edge of the Message entity.

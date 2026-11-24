@@ -178,6 +178,16 @@ export function toMemoryManagement(raw: unknown): MemoryManagementView {
   const record = asRecord(raw, MEMORY_ENDPOINT, 'management')
   return {
     memory: toMemory(record.Memory),
+    factSources:
+      record.Sources == null
+        ? []
+        : asArray(record.Sources, MEMORY_ENDPOINT, 'Sources').map((entry) => {
+            const source = asRecord(entry, MEMORY_ENDPOINT, 'Source')
+            return {
+              messageId: readNumber(source, 'MessageID', MEMORY_ENDPOINT),
+              senderId: readNumber(source, 'SenderID', MEMORY_ENDPOINT),
+            }
+          }),
     replacements:
       record.Replacements == null
         ? []

@@ -5,6 +5,7 @@ package contracts
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -255,6 +256,24 @@ type ReadDependency struct {
 	SourceMessageID int64     `json:"source_message_id,omitempty"`
 }
 
+type DeliveryTransaction interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+type DeliveryScope struct {
+	BotID            int64
+	Kind             string
+	TargetID         int64
+	ConversationID   string
+	AllowHistoryRead bool
+}
+
+type DeliveryReadValidator interface {
+	LockDeliveryReads(context.Context, DeliveryTransaction, int64) error
+	ValidateDeliveryReads(context.Context, DeliveryTransaction, DeliveryScope, []ReadDependency) (bool, error)
+}
+
 // ReadDependencies returns a snapshot of the disclosed memory versions.
 // ReadDependencies 返回本回合已披露的记忆版本快照。
 func ReadDependencies(ctx context.Context) []ReadDependency {
@@ -321,7 +340,7 @@ func trackVersionedRead(ctx context.Context, reader DetailReader, req DetailRequ
 			return ErrReadChanged
 		}
 		current, found, err := reader.RecallDetail(call, req)
-		if err != nil || !found || !current.UpdatedAt.Equal(version.UpdatedAt) || version.AuthorizationVersion != 0 && current.AuthorizationVersion != version.AuthorizationVersion || current.ConsentIdentity != version.ConsentIdentity {
+		if err != nil || !found || !current.UpdatedAt.Equal(version.UpdatedAt) || version.AuthorizationVersion != 0 && current.AuthorizationVersion != version.AuthorizationVersion || current.ConsentIdentity != version.ConsentIdentity || historySource && current.SourceMessageID != version.SourceMessageID {
 			return ErrReadChanged
 		}
 		return nil

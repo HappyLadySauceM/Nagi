@@ -27,6 +27,7 @@ func (Memory) Fields() []ent.Field {
 		field.String("origin").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("'manual'::text")).Default("manual"),
 		field.String("subject_type").SchemaType(map[string]string{"postgres": "text"}).Optional().Nillable(),
 		field.String("subject_id").SchemaType(map[string]string{"postgres": "text"}).Optional().Nillable(),
+		field.String("fact_key").SchemaType(map[string]string{"postgres": "text"}).Optional().Nillable(),
 		field.String("dedupe_key").SchemaType(map[string]string{"postgres": "text"}).Optional().Nillable(),
 		field.String("review_reason").SchemaType(map[string]string{"postgres": "text"}).Annotations(entsql.DefaultExpr("''::text")).Default(""),
 		field.Float32("confidence").Annotations(entsql.DefaultExpr("0")).Default(0),
@@ -41,9 +42,9 @@ func (Memory) Annotations() []schema.Annotation {
 	return []schema.Annotation{entsql.Annotation{Table: "memories", Checks: map[string]string{"memories_visibility_check": "((visibility = ANY (ARRAY['bot_shared'::text, 'group'::text, 'private_user'::text, 'conversation'::text])))", "memories_status_check": "((status = ANY (ARRAY['candidate'::text, 'active'::text, 'superseded'::text, 'deleted'::text])))", "memories_subject_type_check": "((subject_type IS NULL) OR (subject_type = ANY (ARRAY['user'::text, 'group'::text, 'unknown'::text])))", "memories_origin_check": "((origin = ANY (ARRAY['manual'::text, 'extraction'::text])))"}}}
 }
 func (Memory) Indexes() []ent.Index {
-	return []ent.Index{index.Fields("bot_id", "visibility", "owner_key", "status").StorageKey("memories_visibility"), index.Fields("dedupe_key").Unique().StorageKey("memories_dedupe_key").Annotations(entsql.IndexWhere("((dedupe_key IS NOT NULL) AND (status = ANY (ARRAY['candidate'::text, 'active'::text])))"))}
+	return []ent.Index{index.Fields("bot_id", "visibility", "owner_key", "fact_key").Unique().StorageKey("memories_fact_key_live").Annotations(entsql.IndexWhere("((fact_key IS NOT NULL) AND (status = ANY (ARRAY['candidate'::text, 'active'::text])))")), index.Fields("bot_id", "visibility", "owner_key", "status").StorageKey("memories_visibility"), index.Fields("dedupe_key").Unique().StorageKey("memories_dedupe_key").Annotations(entsql.IndexWhere("((dedupe_key IS NOT NULL) AND (status = ANY (ARRAY['candidate'::text, 'active'::text])))"))}
 }
 
 func (Memory) Edges() []ent.Edge {
-	return []ent.Edge{edge.From("bot_id_ref", BotAccount.Type).Ref("memories_bot_id").Field("bot_id").Unique().Annotations(entsql.OnDelete("NO ACTION")).Required(), edge.From("source_message_id_ref", Message.Type).Ref("memories_source_message_id").Field("source_message_id").Unique().Annotations(entsql.OnDelete("SET NULL"))}
+	return []ent.Edge{edge.To("fact_sources", MemoryFactSource.Type).Annotations(entsql.OnDelete("CASCADE")), edge.From("bot_id_ref", BotAccount.Type).Ref("memories_bot_id").Field("bot_id").Unique().Annotations(entsql.OnDelete("NO ACTION")).Required(), edge.From("source_message_id_ref", Message.Type).Ref("memories_source_message_id").Field("source_message_id").Unique().Annotations(entsql.OnDelete("SET NULL"))}
 }

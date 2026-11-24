@@ -93,9 +93,9 @@ export function MemoryManagementSheet({
       <SheetContent side="right" className="w-full sm:w-[560px]">
         <div className="flex h-full flex-col">
           <div className="border-b border-border px-5 py-4 pr-14">
-            <SheetTitle>替代关系</SheetTitle>
+            <SheetTitle>记忆详情</SheetTitle>
             <SheetDescription className="mt-1">
-              查看记忆当前状态及其替代关系；操作者、时间和原因只来自服务端记录。
+              查看记忆来源和替代关系。
             </SheetDescription>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -109,6 +109,18 @@ export function MemoryManagementSheet({
             ) : query.data ? (
               <>
                 <MemorySummary memory={query.data.memory} />
+                {query.data.factSources.length > 0 && (
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-semibold">有效事实来源</h3>
+                    <ul className="space-y-1 text-meta">
+                      {query.data.factSources.map((source) => (
+                        <li key={source.messageId} className="font-mono">
+                          消息 {source.messageId} · 发送者 {source.senderId}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
                 <section className="space-y-2">
                   <h3 className="text-sm font-semibold">替代关系</h3>
                   {query.data.replacements.length === 0 ? (

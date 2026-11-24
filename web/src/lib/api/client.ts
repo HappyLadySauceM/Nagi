@@ -23,6 +23,7 @@ interface ApiErrorInit {
   code?: number
   /** Machine-readable hint, e.g. `unregistered` or a failing field name. */
   detail?: string
+  existingMemoryId?: string
   /** Per-field validation messages from a 400 response. */
   fields?: Record<string, string>
 }
@@ -33,6 +34,7 @@ export class ApiError extends Error {
   readonly status?: number
   readonly code?: number
   readonly detail?: string
+  readonly existingMemoryId?: string
   /** Field path to message, populated by a validation failure. */
   readonly fields?: Record<string, string>
 
@@ -44,6 +46,7 @@ export class ApiError extends Error {
     this.status = init.status
     this.code = init.code
     this.detail = init.detail
+    this.existingMemoryId = init.existingMemoryId
     this.fields = init.fields
   }
 }
@@ -187,6 +190,11 @@ function buildHttpError(
       endpoint,
       status,
       message: backendMessage ?? '当前状态不允许该操作',
+      existingMemoryId:
+        backendMessage === 'memory_fact_conflict' && isRecord(envelope?.data) &&
+        typeof envelope.data.existing_memory_id === 'string'
+          ? envelope.data.existing_memory_id
+          : undefined,
     })
   }
   if (status === 503) {

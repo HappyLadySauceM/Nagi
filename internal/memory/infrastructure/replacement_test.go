@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -363,45 +364,47 @@ func TestMemoryCandidateInsertLockedDeduplicates(t *testing.T) {
 	}
 }
 
-// TestMemoryUpdateLockedDoesNotRevertApprovedStatus verifies an edit loaded
-// before a concurrent approve cannot write the stale candidate status back.
-// TestMemoryUpdateLockedDoesNotRevertApprovedStatus 验证并发审批前读取的编辑不会把
-// 过期 candidate 状态写回。
-func TestMemoryUpdateLockedDoesNotRevertApprovedStatus(t *testing.T) {
-	repo, _, newID, _ := seedReplacementFixture(t, "approve-edit")
+func TestMemoryEditBeforeApprovalKeepsEditedContent(t *testing.T) {
+	repo, _, id, _ := seedReplacementFixture(t, "edit-first")
 	ctx := context.Background()
-	memory, found, err := repo.Get(ctx, newID)
+	memory, found, err := repo.Get(ctx, id)
 	if err != nil || !found {
-		t.Fatalf("get candidate: found=%v err=%v", found, err)
+		t.Fatalf("candidate: found=%v err=%v", found, err)
 	}
 	memory.Content = "A 爱喝冷萃"
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	approveErr := make(chan error, 1)
-	editErr := make(chan error, 1)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		<-start
-		approveErr <- repo.ApproveMemory(ctx, newID, "admin")
-	}()
-	go func() {
-		defer wg.Done()
-		<-start
-		editErr <- repo.UpdateMemoryLocked(ctx, memory)
-	}()
-	close(start)
-	wg.Wait()
-	aerr, eerr := <-approveErr, <-editErr
-	if aerr != nil {
-		t.Fatalf("approve error: %v", aerr)
+	if err := repo.UpdateMemoryLocked(ctx, memory); err != nil {
+		t.Fatalf("edit: %v", err)
 	}
-	if eerr != nil {
-		t.Fatalf("edit error: %v", eerr)
+	if err := repo.ApproveMemory(ctx, id, "admin"); err != nil {
+		t.Fatalf("approve: %v", err)
 	}
-	final, found, err := repo.Get(ctx, newID)
-	if err != nil || !found || final.Status != domain.StatusActive || final.ApprovedBy != "admin" {
-		t.Fatalf("final memory = %+v found=%v err=%v", final, found, err)
+	final, found, err := repo.Get(ctx, id)
+	if err != nil || !found || final.Status != domain.StatusActive || final.ApprovedBy != "admin" || final.Content != memory.Content {
+		t.Fatalf("active memory = %+v found=%v err=%v", final, found, err)
+	}
+}
+
+func TestMemoryStaleEditAfterApprovalLeavesRecordsUnchanged(t *testing.T) {
+	repo, _, id, _ := seedReplacementFixture(t, "approve-first")
+	ctx := context.Background()
+	stale, found, err := repo.Get(ctx, id)
+	if err != nil || !found {
+		t.Fatalf("candidate: found=%v err=%v", found, err)
+	}
+	stale.Content = "A 爱喝冷萃"
+	if err := repo.ApproveMemory(ctx, id, "admin"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	before, linksBefore, found, err := repo.Management(ctx, id, stale.BotID)
+	if err != nil || !found || before.Status != domain.StatusActive || before.ApprovedBy != "admin" || before.Content == stale.Content {
+		t.Fatalf("approved memory = %+v found=%v err=%v", before, found, err)
+	}
+	if err := repo.UpdateMemoryLocked(ctx, stale); !errors.Is(err, memoryapp.ErrMemoryStatusConflict) {
+		t.Fatalf("stale edit = %v, want status conflict", err)
+	}
+	after, linksAfter, found, err := repo.Management(ctx, id, stale.BotID)
+	if err != nil || !found || !reflect.DeepEqual(before, after) || !reflect.DeepEqual(linksBefore, linksAfter) {
+		t.Fatalf("stale edit changed records: before=%+v after=%+v links=%v/%v found=%v err=%v", before, after, linksBefore, linksAfter, found, err)
 	}
 }
 

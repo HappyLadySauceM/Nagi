@@ -195,7 +195,7 @@ func TestDeliveryScopeLockSerializesTargetTemplateFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if err := lockScopedDelivery(ctx, tx, record.ID, f.claim); err != nil {
+	if err := f.repo.lockScopedDelivery(ctx, tx, record.ID, f.claim); err != nil {
 		t.Fatal(err)
 	}
 	var blocker int

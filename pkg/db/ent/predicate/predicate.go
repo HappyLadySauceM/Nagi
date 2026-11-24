@@ -105,6 +105,9 @@ type MemoryExtractionCursor func(*sql.Selector)
 // MemoryExtractionJob is the predicate function for memoryextractionjob builders.
 type MemoryExtractionJob func(*sql.Selector)
 
+// MemoryFactSource is the predicate function for memoryfactsource builders.
+type MemoryFactSource func(*sql.Selector)
+
 // MemoryReplacement is the predicate function for memoryreplacement builders.
 type MemoryReplacement func(*sql.Selector)
 

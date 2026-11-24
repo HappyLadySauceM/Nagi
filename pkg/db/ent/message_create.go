@@ -17,6 +17,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/google/uuid"
@@ -168,6 +169,21 @@ func (_c *MessageCreate) SetNillableMemoryAuthorizationEventID(v *int64) *Messag
 func (_c *MessageCreate) SetID(v int64) *MessageCreate {
 	_c.mutation.SetID(v)
 	return _c
+}
+
+// AddMemoryFactSourceIDs adds the "memory_fact_sources" edge to the MemoryFactSource entity by IDs.
+func (_c *MessageCreate) AddMemoryFactSourceIDs(ids ...uuid.UUID) *MessageCreate {
+	_c.mutation.AddMemoryFactSourceIDs(ids...)
+	return _c
+}
+
+// AddMemoryFactSources adds the "memory_fact_sources" edges to the MemoryFactSource entity.
+func (_c *MessageCreate) AddMemoryFactSources(v ...*MemoryFactSource) *MessageCreate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddMemoryFactSourceIDs(ids...)
 }
 
 // SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by ID.
@@ -401,6 +417,22 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.MemoryAuthorizationEventID(); ok {
 		_spec.SetField(message.FieldMemoryAuthorizationEventID, field.TypeInt64, value)
 		_node.MemoryAuthorizationEventID = &value
+	}
+	if nodes := _c.mutation.MemoryFactSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryFactSourcesTable,
+			Columns: []string{message.MemoryFactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.ConversationIDRefIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

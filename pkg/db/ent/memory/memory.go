@@ -36,6 +36,8 @@ const (
 	FieldSubjectType = "subject_type"
 	// FieldSubjectID holds the string denoting the subject_id field in the database.
 	FieldSubjectID = "subject_id"
+	// FieldFactKey holds the string denoting the fact_key field in the database.
+	FieldFactKey = "fact_key"
 	// FieldDedupeKey holds the string denoting the dedupe_key field in the database.
 	FieldDedupeKey = "dedupe_key"
 	// FieldReviewReason holds the string denoting the review_reason field in the database.
@@ -52,16 +54,27 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// EdgeFactSources holds the string denoting the fact_sources edge name in mutations.
+	EdgeFactSources = "fact_sources"
 	// EdgeBotIDRef holds the string denoting the bot_id_ref edge name in mutations.
 	EdgeBotIDRef = "bot_id_ref"
 	// EdgeSourceMessageIDRef holds the string denoting the source_message_id_ref edge name in mutations.
 	EdgeSourceMessageIDRef = "source_message_id_ref"
+	// MemoryFactSourceFieldID holds the string denoting the ID field of the MemoryFactSource.
+	MemoryFactSourceFieldID = "id"
 	// BotAccountFieldID holds the string denoting the ID field of the BotAccount.
 	BotAccountFieldID = "bot_id"
 	// MessageFieldID holds the string denoting the ID field of the Message.
 	MessageFieldID = "id"
 	// Table holds the table name of the memory in the database.
 	Table = "memories"
+	// FactSourcesTable is the table that holds the fact_sources relation/edge.
+	FactSourcesTable = "memory_fact_sources"
+	// FactSourcesInverseTable is the table name for the MemoryFactSource entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryfactsource" package.
+	FactSourcesInverseTable = "memory_fact_sources"
+	// FactSourcesColumn is the table column denoting the fact_sources relation/edge.
+	FactSourcesColumn = "memory_id"
 	// BotIDRefTable is the table that holds the bot_id_ref relation/edge.
 	BotIDRefTable = "memories"
 	// BotIDRefInverseTable is the table name for the BotAccount entity.
@@ -92,6 +105,7 @@ var Columns = []string{
 	FieldOrigin,
 	FieldSubjectType,
 	FieldSubjectID,
+	FieldFactKey,
 	FieldDedupeKey,
 	FieldReviewReason,
 	FieldConfidence,
@@ -198,6 +212,11 @@ func BySubjectID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSubjectID, opts...).ToFunc()
 }
 
+// ByFactKey orders the results by the fact_key field.
+func ByFactKey(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFactKey, opts...).ToFunc()
+}
+
 // ByDedupeKey orders the results by the dedupe_key field.
 func ByDedupeKey(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDedupeKey, opts...).ToFunc()
@@ -238,6 +257,20 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
+// ByFactSourcesCount orders the results by fact_sources count.
+func ByFactSourcesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newFactSourcesStep(), opts...)
+	}
+}
+
+// ByFactSources orders the results by fact_sources terms.
+func ByFactSources(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newFactSourcesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByBotIDRefField orders the results by bot_id_ref field.
 func ByBotIDRefField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -250,6 +283,13 @@ func BySourceMessageIDRefField(field string, opts ...sql.OrderTermOption) OrderO
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newSourceMessageIDRefStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newFactSourcesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(FactSourcesInverseTable, MemoryFactSourceFieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, FactSourcesTable, FactSourcesColumn),
+	)
 }
 func newBotIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

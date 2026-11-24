@@ -90,8 +90,11 @@ func (s Status) Valid() bool {
 // Memory is one long-term memory entry.
 // Memory 是一条长期记忆。
 type Memory struct {
-	AuthorizationVersion int64  `json:"authorization_version"`
-	ConsentIdentity      string `json:"-"`
+	AuthorizationVersion int64         `json:"authorization_version"`
+	ConsentIdentity      string        `json:"-"`
+	FactKey              string        `json:"-"`
+	FactProposal         *FactProposal `json:"-"`
+	FactSources          []FactSource  `json:"-"`
 	ID                   string
 	BotID                int64
 	Visibility           Visibility

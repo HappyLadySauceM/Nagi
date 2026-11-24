@@ -641,6 +641,29 @@ func MemoryAuthorizationEventIDNotNil() predicate.Message {
 	return predicate.Message(sql.FieldNotNull(FieldMemoryAuthorizationEventID))
 }
 
+// HasMemoryFactSources applies the HasEdge predicate on the "memory_fact_sources" edge.
+func HasMemoryFactSources() predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, MemoryFactSourcesTable, MemoryFactSourcesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasMemoryFactSourcesWith applies the HasEdge predicate on the "memory_fact_sources" edge with a given conditions (other predicates).
+func HasMemoryFactSourcesWith(preds ...predicate.MemoryFactSource) predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := newMemoryFactSourcesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasConversationIDRef applies the HasEdge predicate on the "conversation_id_ref" edge.
 func HasConversationIDRef() predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {

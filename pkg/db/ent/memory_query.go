@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"math"
 
@@ -14,6 +15,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/botaccount"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
 	"github.com/google/uuid"
@@ -26,6 +28,7 @@ type MemoryQuery struct {
 	order                  []memory.OrderOption
 	inters                 []Interceptor
 	predicates             []predicate.Memory
+	withFactSources        *MemoryFactSourceQuery
 	withBotIDRef           *BotAccountQuery
 	withSourceMessageIDRef *MessageQuery
 	modifiers              []func(*sql.Selector)
@@ -63,6 +66,28 @@ func (_q *MemoryQuery) Unique(unique bool) *MemoryQuery {
 func (_q *MemoryQuery) Order(o ...memory.OrderOption) *MemoryQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryFactSources chains the current query on the "fact_sources" edge.
+func (_q *MemoryQuery) QueryFactSources() *MemoryFactSourceQuery {
+	query := (&MemoryFactSourceClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memory.Table, memory.FieldID, selector),
+			sqlgraph.To(memoryfactsource.Table, memoryfactsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, memory.FactSourcesTable, memory.FactSourcesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryBotIDRef chains the current query on the "bot_id_ref" edge.
@@ -301,12 +326,24 @@ func (_q *MemoryQuery) Clone() *MemoryQuery {
 		order:                  append([]memory.OrderOption{}, _q.order...),
 		inters:                 append([]Interceptor{}, _q.inters...),
 		predicates:             append([]predicate.Memory{}, _q.predicates...),
+		withFactSources:        _q.withFactSources.Clone(),
 		withBotIDRef:           _q.withBotIDRef.Clone(),
 		withSourceMessageIDRef: _q.withSourceMessageIDRef.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithFactSources tells the query-builder to eager-load the nodes that are connected to
+// the "fact_sources" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MemoryQuery) WithFactSources(opts ...func(*MemoryFactSourceQuery)) *MemoryQuery {
+	query := (&MemoryFactSourceClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withFactSources = query
+	return _q
 }
 
 // WithBotIDRef tells the query-builder to eager-load the nodes that are connected to
@@ -409,7 +446,8 @@ func (_q *MemoryQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Memor
 	var (
 		nodes       = []*Memory{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
+			_q.withFactSources != nil,
 			_q.withBotIDRef != nil,
 			_q.withSourceMessageIDRef != nil,
 		}
@@ -435,6 +473,13 @@ func (_q *MemoryQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Memor
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
+	if query := _q.withFactSources; query != nil {
+		if err := _q.loadFactSources(ctx, query, nodes,
+			func(n *Memory) { n.Edges.FactSources = []*MemoryFactSource{} },
+			func(n *Memory, e *MemoryFactSource) { n.Edges.FactSources = append(n.Edges.FactSources, e) }); err != nil {
+			return nil, err
+		}
+	}
 	if query := _q.withBotIDRef; query != nil {
 		if err := _q.loadBotIDRef(ctx, query, nodes, nil,
 			func(n *Memory, e *BotAccount) { n.Edges.BotIDRef = e }); err != nil {
@@ -450,6 +495,36 @@ func (_q *MemoryQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Memor
 	return nodes, nil
 }
 
+func (_q *MemoryQuery) loadFactSources(ctx context.Context, query *MemoryFactSourceQuery, nodes []*Memory, init func(*Memory), assign func(*Memory, *MemoryFactSource)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[uuid.UUID]*Memory)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(memoryfactsource.FieldMemoryID)
+	}
+	query.Where(predicate.MemoryFactSource(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(memory.FactSourcesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.MemoryID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "memory_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
 func (_q *MemoryQuery) loadBotIDRef(ctx context.Context, query *BotAccountQuery, nodes []*Memory, init func(*Memory), assign func(*Memory, *BotAccount)) error {
 	ids := make([]int64, 0, len(nodes))
 	nodeids := make(map[int64][]*Memory)

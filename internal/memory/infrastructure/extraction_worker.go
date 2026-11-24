@@ -456,9 +456,24 @@ func (r *Repo) FinalizeExtractionBatch(ctx context.Context, batch domain.Extract
 		if err := candidate.Validate(); err != nil {
 			return domain.FinalizeResult{}, err
 		}
+		handled, created, suppressed, err := r.finalizeFactCandidate(ctx, tx, batch, &candidate)
+		if err != nil {
+			return domain.FinalizeResult{}, err
+		}
+		if handled {
+			switch {
+			case created:
+				result.Created++
+			case suppressed:
+				result.Suppressed++
+			default:
+				result.Duplicates++
+			}
+			continue
+		}
 		key := domain.ComputeDedupeKey(candidate.BotID, candidate.Visibility, candidate.OwnerKey, candidate.SubjectType, candidate.SubjectID, candidate.Content)
 		var existingStatus string
-		err := tx.QueryRow(ctx, `SELECT status FROM memories WHERE dedupe_key=$1 AND status IN ('candidate','active','deleted','superseded') ORDER BY created_at LIMIT 1`, key).Scan(&existingStatus)
+		err = tx.QueryRow(ctx, `SELECT status FROM memories WHERE dedupe_key=$1 AND status IN ('candidate','active','deleted','superseded') ORDER BY created_at LIMIT 1`, key).Scan(&existingStatus)
 		if err == nil {
 			if existingStatus == string(domain.StatusDeleted) || existingStatus == string(domain.StatusSuperseded) {
 				result.Suppressed++
