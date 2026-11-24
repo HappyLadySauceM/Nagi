@@ -274,7 +274,7 @@ it('shows the blocking hard gate and does not call a closing private chat a non-
         Branch: 'blocked',
         ReasonCode: 'cooldown',
         Summary: '规则拦截',
-        Detail: { Blocked: true, BuiltinRules: {} },
+        Detail: { Blocked: true, BuiltinRules: {}, RuleEvents: [{ RuleID: 'cooldown', Version: 'cooldown-v1', Sequence: 1, Branch: 'blocked', ElapsedMS: 2000, ThresholdMS: 10000, Operator: '<' }] },
         Evidence: [],
         DurationMS: 0,
       },
@@ -320,6 +320,11 @@ it('shows the blocking hard gate and does not call a closing private chat a non-
   expect(await screen.findByText('未达到最小回复间隔')).toBeVisible()
   expect(screen.getByText('还在冷却，直接沉默')).toBeVisible()
   expect(screen.getByText('拦截')).toBeVisible()
+  expect(screen.getByText('实际间隔')).toBeVisible()
+  expect(screen.getByText('2000 ms < 10000 ms')).toBeVisible()
+  expect(screen.getByText('直接拦截')).toBeVisible()
+  expect(screen.queryByText('冷却判定回放')).toBeNull()
+  expect(screen.queryByRole('button', { name: '从头播放' })).toBeNull()
   expect(screen.getAllByText('未执行').length).toBeGreaterThan(0)
 
   fireEvent.keyDown(document, { key: 'Escape' })

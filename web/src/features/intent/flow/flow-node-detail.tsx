@@ -10,7 +10,7 @@ import type {
   IntentSnapshotStatus,
   ReplyMode,
 } from '../../../lib/api/contracts'
-import { CooldownNodeEvidence } from './cooldown-playback'
+import { CooldownNodeEvidence } from './cooldown-evidence'
 import { REPLY_MODE_LABELS } from '../../../lib/api/contracts'
 import {
   BRANCH_TEXT,
@@ -592,7 +592,7 @@ function NodeRunBody({
             : <GenericDetail detail={runNode.detail} />
   if (contextSheet) {
     return (
-      <div className="grid items-start gap-8 md:grid-cols-[minmax(0,1fr)_34rem]">
+      <div className="grid items-start gap-5">
         <ContextMessages detail={runNode.detail} />
         <div className="min-w-0">
           {conclusion}
@@ -618,6 +618,7 @@ export function FlowNodeDetail({
   runNode,
   run,
   showSnapshotStatus = true,
+  onCloseAutoFocus,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -625,13 +626,14 @@ export function FlowNodeDetail({
   runNode?: IntentRunNode
   run?: IntentRun
   showSnapshotStatus?: boolean
+  onCloseAutoFocus?: (event: Event) => void
 }) {
   const status = runNode?.status ?? 'unknown'
   const snapshotWarning = showSnapshotStatus && run ? SNAPSHOT_WARNING[run.snapshotStatus] : ''
   const contextSheet = node?.kind === 'context' || runNode?.nodeId === 'context'
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className={cn('max-w-none overflow-y-auto bg-background p-6 sm:max-w-none', contextSheet ? 'w-[min(1240px,calc(100vw-1rem))]' : 'w-[min(960px,calc(100vw-1rem))]')}>
+      <SheetContent side="right" onCloseAutoFocus={onCloseAutoFocus} className="w-full overflow-y-auto bg-background p-4 sm:max-w-2xl sm:p-6">
         <div className="border-b border-border pb-5 pr-10">
           <div className="flex flex-wrap items-center gap-2">
             <SheetTitle className="text-lg font-semibold">{node?.title ?? '节点详情'}</SheetTitle>

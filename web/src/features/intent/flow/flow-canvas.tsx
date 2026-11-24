@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleHelp, MinusCircle, XCircle } from 'lucide-react'
 import { Badge } from '../../../components/ui/badge'
 import { cn } from '../../../lib/utils'
@@ -51,6 +51,7 @@ export function FlowCanvas({
 }) {
   const displayed = recording ?? run
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const nodeTrigger = useRef<HTMLButtonElement>(null)
   const nodes = useMemo(() => new Map(flow.nodes.map((node) => [node.nodeId, node])), [flow.nodes])
   const runNodes = useMemo(
     () => new Map((displayed?.nodes ?? []).map((node) => [node.nodeId, node])),
@@ -88,7 +89,7 @@ export function FlowCanvas({
             ))}
           </div>
         </div>
-        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(flow.nodes.length, 1)}, minmax(0, 1fr))` }}>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-3">
           {flow.nodes.map((node) => {
             const runNode = runNodes.get(node.nodeId)
             const meta = runNode ? STATUS_META[runNode.status] : displayed ? STATUS_META.unknown : undefined
@@ -101,7 +102,11 @@ export function FlowCanvas({
               <button
                 key={node.nodeId}
                 type="button"
-                onClick={() => setSelectedNodeId(node.nodeId)}
+                onClick={event => {
+                  nodeTrigger.current = event.currentTarget
+                  setSelectedNodeId(node.nodeId)
+                }}
+                aria-haspopup="dialog"
                 aria-label={`${node.title} ${statusLabel}`}
                 className={cn(
                   'flex min-h-36 flex-col rounded-xl border bg-background p-3 text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
@@ -160,6 +165,12 @@ export function FlowCanvas({
         open={selectedNodeId !== null}
         onOpenChange={(open) => {
           if (!open) setSelectedNodeId(null)
+        }}
+        onCloseAutoFocus={event => {
+          if (nodeTrigger.current?.isConnected) {
+            event.preventDefault()
+            nodeTrigger.current.focus({ preventScroll: true })
+          }
         }}
         node={selectedNode}
         runNode={selectedRunNode}
