@@ -65,9 +65,6 @@ func (r *Repo) ClaimTopicRoute(ctx context.Context, lease time.Duration) (*domai
  WHERE conversation_id=$1 AND status IN ('pending','routing') AND deadline<=clock_timestamp()`, conversation); err != nil {
 		return nil, err
 	}
-	if err := expireTopicDrafts(ctx, tx, conversation); err != nil {
-		return nil, err
-	}
 	var claim domain.TopicRouteClaim
 	claim.ConversationID, claim.Token = conversation, uuid.NewString()
 	err = tx.QueryRow(ctx, `WITH head AS (
@@ -111,58 +108,6 @@ func (r *Repo) ClaimTopicRoute(ctx context.Context, lease time.Duration) (*domai
 		return nil, err
 	}
 	return &claim, nil
-}
-
-// expireTopicDrafts fences pre-dispatch claims under the source conversation lock.
-// expireTopicDrafts 在源会话锁内作废尚未越过发前闸门的领取。
-func expireTopicDrafts(ctx context.Context, tx *db.Tx, conversation string) error {
-	rows, err := tx.Query(ctx, `SELECT j.id FROM message_jobs j JOIN group_topic_inputs i ON i.route_id=j.incoming_message_id
- WHERE i.conversation_id=$1 AND j.status IN ('processing','pending')
- AND EXISTS (SELECT 1 FROM group_topic_route_candidates p JOIN group_topic_routes r ON r.id=p.route_id
-  WHERE p.topic_id=i.topic_id AND p.conversation_id=i.conversation_id AND p.version<=i.version
-  AND r.id>i.route_id AND r.status='expired')
- AND NOT EXISTS(SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=j.id AND o.status='sending')
- ORDER BY j.id FOR UPDATE OF j`, conversation)
-	if err != nil {
-		return err
-	}
-	var jobs []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		jobs = append(jobs, id)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil || len(jobs) == 0 {
-		return err
-	}
-	for _, id := range jobs {
-		if _, err := tx.Exec(ctx, `SELECT id FROM agent_outbound_messages WHERE job_id=$1 AND status='prepared' ORDER BY id FOR UPDATE`, id); err != nil {
-			return err
-		}
-	}
-	for _, id := range jobs {
-		if _, err := tx.Exec(ctx, `SELECT job_id FROM agent_run_budgets WHERE job_id=$1 FOR UPDATE`, id); err != nil {
-			return err
-		}
-	}
-	for _, id := range jobs {
-		if _, err := tx.Exec(ctx, `WITH cancelled AS (
- UPDATE agent_outbound_messages SET status='cancelled',error_code='topic_routing_expired',updated_at=clock_timestamp(),
- resume_result=CASE WHEN resume_digest IS NOT NULL THEN jsonb_build_object('tool_call_id',tool_call_id,'sequence',sequence,'status','cancelled','error_code','topic_routing_expired') ELSE resume_result END
- WHERE job_id=$1 AND status='prepared' RETURNING charge_chars
- ), refunded AS (UPDATE agent_run_budgets SET reserved_messages=reserved_messages-(SELECT count(*) FROM cancelled),
- reserved_chars=reserved_chars-COALESCE((SELECT sum(charge_chars) FROM cancelled),0) WHERE job_id=$1)
- UPDATE message_jobs SET status='failed',delivery_outcome='blocked',delivery_reason='topic_routing_expired',
- last_error_code='topic_routing_expired',claim_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp() WHERE id=$1`, id); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // ResolveTopicRoute commits the trusted result once in source-conversation order and fences late claims.
@@ -331,35 +276,51 @@ func (r *Repo) routeClaim(ctx context.Context, claim domain.TopicRouteClaim) err
 	if err != nil {
 		return concludeTopicRoute(ctx, tx, claim, "unavailable", 0, "")
 	}
-	reference, validReference, image, body, addressedElsewhere := routeSignals(segments, botID)
+	reference, validReference, image, body, addressedElsewhere, addressedBot := routeSignals(segments, botID)
 	if addressedElsewhere && !validReference {
 		return concludeTopicRoute(ctx, tx, claim, "unrelated", 0, "")
 	}
 	var topicID int64
 	action := "follow_up"
 	if validReference {
-		var controlOnly bool
+		var controlOnly, ownsCurrentReference, hasQueuedReply bool
 		err = tx.QueryRow(ctx, `WITH referenced AS (
-  SELECT id,direction,control_kind,outbound_id,platform_message_id
+  SELECT id,direction,control_kind,outbound_id,platform_message_id,sender_id
   FROM messages
   WHERE conversation_id=$1 AND bot_id=$2 AND platform_message_id=$3
    AND ((direction='incoming' AND id<$4) OR (direction='outgoing' AND sent_status='sent'))
   ), quoted AS (
-  SELECT p.id,p.direction,j.incoming_message_id AS outbound_source
+  SELECT p.id,p.direction,j.incoming_message_id AS outbound_source,p.sender_id
   FROM referenced p LEFT JOIN agent_outbound_messages o ON o.id=p.outbound_id AND o.status='sent'
    AND o.conversation_id=$1 AND o.bot_id=$2 AND o.platform_message_id=p.platform_message_id
   LEFT JOIN message_jobs j ON j.id=o.job_id
   WHERE p.control_kind='' AND (p.direction='incoming' OR j.incoming_message_id<$4)
   ), topics AS (
-   SELECT DISTINCT i.topic_id FROM quoted q JOIN group_topic_inputs i ON i.conversation_id=$1
+   SELECT DISTINCT i.topic_id,i.version=t.version AND q.direction='incoming' AND q.sender_id=$5 AS own_current FROM quoted q JOIN group_topic_inputs i ON i.conversation_id=$1
    AND i.route_id=CASE WHEN q.direction='incoming' THEN q.id ELSE q.outbound_source END
    JOIN group_topics t ON (t.id,t.conversation_id)=(i.topic_id,i.conversation_id)
    WHERE NOT t.closed AND t.expires_at>clock_timestamp()
   ) SELECT CASE WHEN count(*)=1 THEN min(topic_id) ELSE 0 END,
-   EXISTS(SELECT 1 FROM referenced WHERE control_kind<>'') AND NOT EXISTS(SELECT 1 FROM referenced WHERE control_kind='')
-   FROM topics`, source, botID, reference, claim.MessageID).Scan(&topicID, &controlOnly)
+   EXISTS(SELECT 1 FROM referenced WHERE control_kind<>'') AND NOT EXISTS(SELECT 1 FROM referenced WHERE control_kind=''),
+   (SELECT count(*)=1 FROM quoted) AND COALESCE(bool_and(own_current),false),
+   EXISTS(SELECT 1 FROM topics q JOIN group_topic_inputs i ON i.topic_id=q.topic_id
+     JOIN message_jobs j ON j.incoming_message_id=i.route_id WHERE j.status IN ('pending','processing') AND i.route_id<$4
+     AND (SELECT decision FROM intent_decisions WHERE job_id=j.id ORDER BY id DESC LIMIT 1)='reply')
+   FROM topics`, source, botID, reference, claim.MessageID, sender).Scan(&topicID, &controlOnly, &ownsCurrentReference, &hasQueuedReply)
 		if err != nil {
 			return err
+		}
+		if topicID != 0 {
+			switch {
+			case ownsCurrentReference && isTopicCorrection(body):
+				action = "corrected"
+			case isDirectQuestion(body) && !addressedElsewhere:
+				return concludeTopicRoute(ctx, tx, claim, "unrelated", 0, "")
+			case hasQueuedReply && strings.HasPrefix(body, "补充"):
+				action = "contribution"
+			case hasQueuedReply:
+				topicID = 0
+			}
 		}
 		if controlOnly {
 			return concludeTopicRoute(ctx, tx, claim, "unrelated", 0, "")
@@ -417,7 +378,7 @@ func (r *Repo) routeClaim(ctx context.Context, claim domain.TopicRouteClaim) err
  )`, claim.MessageID, source, !validReference && image && body == "").Scan(&candidates, &earlierUndecided); err != nil {
 		return err
 	}
-	if !validReference && body == "" && !image || addressedElsewhere || !candidates && !earlierUndecided {
+	if !validReference && (body == "" && !image || addressedBot && isDirectQuestion(body)) || addressedElsewhere || !candidates && !earlierUndecided {
 		return concludeTopicRoute(ctx, tx, claim, "unrelated", 0, "")
 	}
 	// No deterministic evidence can distinguish these candidates. Leave the original deadline in force.
@@ -451,7 +412,7 @@ func concludeTopicRoute(ctx context.Context, tx *db.Tx, claim domain.TopicRouteC
 	return tx.Commit(ctx)
 }
 
-func routeSignals(segments []ob.Segment, botID int64) (reference int64, quoted, image bool, body string, addressedElsewhere bool) {
+func routeSignals(segments []ob.Segment, botID int64) (reference int64, quoted, image bool, body string, addressedElsewhere, addressedBot bool) {
 	count := 0
 	var text strings.Builder
 	for _, segment := range segments {
@@ -460,14 +421,16 @@ func routeSignals(segments []ob.Segment, botID int64) (reference int64, quoted, 
 			count++
 			reference, _ = strconv.ParseInt(segment.Data["id"], 10, 64)
 		case ob.SegAt:
-			addressedElsewhere = addressedElsewhere || segment.Data["qq"] != strconv.FormatInt(botID, 10)
+			toBot := segment.Data["qq"] == strconv.FormatInt(botID, 10)
+			addressedBot = addressedBot || toBot
+			addressedElsewhere = addressedElsewhere || !toBot
 		case ob.SegImage:
 			image = true
 		case ob.SegText:
 			text.WriteString(segment.Data["text"])
 		}
 	}
-	return reference, count == 1 && reference != 0, image, strings.TrimSpace(text.String()), addressedElsewhere
+	return reference, count == 1 && reference != 0, image, strings.TrimSpace(text.String()), addressedElsewhere, addressedBot
 }
 
 func matchesRequestedMaterial(request, body string, image bool) bool {
@@ -490,6 +453,19 @@ func matchesRequestedMaterial(request, body string, image bool) bool {
 					return strings.TrimSpace(strings.TrimLeft(rest, ":：")) != ""
 				}
 			}
+		}
+	}
+	return false
+}
+
+func isDirectQuestion(body string) bool {
+	return strings.HasSuffix(body, "？") || strings.HasSuffix(body, "?")
+}
+
+func isTopicCorrection(body string) bool {
+	for _, prefix := range []string{"更正", "改口", "纠正", "我说错了", "刚才说错了", "改成"} {
+		if strings.HasPrefix(body, prefix) {
+			return true
 		}
 	}
 	return false

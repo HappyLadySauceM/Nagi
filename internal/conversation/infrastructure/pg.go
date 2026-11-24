@@ -23,6 +23,7 @@ import (
 
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 
+	ordering "github.com/HappyLadySauceM/Nagi/internal/conversation/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
@@ -306,7 +307,20 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	locked, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS(SELECT 1 FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND NOT j.delivery_continuation AND NOT EXISTS(SELECT 1 FROM group_topic_routes route WHERE route.id=m.id AND route.status IN ('pending','routing') AND EXISTS(SELECT 1 FROM group_topic_route_candidates candidate WHERE candidate.route_id=route.id)) AND j.next_run_at<=clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing') ORDER BY c.id LIMIT $1 FOR UPDATE OF c SKIP LOCKED`, limit)
+	const readyJob = `SELECT j.id FROM message_jobs j
+ LEFT JOIN messages m ON m.id=j.incoming_message_id
+ LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id
+ LEFT JOIN LATERAL (` + ordering.GroupPendingHead + `) head ON c.kind='group' AND j.source_kind='incoming'
+ WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND NOT j.delivery_continuation
+ AND (c.kind<>'group' OR j.source_kind<>'incoming' OR j.id=head.id)
+ AND NOT EXISTS (SELECT 1 FROM group_topic_routes route WHERE route.id=m.id AND route.status IN ('pending','routing')
+  AND route.deadline>clock_timestamp() AND EXISTS(SELECT 1 FROM group_topic_route_candidates candidate WHERE candidate.route_id=route.id))
+ AND j.next_run_at<=clock_timestamp()`
+	const noBusyJob = `NOT EXISTS (SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id
+ LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id
+ WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing')`
+	locked, err := tx.Query(ctx, `SELECT c.id FROM conversations c WHERE EXISTS (`+readyJob+`) AND `+noBusyJob+`
+ ORDER BY c.id LIMIT $1 FOR UPDATE OF c SKIP LOCKED`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -328,10 +342,9 @@ func (r *Repo) ClaimReadyJobs(ctx context.Context, limit int) ([]domain.Job, err
 	rows, err := tx.Query(ctx, `
  WITH picked AS (
  SELECT j.id FROM conversations c
- JOIN LATERAL(SELECT j.id FROM message_jobs j LEFT JOIN messages m ON m.id=j.incoming_message_id LEFT JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE COALESCE(m.conversation_id,p.source_conversation_id)=c.id AND j.status='pending' AND NOT j.delivery_continuation AND NOT EXISTS(SELECT 1 FROM group_topic_routes route WHERE route.id=m.id AND route.status IN ('pending','routing') AND EXISTS(SELECT 1 FROM group_topic_route_candidates candidate WHERE candidate.route_id=route.id)) AND j.next_run_at<=clock_timestamp() ORDER BY j.next_run_at,j.id LIMIT 1) chosen ON true
+ JOIN LATERAL (`+readyJob+` ORDER BY j.next_run_at,j.id LIMIT 1) chosen ON true
  JOIN message_jobs j ON j.id=chosen.id
- WHERE c.id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb))
- AND NOT EXISTS(SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.status='processing')
+ WHERE c.id IN(SELECT value::uuid FROM jsonb_array_elements_text($1::jsonb)) AND `+noBusyJob+`
  FOR UPDATE OF j SKIP LOCKED
  ),claimed AS(
  UPDATE message_jobs j SET status='processing',claim_token=gen_random_uuid(),lease_expires_at=clock_timestamp()+interval '2 minutes',updated_at=clock_timestamp() FROM picked WHERE j.id=picked.id AND j.status='pending'
@@ -736,7 +749,7 @@ func decodeSegments(b []byte) ([]obdomain.Segment, error) {
 // DeliveryError 向工作器报告投递终态问题。
 func (r *Repo) DeliveryError(ctx context.Context, jobID int64) error {
 	var bad bool
-	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_outbound_messages WHERE job_id=$1 AND status NOT IN ('sent','cancelled'))`, jobID).Scan(&bad)
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_outbound_messages WHERE job_id=$1 AND status NOT IN ('sent','cancelled')) OR EXISTS(SELECT 1 FROM message_jobs WHERE id=$1 AND delivery_outcome='blocked')`, jobID).Scan(&bad)
 	if err != nil {
 		return err
 	}

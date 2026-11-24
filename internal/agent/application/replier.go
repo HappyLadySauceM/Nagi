@@ -574,6 +574,10 @@ func (r *Replier) ExecuteReply(ctx context.Context, task intentdomain.Task, hist
 		return r.recordDenied(ctx, task.JobID, "output_rejected", task.ClaimToken)
 	}
 
+	if task.Kind == "group" && !memorycontracts.CrossGroupReadUsed(ctx) {
+		return nil
+	}
+
 	// A delivery record for the source conversation means this job already
 	// spoke there, or may have; sending the final text again would duplicate a
 	// visible message. Deliveries to other targets do not count.
@@ -798,6 +802,7 @@ func (r *Replier) buildMessages(ctx context.Context, task intentdomain.Task, his
 		}
 		runtimeText.WriteString("\n")
 	}
+	prompt.TargetType = task.Kind
 	prompt = intentdomain.ReplySystem(prompt, runtimeText.String())
 	messages := []domain.ChatMessage{{Role: "system", Content: prompt.OpenAI.SystemPrompt}}
 	for _, m := range history {

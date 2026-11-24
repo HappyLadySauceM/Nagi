@@ -1339,6 +1339,7 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 	}
 	const normalPlatformID = -379
 	incoming(firstIngress, normalPlatformID, person, groupB, obdomain.Text("合成普通历史正文"))
+	exec(`UPDATE group_topic_routes r SET status='unrelated' FROM messages m WHERE r.id=m.id AND m.bot_id=$1 AND m.platform_message_id=$2 AND r.status='pending'`, bot, normalPlatformID)
 	for _, candidate := range func() []conversationdomain.Job {
 		jobs, err := conv2.ClaimReadyJobs(ctx, 30)
 		if err != nil {
@@ -2024,7 +2025,7 @@ func TestReplyReadsEachPersistedHistoryPictureWithCurrentPolicy(t *testing.T) {
 			case "after-first-lookup":
 				wantLookups, wantFirst, wantSecond, wantModel = "one", 0, 0, 1
 			}
-			if strings.Join(lookups, ",") != wantLookups || firstDownloads.Load() != wantFirst || secondDownloads.Load() != wantSecond || currentDownloads.Load() != 1 || picturesInModel.Load() != wantModel || len(wire.actions) != before+1 {
+			if strings.Join(lookups, ",") != wantLookups || firstDownloads.Load() != wantFirst || secondDownloads.Load() != wantSecond || currentDownloads.Load() != 1 || picturesInModel.Load() != wantModel || len(wire.actions) != before {
 				t.Fatalf("lookups=%v downloads current/first/second=%d/%d/%d model pictures=%d sends=%d", lookups, currentDownloads.Load(), firstDownloads.Load(), secondDownloads.Load(), picturesInModel.Load(), len(wire.actions)-before)
 			}
 			t.Logf("lookups=%v downloads current/first/second=%d/%d/%d model pictures=%d sends=%d", lookups, currentDownloads.Load(), firstDownloads.Load(), secondDownloads.Load(), picturesInModel.Load(), len(wire.actions)-before)
