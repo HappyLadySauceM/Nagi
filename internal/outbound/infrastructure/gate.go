@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	ordering "github.com/HappyLadySauceM/Nagi/internal/conversation/contracts"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
@@ -54,6 +55,8 @@ func (r *Repo) markSending(ctx context.Context, id, claim string) error {
 		return err
 	}
 	var continued, controlJob, incoming bool
+	var sequence int
+	var toolCallID string
 	if err := tx.QueryRow(ctx, `SELECT delivery_continuation,source_kind='memory_consent_prompt' AND consent_proposal_id IS NOT NULL AND incoming_message_id IS NULL,
  source_kind='incoming' AND consent_proposal_id IS NULL AND incoming_message_id IS NOT NULL FROM message_jobs WHERE id=$1`, delivery.job).Scan(&continued, &controlJob, &incoming); err != nil {
 		return err
@@ -64,7 +67,7 @@ func (r *Repo) markSending(ctx context.Context, id, claim string) error {
 	var digestOK bool
 	var storedPermit []byte
 	var returned bool
-	if err := tx.QueryRow(ctx, `SELECT status,action,payload::text,COALESCE(resume_digest=`+resumeDigestSQL+`,false), memory_dependencies,COALESCE(error_code='lease_recovered',false), send_permit FROM agent_outbound_messages WHERE id=$1`, id).Scan(&delivery.status, &delivery.action, &delivery.payload, &digestOK, &delivery.memoryDependencies, &returned, &storedPermit); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status,action,payload::text,COALESCE(resume_digest=`+resumeDigestSQL+`,false), memory_dependencies,COALESCE(error_code='lease_recovered',false), send_permit, sequence, COALESCE(tool_call_id,'') FROM agent_outbound_messages WHERE id=$1`, id).Scan(&delivery.status, &delivery.action, &delivery.payload, &digestOK, &delivery.memoryDependencies, &returned, &storedPermit, &sequence, &toolCallID); err != nil {
 		return err
 	}
 	if delivery.status != string(domain.StatusPrepared) && !(continued && returned && delivery.status == string(domain.StatusCancelled)) {
@@ -137,6 +140,13 @@ func (r *Repo) markSending(ctx context.Context, id, claim string) error {
 	if reason == "" || reason == domain.GatePending {
 		reason, err = deliveryRouteReason(ctx, tx, delivery, now)
 		if err != nil {
+			return err
+		}
+	}
+	if reason == "" && incoming && scope.sourceKind == "group" && scope.targetKind == "group" && scope.targetID == scope.sourceTarget {
+		if toolCallID == "final" && !derived {
+			reason = domain.GatePayload
+		} else if reason, err = groupDeliveryOrder(ctx, tx, scope, delivery, sequence); err != nil {
 			return err
 		}
 	}
@@ -278,23 +288,42 @@ func lockDeliveryTopic(ctx context.Context, tx *db.Tx, id string, scope delivery
 	if err != nil {
 		return d, "", err
 	}
-	_, err = tx.Exec(ctx, `SELECT r.id FROM group_topic_routes r JOIN group_topic_route_candidates p ON (p.route_id,p.conversation_id)=(r.id,r.conversation_id)
- WHERE p.topic_id=$1 AND p.version<=$2 AND r.id>$3 AND r.status IN ('pending','routing','expired','unavailable','stale')
- ORDER BY r.id FOR UPDATE OF r`, d.topic, d.version, d.input)
-	return d, "", err
+	return d, "", nil
 }
 
 func deliveryRouteReason(ctx context.Context, tx *db.Tx, d preparedDelivery, now time.Time) (string, error) {
 	if d.topic == 0 {
 		return "", nil
 	}
-	var reason string
-	err := tx.QueryRow(ctx, `SELECT CASE WHEN COALESCE(bool_or(r.status='expired' OR (r.status IN ('pending','routing') AND r.deadline<=$4)),false) THEN $5
- WHEN COALESCE(bool_or(r.status IN ('unavailable','stale')),false) THEN $6
- WHEN COALESCE(bool_or(r.status IN ('pending','routing')),false) THEN $7 ELSE '' END
- FROM group_topic_route_candidates p JOIN group_topic_routes r ON (r.id,r.conversation_id)=(p.route_id,p.conversation_id)
- WHERE p.topic_id=$1 AND p.version<=$2 AND r.id>$3`, d.topic, d.version, d.input, now, domain.GateExpired, domain.GateUnavailable, domain.GatePending).Scan(&reason)
-	return reason, err
+	var pending bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM group_topic_route_candidates p JOIN group_topic_routes r ON (r.id,r.conversation_id)=(p.route_id,p.conversation_id)
+ WHERE p.topic_id=$1 AND p.version<=$2 AND r.id>$3 AND r.status IN ('pending','routing') AND r.deadline>$4)`, d.topic, d.version, d.input, now).Scan(&pending)
+	if pending {
+		return domain.GatePending, err
+	}
+	return "", err
+}
+
+func groupDeliveryOrder(ctx context.Context, tx *db.Tx, scope deliveryPolicyScope, d preparedDelivery, sequence int) (string, error) {
+	var head int64
+	var earlierSlot bool
+	err := tx.QueryRow(ctx, `SELECT COALESCE((
+ SELECT j.id FROM messages m JOIN message_jobs j ON j.incoming_message_id=m.id`+ordering.GroupInputOrderJoins+`
+ WHERE m.conversation_id=$1 AND m.direction='incoming' AND m.bot_id=$2
+ AND (j.id=$3 OR (j.status IN ('pending','processing') AND (j.delivery_continuation OR
+  (SELECT decision FROM intent_decisions WHERE job_id=j.id ORDER BY id DESC LIMIT 1)='reply')))
+ ORDER BY `+ordering.GroupInputOrderKey+` LIMIT 1),0), EXISTS (
+ SELECT 1 FROM agent_outbound_messages o WHERE o.job_id=$3 AND o.sequence<$4
+ AND (o.status IN ('prepared','sending') OR (o.status='cancelled' AND o.error_code='lease_recovered' AND o.resume_digest IS NOT NULL))
+ )`, scope.sourceID, scope.botID, d.job, sequence).Scan(&head, &earlierSlot)
+	if err != nil {
+		return "", err
+	}
+	if head != d.job || earlierSlot {
+		return domain.GatePending, nil
+	}
+	return "", nil
 }
 
 func restoreReservation(ctx context.Context, tx *db.Tx, id, claim string, limits domain.Limits) error {

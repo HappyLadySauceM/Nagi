@@ -292,55 +292,32 @@ func memoryReadGroupPolicy() map[string]scopedomain.Policy {
 	return policies
 }
 
-// TestReplierSendsAndRecordsGroupReply verifies text-only automatic group delivery
-// and the outbound record.
-// TestReplierSendsAndRecordsGroupReply 验证自动群回复只发送文字并回写出站记录。
-func TestReplierSendsAndRecordsGroupReply(t *testing.T) {
-	fake := &fakeRuntime{text: "  适合，看你要做什么。 "}
-	sender := &fakeSender{}
-	rec := &fakeRecorder{}
-	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
+func privateTaskForAgent() intentdomain.Task {
+	task := groupTaskForAgent()
+	task.Kind = "private"
+	return task
+}
 
-	history := []intentdomain.Message{
-		{MessageID: 5000, SenderID: 200, Text: "小雪，Go 合适吗？"},
-		{MessageID: 4990, SenderID: 100, IsBot: true, Text: "适合。"},
+func enabledPrivatePolicy() map[string]scopedomain.Policy {
+	policy := enabledGroupPolicy()[scopeKey(100, "group", 700)]
+	policy.ScopeType = scopedomain.ScopePrivate
+	return map[string]scopedomain.Policy{scopeKey(100, "private", 700): policy}
+}
+
+func TestGroupFinalDoesNotReserveOrSend(t *testing.T) {
+	runtime := &fakeRuntime{text: "只作终态", toolRuns: nil}
+	sender := &fakeSender{}
+	recorder := &fakeRecorder{}
+	ledger := &fakeLedger{}
+	r := newReplierWithLedger(t, runtime, sender, recorder, enabledGroupPolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+		t.Fatal(err)
 	}
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), history); err != nil {
-		t.Fatalf("execute: %v", err)
+	if runtime.calls != 1 || !strings.Contains(runtime.req.Messages[0].Content, "每条可见文字都必须单独调用 qq_send_msg") {
+		t.Fatalf("runtime calls=%d prompt=%+v", runtime.calls, runtime.req.Messages)
 	}
-	if fake.calls != 1 {
-		t.Fatalf("model calls = %d", fake.calls)
-	}
-	// Scope overrides must reach the runtime; dropping them would silently
-	// restore a permission the administrator revoked.
-	// 作用域覆盖必须传给运行时；丢失会悄悄恢复管理员已撤销的权限。
-	if granted, ok := fake.req.PermissionOverrides["qq.group.read"]; !ok || granted {
-		t.Fatalf("permission overrides = %+v", fake.req.PermissionOverrides)
-	}
-	// Roles: system + history user + history assistant + current user.
-	// 角色：system + 历史用户 + 历史助手 + 当前用户。
-	if len(fake.req.Messages) != 4 ||
-		fake.req.Messages[0].Role != "system" ||
-		fake.req.Messages[2].Role != "assistant" {
-		t.Fatalf("messages = %+v", fake.req.Messages)
-	}
-	if len(sender.group) != 1 || sender.group[0] != 700 {
-		t.Fatalf("group sends = %v", sender.group)
-	}
-	if len(sender.botIDs) != 1 || sender.botIDs[0] != 100 {
-		t.Fatalf("reply routed through accounts %v, want [100]", sender.botIDs)
-	}
-	segments := sender.groupSegments[0]
-	if len(segments) != 1 || segments[0].Type != obdomain.SegText || segments[0].Data["text"] != "适合，看你要做什么。" {
-		t.Fatalf("group reply segments = %+v, want one text segment", segments)
-	}
-	if len(rec.statuses) != 1 || rec.statuses[0] != "sent" || rec.conversations[0] != "conv-1" {
-		t.Fatalf("records = %+v", rec)
-	}
-	// The logical message must point at the delivery record that produced it.
-	// 逻辑消息必须关联到产生它的投递记录。
-	if len(rec.outboundIDs) != 1 || rec.outboundIDs[0] != "out-1" {
-		t.Fatalf("outbound ids = %v", rec.outboundIDs)
+	if len(ledger.reserved) != 0 || len(sender.texts) != 0 || len(recorder.statuses) != 0 {
+		t.Fatalf("group final caused a delivery: %v %v %v", ledger.reserved, sender.texts, recorder.statuses)
 	}
 }
 
@@ -351,14 +328,14 @@ func TestReplierWritesDeliveryAuditBeforeTransport(t *testing.T) {
 	fake := &fakeRuntime{text: "可以。"}
 	sender := &fakeSender{}
 	rec := &fakeRecorder{}
-	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
+	r := newReplier(t, fake, sender, rec, enabledPrivatePolicy())
 	audit := &fakeRunAudit{}
 	ctx := auditcontracts.WithRun(context.Background(), audit, "run-1")
-	if err := r.ExecuteReply(ctx, groupTaskForAgent(), nil); err != nil {
+	if err := r.ExecuteReply(ctx, privateTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if len(sender.group) != 1 || len(audit.events) != 3 {
-		t.Fatalf("sends=%v events=%+v", sender.group, audit.events)
+	if len(sender.private) != 1 || len(audit.events) != 3 {
+		t.Fatalf("sends=%v events=%+v", sender.private, audit.events)
 	}
 	if audit.events[0].Stage != "agent.context" || audit.events[1].Stage != "agent.generation" ||
 		audit.events[2].Stage != "outbound.deliver" || audit.events[2].Sequence != 3 {
@@ -381,14 +358,14 @@ func TestReplierStopsBeforeTransportWhenDeliveryAuditStartFails(t *testing.T) {
 	sender := &fakeSender{}
 	rec := &fakeRecorder{}
 	ledger := &fakeLedger{}
-	r := newReplierWithLedger(t, fake, sender, rec, enabledGroupPolicy(), ledger)
+	r := newReplierWithLedger(t, fake, sender, rec, enabledPrivatePolicy(), ledger)
 	audit := &fakeRunAudit{failStage: "outbound.deliver"}
 	ctx := auditcontracts.WithRun(context.Background(), audit, "run-1")
-	if err := r.ExecuteReply(ctx, groupTaskForAgent(), nil); err == nil {
+	if err := r.ExecuteReply(ctx, privateTaskForAgent(), nil); err == nil {
 		t.Fatal("delivery audit start failure must stop the transport")
 	}
-	if len(sender.group) != 0 || len(ledger.sending) != 0 {
-		t.Fatalf("transport reached after audit failure: sends=%v sending=%v", sender.group, ledger.sending)
+	if len(sender.private) != 0 || len(ledger.sending) != 0 {
+		t.Fatalf("transport reached after audit failure: sends=%v sending=%v", sender.private, ledger.sending)
 	}
 }
 
@@ -416,9 +393,9 @@ func TestReplierRecordsFailedSend(t *testing.T) {
 	sender := &fakeSender{err: definiteSendError{}}
 	rec := &fakeRecorder{}
 	ledger := &fakeLedger{}
-	r := newReplierWithLedger(t, fake, sender, rec, enabledGroupPolicy(), ledger)
+	r := newReplierWithLedger(t, fake, sender, rec, enabledPrivatePolicy(), ledger)
 
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if len(rec.statuses) != 1 || rec.statuses[0] != "failed" {
@@ -445,9 +422,9 @@ func TestReplierRecordsUnknownOnTimeout(t *testing.T) {
 	sender := &fakeSender{err: fmt.Errorf("onebot: wait action send_group_msg response: %w", obcontracts.ErrActionTimeout)}
 	rec := &fakeRecorder{}
 	ledger := &fakeLedger{}
-	r := newReplierWithLedger(t, fake, sender, rec, enabledGroupPolicy(), ledger)
+	r := newReplierWithLedger(t, fake, sender, rec, enabledPrivatePolicy(), ledger)
 
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if len(rec.statuses) != 1 || rec.statuses[0] != "unknown" {
@@ -477,9 +454,9 @@ func TestReplierDeniesOverBudget(t *testing.T) {
 	ledger := &fakeLedger{reserveErr: &outbounddomain.BudgetError{
 		Dimension: outbounddomain.DimensionMessageChars, Limit: 2, Requested: 4,
 	}}
-	r := newReplierWithLedger(t, &fakeRuntime{text: "回复内容"}, sender, rec, enabledGroupPolicy(), ledger)
+	r := newReplierWithLedger(t, &fakeRuntime{text: "回复内容"}, sender, rec, enabledPrivatePolicy(), ledger)
 
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 		t.Fatalf("budget denial must not fail the job: %v", err)
 	}
 	if len(sender.texts) != 0 || len(ledger.sending) != 0 || len(rec.statuses) != 0 {
@@ -528,9 +505,9 @@ func TestReplierSkipsAlreadyDelivered(t *testing.T) {
 func TestReplierFailsClosedWhenLedgerUnavailable(t *testing.T) {
 	sender := &fakeSender{}
 	ledger := &fakeLedger{deliveredErr: errors.New("db down")}
-	r := newReplierWithLedger(t, &fakeRuntime{text: "回复内容"}, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
+	r := newReplierWithLedger(t, &fakeRuntime{text: "回复内容"}, sender, &fakeRecorder{}, enabledPrivatePolicy(), ledger)
 
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err == nil {
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err == nil {
 		t.Fatal("an unreadable ledger must fail the run instead of sending")
 	}
 	if len(sender.texts) != 0 {
@@ -565,8 +542,8 @@ func TestReplierAttributesSentStatusOnSpan(t *testing.T) {
 
 			fake := &fakeRuntime{text: "回复内容"}
 			sender := &fakeSender{err: tc.sendErr, msgID: 4242}
-			r := newReplier(t, fake, sender, &fakeRecorder{}, enabledGroupPolicy())
-			if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+			r := newReplier(t, fake, sender, &fakeRecorder{}, enabledPrivatePolicy())
+			if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 				t.Fatalf("execute: %v", err)
 			}
 
@@ -595,9 +572,9 @@ func TestReplierRecordsPlatformMessageID(t *testing.T) {
 	fake := &fakeRuntime{text: "回复内容"}
 	sender := &fakeSender{msgID: 778899}
 	rec := &fakeRecorder{}
-	r := newReplier(t, fake, sender, rec, enabledGroupPolicy())
+	r := newReplier(t, fake, sender, rec, enabledPrivatePolicy())
 
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if len(rec.messageIDs) != 1 || rec.messageIDs[0] != 778899 || rec.statuses[0] != "sent" {
@@ -863,7 +840,7 @@ func TestReplierUsesPerScopeLimits(t *testing.T) {
 	ledger := &fakeLedger{}
 	r, err := NewReplier(Options{
 		Runtime: fake, Scopes: &replierScopes{policies: map[string]scopedomain.Policy{
-			"100:group:700": {ScopeType: scopedomain.ScopeGroup, ScopeID: 700, StoreMessages: true, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
+			"100:private:700": {ScopeType: scopedomain.ScopePrivate, ScopeID: 700, StoreMessages: true, Enabled: true, ReplyMode: scopedomain.ModeAlwaysReply},
 		}},
 		Senders: sender, Recorder: rec, Outbound: ledger,
 		Sending: outbounddomain.Limits{MaxMessages: 3, MaxCharsPerMessage: 500, MaxTotalChars: 1500},
@@ -875,7 +852,7 @@ func TestReplierUsesPerScopeLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new replier: %v", err)
 	}
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if len(ledger.reserved) != 1 {
@@ -919,8 +896,8 @@ func TestCrossTargetSendKeepsSourceReply(t *testing.T) {
 	runtime := &fakeRuntime{text: "来源会话的回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_msg", Status: "ok"}}}
 	sender := &fakeSender{}
 	ledger := &fakeLedger{deliveredTargets: map[string]bool{}}
-	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledPrivatePolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(sender.texts) != 1 || sender.texts[0] != "来源会话的回答" {
@@ -932,8 +909,8 @@ func TestCrossTargetRefusalKeepsSourceReply(t *testing.T) {
 	runtime := &fakeRuntime{text: "来源回答", toolRuns: []agentcontracts.ToolRun{{ToolID: "qq.send_msg", Status: "denied", ErrorCode: "authorization_revoked"}}}
 	sender := &fakeSender{}
 	ledger := &fakeLedger{}
-	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledGroupPolicy(), ledger)
-	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
+	r := newReplierWithLedger(t, runtime, sender, &fakeRecorder{}, enabledPrivatePolicy(), ledger)
+	if err := r.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(sender.texts) != 1 || sender.texts[0] != "来源回答" {
@@ -1005,15 +982,15 @@ func TestReplierDoesNotWriteHistoryWhenSettlementFails(t *testing.T) {
 	sender := &fakeSender{msgID: 7788}
 	recorder := &fakeRecorder{}
 	ledger := &fakeLedger{settleErr: errors.New("injected commit failure")}
-	replier := newReplierWithLedger(t, runtime, sender, recorder, enabledGroupPolicy(), ledger)
-	if err := replier.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err == nil {
+	replier := newReplierWithLedger(t, runtime, sender, recorder, enabledPrivatePolicy(), ledger)
+	if err := replier.ExecuteReply(context.Background(), privateTaskForAgent(), nil); err == nil {
 		t.Fatal("failed settlement was reported as success")
 	}
 	if len(recorder.statuses) != 0 {
 		t.Fatalf("history escaped failed settlement: %+v", recorder)
 	}
-	if len(sender.group) != 1 {
-		t.Fatalf("platform calls=%d", len(sender.group))
+	if len(sender.private) != 1 {
+		t.Fatalf("platform calls=%d", len(sender.private))
 	}
 }
 
@@ -1171,8 +1148,8 @@ func TestReplierMemoryFailureDoesNotBlockChat(t *testing.T) {
 	if err := r.ExecuteReply(context.Background(), groupTaskForAgent(), nil); err != nil {
 		t.Fatalf("memory failure leaked into chat: %v", err)
 	}
-	if len(sender.texts) != 1 || sender.texts[0] != "照常回复" {
-		t.Fatalf("reply after memory failure = %v", sender.texts)
+	if fake.calls != 1 || len(sender.texts) != 0 {
+		t.Fatalf("calls=%d unexpected final sends=%v", fake.calls, sender.texts)
 	}
 }
 

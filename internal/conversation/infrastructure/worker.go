@@ -194,11 +194,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	type activeJob struct {
-		id     int64
-		cancel context.CancelFunc
-	}
-	active := map[string]activeJob{}
+	active := map[string]context.CancelFunc{}
 	renewalCtx, stopRenewal := context.WithCancel(context.Background())
 	defer stopRenewal()
 	renewDone := make(chan struct{})
@@ -234,7 +230,7 @@ func (w *Worker) Run(ctx context.Context) error {
 					for _, token := range tokens {
 						if !good[token] {
 							if job, ok := active[token]; ok {
-								job.cancel()
+								job()
 							}
 						}
 					}
@@ -245,7 +241,6 @@ func (w *Worker) Run(ctx context.Context) error {
 	}()
 	defer wg.Wait()
 	nextRecovery := time.Time{}
-	nextTopicCheck := time.Time{}
 	ticker := time.NewTicker(w.opts.PollInterval)
 	defer ticker.Stop()
 	for {
@@ -268,35 +263,6 @@ func (w *Worker) Run(ctx context.Context) error {
 				}
 			}
 		}
-		if time.Now().After(nextTopicCheck) {
-			nextTopicCheck = time.Now().Add(250 * time.Millisecond)
-			if observer, ok := w.repo.(interface {
-				ExpiredTopicJobs(context.Context, []int64) ([]int64, error)
-			}); ok {
-				mu.Lock()
-				ids := make([]int64, 0, len(active))
-				for _, running := range active {
-					ids = append(ids, running.id)
-				}
-				mu.Unlock()
-				if len(ids) > 0 {
-					check, cancel := context.WithTimeout(ctx, time.Second)
-					expired, err := observer.ExpiredTopicJobs(check, ids)
-					cancel()
-					if err == nil && len(expired) > 0 {
-						mu.Lock()
-						for _, id := range expired {
-							for _, running := range active {
-								if running.id == id {
-									running.cancel()
-								}
-							}
-						}
-						mu.Unlock()
-					}
-				}
-			}
-		}
 		free := w.opts.Concurrency - int(w.pending.Load())
 		if free > 0 {
 			if free > w.opts.MaxPending {
@@ -310,7 +276,7 @@ func (w *Worker) Run(ctx context.Context) error {
 					jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 					jobCtx = auditcontracts.WithMediaRepairContext(jobCtx, ctx)
 					mu.Lock()
-					active[job.ClaimToken] = activeJob{id: job.ID, cancel: cancel}
+					active[job.ClaimToken] = cancel
 					mu.Unlock()
 					w.pending.Add(1)
 					wg.Add(1)

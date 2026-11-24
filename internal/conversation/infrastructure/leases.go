@@ -43,27 +43,6 @@ func (r *Repo) RenewClaims(ctx context.Context, tokens []string) ([]string, erro
 	return renewed, rows.Err()
 }
 
-// ExpiredTopicJobs returns active local jobs whose generation ownership was fenced by routing.
-// ExpiredTopicJobs 返回已被归属截止撤销生成领取的本地任务。
-func (r *Repo) ExpiredTopicJobs(ctx context.Context, jobs []int64) ([]int64, error) {
-	wire, _ := json.Marshal(jobs)
-	rows, err := r.pool.Query(ctx, `SELECT id FROM message_jobs WHERE id IN (SELECT value::bigint FROM jsonb_array_elements_text($1::jsonb))
- AND status='failed' AND delivery_reason='topic_routing_expired'`, wire)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var expired []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		expired = append(expired, id)
-	}
-	return expired, rows.Err()
-}
-
 // lockClaim serializes claim-sensitive transitions with sending and recovery.
 // lockClaim 使认领状态迁移与发送、恢复按一致顺序串行执行。
 func (r *Repo) lockClaim(ctx context.Context, tx *db.Tx, jobID int64, token any) error {

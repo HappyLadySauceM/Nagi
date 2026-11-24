@@ -184,7 +184,6 @@ func TestContinuationOriginalSlot(t *testing.T) {
 			switch scenario {
 			case "expired":
 				exec(`UPDATE group_topic_routes SET deadline=clock_timestamp() WHERE id=$1`, next.MessageID)
-				wantState, wantReason, wantJob, wantCalls, wantCost = "cancelled", domain.GateExpired, "failed", 0, 0
 			case "changed":
 				exec(`UPDATE group_topics SET version=2 WHERE id=$1`, f.jobID)
 				exec(`UPDATE group_topic_routes SET status='resolved' WHERE id=$1`, next.MessageID)

@@ -501,7 +501,7 @@ func TestPreparedCrashRecoveryCanDeliverOneMessage(t *testing.T) {
 			f := newLedgerFixture(t)
 			ctx := context.Background()
 			limits := domain.Limits{MaxMessages: 1, MaxCharsPerMessage: 100, MaxTotalChars: 100, StopAfterFailure: true}
-			request := domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, RunID: "recovery-run", ToolCallID: "final", Text: "recover exactly once", Limits: limits}
+			request := domain.ReserveInput{ClaimToken: f.claim, JobID: f.jobID, BotID: f.botID, ConversationID: f.conversationID, RunID: "recovery-run", ToolCallID: "recovery-call", Text: "recover exactly once", Limits: limits}
 			first, err := f.repo.Reserve(ctx, request)
 			if err != nil {
 				t.Fatal(err)

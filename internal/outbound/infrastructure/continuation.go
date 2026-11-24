@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	ordering "github.com/HappyLadySauceM/Nagi/internal/conversation/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/application"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
@@ -155,10 +156,16 @@ func (r *Repo) claimContinuation(ctx context.Context) (domain.Record, error) {
 	}
 	defer tx.Rollback(ctx)
 	var conversation string
-	err = tx.QueryRow(ctx, `SELECT c.id FROM conversations c WHERE EXISTS (
- SELECT 1 FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
- WHERE m.conversation_id=c.id AND j.source_kind='incoming' AND j.consent_proposal_id IS NULL AND j.delivery_continuation AND NOT EXISTS (SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.id<>j.id AND busy.status='processing') AND ((j.status='pending' AND j.next_run_at<=clock_timestamp()) OR (j.status='processing' AND j.lease_expires_at<=clock_timestamp()))
- ) ORDER BY c.id LIMIT 1 FOR UPDATE OF c SKIP LOCKED`).Scan(&conversation)
+	const readyContinuation = `SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
+ LEFT JOIN LATERAL (` + ordering.GroupPendingHead + `) head ON c.kind='group' AND j.status='pending'
+ WHERE m.conversation_id=c.id AND j.source_kind='incoming' AND j.consent_proposal_id IS NULL AND j.delivery_continuation
+ AND ((j.status='pending' AND j.next_run_at<=clock_timestamp() AND (c.kind<>'group' OR j.id=head.id))
+  OR (j.status='processing' AND j.lease_expires_at<=clock_timestamp()))
+ AND NOT EXISTS (SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id
+  LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id
+  WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=c.id AND busy.id<>j.id AND busy.status='processing')`
+	err = tx.QueryRow(ctx, `SELECT c.id FROM conversations c WHERE EXISTS (`+readyContinuation+`)
+ ORDER BY c.id LIMIT 1 FOR UPDATE OF c SKIP LOCKED`).Scan(&conversation)
 	if errors.Is(err, sql.ErrNoRows) {
 		return record, nil
 	}
@@ -167,13 +174,9 @@ func (r *Repo) claimContinuation(ctx context.Context) (domain.Record, error) {
 	}
 	var job int64
 	var claim string
-	err = tx.QueryRow(ctx, `SELECT j.id FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
- WHERE m.conversation_id=$1 AND j.source_kind='incoming' AND j.consent_proposal_id IS NULL AND j.delivery_continuation
- AND ((j.status='pending' AND j.next_run_at<=clock_timestamp()) OR (j.status='processing' AND j.lease_expires_at<=clock_timestamp()))
- AND NOT EXISTS (SELECT 1 FROM message_jobs busy LEFT JOIN messages bm ON bm.id=busy.incoming_message_id
-  LEFT JOIN memory_consent_proposals bp ON bp.id=busy.consent_proposal_id
-  WHERE COALESCE(bm.conversation_id,bp.source_conversation_id)=$1 AND busy.id<>j.id AND busy.status='processing')
- ORDER BY j.id LIMIT 1 FOR UPDATE OF j`, conversation).Scan(&job)
+	err = tx.QueryRow(ctx, `SELECT picked.id FROM conversations c
+ JOIN LATERAL (`+readyContinuation+` ORDER BY j.id LIMIT 1 FOR UPDATE OF j) picked ON true
+ WHERE c.id=$1`, conversation).Scan(&job)
 	if errors.Is(err, sql.ErrNoRows) {
 		return record, nil
 	}

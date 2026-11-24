@@ -332,7 +332,7 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent_outbound_messages WHERE job_id=$1 AND status IN ('failed','unknown','sending')) OR EXISTS(SELECT 1 FROM message_jobs WHERE id=$1 AND delivery_outcome='blocked')`, in.JobID).Scan(&stopped); err != nil {
 		return domain.Record{}, err
 	}
-	if stopped && in.Limits.StopAfterFailure {
+	if stopped && (in.Limits.StopAfterFailure || sourceKind == "group" && in.TargetKind == "group" && in.TargetID == sourceTarget && in.Action == "send_msg" && !derived) {
 		return domain.Record{}, fmt.Errorf("outbound: run stopped after uncertain or failed delivery")
 	}
 	if in.Limits.MaxPerHour > 0 {
