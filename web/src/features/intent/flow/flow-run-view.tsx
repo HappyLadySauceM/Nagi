@@ -1,7 +1,6 @@
 import { FeedbackState } from '../../../components/feedback-state'
 import { Skeleton } from '../../../components/ui/skeleton'
 import type { IntentRun } from '../../../lib/api/contracts'
-import { CooldownPlayback } from './cooldown-playback'
 import { DecisionConclusion } from './decision-conclusion'
 import { DeliveryPanel } from './delivery-panel'
 import { FlowCanvas } from './flow-canvas'
@@ -34,7 +33,6 @@ export function FlowRunView({
     <div className="space-y-4">
       {(run || !recording) && <DecisionConclusion run={run} showSnapshotStatus={showSnapshotStatus} />}
       <FlowCanvas flow={flow.data} run={run} recording={recording} compact={compact} showSnapshotStatus={showSnapshotStatus} />
-      {run && run.decisionId > 0 ? <CooldownPlayback run={run} /> : null}
       {showDelivery ? <DeliveryPanel run={run} /> : null}
       {showReplay && run && run.decisionId > 0 ? <ReplayControls decisionId={run.decisionId} /> : null}
     </div>

@@ -1,4 +1,6 @@
-import { memo, useRef, useState } from 'react'
+import { memo, useCallback, useRef, useState, type ReactNode } from 'react'
+import { ArrowRight, ChevronRight } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { FeedbackState } from '../../components/feedback-state'
@@ -6,120 +8,139 @@ import { Input } from '../../components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import { formatDateTime } from '../../lib/format'
 import { DecisionDetailSheet } from './flow/decision-detail-sheet'
-import { FlowRunView } from './flow/flow-run-view'
-import { useDecision } from './queries'
-import { reasonText } from './flow/reason-text'
-import { recordedFlow, rowKey, stageLabel, type RunRow } from './live-decision-data'
+import { compareRunRows, rowKey, runReasonText, stageLabel, type RunRow } from './live-decision-data'
 import { useLiveDecisions } from './use-live-decisions'
 
 const states: Record<string, string> = { running: '判断中', completed: '已结束', failed: '失败', interrupted: '中断', unknown: '历史记录 · 实时证据未知' }
 const decisions: Record<string, string> = { reply: '回复', silent: '沉默', defer: '等待' }
-const branches: Record<string, string> = {
-  blocked: '直接拦截', deferred: '候选话题暂缓', bypassed: '合格续接，绕过冷却', restored: '恢复冷却并拦截',
-  equal: '间隔等于阈值，放行', disabled: '冷却已关闭', input_missing: '间隔输入不可用', passed: '间隔超过阈值，放行',
-  decision_persistence_failed: '决策记录写入失败', decision_failed: '判断失败', decision_cancelled: '判断取消', claim_lost: '任务领取已失效', semantic_result_unknown: '中断，语义结果未知',
-}
+const pageSize = 24
+const recentSize = 8
 
-const RunTableRow = memo(function RunTableRow({ row, setSelected }: { row: RunRow; setSelected: (key: string) => void }) {
+type SelectRow = (key: string, trigger: HTMLButtonElement | null) => void
+type LeaveRow = (key: string) => void
+
+const RunTableRow = memo(function RunTableRow({ row, recent, onSelect, onLeave }: { row: RunRow; recent: boolean; onSelect: SelectRow; onLeave: LeaveRow }) {
+  const trigger = useRef<HTMLButtonElement>(null)
   const events = row.events
   const last = events.at(-1)
   const key = rowKey(row)
-  return <TableRow data-run-id={row.runId || undefined} data-decision-id={row.decisionId || undefined} data-run-state={row.state} data-run-sequences={events.map(event => event.sequence).join(',')}>
-    <TableCell><Button className="h-auto min-h-9 px-2 text-left" variant="ghost" onClick={() => setSelected(key)} aria-label={row.decisionId ? `查看决策 ${row.decisionId}` : `查看运行 ${row.runId}`}>
-      <span className="max-w-40 truncate font-mono sm:max-w-56">{row.conversationId}</span>
-    </Button></TableCell>
-    <TableCell><Badge variant={row.state === 'running' ? 'warning' : 'secondary'}>{states[row.state] ?? '未知'}</Badge></TableCell>
-    <TableCell>{last ? stageLabel(last) : '—'}</TableCell>
-    <TableCell>{decisions[row.decision] ?? '—'}</TableCell>
-    <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(row.startedAt)}</TableCell>
+  return <TableRow
+    className="cursor-pointer focus-within:bg-secondary/40"
+    data-run-id={row.runId || undefined} data-decision-id={row.decisionId || undefined}
+    data-run-state={row.state} data-run-sequences={events.map(event => event.sequence).join(',')}
+    onClick={() => onSelect(key, trigger.current)}
+  >
+    <TableCell className="py-1 pl-2">
+      <Button ref={trigger} className="h-auto min-h-9 max-w-56 justify-start px-2 text-left" variant="ghost" type="button"
+        onBlur={() => onLeave(key)} aria-haspopup="dialog" aria-label={row.decisionId ? `查看决策 ${row.decisionId} · ${row.conversationId}` : `查看运行 ${row.conversationId}`}
+      >
+        <span className="truncate font-mono">{row.conversationId}</span>
+      </Button>
+    </TableCell>
+    {!recent && <>
+      <TableCell className="whitespace-nowrap py-2"><Badge variant={row.state === 'running' ? 'warning' : 'secondary'}>{states[row.state] ?? '未知'}</Badge></TableCell>
+      <TableCell className="whitespace-nowrap py-2">{last ? stageLabel(last) : '—'}</TableCell>
+    </>}
+    <TableCell className="whitespace-nowrap py-2">
+      {row.decision ? <Badge variant={row.decision === 'reply' ? 'success' : 'secondary'}>{decisions[row.decision] ?? row.decision}</Badge> : '—'}
+    </TableCell>
+    <TableCell className="min-w-40 py-2 text-muted-foreground">{row.reason ? runReasonText(row.reason) : '—'}</TableCell>
+    <TableCell className="whitespace-nowrap py-2 text-muted-foreground">
+      <time dateTime={row.startedAt}>{formatDateTime(row.startedAt)}</time>
+    </TableCell>
+    <TableCell className="w-9 py-2 pl-0"><ChevronRight className="size-4 text-muted-foreground" aria-hidden /></TableCell>
   </TableRow>
 })
 
-function RunStages({ row, position, seek, onClose, onDetail }: {
-  row: RunRow; position: number | undefined; seek: (step: number | undefined) => void; onClose: () => void; onDetail: () => void
-}) {
-  const formal = useDecision(row.decisionId || null)
-  const final = formal.data?.run
-  const recording = recordedFlow(row, position)
-  const current = position ?? row.events.at(-1)?.sequence
-  return <section className="space-y-3 rounded-lg border p-4" aria-label="运行步骤">
-    <div className="flex items-center justify-between gap-2">
-      <h2 className="font-medium">运行步骤</h2>
-      <div className="flex gap-2">
-        {row.decisionId > 0 && <Button variant="outline" size="sm" onClick={onDetail}>查看正式决策</Button>}
-        <Button variant="ghost" size="sm" onClick={onClose}>关闭步骤</Button>
-      </div>
-    </div>
-    <FlowRunView run={final} recording={position === undefined && final ? undefined : recording} showDelivery={false} showReplay={false} />
-    {position !== undefined && <Button size="sm" variant="outline" onClick={() => seek(undefined)}>跟随最新步骤</Button>}
-    {row.reason && <p className="text-sm">{branches[row.reason] ?? reasonText(row.reason)}</p>}
-    {row.events.length === 0 ? <p className="text-sm text-muted-foreground">这条历史记录的实时步骤未知。</p> : <ol className="space-y-2">
-      {row.events.map(event => <li key={event.sequence} className="flex flex-wrap gap-x-3 text-sm" data-run-sequence={event.sequence}>
-        <button type="button" aria-current={event.sequence === current ? 'step' : undefined} className="underline-offset-4 hover:underline" onClick={() => seek(event.sequence)}>{stageLabel(event)}</button><time dateTime={event.at} className="text-muted-foreground">{formatDateTime(event.at)}</time>
-        {event.ruleId && <span>{event.ruleId}</span>}
-        {event.branch && <span>{branches[event.branch] ?? event.branch}</span>}
-        {event.elapsed !== undefined && <span>已间隔 {event.elapsed} ms</span>}
-        {event.threshold !== undefined && <span>阈值 {event.threshold} ms</span>}
-        {event.latency !== undefined && <span>模型耗时 {event.latency} ms</span>}
-      </li>)}
-    </ol>}
-  </section>
+type Props = {
+  botId: number
+  recent?: boolean
+  renderSummary?: (live: ReturnType<typeof useLiveDecisions>) => ReactNode
 }
 
-export function LiveDecisionLog({ botId }: { botId: number }) {
-  return <AccountDecisionLog key={botId} botId={botId} />
+export function LiveDecisionLog(props: Props) {
+  return <AccountDecisionLog key={props.botId} {...props} />
 }
 
-function AccountDecisionLog({ botId }: { botId: number }) {
+function AccountDecisionLog({ botId, recent = false, renderSummary }: Props) {
   const selectedKey = useRef('')
-  const [selected, setSelected] = useState('')
-  const [position, setPosition] = useState<number>()
-  const live = useLiveDecisions(botId, selectedKey)
-  const select = (key: string) => {
-    if (selectedKey.current !== key) setPosition(undefined)
-    selectedKey.current = key
-    setSelected(key)
-  }
-  return live.view ? <DecisionRows rows={live.view.rows} history={live.view.history} selected={selected} setSelected={select} position={position} seek={setPosition} canPage={Boolean(live.view.next)} paging={live.paging} older={live.older} reset={live.reset} />
-    : live.error ? <FeedbackState variant="error" title="暂无法读取决策记录" error={live.error} onRetry={live.reset} />
-      : <p role="status" className="text-sm text-muted-foreground">正在核验实时连接…</p>
-}
-
-function DecisionRows({ rows, history, selected, setSelected, position, seek, canPage, paging, older, reset }: {
-  rows: RunRow[]; history: RunRow[] | null; selected: string; setSelected: (key: string) => void
-  position: number | undefined; seek: (sequence: number | undefined) => void
-  canPage: boolean; paging: boolean; older: () => void; reset: () => void
-}) {
-  const [detail, setDetail] = useState<number | null>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const [selection, setSelection] = useState({ key: '', open: false })
+  const selected = selection.open ? selection.key : ''
   const [conversation, setConversation] = useState('')
   const [reason, setReason] = useState('')
   const [offset, setOffset] = useState(0)
-  const pageSize = 24
-  const latestByKey = new Map(rows.map(row => [rowKey(row), row]))
-  const all = history ? history.map(row => latestByKey.get(rowKey(row)) ?? row) : rows
-  const shown = all.filter(row => row.conversationId.includes(conversation.trim()) && row.reason.includes(reason.trim()))
-  const current = latestByKey.get(selected)
+  const live = useLiveDecisions(botId, selectedKey)
+  const title = recent ? '最近决策' : '实时决策记录'
+
+  const select = useCallback((key: string, button: HTMLButtonElement | null) => {
+    selectedKey.current = key
+    trigger.current = button
+    setSelection({ key, open: true })
+  }, [])
+
+  const leave = useCallback((key: string) => {
+    setSelection(current => current.key === key && !current.open ? { key: '', open: false } : current)
+  }, [])
+
+  const byKey = new Map(live.view?.rows.map(row => [rowKey(row), row]))
+  const current = byKey.get(selected)
+  const dated = live.view ? [...live.view.rows].sort(compareRunRows) : []
+  const all = live.view?.history?.map(row => byKey.get(rowKey(row)) ?? row) ?? dated
+  const shown = recent
+    ? all.filter(row => row.decisionId > 0)
+    : all.filter(row => row.conversationId.includes(conversation.trim()) && row.reason.includes(reason.trim()))
   const first = Math.min(offset, Math.max(0, Math.ceil(shown.length / pageSize) - 1) * pageSize)
-  const visible = shown.slice(first, first + pageSize)
-  return <section className="space-y-4" aria-label="实时决策记录">
-    <div className="flex flex-wrap items-center gap-2">
-      <Input className="w-full sm:w-56" aria-label="会话 ID" placeholder="按会话 ID 筛选" value={conversation} onChange={event => { setConversation(event.target.value); setDetail(null); setOffset(0) }} />
-      <Input className="w-full sm:w-56" aria-label="原因码筛选" placeholder="按原因码筛选" value={reason} onChange={event => { setReason(event.target.value); setDetail(null); setOffset(0) }} />
-      <Button variant="outline" size="sm" onClick={reset}>刷新</Button>
-      <span className="ml-auto text-xs text-muted-foreground">实时连接已授权</span>
-    </div>
-    {current && <RunStages key={rowKey(current)} row={current} position={position} seek={seek} onClose={() => { setSelected(''); setDetail(null) }} onDetail={() => setDetail(current.decisionId)} />}
-    {shown.length ? <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <Table label="意图决策记录"><TableHeader><TableRow><TableHead>会话</TableHead><TableHead>运行状态</TableHead><TableHead>最近步骤</TableHead><TableHead>结论</TableHead><TableHead>开始时间</TableHead></TableRow></TableHeader>
-        <TableBody>{visible.map(row => <RunTableRow key={rowKey(row)} row={row} setSelected={setSelected} />)}</TableBody>
-      </Table>
-    </div> : <FeedbackState variant="empty" title={conversation || reason ? '已加载记录没有匹配项' : '还没有决策记录'} />}
-    <div className="flex flex-wrap gap-2">
-      {first > 0 && <Button variant="outline" size="sm" onClick={() => setOffset(Math.max(0, first - pageSize))}>上一页</Button>}
-      {first + pageSize < shown.length && <Button variant="outline" size="sm" onClick={() => setOffset(first + pageSize)}>下一页</Button>}
-      {canPage && <Button variant="outline" size="sm" onClick={() => { setOffset(0); older() }} disabled={paging}>{paging ? '读取中…' : '更早记录'}</Button>}
-    </div>
-    {history && <Button variant="ghost" size="sm" onClick={reset}>最新记录</Button>}
-    {detail !== null && current?.decisionId === detail && <DecisionDetailSheet decisionId={detail} onClose={() => setDetail(null)} />}
-  </section>
+  const page = recent ? shown.slice(0, recentSize) : shown.slice(first, first + pageSize)
+  const anchor = byKey.get(selection.key)
+  const visible = anchor && shown.includes(anchor) && !page.includes(anchor)
+    ? [...page, anchor].sort(compareRunRows)
+    : page
+  const hasFilters = Boolean(conversation.trim() || reason.trim())
+  return <>
+    {renderSummary?.(live)}
+    <section className="space-y-3" aria-label={title}>
+      <header className="flex items-center justify-between gap-3">
+        <h2 ref={heading} tabIndex={-1} className={recent ? 'text-sm font-medium' : 'sr-only'}>{title}</h2>
+        {recent && <Button asChild variant="outline" size="sm"><Link to="/decisions/history">查看全部<ArrowRight aria-hidden /></Link></Button>}
+      </header>
+      {!live.view ? (live.error ? <FeedbackState compact={recent} variant="error" title={`暂无法读取${recent ? title : '决策记录'}`} error={live.error} onRetry={live.reset} />
+        : <p role="status" className="py-3 text-sm text-muted-foreground">{recent ? '正在读取最近决策…' : '正在核验实时连接…'}</p>) : <>
+        {!recent && <div className="flex flex-wrap items-center gap-2">
+          <Input className="w-full sm:w-56" aria-label="会话 ID" placeholder="按会话 ID 筛选" value={conversation}
+            onChange={event => { setConversation(event.target.value); setOffset(0); setSelection({ key: '', open: false }) }} />
+          <Input className="w-full sm:w-56" aria-label="原因码筛选" placeholder="按原因码筛选" value={reason}
+            onChange={event => { setReason(event.target.value); setOffset(0); setSelection({ key: '', open: false }) }} />
+          <Button variant="outline" size="sm" onClick={live.reset}>刷新</Button>
+          <span className="ml-auto text-xs text-muted-foreground">实时连接已授权</span>
+        </div>}
+        {visible.length ? <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <Table label={recent ? '最近意图决策' : '意图决策记录'}>
+            <TableHeader><TableRow>
+              <TableHead>会话</TableHead>
+              {!recent && <><TableHead>运行状态</TableHead><TableHead>最近步骤</TableHead></>}
+              <TableHead>结论</TableHead><TableHead>原因</TableHead><TableHead>时间</TableHead>
+              <TableHead><span className="sr-only">详情</span></TableHead>
+            </TableRow></TableHeader>
+            <TableBody>{visible.map(row => <RunTableRow key={rowKey(row)} row={row} recent={recent} onSelect={select} onLeave={leave} />)}</TableBody>
+          </Table>
+        </div> : <FeedbackState compact={recent} variant="empty" title={hasFilters ? '已加载记录没有匹配项' : '还没有决策记录'} />}
+        {!recent && <div className="flex flex-wrap gap-2">
+          {first > 0 && <Button variant="outline" size="sm" onClick={() => { setOffset(Math.max(0, first - pageSize)); setSelection({ key: '', open: false }) }}>上一页</Button>}
+          {first + pageSize < shown.length && <Button variant="outline" size="sm" onClick={() => { setOffset(first + pageSize); setSelection({ key: '', open: false }) }}>下一页</Button>}
+          {live.view.next && <Button variant="outline" size="sm" onClick={() => { setOffset(0); setSelection({ key: '', open: false }); live.older() }} disabled={live.paging}>{live.paging ? '读取中…' : '更早记录'}</Button>}
+          {live.view.history && <Button variant="ghost" size="sm" onClick={live.reset}>最新记录</Button>}
+        </div>}
+      </>}
+      <DecisionDetailSheet key={selection.key} row={current} botId={botId} onClose={() => {
+        selectedKey.current = ''
+        setSelection(previous => ({ ...previous, open: false }))
+      }} onCloseAutoFocus={event => {
+        event.preventDefault()
+        const target = trigger.current?.isConnected ? trigger.current : heading.current
+        target?.focus({ preventScroll: true })
+      }} />
+    </section>
+  </>
 }

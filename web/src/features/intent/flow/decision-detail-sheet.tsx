@@ -1,11 +1,12 @@
 import { useState } from 'react'
+import { Button } from '../../../components/ui/button'
+import { recordedFlow, runReasonText, stageLabel, type RunRow } from '../live-decision-data'
 import { FeedbackState } from '../../../components/feedback-state'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../../components/ui/sheet'
 import { Skeleton } from '../../../components/ui/skeleton'
 import { AuditTimeline } from '../audit-timeline'
 import { OutboundTimeline } from '../outbound-timeline'
 import { useDecision, useInboundMessage } from '../queries'
-import { CooldownPlayback } from './cooldown-playback'
 import { DecisionConclusion } from './decision-conclusion'
 import { formatDateTime } from '../../../lib/format'
 import { Select } from '../../../components/ui/select'
@@ -18,27 +19,38 @@ import { FlowRunView } from './flow-run-view'
 import { jobStatus, segmentLabels } from './inbound-labels'
 import { LegacyStepTimeline } from './legacy-step-timeline'
 
-/**
- * First-level decision drawer shared by the overview and the decision log.
- * 运行概览与决策记录共用的一级决策详情抽屉；点击流程节点会在其上方再开二级抽屉。
- */
 export function DecisionDetailSheet({
   decisionId,
+  row,
+  botId,
   inbound,
   onClose,
+  onCloseAutoFocus,
 }: {
   decisionId?: number | null
+  row?: RunRow
+  botId?: number
   inbound?: { botId: number; messageId: number }
   onClose: () => void
+  onCloseAutoFocus?: (event: Event) => void
 }) {
   const message = useInboundMessage(inbound?.botId, inbound?.messageId ?? null)
   const [selected, setSelected] = useState<{ messageId: number; botId: number; decisionId: number }>()
   const choice = selected && inbound && selected.messageId === inbound.messageId && selected.botId === inbound.botId
     ? selected.decisionId : undefined
   const current = choice ?? message.data?.decisionId
-  const detail = useDecision(inbound ? current ?? null : decisionId ?? null)
-  const open = inbound !== undefined || decisionId != null
+  const formalId = inbound ? current : row?.decisionId ?? decisionId
+  const detail = useDecision(formalId || null)
+  const open = inbound !== undefined || row !== undefined || decisionId != null
+  const expectedBot = inbound?.botId ?? botId
   const loadError = message.error ?? detail.error
+  const formal = !loadError && (expectedBot === undefined || detail.data?.botId === expectedBot) ? detail.data : undefined
+  const [position, seek] = useState<number>()
+  const run = formal?.run
+  const hasFlow = Boolean(row?.events.length || (run && run.snapshotStatus !== 'legacy'))
+  const recording = row?.events.length && (position !== undefined || !run || run.snapshotStatus === 'legacy')
+    ? recordedFlow(row, position)
+    : undefined
   return (
     <Sheet
       open={open}
@@ -46,11 +58,11 @@ export function DecisionDetailSheet({
         if (!next) onClose()
       }}
     >
-      <SheetContent side="right" className="w-[calc(100vw-1rem)] max-w-none overflow-y-auto bg-background p-6 sm:max-w-none">
+      <SheetContent side="right" onCloseAutoFocus={onCloseAutoFocus} className="w-full overflow-y-auto bg-background p-4 sm:w-[76vw] sm:max-w-6xl sm:p-6">
         <div className="border-b border-border pb-5 pr-10">
           <SheetTitle className="text-lg font-semibold">决策详情</SheetTitle>
           <SheetDescription className="mt-2 leading-relaxed">
-            从 QQ 入站消息查看参与判定、回复生成与最终回执。
+            {row ? `${row.decisionId ? `决策 #${row.decisionId}` : '意图运行'} · ${row.conversationId} · ${formatDateTime(row.startedAt)}` : '从 QQ 入站消息查看参与判定、回复生成与最终回执。'}
           </SheetDescription>
         </div>
         {inbound && message.data && (
@@ -65,51 +77,69 @@ export function DecisionDetailSheet({
             )}
           </div>
         )}
-        {message.isLoading || detail.isLoading ? (
-          <Skeleton className="mt-4 h-40 w-full" />
-        ) : loadError ? (
-          <FeedbackState
-            variant="error"
-            title="读取决策详情失败"
-            error={loadError}
-            onRetry={() => void (message.isError ? message.refetch() : detail.refetch())}
-          />
-        ) : detail.data ? (
-          <div className="space-y-4">
-            <IngressPanel ingress={message.data ?? detail.data.ingress} jobId={detail.data.jobId} botId={detail.data.botId} decisionId={detail.data.id} />
-            {detail.data.run && detail.data.run.snapshotStatus !== 'legacy' ? (
-              <FlowRunView run={detail.data.run} showDelivery={false} showReplay={false} />
-            ) : (
-              <>
-                {detail.data.run ? <>
-                  <DecisionConclusion run={detail.data.run} />
-                  <CooldownPlayback run={detail.data.run} />
-                </> : null}
-                <LegacyStepTimeline detail={detail.data} />
-              </>
-            )}
-            <AuditTimeline botId={detail.data.botId} jobId={detail.data.jobId} decisionRunId={detail.data.run?.runId} />
-            {!inbound && detail.data.run && detail.data.run.snapshotStatus !== 'legacy'
-              ? <DeliveryPanel run={detail.data.run} />
-              : <OutboundTimeline botId={detail.data.botId} jobId={detail.data.jobId} />}
-            {detail.data.run && detail.data.run.snapshotStatus !== 'legacy'
-              ? <ReplayControls decisionId={detail.data.id} /> : null}
-          </div>
-        ) : message.data ? (
-          <div className="space-y-4">
-            <IngressPanel ingress={message.data} jobId={message.data.jobId} botId={inbound?.botId} />
-            <Card className="p-5 text-sm">尚无参与决策记录</Card>
-            {inbound && message.data.jobId > 0 && (
-              <>
-                <AuditTimeline botId={inbound.botId} jobId={message.data.jobId} />
-                <OutboundTimeline botId={inbound.botId} jobId={message.data.jobId} />
-              </>
-            )}
-          </div>
-        ) : null}
+        <div className="space-y-4">
+          {message.isLoading || detail.isLoading ? (
+            <div role="status" aria-label="正在读取决策详情"><Skeleton className="mt-4 h-20 w-full" /></div>
+          ) : loadError ? (
+            <FeedbackState variant="error" title="读取决策详情失败" error={loadError}
+              onRetry={() => void (message.isError ? message.refetch() : detail.refetch())} />
+          ) : formal ? (
+            <IngressPanel ingress={message.data ?? formal.ingress} jobId={formal.jobId} botId={formal.botId} decisionId={formal.id} />
+          ) : message.data ? (
+            <>
+              <IngressPanel ingress={message.data} jobId={message.data.jobId} botId={inbound?.botId} />
+              <Card className="p-5 text-sm">尚无参与决策记录</Card>
+              {inbound && message.data.jobId > 0 && (
+                <>
+                  <AuditTimeline botId={inbound.botId} jobId={message.data.jobId} />
+                  <OutboundTimeline botId={inbound.botId} jobId={message.data.jobId} />
+                </>
+              )}
+            </>
+          ) : null}
+          {hasFlow && <FlowRunView run={run} recording={recording} showDelivery={false} showReplay={false} />}
+          {row && <RunSteps row={row} position={position} seek={seek} />}
+          {formal && <>
+            {run?.snapshotStatus === 'legacy' && <DecisionConclusion run={run} />}
+            {(!run || run.snapshotStatus === 'legacy') && <LegacyStepTimeline detail={formal} />}
+            <AuditTimeline botId={formal.botId} jobId={formal.jobId} decisionRunId={run?.runId} />
+            {!inbound && run && run.snapshotStatus !== 'legacy'
+              ? <DeliveryPanel run={run} />
+              : <OutboundTimeline botId={formal.botId} jobId={formal.jobId} />}
+            {run && run.snapshotStatus !== 'legacy' && <ReplayControls decisionId={formal.id} />}
+          </>}
+        </div>
       </SheetContent>
     </Sheet>
   )
+}
+
+function RunSteps({ row, position, seek }: {
+  row: RunRow
+  position: number | undefined
+  seek: (step: number | undefined) => void
+}) {
+  const current = position ?? row.events.at(-1)?.sequence
+  return <Card role="region" className="space-y-3 p-4" aria-label="运行步骤">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h3 className="text-sm font-semibold">运行步骤</h3>
+      {position !== undefined && <Button size="sm" variant="outline" onClick={() => seek(undefined)}>跟随最新步骤</Button>}
+    </div>
+    {row.reason && <p className="text-sm text-muted-foreground">{runReasonText(row.reason)}</p>}
+    {row.events.length === 0 ? <p className="text-sm text-muted-foreground">这条历史记录的实时步骤未知。</p> : <ol className="space-y-2">
+      {row.events.map(event => <li key={event.sequence} className="flex flex-wrap items-baseline gap-x-3 text-sm" data-run-sequence={event.sequence}>
+        <button type="button" aria-current={event.sequence === current ? 'step' : undefined}
+          className="cursor-pointer underline-offset-4 hover:underline aria-[current=step]:font-semibold"
+          onClick={() => seek(event.sequence)}>{stageLabel(event)}</button>
+        <time dateTime={event.at} className="text-xs text-muted-foreground">{formatDateTime(event.at)}</time>
+        {event.ruleId && <span>{event.ruleId}</span>}
+        {event.branch && <span>{runReasonText(event.branch)}</span>}
+        {event.elapsed !== undefined && <span>已间隔 {event.elapsed} ms</span>}
+        {event.threshold !== undefined && <span>阈值 {event.threshold} ms</span>}
+        {event.latency !== undefined && <span>模型耗时 {event.latency} ms</span>}
+      </li>)}
+    </ol>}
+  </Card>
 }
 
 const attachmentStatuses: Record<string, string> = {

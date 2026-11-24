@@ -1,4 +1,5 @@
 import type { IntentRun, IntentRunNode, IntentRunEdge } from '../../lib/api/contracts'
+import { reasonText } from './flow/reason-text'
 import { apiRequest } from '../../lib/api/client'
 import { asArray, asRecord, contractError, readNumber, readOptionalNumber, readString } from '../../lib/api/adapters/guard'
 
@@ -76,8 +77,20 @@ export function rowKey(row: RunRow) {
   return row.runId ? `r:${row.runId}` : `d:${row.decisionId}`
 }
 
-function sortRuns(rows: RunRow[]) {
-  return rows.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || rowKey(b).localeCompare(rowKey(a)))
+export function compareRunRows(a: RunRow, b: RunRow) {
+  return Date.parse(b.startedAt) - Date.parse(a.startedAt) || rowKey(b).localeCompare(rowKey(a))
+}
+
+const branches: Record<string, string> = {
+  blocked: '直接拦截', deferred: '候选话题暂缓', bypassed: '合格续接，绕过冷却', restored: '恢复冷却并拦截',
+  equal: '间隔等于阈值，放行', disabled: '冷却已关闭', input_missing: '间隔输入不可用', passed: '间隔超过阈值，放行',
+  not_executed: '冷却未执行', not_revisited: '其他规则结束判定，冷却未恢复',
+  decision_persistence_failed: '决策记录写入失败', decision_failed: '判断失败', decision_cancelled: '判断取消',
+  claim_lost: '任务领取已失效', semantic_result_unknown: '中断，语义结果未知',
+}
+
+export function runReasonText(reason: string) {
+  return branches[reason] ?? reasonText(reason)
 }
 
 export function mergeRunRows(rows: RunRow[], incoming: RunRow[]) {
@@ -102,7 +115,7 @@ export function mergeRunRows(rows: RunRow[], incoming: RunRow[]) {
       reason: end?.reason || authoritative.reason || row.reason,
     })
   }
-  return sortRuns([...byKey.values()])
+  return [...byKey.values()].sort(compareRunRows)
 }
 
 export function mergeRunEvents(rows: RunRow[], events: RunEvent[]) {
@@ -121,7 +134,7 @@ export function mergeRunEvents(rows: RunRow[], events: RunEvent[]) {
       decision: end?.decision ?? old?.decision ?? '', reason: end?.reason ?? old?.reason ?? '',
     })
   }
-  return sortRuns([...byKey.values()])
+  return [...byKey.values()].sort(compareRunRows)
 }
 
 const stages: Record<string, string> = {

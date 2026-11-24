@@ -4,7 +4,7 @@ import { IntentConfig } from './config'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { apiRequest } from '../../lib/api/client'
 import { asRecord, readNumber } from '../../lib/api/adapters/guard'
 import { Select } from '../../components/ui/select'
@@ -66,26 +66,31 @@ function IntentWorkspace() {
 }
 
 function IntentOverview() {
- const models=useModels()
   const { selectedBotId, dbConfigured } = useAccountContext()
+  if (selectedBotId === undefined) return <FeedbackState variant="empty" title="先选择机器人账号" description="选择账号后查看它的意图识别数据。" action={<Button asChild variant="outline"><Link to="/accounts">查看账号连接</Link></Button>} />
+  if (!dbConfigured) return <FeedbackState variant="unconfigured" title="未配置数据库" description="配置数据库后即可查看意图识别统计与决策记录。" />
+  return <div className="space-y-7">
+    <LiveDecisionLog botId={selectedBotId} recent renderSummary={live => <DecisionSummary botId={selectedBotId} live={live} />} />
+  </div>
+}
+
+function DecisionSummary({ botId, live }: { botId: number; live: ReturnType<typeof useLiveDecisions> }) {
+  const models = useModels()
   const [hours, setHours] = useState('24')
-  const live = useLiveDecisions(selectedBotId ?? 0, undefined, selectedBotId !== undefined && dbConfigured)
   const authorized = live.view !== null
   const query = useQuery({
-    queryKey: ['intent', 'overview', selectedBotId, hours],
+    queryKey: ['intent', 'overview', botId, hours],
     enabled: authorized,
     queryFn: async ({ signal }) => {
-      const raw = await apiRequest(`/api/v1/intent/overview?bot_id=${selectedBotId}&hours=${hours}`, { signal })
+      const raw = await apiRequest(`/api/v1/intent/overview?bot_id=${botId}&hours=${hours}`, { signal })
       const row = asRecord(raw, '/api/v1/intent/overview', 'overview')
       return Object.fromEntries(['Total', 'SemanticCalls', 'SemanticSuccess', 'Degraded', 'Replies', 'Silent', 'AverageLatencyMS'].map(key => [key, readNumber(row, key, '/api/v1/intent/overview', 0)]))
     },
   })
   const value = authorized ? query.data : undefined
-  if (selectedBotId === undefined) return <FeedbackState variant="empty" title="先选择机器人账号" description="选择账号后查看它的意图识别数据。" action={<Button asChild variant="outline"><Link to="/accounts">查看账号连接</Link></Button>} />
-  if (!dbConfigured) return <FeedbackState variant="unconfigured" title="未配置数据库" description="配置数据库后即可查看意图识别统计与决策记录。" />
   return (
-    <div className="space-y-7">
- {models.data && !modelReady(models.data.Catalog,'intent') && <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">尚未选择可用的默认意图模型，语义判断将降级为规则判断。<Link className="ml-2 underline" to="/settings">前往模型配置</Link></div>}
+    <section className="space-y-4" aria-label="决策摘要">
+      {models.data && !modelReady(models.data.Catalog, 'intent') && <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">尚未选择可用的默认意图模型，语义判断将降级为规则判断。<Link className="ml-2 underline" to="/settings">前往模型配置</Link></div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-medium">决策摘要</h2>
         <div className="flex items-center gap-2">
@@ -121,11 +126,7 @@ function IntentOverview() {
           </section>
         </>
       ) : null}
-      <section className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium">最近决策</h2>
-        <Button asChild variant="outline" size="sm"><Link to="/decisions/history">查看决策记录<ArrowRight aria-hidden /></Link></Button>
-      </section>
-    </div>
+    </section>
   )
 }
 
