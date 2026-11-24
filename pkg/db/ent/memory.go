@@ -42,6 +42,8 @@ type Memory struct {
 	SubjectType *string `json:"subject_type,omitempty"`
 	// SubjectID holds the value of the "subject_id" field.
 	SubjectID *string `json:"subject_id,omitempty"`
+	// FactKey holds the value of the "fact_key" field.
+	FactKey *string `json:"fact_key,omitempty"`
 	// DedupeKey holds the value of the "dedupe_key" field.
 	DedupeKey *string `json:"dedupe_key,omitempty"`
 	// ReviewReason holds the value of the "review_reason" field.
@@ -66,13 +68,24 @@ type Memory struct {
 
 // MemoryEdges holds the relations/edges for other nodes in the graph.
 type MemoryEdges struct {
+	// FactSources holds the value of the fact_sources edge.
+	FactSources []*MemoryFactSource `json:"fact_sources,omitempty"`
 	// BotIDRef holds the value of the bot_id_ref edge.
 	BotIDRef *BotAccount `json:"bot_id_ref,omitempty"`
 	// SourceMessageIDRef holds the value of the source_message_id_ref edge.
 	SourceMessageIDRef *Message `json:"source_message_id_ref,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
+}
+
+// FactSourcesOrErr returns the FactSources value or an error if the edge
+// was not loaded in eager-loading.
+func (e MemoryEdges) FactSourcesOrErr() ([]*MemoryFactSource, error) {
+	if e.loadedTypes[0] {
+		return e.FactSources, nil
+	}
+	return nil, &NotLoadedError{edge: "fact_sources"}
 }
 
 // BotIDRefOrErr returns the BotIDRef value or an error if the edge
@@ -80,7 +93,7 @@ type MemoryEdges struct {
 func (e MemoryEdges) BotIDRefOrErr() (*BotAccount, error) {
 	if e.BotIDRef != nil {
 		return e.BotIDRef, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: botaccount.Label}
 	}
 	return nil, &NotLoadedError{edge: "bot_id_ref"}
@@ -91,7 +104,7 @@ func (e MemoryEdges) BotIDRefOrErr() (*BotAccount, error) {
 func (e MemoryEdges) SourceMessageIDRefOrErr() (*Message, error) {
 	if e.SourceMessageIDRef != nil {
 		return e.SourceMessageIDRef, nil
-	} else if e.loadedTypes[1] {
+	} else if e.loadedTypes[2] {
 		return nil, &NotFoundError{label: message.Label}
 	}
 	return nil, &NotLoadedError{edge: "source_message_id_ref"}
@@ -106,7 +119,7 @@ func (*Memory) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case memory.FieldBotID, memory.FieldAuthorizationVersion, memory.FieldSourceMessageID, memory.FieldSourceSenderID:
 			values[i] = new(sql.NullInt64)
-		case memory.FieldVisibility, memory.FieldOwnerKey, memory.FieldContent, memory.FieldSource, memory.FieldOrigin, memory.FieldSubjectType, memory.FieldSubjectID, memory.FieldDedupeKey, memory.FieldReviewReason, memory.FieldStatus, memory.FieldApprovedBy:
+		case memory.FieldVisibility, memory.FieldOwnerKey, memory.FieldContent, memory.FieldSource, memory.FieldOrigin, memory.FieldSubjectType, memory.FieldSubjectID, memory.FieldFactKey, memory.FieldDedupeKey, memory.FieldReviewReason, memory.FieldStatus, memory.FieldApprovedBy:
 			values[i] = new(sql.NullString)
 		case memory.FieldExpiresAt, memory.FieldCreatedAt, memory.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -203,6 +216,13 @@ func (_m *Memory) assignValues(columns []string, values []any) error {
 				_m.SubjectID = new(string)
 				*_m.SubjectID = value.String
 			}
+		case memory.FieldFactKey:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field fact_key", values[i])
+			} else if value.Valid {
+				_m.FactKey = new(string)
+				*_m.FactKey = value.String
+			}
 		case memory.FieldDedupeKey:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field dedupe_key", values[i])
@@ -264,6 +284,11 @@ func (_m *Memory) assignValues(columns []string, values []any) error {
 // This includes values selected through modifiers, order, etc.
 func (_m *Memory) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
+}
+
+// QueryFactSources queries the "fact_sources" edge of the Memory entity.
+func (_m *Memory) QueryFactSources() *MemoryFactSourceQuery {
+	return NewMemoryClient(_m.config).QueryFactSources(_m)
 }
 
 // QueryBotIDRef queries the "bot_id_ref" edge of the Memory entity.
@@ -337,6 +362,11 @@ func (_m *Memory) String() string {
 	builder.WriteString(", ")
 	if v := _m.SubjectID; v != nil {
 		builder.WriteString("subject_id=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.FactKey; v != nil {
+		builder.WriteString("fact_key=")
 		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")

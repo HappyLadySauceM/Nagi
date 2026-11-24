@@ -41,6 +41,8 @@ const (
 	FieldOutboundID = "outbound_id"
 	// FieldMemoryAuthorizationEventID holds the string denoting the memory_authorization_event_id field in the database.
 	FieldMemoryAuthorizationEventID = "memory_authorization_event_id"
+	// EdgeMemoryFactSources holds the string denoting the memory_fact_sources edge name in mutations.
+	EdgeMemoryFactSources = "memory_fact_sources"
 	// EdgeConversationIDRef holds the string denoting the conversation_id_ref edge name in mutations.
 	EdgeConversationIDRef = "conversation_id_ref"
 	// EdgeBotIDRef holds the string denoting the bot_id_ref edge name in mutations.
@@ -59,6 +61,13 @@ const (
 	MemoryFieldID = "memory_id"
 	// Table holds the table name of the message in the database.
 	Table = "messages"
+	// MemoryFactSourcesTable is the table that holds the memory_fact_sources relation/edge.
+	MemoryFactSourcesTable = "memory_fact_sources"
+	// MemoryFactSourcesInverseTable is the table name for the MemoryFactSource entity.
+	// It exists in this package in order to avoid circular dependency with the "memoryfactsource" package.
+	MemoryFactSourcesInverseTable = "memory_fact_sources"
+	// MemoryFactSourcesColumn is the table column denoting the memory_fact_sources relation/edge.
+	MemoryFactSourcesColumn = "message_id"
 	// ConversationIDRefTable is the table that holds the conversation_id_ref relation/edge.
 	ConversationIDRefTable = "messages"
 	// ConversationIDRefInverseTable is the table name for the Conversation entity.
@@ -205,6 +214,20 @@ func ByMemoryAuthorizationEventID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMemoryAuthorizationEventID, opts...).ToFunc()
 }
 
+// ByMemoryFactSourcesCount orders the results by memory_fact_sources count.
+func ByMemoryFactSourcesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newMemoryFactSourcesStep(), opts...)
+	}
+}
+
+// ByMemoryFactSources orders the results by memory_fact_sources terms.
+func ByMemoryFactSources(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newMemoryFactSourcesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByConversationIDRefField orders the results by conversation_id_ref field.
 func ByConversationIDRefField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -266,6 +289,13 @@ func ByMemoryExtractionJobsMessageID(term sql.OrderTerm, terms ...sql.OrderTerm)
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newMemoryExtractionJobsMessageIDStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newMemoryFactSourcesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(MemoryFactSourcesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, MemoryFactSourcesTable, MemoryFactSourcesColumn),
+	)
 }
 func newConversationIDRefStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

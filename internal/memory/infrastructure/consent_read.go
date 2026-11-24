@@ -32,7 +32,7 @@ func validConsentRead(in domain.SearchRequest) bool {
 	return err == nil
 }
 
-const verifiedConsent = `
+var verifiedConsent = `
  FROM memory_consent_grants g
  JOIN memory_consent_proposals p ON p.id=g.proposal_id AND p.bot_id=g.bot_id AND p.memory_id=g.memory_id AND p.fact_version=g.fact_version AND p.subject_id=g.subject_id AND p.status='confirmed'
  JOIN memories m ON m.memory_id=g.memory_id AND m.bot_id=g.bot_id AND m.authorization_version=g.fact_version AND m.status='active' AND m.approved_by<>''
@@ -41,6 +41,7 @@ const verifiedConsent = `
  JOIN messages confirmed ON confirmed.id=g.confirmation_message_id AND confirmed.bot_id=p.bot_id AND confirmed.conversation_id=p.source_conversation_id AND confirmed.sender_id=p.subject_id AND confirmed.direction='incoming' AND confirmed.control_kind='memory_consent_command' AND confirmed.platform_message_id<>0
  JOIN memory_consent_events event ON event.proposal_id=p.id AND event.bot_id=p.bot_id AND event.conversation_id=p.source_conversation_id AND event.platform_message_id=confirmed.platform_message_id AND event.outcome='confirmed'` + consentDelivery + `
  WHERE g.revoked_at IS NULL AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp()) AND p.subject_id<>p.bot_id
+ AND (m.fact_key IS NULL OR ` + FactSupportsMessage("m", "src.id") + `)
  AND m.subject_type='user' AND m.subject_id=p.subject_id::text AND p.source_group_id<>g.target_group_id
  AND p.target_groups @> jsonb_build_array(g.target_group_id)
  AND ((m.visibility='group' AND m.owner_key=source_conv.target_id::text) OR (m.visibility='conversation' AND m.owner_key=source_conv.id::text))`
@@ -328,12 +329,13 @@ func (r *Repo) ValidateConsentGeneration(ctx context.Context, picked models.Prof
  AND m.authorization_version=(dep->>'FactVersion')::bigint AND m.updated_at=(dep->>'UpdatedAt')::timestamptz
  AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp())
  AND ((m.visibility='group' AND m.owner_key=$2::bigint::text) OR (m.visibility='conversation' AND m.owner_key=$3::uuid::text) OR m.visibility='bot_shared')
- AND COALESCE(m.source_message_id,0)=(dep->>'SourceMessageID')::bigint AND COALESCE(m.source_sender_id,0)=(dep->>'SourceSenderID')::bigint
+ AND (m.fact_key IS NOT NULL OR (COALESCE(m.source_message_id,0)=(dep->>'SourceMessageID')::bigint AND COALESCE(m.source_sender_id,0)=(dep->>'SourceSenderID')::bigint))
  AND (NOT (dep->>'HistorySource')::boolean OR (SELECT allow_history_read FROM policy))
- AND ((m.origin='manual' AND m.visibility<>'bot_shared' AND m.source_message_id IS NULL AND m.source_sender_id IS NULL AND NOT (dep->>'HistorySource')::boolean)
+ AND ((m.fact_key IS NOT NULL AND `+FactSupportsMessage("m", "(dep->>'SourceMessageID')::bigint")+`)
+ OR (m.fact_key IS NULL AND ((m.origin='manual' AND m.visibility<>'bot_shared' AND m.source_message_id IS NULL AND m.source_sender_id IS NULL AND NOT (dep->>'HistorySource')::boolean)
  OR EXISTS(SELECT 1 FROM messages src WHERE src.id=m.source_message_id AND src.bot_id=$1 AND src.conversation_id=$3::uuid
  AND src.direction='incoming' AND src.control_kind='' AND src.platform_message_id<>0 AND src.sender_id>0 AND src.sender_id<>$1
- AND (m.source_sender_id IS NULL OR src.sender_id=m.source_sender_id)))))`, first.BotID, first.GroupID, first.ConversationID, first.JobID, first.Claim, encoded, picked.ID, strconv.FormatInt(picked.Version, 10), picked.Protocol, picked.Model, picked.BaseURL, selection, template, local).Scan(&allowed)
+ AND (m.source_sender_id IS NULL OR src.sender_id=m.source_sender_id)))))))`, first.BotID, first.GroupID, first.ConversationID, first.JobID, first.Claim, encoded, picked.ID, strconv.FormatInt(picked.Version, 10), picked.Protocol, picked.Model, picked.BaseURL, selection, template, local).Scan(&allowed)
 	if err != nil {
 		return err
 	}

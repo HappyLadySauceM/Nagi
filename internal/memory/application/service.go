@@ -102,6 +102,12 @@ type ExtractionJobRepository interface {
 	RetryExtractionJob(ctx context.Context, id string, maxManualRetries int) (bool, error)
 }
 
+type FactConflict struct{ ExistingID string }
+
+func (e *FactConflict) Error() string { return "memory: equivalent fact already exists" }
+
+var ErrFactEvidenceRequired = errors.New("memory: fact evidence required")
+
 // DedupeRepository is the optional complete-key lookup used for subject-aware
 // candidate deduplication.
 // DedupeRepository 是用于带主体候选去重的可选完整键查询端口。

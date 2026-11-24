@@ -395,7 +395,7 @@ it('uses the row bot id for management when the current account is not selected'
 
   renderPage()
   expect(await screen.findByText('需要永久删除的记忆')).toBeVisible()
-  fireEvent.click(screen.getByRole('button', { name: '查看替代关系' }))
+  fireEvent.click(screen.getByRole('button', { name: '查看记忆详情' }))
 
   await waitFor(() => expect(managementBotId).toBe('998001'))
   expect(await screen.findByText('暂无替代关系。')).toBeVisible()

@@ -344,7 +344,7 @@ func (h *Handler) Management(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusNotFound, "memory_not_found")
 		return
 	}
-	common.WriteSuccess(w, map[string]any{"Memory": managementMemoryViewOf(memory), "Replacements": replacements})
+	common.WriteSuccess(w, map[string]any{"Memory": managementMemoryViewOf(memory), "Replacements": replacements, "Sources": memory.FactSources})
 }
 
 func managementMemoryViewOf(memory memorydomain.Memory) v1.ManagementMemoryView {
@@ -363,7 +363,16 @@ func managementMemoryViewOf(memory memorydomain.Memory) v1.ManagementMemoryView 
 }
 
 func writeMemoryMutationError(w http.ResponseWriter, err error) {
+	var conflict *memoryapp.FactConflict
 	switch {
+	case errors.As(err, &conflict):
+		if conflict.ExistingID == "" {
+			common.WriteFailure(w, http.StatusConflict, "memory_fact_conflict")
+			return
+		}
+		common.WriteJSON(w, http.StatusConflict, common.Envelope{Code: http.StatusConflict, Message: "memory_fact_conflict", Data: map[string]string{"existing_memory_id": conflict.ExistingID}})
+	case errors.Is(err, memoryapp.ErrFactEvidenceRequired):
+		common.WriteFailure(w, http.StatusConflict, "memory_fact_evidence_required")
 	case errors.Is(err, memoryapp.ErrMemoryNotFound):
 		common.WriteFailure(w, http.StatusNotFound, "memory_not_found")
 	case errors.Is(err, memoryapp.ErrMemoryStatusConflict):

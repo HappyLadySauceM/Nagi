@@ -105,6 +105,7 @@ type ExtractionCandidate struct {
 	SourceMessageID int64
 	Subject         string
 	SubjectLabel    string
+	Fact            FactProposal
 	ReviewReason    string
 }
 

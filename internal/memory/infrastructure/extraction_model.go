@@ -59,7 +59,7 @@ func NewModelExtractor(resolver models.Resolver, prompts ...PromptProvider) *Mod
 
 const extractionSystemPrompt = `你是长期记忆候选抽取器。请只从给定聊天消息中提取值得长期保存的事实或偏好候选。
 只输出一个 JSON 对象，格式为：
-{"candidates":[{"content":"候选内容","confidence":0.0,"source_message_id":123,"subject":"sender|group|unknown","subject_label":"可选主体名称","review_reason":"可选取值"}]}
+{"candidates":[{"content":"候选内容","confidence":0.0,"source_message_id":123,"subject":"sender|group|unknown","subject_label":"可选主体名称","review_reason":"可选取值","fact":{"predicate":"self_name|preferred_address|favorite_tea|preference_like","value":"原话中的原子值","evidence":"该消息中支持事实的完整原话分句"}}]}
 
 规则：
 1. source_message_id 必须来自输入消息，不得编造。
@@ -67,7 +67,8 @@ const extractionSystemPrompt = `你是长期记忆候选抽取器。请只从给
 3. 绝不要把“别人说的事”归到发送者；subject=unknown 时正文保持原意，不要把发送者写进正文。
 4. 不提取密码、令牌、验证码、临时聊天、一次性任务或无长期价值内容。
 5. content 使用原文语言，最多 500 个字符；confidence 在 0 到 1 之间。
-6. 没有合适候选时输出 {"candidates":[]}。不要输出 Markdown 代码块。`
+6. 每个候选只包含一项原子事实。自称与称呼偏好分别返回。仅明确的本人自述使用 fact，evidence 逐字对应原话完整分句。提问、转述及玩笑不可作本人自述。
+7. 没有合适候选时输出 {"candidates":[]}。不要输出 Markdown 代码块。`
 
 type extractionInputMessage struct {
 	MessageID int64  `json:"message_id"`
@@ -93,7 +94,12 @@ type rawExtractionCandidate struct {
 	SourceMessageID int64   `json:"source_message_id"`
 	Subject         string  `json:"subject"`
 	SubjectLabel    string  `json:"subject_label"`
-	ReviewReason    string  `json:"review_reason"`
+	Fact            struct {
+		Predicate string `json:"predicate"`
+		Value     string `json:"value"`
+		Evidence  string `json:"evidence"`
+	} `json:"fact"`
+	ReviewReason string `json:"review_reason"`
 }
 
 // Extract performs one bounded model call and validates the structured result.
@@ -258,6 +264,7 @@ func parseExtractionCandidates(raw string) ([]domain.ExtractionCandidate, error)
 			SourceMessageID: item.SourceMessageID,
 			Subject:         subject,
 			SubjectLabel:    boundRunes(strings.TrimSpace(item.SubjectLabel), 100),
+			Fact:            domain.FactProposal{Predicate: item.Fact.Predicate, Value: item.Fact.Value, Evidence: item.Fact.Evidence},
 			ReviewReason:    strings.TrimSpace(item.ReviewReason),
 		})
 	}

@@ -192,7 +192,7 @@ func (r *Repo) Upsert(ctx context.Context, botID int64, policy domain.Policy) er
 	if previous != nil && previous.MemoryAuthorizationEventID != nil {
 		eventID = *previous.MemoryAuthorizationEventID
 	}
-	relevantChanged := previous == nil || previous.Enabled != policy.Enabled || previous.StoreMessages != policy.StoreMessages || previous.AllowMemoryWrite != policy.AllowMemoryWrite
+	relevantChanged := previous == nil || previous.Enabled != policy.Enabled || previous.StoreMessages != policy.StoreMessages || previous.AllowMemoryWrite != policy.AllowMemoryWrite || previous.AllowMemoryRead != policy.AllowMemoryRead || (previous.ReplyMode == string(domain.ModeObserveOnly)) != (policy.ReplyMode == domain.ModeObserveOnly)
 	eventKind := "created"
 	policyVersion := int64(1)
 	if previous != nil {

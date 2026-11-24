@@ -49,6 +49,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
@@ -132,6 +133,8 @@ type Client struct {
 	MemoryExtractionCursor *MemoryExtractionCursorClient
 	// MemoryExtractionJob is the client for interacting with the MemoryExtractionJob builders.
 	MemoryExtractionJob *MemoryExtractionJobClient
+	// MemoryFactSource is the client for interacting with the MemoryFactSource builders.
+	MemoryFactSource *MemoryFactSourceClient
 	// MemoryReplacement is the client for interacting with the MemoryReplacement builders.
 	MemoryReplacement *MemoryReplacementClient
 	// Message is the client for interacting with the Message builders.
@@ -192,6 +195,7 @@ func (c *Client) init() {
 	c.MemoryConsentProposal = NewMemoryConsentProposalClient(c.config)
 	c.MemoryExtractionCursor = NewMemoryExtractionCursorClient(c.config)
 	c.MemoryExtractionJob = NewMemoryExtractionJobClient(c.config)
+	c.MemoryFactSource = NewMemoryFactSourceClient(c.config)
 	c.MemoryReplacement = NewMemoryReplacementClient(c.config)
 	c.Message = NewMessageClient(c.config)
 	c.MessageJob = NewMessageJobClient(c.config)
@@ -325,6 +329,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		MemoryConsentProposal:         NewMemoryConsentProposalClient(cfg),
 		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
 		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
+		MemoryFactSource:              NewMemoryFactSourceClient(cfg),
 		MemoryReplacement:             NewMemoryReplacementClient(cfg),
 		Message:                       NewMessageClient(cfg),
 		MessageJob:                    NewMessageJobClient(cfg),
@@ -385,6 +390,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		MemoryConsentProposal:         NewMemoryConsentProposalClient(cfg),
 		MemoryExtractionCursor:        NewMemoryExtractionCursorClient(cfg),
 		MemoryExtractionJob:           NewMemoryExtractionJobClient(cfg),
+		MemoryFactSource:              NewMemoryFactSourceClient(cfg),
 		MemoryReplacement:             NewMemoryReplacementClient(cfg),
 		Message:                       NewMessageClient(cfg),
 		MessageJob:                    NewMessageJobClient(cfg),
@@ -431,7 +437,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.IntentRunEvent,
 		c.IntentStreamHead, c.Memory, c.MemoryConsentEvent, c.MemoryConsentGrant,
 		c.MemoryConsentProposal, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.MemoryFactSource, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SendScopeSelection,
 		c.SystemSetting,
 	} {
@@ -452,7 +458,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.IntentRuleActivation, c.IntentRuleEntry, c.IntentRuleset, c.IntentRunEvent,
 		c.IntentStreamHead, c.Memory, c.MemoryConsentEvent, c.MemoryConsentGrant,
 		c.MemoryConsentProposal, c.MemoryExtractionCursor, c.MemoryExtractionJob,
-		c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
+		c.MemoryFactSource, c.MemoryReplacement, c.Message, c.MessageJob, c.QQGroup,
 		c.ScopeMemoryAuthorizationEvent, c.ScopePolicy, c.SendScopeSelection,
 		c.SystemSetting,
 	} {
@@ -529,6 +535,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.MemoryExtractionCursor.mutate(ctx, m)
 	case *MemoryExtractionJobMutation:
 		return c.MemoryExtractionJob.mutate(ctx, m)
+	case *MemoryFactSourceMutation:
+		return c.MemoryFactSource.mutate(ctx, m)
 	case *MemoryReplacementMutation:
 		return c.MemoryReplacement.mutate(ctx, m)
 	case *MessageMutation:
@@ -4873,6 +4881,22 @@ func (c *MemoryClient) GetX(ctx context.Context, id uuid.UUID) *Memory {
 	return obj
 }
 
+// QueryFactSources queries the fact_sources edge of a Memory.
+func (c *MemoryClient) QueryFactSources(_m *Memory) *MemoryFactSourceQuery {
+	query := (&MemoryFactSourceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memory.Table, memory.FieldID, id),
+			sqlgraph.To(memoryfactsource.Table, memoryfactsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, memory.FactSourcesTable, memory.FactSourcesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryBotIDRef queries the bot_id_ref edge of a Memory.
 func (c *MemoryClient) QueryBotIDRef(_m *Memory) *BotAccountQuery {
 	query := (&BotAccountClient{config: c.config}).Query()
@@ -5787,6 +5811,171 @@ func (c *MemoryExtractionJobClient) mutate(ctx context.Context, m *MemoryExtract
 	}
 }
 
+// MemoryFactSourceClient is a client for the MemoryFactSource schema.
+type MemoryFactSourceClient struct {
+	config
+}
+
+// NewMemoryFactSourceClient returns a client for the MemoryFactSource from the given config.
+func NewMemoryFactSourceClient(c config) *MemoryFactSourceClient {
+	return &MemoryFactSourceClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `memoryfactsource.Hooks(f(g(h())))`.
+func (c *MemoryFactSourceClient) Use(hooks ...Hook) {
+	c.hooks.MemoryFactSource = append(c.hooks.MemoryFactSource, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `memoryfactsource.Intercept(f(g(h())))`.
+func (c *MemoryFactSourceClient) Intercept(interceptors ...Interceptor) {
+	c.inters.MemoryFactSource = append(c.inters.MemoryFactSource, interceptors...)
+}
+
+// Create returns a builder for creating a MemoryFactSource entity.
+func (c *MemoryFactSourceClient) Create() *MemoryFactSourceCreate {
+	mutation := newMemoryFactSourceMutation(c.config, OpCreate)
+	return &MemoryFactSourceCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of MemoryFactSource entities.
+func (c *MemoryFactSourceClient) CreateBulk(builders ...*MemoryFactSourceCreate) *MemoryFactSourceCreateBulk {
+	return &MemoryFactSourceCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *MemoryFactSourceClient) MapCreateBulk(slice any, setFunc func(*MemoryFactSourceCreate, int)) *MemoryFactSourceCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &MemoryFactSourceCreateBulk{err: fmt.Errorf("calling to MemoryFactSourceClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*MemoryFactSourceCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &MemoryFactSourceCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for MemoryFactSource.
+func (c *MemoryFactSourceClient) Update() *MemoryFactSourceUpdate {
+	mutation := newMemoryFactSourceMutation(c.config, OpUpdate)
+	return &MemoryFactSourceUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *MemoryFactSourceClient) UpdateOne(_m *MemoryFactSource) *MemoryFactSourceUpdateOne {
+	mutation := newMemoryFactSourceMutation(c.config, OpUpdateOne, withMemoryFactSource(_m))
+	return &MemoryFactSourceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *MemoryFactSourceClient) UpdateOneID(id uuid.UUID) *MemoryFactSourceUpdateOne {
+	mutation := newMemoryFactSourceMutation(c.config, OpUpdateOne, withMemoryFactSourceID(id))
+	return &MemoryFactSourceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for MemoryFactSource.
+func (c *MemoryFactSourceClient) Delete() *MemoryFactSourceDelete {
+	mutation := newMemoryFactSourceMutation(c.config, OpDelete)
+	return &MemoryFactSourceDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *MemoryFactSourceClient) DeleteOne(_m *MemoryFactSource) *MemoryFactSourceDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *MemoryFactSourceClient) DeleteOneID(id uuid.UUID) *MemoryFactSourceDeleteOne {
+	builder := c.Delete().Where(memoryfactsource.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &MemoryFactSourceDeleteOne{builder}
+}
+
+// Query returns a query builder for MemoryFactSource.
+func (c *MemoryFactSourceClient) Query() *MemoryFactSourceQuery {
+	return &MemoryFactSourceQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeMemoryFactSource},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a MemoryFactSource entity by its id.
+func (c *MemoryFactSourceClient) Get(ctx context.Context, id uuid.UUID) (*MemoryFactSource, error) {
+	return c.Query().Where(memoryfactsource.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *MemoryFactSourceClient) GetX(ctx context.Context, id uuid.UUID) *MemoryFactSource {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryMemory queries the memory edge of a MemoryFactSource.
+func (c *MemoryFactSourceClient) QueryMemory(_m *MemoryFactSource) *MemoryQuery {
+	query := (&MemoryClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryfactsource.Table, memoryfactsource.FieldID, id),
+			sqlgraph.To(memory.Table, memory.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryfactsource.MemoryTable, memoryfactsource.MemoryColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMessage queries the message edge of a MemoryFactSource.
+func (c *MemoryFactSourceClient) QueryMessage(_m *MemoryFactSource) *MessageQuery {
+	query := (&MessageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(memoryfactsource.Table, memoryfactsource.FieldID, id),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, memoryfactsource.MessageTable, memoryfactsource.MessageColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *MemoryFactSourceClient) Hooks() []Hook {
+	return c.hooks.MemoryFactSource
+}
+
+// Interceptors returns the client interceptors.
+func (c *MemoryFactSourceClient) Interceptors() []Interceptor {
+	return c.inters.MemoryFactSource
+}
+
+func (c *MemoryFactSourceClient) mutate(ctx context.Context, m *MemoryFactSourceMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&MemoryFactSourceCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&MemoryFactSourceUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&MemoryFactSourceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&MemoryFactSourceDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown MemoryFactSource mutation op: %q", m.Op())
+	}
+}
+
 // MemoryReplacementClient is a client for the MemoryReplacement schema.
 type MemoryReplacementClient struct {
 	config
@@ -6026,6 +6215,22 @@ func (c *MessageClient) GetX(ctx context.Context, id int64) *Message {
 		panic(err)
 	}
 	return obj
+}
+
+// QueryMemoryFactSources queries the memory_fact_sources edge of a Message.
+func (c *MessageClient) QueryMemoryFactSources(_m *Message) *MemoryFactSourceQuery {
+	query := (&MemoryFactSourceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, id),
+			sqlgraph.To(memoryfactsource.Table, memoryfactsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, message.MemoryFactSourcesTable, message.MemoryFactSourcesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryConversationIDRef queries the conversation_id_ref edge of a Message.
@@ -7102,8 +7307,8 @@ type (
 		IntentReplayEvaluation, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
 		IntentRunEvent, IntentStreamHead, Memory, MemoryConsentEvent,
 		MemoryConsentGrant, MemoryConsentProposal, MemoryExtractionCursor,
-		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
-		ScopeMemoryAuthorizationEvent, ScopePolicy, SendScopeSelection,
+		MemoryExtractionJob, MemoryFactSource, MemoryReplacement, Message, MessageJob,
+		QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy, SendScopeSelection,
 		SystemSetting []ent.Hook
 	}
 	inters struct {
@@ -7115,8 +7320,8 @@ type (
 		IntentReplayEvaluation, IntentRuleActivation, IntentRuleEntry, IntentRuleset,
 		IntentRunEvent, IntentStreamHead, Memory, MemoryConsentEvent,
 		MemoryConsentGrant, MemoryConsentProposal, MemoryExtractionCursor,
-		MemoryExtractionJob, MemoryReplacement, Message, MessageJob, QQGroup,
-		ScopeMemoryAuthorizationEvent, ScopePolicy, SendScopeSelection,
+		MemoryExtractionJob, MemoryFactSource, MemoryReplacement, Message, MessageJob,
+		QQGroup, ScopeMemoryAuthorizationEvent, ScopePolicy, SendScopeSelection,
 		SystemSetting []ent.Interceptor
 	}
 )

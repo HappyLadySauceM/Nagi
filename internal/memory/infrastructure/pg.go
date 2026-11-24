@@ -115,7 +115,24 @@ func (r *Repo) List(ctx context.Context, f domain.ListFilter) ([]domain.Memory, 
 		return nil, 0, err
 	}
 	rows, err := q.Order(ent.Desc(m.FieldUpdatedAt)).Limit(f.Limit).Offset(f.Offset()).All(ctx)
-	return memoryModels(rows), int64(n), err
+	if err != nil {
+		return nil, 0, err
+	}
+	items := memoryModels(rows)
+	for i := range items {
+		if items[i].FactKey == "" {
+			continue
+		}
+		sources, err := readFactSources(ctx, r.pool, items[i])
+		if err != nil {
+			return nil, 0, err
+		}
+		projectFactSources(&items[i], sources)
+		if len(sources) == 0 {
+			items[i].Content = ""
+		}
+	}
+	return items, int64(n), nil
 }
 
 // FindByDedupeKey returns an existing candidate or active memory sharing the
@@ -163,7 +180,10 @@ func (r *Repo) SearchVisible(ctx context.Context, in domain.SearchRequest) ([]do
 	if err != nil {
 		return nil, err
 	}
-	local := memoryModels(rows)
+	local, err := r.projectVisibleFacts(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
 	if !validConsentRead(in) {
 		return local, nil
 	}
@@ -202,7 +222,11 @@ func (r *Repo) ReadVisible(ctx context.Context, in domain.SearchRequest, id stri
 	if err != nil {
 		return domain.Memory{}, false, err
 	}
-	return memoryModel(row), true, nil
+	items, err := r.projectVisibleFacts(ctx, []*ent.Memory{row})
+	if err != nil || len(items) == 0 {
+		return domain.Memory{}, false, err
+	}
+	return items[0], true, nil
 }
 
 func (r *Repo) visibleMemories(in domain.SearchRequest) *ent.MemoryQuery {
@@ -234,7 +258,9 @@ func (r *Repo) visibleMemories(in domain.SearchRequest) *ent.MemoryQuery {
 			sel.Where(sql.Exists(match))
 		}))
 	}
-	return q.Where(m.Or(visible...))
+	return q.Where(m.Or(visible...), m.Or(m.FactKeyIsNil(), m.And(m.ApprovedByNEQ(""), func(sel *sql.Selector) {
+		sel.Where(sql.ExprP(FactSupportPredicate(sel.TableName())))
+	})))
 }
 
 func memoryModel(v *ent.Memory) domain.Memory {
@@ -254,6 +280,9 @@ func memoryModel(v *ent.Memory) domain.Memory {
 	if v.DedupeKey != nil {
 		out.DedupeKey = *v.DedupeKey
 	}
+	if v.FactKey != nil {
+		out.FactKey = *v.FactKey
+	}
 	if v.ExpiresAt != nil {
 		out.ExpiresAt = *v.ExpiresAt
 	}
@@ -265,4 +294,23 @@ func memoryModels(rows []*ent.Memory) []domain.Memory {
 		out = append(out, memoryModel(v))
 	}
 	return out
+}
+
+func (r *Repo) projectVisibleFacts(ctx context.Context, rows []*ent.Memory) ([]domain.Memory, error) {
+	out := make([]domain.Memory, 0, len(rows))
+	for _, row := range rows {
+		item := memoryModel(row)
+		if item.FactKey != "" {
+			sources, err := readFactSources(ctx, r.pool, item)
+			if err != nil {
+				return nil, err
+			}
+			if len(sources) == 0 {
+				continue
+			}
+			projectFactSources(&item, sources)
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }

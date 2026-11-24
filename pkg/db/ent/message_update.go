@@ -18,6 +18,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/conversation"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memory"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/predicate"
@@ -266,6 +267,21 @@ func (_u *MessageUpdate) ClearMemoryAuthorizationEventID() *MessageUpdate {
 	return _u
 }
 
+// AddMemoryFactSourceIDs adds the "memory_fact_sources" edge to the MemoryFactSource entity by IDs.
+func (_u *MessageUpdate) AddMemoryFactSourceIDs(ids ...uuid.UUID) *MessageUpdate {
+	_u.mutation.AddMemoryFactSourceIDs(ids...)
+	return _u
+}
+
+// AddMemoryFactSources adds the "memory_fact_sources" edges to the MemoryFactSource entity.
+func (_u *MessageUpdate) AddMemoryFactSources(v ...*MemoryFactSource) *MessageUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddMemoryFactSourceIDs(ids...)
+}
+
 // SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by ID.
 func (_u *MessageUpdate) SetConversationIDRefID(id uuid.UUID) *MessageUpdate {
 	_u.mutation.SetConversationIDRefID(id)
@@ -355,6 +371,27 @@ func (_u *MessageUpdate) AddMemoryExtractionJobsMessageID(v ...*MemoryExtraction
 // Mutation returns the MessageMutation object of the builder.
 func (_u *MessageUpdate) Mutation() *MessageMutation {
 	return _u.mutation
+}
+
+// ClearMemoryFactSources clears all "memory_fact_sources" edges to the MemoryFactSource entity.
+func (_u *MessageUpdate) ClearMemoryFactSources() *MessageUpdate {
+	_u.mutation.ClearMemoryFactSources()
+	return _u
+}
+
+// RemoveMemoryFactSourceIDs removes the "memory_fact_sources" edge to MemoryFactSource entities by IDs.
+func (_u *MessageUpdate) RemoveMemoryFactSourceIDs(ids ...uuid.UUID) *MessageUpdate {
+	_u.mutation.RemoveMemoryFactSourceIDs(ids...)
+	return _u
+}
+
+// RemoveMemoryFactSources removes "memory_fact_sources" edges to MemoryFactSource entities.
+func (_u *MessageUpdate) RemoveMemoryFactSources(v ...*MemoryFactSource) *MessageUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveMemoryFactSourceIDs(ids...)
 }
 
 // ClearConversationIDRef clears the "conversation_id_ref" edge to the Conversation entity.
@@ -548,6 +585,51 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.MemoryAuthorizationEventIDCleared() {
 		_spec.ClearField(message.FieldMemoryAuthorizationEventID, field.TypeInt64)
+	}
+	if _u.mutation.MemoryFactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryFactSourcesTable,
+			Columns: []string{message.MemoryFactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedMemoryFactSourcesIDs(); len(nodes) > 0 && !_u.mutation.MemoryFactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryFactSourcesTable,
+			Columns: []string{message.MemoryFactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemoryFactSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryFactSourcesTable,
+			Columns: []string{message.MemoryFactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.ConversationIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1020,6 +1102,21 @@ func (_u *MessageUpdateOne) ClearMemoryAuthorizationEventID() *MessageUpdateOne 
 	return _u
 }
 
+// AddMemoryFactSourceIDs adds the "memory_fact_sources" edge to the MemoryFactSource entity by IDs.
+func (_u *MessageUpdateOne) AddMemoryFactSourceIDs(ids ...uuid.UUID) *MessageUpdateOne {
+	_u.mutation.AddMemoryFactSourceIDs(ids...)
+	return _u
+}
+
+// AddMemoryFactSources adds the "memory_fact_sources" edges to the MemoryFactSource entity.
+func (_u *MessageUpdateOne) AddMemoryFactSources(v ...*MemoryFactSource) *MessageUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddMemoryFactSourceIDs(ids...)
+}
+
 // SetConversationIDRefID sets the "conversation_id_ref" edge to the Conversation entity by ID.
 func (_u *MessageUpdateOne) SetConversationIDRefID(id uuid.UUID) *MessageUpdateOne {
 	_u.mutation.SetConversationIDRefID(id)
@@ -1109,6 +1206,27 @@ func (_u *MessageUpdateOne) AddMemoryExtractionJobsMessageID(v ...*MemoryExtract
 // Mutation returns the MessageMutation object of the builder.
 func (_u *MessageUpdateOne) Mutation() *MessageMutation {
 	return _u.mutation
+}
+
+// ClearMemoryFactSources clears all "memory_fact_sources" edges to the MemoryFactSource entity.
+func (_u *MessageUpdateOne) ClearMemoryFactSources() *MessageUpdateOne {
+	_u.mutation.ClearMemoryFactSources()
+	return _u
+}
+
+// RemoveMemoryFactSourceIDs removes the "memory_fact_sources" edge to MemoryFactSource entities by IDs.
+func (_u *MessageUpdateOne) RemoveMemoryFactSourceIDs(ids ...uuid.UUID) *MessageUpdateOne {
+	_u.mutation.RemoveMemoryFactSourceIDs(ids...)
+	return _u
+}
+
+// RemoveMemoryFactSources removes "memory_fact_sources" edges to MemoryFactSource entities.
+func (_u *MessageUpdateOne) RemoveMemoryFactSources(v ...*MemoryFactSource) *MessageUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveMemoryFactSourceIDs(ids...)
 }
 
 // ClearConversationIDRef clears the "conversation_id_ref" edge to the Conversation entity.
@@ -1332,6 +1450,51 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 	}
 	if _u.mutation.MemoryAuthorizationEventIDCleared() {
 		_spec.ClearField(message.FieldMemoryAuthorizationEventID, field.TypeInt64)
+	}
+	if _u.mutation.MemoryFactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryFactSourcesTable,
+			Columns: []string{message.MemoryFactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedMemoryFactSourcesIDs(); len(nodes) > 0 && !_u.mutation.MemoryFactSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryFactSourcesTable,
+			Columns: []string{message.MemoryFactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.MemoryFactSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   message.MemoryFactSourcesTable,
+			Columns: []string{message.MemoryFactSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(memoryfactsource.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.ConversationIDRefCleared() {
 		edge := &sqlgraph.EdgeSpec{

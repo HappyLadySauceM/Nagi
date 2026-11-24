@@ -18,7 +18,7 @@ import (
 const memoryRowColumns = `memory_id::text, bot_id, visibility, owner_key, content,
 	source_message_id, source, source_sender_id, origin, subject_type, subject_id,
 	dedupe_key, review_reason, confidence, status, approved_by, expires_at,
-	created_at, updated_at, authorization_version`
+	created_at, updated_at, authorization_version, fact_key`
 
 const replacementColumns = `replacement_id::text, bot_id, new_memory_id::text,
 	old_memory_id::text, actor, reason, idempotency_key, created_at`
@@ -35,47 +35,7 @@ type rowQuerier interface {
 // lock and a row lock.
 // ApproveMemory 在共享记忆变更锁与行锁下将 candidate 改为 active。
 func (r *Repo) ApproveMemory(ctx context.Context, memoryID, actor string) error {
-	botID, err := r.memoryBotID(ctx, memoryID)
-	if err != nil {
-		return err
-	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := LockMemoryMutation(ctx, tx, botID); err != nil {
-		return err
-	}
-	var status string
-	var visibility domain.Visibility
-	err = tx.QueryRow(ctx, `SELECT status, visibility FROM memories WHERE memory_id=$1::uuid FOR UPDATE`, memoryID).Scan(&status, &visibility)
-	if errors.Is(err, sql.ErrNoRows) {
-		return memoryapp.ErrMemoryNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if status != string(domain.StatusCandidate) {
-		return memoryapp.ErrMemoryStatusConflict
-	}
-	if visibility == domain.VisibilityBotShared {
-		return memoryapp.ErrMemoryInvalid
-	}
-	result, err := tx.Exec(ctx, `
-		UPDATE memories
-		SET status='active', approved_by=$1, updated_at=clock_timestamp(),authorization_version=authorization_version+1
-		WHERE memory_id=$2::uuid AND status='candidate'`, actor, memoryID)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() != 1 {
-		return memoryapp.ErrMemoryStatusConflict
-	}
-	if err := invalidateStaleConsent(ctx, tx, memoryID); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return r.ApproveMemoryWithEdit(ctx, memoryID, actor, "", "", nil)
 }
 
 // ApproveMemoryWithEdit applies an edit and candidate -> active in one
@@ -112,6 +72,7 @@ func (r *Repo) ApproveMemoryWithEdit(ctx context.Context, memoryID, actor, conte
 	if memory.Visibility == domain.VisibilityBotShared || visibility == domain.VisibilityBotShared {
 		return memoryapp.ErrMemoryInvalid
 	}
+	previous := memory
 	if trimmed := strings.TrimSpace(content); trimmed != "" {
 		memory.Content = trimmed
 	}
@@ -127,17 +88,20 @@ func (r *Repo) ApproveMemoryWithEdit(ctx context.Context, memoryID, actor, conte
 	if err := memory.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", memoryapp.ErrMemoryInvalid, err)
 	}
+	if err := validateFactMutation(ctx, tx, &memory, previous, ""); err != nil {
+		return err
+	}
 	result, err := tx.Exec(ctx, `
 		UPDATE memories SET
 			content=$1, visibility=$2, owner_key=$3, status='active', approved_by=$4,
 			origin=$5, review_reason=$6, source_sender_id=$7,
 			subject_type=$8, subject_id=$9, dedupe_key=$10,
-			expires_at=$11, updated_at=clock_timestamp(),authorization_version=authorization_version+1
-		WHERE memory_id=$12::uuid AND status='candidate'`,
+			expires_at=$11, updated_at=clock_timestamp(),authorization_version=authorization_version+1,
+			fact_key=$13 WHERE memory_id=$12::uuid AND status='candidate'`,
 		memory.Content, string(memory.Visibility), memory.OwnerKey, actor,
 		string(memory.Origin), memory.ReviewReason, memoryNullableInt64(memory.SourceSenderID),
 		memoryNullableString(string(memory.SubjectType)), memoryNullableString(memory.SubjectID), memoryNullableString(memory.DedupeKey),
-		memoryNullableTime(memory.ExpiresAt), memoryID)
+		memoryNullableTime(memory.ExpiresAt), memoryID, memoryNullableString(memory.FactKey))
 	if err != nil {
 		return err
 	}
@@ -165,20 +129,23 @@ func (r *Repo) UpdateMemoryLocked(ctx context.Context, memory domain.Memory) err
 	if err := LockMemoryMutation(ctx, tx, memory.BotID); err != nil {
 		return err
 	}
-	var status string
-	var visibility domain.Visibility
-	err = tx.QueryRow(ctx, `SELECT status, visibility FROM memories WHERE memory_id=$1::uuid AND bot_id=$2 FOR UPDATE`, memory.ID, memory.BotID).Scan(&status, &visibility)
+	previous, err := scanMemoryRow(tx.QueryRow(ctx, `SELECT `+memoryRowColumns+` FROM memories WHERE memory_id=$1::uuid AND bot_id=$2 FOR UPDATE`, memory.ID, memory.BotID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return memoryapp.ErrMemoryNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if status == string(domain.StatusSuperseded) || status == string(domain.StatusDeleted) {
+	if previous.Status != memory.Status || previous.ApprovedBy != memory.ApprovedBy || previous.Status == domain.StatusSuperseded || previous.Status == domain.StatusDeleted {
 		return memoryapp.ErrMemoryStatusConflict
 	}
-	if visibility == domain.VisibilityBotShared || memory.Visibility == domain.VisibilityBotShared {
+	if previous.Visibility == domain.VisibilityBotShared || memory.Visibility == domain.VisibilityBotShared {
 		return memoryapp.ErrMemoryInvalid
+	}
+	if previous.FactKey != "" || memory.Status == domain.StatusActive {
+		if err := validateFactMutation(ctx, tx, &memory, previous, ""); err != nil {
+			return err
+		}
 	}
 	result, err := tx.Exec(ctx, `
 		UPDATE memories SET
@@ -186,12 +153,12 @@ func (r *Repo) UpdateMemoryLocked(ctx context.Context, memory domain.Memory) err
 			origin=$4, review_reason=$5, source_sender_id=$6,
 			subject_type=$7, subject_id=$8, dedupe_key=$9,
 			expires_at=$10, updated_at=clock_timestamp(),
- authorization_version=authorization_version+CASE WHEN (content,visibility,owner_key,origin,source_sender_id,subject_type,subject_id,expires_at) IS DISTINCT FROM ($1::text,$2::text,$3::text,$4::text,$6::bigint,$7::text,$8::text,$10::timestamptz) THEN 1 ELSE 0 END
-		WHERE memory_id=$11::uuid`,
+ authorization_version=authorization_version+CASE WHEN (content,visibility,owner_key,origin,source_sender_id,subject_type,subject_id,expires_at) IS DISTINCT FROM ($1::text,$2::text,$3::text,$4::text,$6::bigint,$7::text,$8::text,$10::timestamptz) THEN 1 ELSE 0 END,
+			fact_key=$12 WHERE memory_id=$11::uuid`,
 		memory.Content, string(memory.Visibility), memory.OwnerKey,
 		string(memory.Origin), memory.ReviewReason, memoryNullableInt64(memory.SourceSenderID),
 		memoryNullableString(string(memory.SubjectType)), memoryNullableString(memory.SubjectID), memoryNullableString(memory.DedupeKey),
-		memoryNullableTime(memory.ExpiresAt), memory.ID)
+		memoryNullableTime(memory.ExpiresAt), memory.ID, memoryNullableString(memory.FactKey))
 	if err != nil {
 		return err
 	}
@@ -373,6 +340,12 @@ func (r *Repo) Supersede(ctx context.Context, in domain.SupersedeInput) (domain.
 		return domain.SupersedeResult{}, memoryapp.ErrSubjectMismatch
 	}
 
+	if newMemory.Origin == domain.OriginExtraction && oldMemory.Origin == domain.OriginManual {
+		return domain.SupersedeResult{}, memoryapp.ErrMemoryInvalid
+	}
+	if err := validateFactMutation(ctx, tx, &newMemory, memories[in.NewMemoryID], in.OldMemoryID); err != nil {
+		return domain.SupersedeResult{}, err
+	}
 	var relation domain.Replacement
 	relation.ReplacementID = uuid.NewString()
 	relation.BotID = botID
@@ -389,10 +362,13 @@ func (r *Repo) Supersede(ctx context.Context, in domain.SupersedeInput) (domain.
 		relation.OldMemoryID, relation.Actor, relation.Reason, relation.IdempotencyKey).Scan(&relation.CreatedAt); err != nil {
 		return domain.SupersedeResult{}, err
 	}
-	if err := updateMemoryStatus(ctx, tx, in.NewMemoryID, string(domain.StatusCandidate), string(domain.StatusActive), in.Actor); err != nil {
+	if err := updateMemoryStatus(ctx, tx, in.OldMemoryID, string(domain.StatusActive), string(domain.StatusSuperseded), ""); err != nil {
 		return domain.SupersedeResult{}, err
 	}
-	if err := updateMemoryStatus(ctx, tx, in.OldMemoryID, string(domain.StatusActive), string(domain.StatusSuperseded), ""); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE memories SET content=$1,fact_key=$2,dedupe_key=$3 WHERE memory_id=$4::uuid`, newMemory.Content, memoryNullableString(newMemory.FactKey), memoryNullableString(newMemory.DedupeKey), newMemory.ID); err != nil {
+		return domain.SupersedeResult{}, err
+	}
+	if err := updateMemoryStatus(ctx, tx, in.NewMemoryID, string(domain.StatusCandidate), string(domain.StatusActive), in.Actor); err != nil {
 		return domain.SupersedeResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -466,6 +442,16 @@ func (r *Repo) Management(ctx context.Context, memoryID string, botID int64) (do
 	}
 	if err := rows.Err(); err != nil {
 		return domain.Memory{}, nil, false, err
+	}
+	if memory.FactKey != "" {
+		sources, err := readFactSources(ctx, r.pool, memory)
+		if err != nil {
+			return domain.Memory{}, nil, false, err
+		}
+		projectFactSources(&memory, sources)
+		if len(sources) == 0 {
+			memory.Content = ""
+		}
 	}
 	return memory, out, true, nil
 }
@@ -599,16 +585,17 @@ func scanMemoryRow(row rowScanner) (domain.Memory, error) {
 	var memory domain.Memory
 	var visibility, origin, status string
 	var sourceMessageID, sourceSenderID sql.NullInt64
-	var subjectType, subjectID, dedupeKey sql.NullString
+	var subjectType, subjectID, dedupeKey, factKey sql.NullString
 	var expiresAt sql.NullTime
 	var confidence float64
 	err := row.Scan(&memory.ID, &memory.BotID, &visibility, &memory.OwnerKey, &memory.Content,
 		&sourceMessageID, &memory.Source, &sourceSenderID, &origin, &subjectType, &subjectID,
 		&dedupeKey, &memory.ReviewReason, &confidence, &status, &memory.ApprovedBy, &expiresAt,
-		&memory.CreatedAt, &memory.UpdatedAt, &memory.AuthorizationVersion)
+		&memory.CreatedAt, &memory.UpdatedAt, &memory.AuthorizationVersion, &factKey)
 	if err != nil {
 		return domain.Memory{}, err
 	}
+	memory.FactKey = factKey.String
 	memory.Visibility = domain.Visibility(visibility)
 	memory.Origin = domain.Origin(origin)
 	memory.Status = domain.Status(status)

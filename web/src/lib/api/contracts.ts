@@ -416,8 +416,14 @@ export interface MemoryReplacement {
   counterpart: MemoryReplacementCounterpart
 }
 
+export interface MemoryFactSource {
+  messageId: number
+  senderId: number
+}
+
 export interface MemoryManagementView {
   memory: MemoryEntry
+  factSources: MemoryFactSource[]
   replacements: MemoryReplacement[]
 }
 

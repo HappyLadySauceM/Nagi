@@ -598,27 +598,27 @@ func init() {
 	// memory.DefaultOrigin holds the default value on creation for the origin field.
 	memory.DefaultOrigin = memoryDescOrigin.Default.(string)
 	// memoryDescReviewReason is the schema descriptor for review_reason field.
-	memoryDescReviewReason := memoryFields[13].Descriptor()
+	memoryDescReviewReason := memoryFields[14].Descriptor()
 	// memory.DefaultReviewReason holds the default value on creation for the review_reason field.
 	memory.DefaultReviewReason = memoryDescReviewReason.Default.(string)
 	// memoryDescConfidence is the schema descriptor for confidence field.
-	memoryDescConfidence := memoryFields[14].Descriptor()
+	memoryDescConfidence := memoryFields[15].Descriptor()
 	// memory.DefaultConfidence holds the default value on creation for the confidence field.
 	memory.DefaultConfidence = memoryDescConfidence.Default.(float32)
 	// memoryDescStatus is the schema descriptor for status field.
-	memoryDescStatus := memoryFields[15].Descriptor()
+	memoryDescStatus := memoryFields[16].Descriptor()
 	// memory.DefaultStatus holds the default value on creation for the status field.
 	memory.DefaultStatus = memoryDescStatus.Default.(string)
 	// memoryDescApprovedBy is the schema descriptor for approved_by field.
-	memoryDescApprovedBy := memoryFields[16].Descriptor()
+	memoryDescApprovedBy := memoryFields[17].Descriptor()
 	// memory.DefaultApprovedBy holds the default value on creation for the approved_by field.
 	memory.DefaultApprovedBy = memoryDescApprovedBy.Default.(string)
 	// memoryDescCreatedAt is the schema descriptor for created_at field.
-	memoryDescCreatedAt := memoryFields[18].Descriptor()
+	memoryDescCreatedAt := memoryFields[19].Descriptor()
 	// memory.DefaultCreatedAt holds the default value on creation for the created_at field.
 	memory.DefaultCreatedAt = memoryDescCreatedAt.Default.(func() time.Time)
 	// memoryDescUpdatedAt is the schema descriptor for updated_at field.
-	memoryDescUpdatedAt := memoryFields[19].Descriptor()
+	memoryDescUpdatedAt := memoryFields[20].Descriptor()
 	// memory.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	memory.DefaultUpdatedAt = memoryDescUpdatedAt.Default.(func() time.Time)
 	memoryconsenteventFields := nagi.MemoryConsentEvent{}.Fields()

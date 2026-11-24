@@ -321,7 +321,7 @@ func trackVersionedRead(ctx context.Context, reader DetailReader, req DetailRequ
 			return ErrReadChanged
 		}
 		current, found, err := reader.RecallDetail(call, req)
-		if err != nil || !found || !current.UpdatedAt.Equal(version.UpdatedAt) || version.AuthorizationVersion != 0 && current.AuthorizationVersion != version.AuthorizationVersion || current.ConsentIdentity != version.ConsentIdentity {
+		if err != nil || !found || !current.UpdatedAt.Equal(version.UpdatedAt) || version.AuthorizationVersion != 0 && current.AuthorizationVersion != version.AuthorizationVersion || current.ConsentIdentity != version.ConsentIdentity || historySource && current.SourceMessageID != version.SourceMessageID {
 			return ErrReadChanged
 		}
 		return nil

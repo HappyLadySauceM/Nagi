@@ -33,7 +33,7 @@ func (r *recordingExtractor) Extract(_ context.Context, request domain.Extractio
 	out := make([]domain.ExtractionCandidate, 0, len(request.Messages))
 	for _, message := range request.Messages {
 		out = append(out, domain.ExtractionCandidate{
-			Content:         "记忆:" + message.Text,
+			Content:         message.Text,
 			Confidence:      0.9,
 			SourceMessageID: message.ID,
 			Subject:         "sender",
@@ -103,8 +103,8 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 	if err != nil || !authorized || eventID == 0 {
 		t.Fatalf("resolve authorization: event=%d authorized=%v err=%v", eventID, authorized, err)
 	}
-	for _, text := range []string{"用户A喜欢乌龙茶", "用户A周末喜欢爬山"} {
-		if _, err := pool.Exec(ctx, `INSERT INTO messages (conversation_id, bot_id, direction, platform_message_id, sender_id, text_content, segments, memory_authorization_event_id) VALUES ($1,$2,'incoming',$3,997203,$4,'[]'::jsonb,$5)`, conversationID, botID, time.Now().UnixNano(), text, eventID); err != nil {
+	for _, text := range []string{"我喜欢乌龙茶", "我喜欢爬山"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO messages (conversation_id, bot_id, direction, platform_message_id, sender_id, text_content, segments, memory_authorization_event_id) VALUES ($1,$2,'incoming',$3,997203,$4,jsonb_build_array(jsonb_build_object('type','text','data',jsonb_build_object('text',$4::text))),$5)`, conversationID, botID, time.Now().UnixNano(), text, eventID); err != nil {
 			t.Fatalf("seed message: %v", err)
 		}
 	}
@@ -170,7 +170,7 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT memory_id::text, subject_id FROM memories WHERE bot_id=$1 AND status='candidate' ORDER BY created_at LIMIT 1`, botID).Scan(&memoryID, &subjectID); err != nil {
 		t.Fatalf("read candidate: %v", err)
 	}
-	req := memorycontracts.RecallRequest{BotID: botID, Kind: "group", TargetID: groupID, Query: "记忆", Limit: 5, SubjectType: "user", SubjectID: subjectID}
+	req := memorycontracts.RecallRequest{BotID: botID, Kind: "group", TargetID: groupID, Query: "喜欢", Limit: 5, SubjectType: "user", SubjectID: subjectID}
 	before, err := memoryService.Recall(ctx, req)
 	if err != nil || len(before.Items) != 0 {
 		t.Fatalf("candidate recall before approval = %d err=%v", len(before.Items), err)
@@ -179,7 +179,7 @@ func TestExtractionWorkerEndToEndWithRealPostgres(t *testing.T) {
 		t.Fatalf("approve candidate: %v", err)
 	}
 	after, err := memoryService.Recall(ctx, req)
-	if err != nil || len(after.Items) != 1 || !strings.Contains(after.Items[0].Content, "记忆:") {
+	if err != nil || len(after.Items) != 1 || !strings.Contains(after.Items[0].Content, "本人自述：我喜欢") {
 		t.Fatalf("approved recall = %+v err=%v", after, err)
 	}
 }

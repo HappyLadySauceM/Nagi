@@ -45,6 +45,7 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryconsentproposal"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractioncursor"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryextractionjob"
+	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryfactsource"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/memoryreplacement"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/message"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
@@ -146,6 +147,7 @@ func checkColumn(t, c string) error {
 			memoryconsentproposal.Table:         memoryconsentproposal.ValidColumn,
 			memoryextractioncursor.Table:        memoryextractioncursor.ValidColumn,
 			memoryextractionjob.Table:           memoryextractionjob.ValidColumn,
+			memoryfactsource.Table:              memoryfactsource.ValidColumn,
 			memoryreplacement.Table:             memoryreplacement.ValidColumn,
 			message.Table:                       message.ValidColumn,
 			messagejob.Table:                    messagejob.ValidColumn,

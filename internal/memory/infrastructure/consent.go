@@ -21,10 +21,11 @@ import (
 
 // consentFacts ties a version to an approved fact with a direct source from its subject.
 // consentFacts 将事实版本绑定到已审批且来自本人直接入站的事实。
-const consentFacts = ` JOIN messages src ON src.id=m.source_message_id AND src.bot_id=m.bot_id AND src.direction='incoming'
+var consentFacts = ` JOIN messages src ON src.id=m.source_message_id AND src.bot_id=m.bot_id AND src.direction='incoming'
  JOIN conversations c ON c.id=src.conversation_id AND c.bot_id=m.bot_id AND c.kind='group'
  WHERE m.bot_id=$1 AND m.memory_id=$2::uuid AND m.authorization_version=$3
  AND m.status='active' AND m.approved_by<>'' AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp())
+ AND (m.fact_key IS NULL OR ` + FactSupportsMessage("m", "src.id") + `)
  AND m.subject_type='user' AND src.sender_id>0 AND src.sender_id<>m.bot_id
  AND src.platform_message_id<>0 AND src.control_kind='' AND m.subject_id=src.sender_id::text AND m.source_sender_id=src.sender_id
  AND ((m.visibility='group' AND m.owner_key=c.target_id::text) OR (m.visibility='conversation' AND m.owner_key=c.id::text))`

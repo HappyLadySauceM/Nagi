@@ -11,6 +11,7 @@ import (
 
 	ordering "github.com/HappyLadySauceM/Nagi/internal/conversation/contracts"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
+	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	plugins "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
@@ -630,7 +631,9 @@ func validMemoryDependencies(ctx context.Context, tx *db.Tx, scope deliveryPolic
        AND source.bot_id=$2 AND source.direction='incoming' AND source.sender_id>0 AND source.sender_id<>$2
        AND (m.source_sender_id IS NULL OR source.sender_id=m.source_sender_id)
        AND ($3<>'private_user' OR source.sender_id=$4::bigint)))
- AND (ref.source_message_id IS NULL OR ($6 AND source.id=ref.source_message_id AND source.bot_id=$2 AND source.conversation_id=$5::uuid))
+ AND (m.fact_key IS NULL OR (m.approved_by<>'' AND `+memoryinfra.FactSupportPredicate("m")+`))
+ AND (ref.source_message_id IS NULL OR ($6 AND ((m.fact_key IS NULL AND source.id=ref.source_message_id AND source.bot_id=$2 AND source.conversation_id=$5::uuid)
+ OR (m.fact_key IS NOT NULL AND `+memoryinfra.FactSupportsMessage("m", "ref.source_message_id")+`))))
  ))`, raw, scope.botID, map[string]string{"group": "group", "private": "private_user"}[scope.sourceKind], scope.sourceTarget, scope.sourceID, historyAllowed).Scan(&valid)
 	return valid, err
 }
