@@ -19,16 +19,22 @@ import (
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 )
 
-// consentFacts ties a version to an approved fact with a direct source from its subject.
-// consentFacts 将事实版本绑定到已审批且来自本人直接入站的事实。
-var consentFacts = ` JOIN messages src ON src.id=m.source_message_id AND src.bot_id=m.bot_id AND src.direction='incoming'
- JOIN conversations c ON c.id=src.conversation_id AND c.bot_id=m.bot_id AND c.kind='group'
- WHERE m.bot_id=$1 AND m.memory_id=$2::uuid AND m.authorization_version=$3
- AND m.status='active' AND m.approved_by<>'' AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp())
- AND (m.fact_key IS NULL OR ` + FactSupportsMessage("m", "src.id") + `)
- AND m.subject_type='user' AND src.sender_id>0 AND src.sender_id<>m.bot_id
- AND src.platform_message_id<>0 AND src.control_kind='' AND m.subject_id=src.sender_id::text AND m.source_sender_id=src.sender_id
+const consentSourceScope = `c.bot_id=m.bot_id AND c.kind='group'
  AND ((m.visibility='group' AND m.owner_key=c.target_id::text) OR (m.visibility='conversation' AND m.owner_key=c.id::text))`
+
+var consentSourceValid = `m.status='active' AND m.approved_by<>'' AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp())
+ AND src.bot_id=m.bot_id AND src.conversation_id=c.id AND src.direction='incoming' AND src.control_kind='' AND src.platform_message_id<>0
+ AND m.subject_type='user' AND src.sender_id>0 AND src.sender_id<>m.bot_id AND m.subject_id=src.sender_id::text
+ AND ` + consentSourceScope + `
+ AND ((m.fact_key IS NULL AND src.id=m.source_message_id AND m.source_sender_id=src.sender_id)
+ OR (m.fact_key IS NOT NULL AND ` + FactSupportsMessage("m", "src.id") + `))`
+
+func consentSourceJoin(messageID string) string {
+	return ` JOIN messages src ON src.id=` + messageID + ` JOIN conversations c ON c.id=src.conversation_id`
+}
+
+var boundConsentFacts = consentSourceJoin(`(SELECT source_message_id FROM memory_consent_proposals WHERE id=$5)`) + `
+ WHERE m.bot_id=$1 AND m.memory_id=$2::uuid AND m.authorization_version=$3 AND c.id=$4 AND ` + consentSourceValid
 
 const consentColumns = `p.id::text,p.bot_id,p.memory_id::text,p.fact_version,p.subject_id,p.source_conversation_id::text,p.source_group_id,p.target_groups,p.status,p.state_version,p.created_at,p.expires_at`
 
@@ -80,7 +86,27 @@ func (r *Repo) CreateConsent(ctx context.Context, in contracts.CreateConsent) (c
 	}
 	var content, conversation string
 	var subject, group, source int64
-	err = tx.QueryRow(ctx, `SELECT m.content,c.id::text,c.target_id,src.sender_id,src.id FROM memories m`+consentFacts+` FOR UPDATE OF m`, in.BotID, in.MemoryID, in.FactVersion).Scan(&content, &conversation, &group, &subject, &source)
+	err = tx.QueryRow(ctx, `SELECT c.target_id,c.id::text FROM memories m JOIN conversations c ON `+consentSourceScope+`
+ WHERE m.bot_id=$1 AND m.memory_id=$2::uuid AND m.authorization_version=$3`, in.BotID, in.MemoryID, in.FactVersion).Scan(&group, &conversation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return old, contracts.ErrConsentConflict
+	}
+	if err != nil {
+		return old, err
+	}
+	if err = scopeinfra.LockMemoryAuthorization(ctx, tx, in.BotID, "group", group); err != nil {
+		return old, err
+	}
+	defaultCanSend, err := consentDefaultCanSend(ctx, tx)
+	if err != nil {
+		return old, err
+	}
+	err = tx.QueryRow(ctx, `SELECT m.content,src.sender_id,src.id FROM memories m
+ JOIN LATERAL (SELECT m.source_message_id AS id UNION SELECT f.message_id FROM memory_fact_sources f
+ WHERE m.fact_key IS NOT NULL AND f.memory_id=m.memory_id) candidate ON true`+consentSourceJoin("candidate.id")+`
+ WHERE m.bot_id=$1 AND m.memory_id=$2::uuid AND m.authorization_version=$3 AND c.id=$4 AND `+consentSourceValid+`
+ ORDER BY (src.id IS DISTINCT FROM m.source_message_id),src.id LIMIT 1 FOR UPDATE OF m FOR SHARE OF src`,
+		in.BotID, in.MemoryID, in.FactVersion, conversation).Scan(&content, &subject, &source)
 	if errors.Is(err, sql.ErrNoRows) {
 		return old, contracts.ErrConsentConflict
 	}
@@ -91,13 +117,6 @@ func (r *Repo) CreateConsent(ctx context.Context, in contracts.CreateConsent) (c
 		return old, contracts.ErrConsentInvalid
 	}
 	encoded, _ := json.Marshal(targets)
-	if err = scopeinfra.LockMemoryAuthorization(ctx, tx, in.BotID, "group", group); err != nil {
-		return old, err
-	}
-	defaultCanSend, err := consentDefaultCanSend(ctx, tx)
-	if err != nil {
-		return old, err
-	}
 	var sourceLimit, totalLimit int
 	var sourceEnabled bool
 	err = tx.QueryRow(ctx, `SELECT max_chars_per_message,max_total_chars_per_run,enabled AND store_messages AND reply_mode<>'observe_only' AND COALESCE((tool_permissions->>'qq.reply.current')::boolean,$3)
@@ -305,7 +324,8 @@ func consumeConsent(ctx context.Context, q consentTx, bot int64, conversation st
 			return result, err
 		}
 		var content, digest string
-		err = q.row(ctx, `SELECT m.content,(SELECT display_digest FROM memory_consent_proposals WHERE id=$5) FROM memories m`+consentFacts+` AND c.id=$4 AND src.id=(SELECT source_message_id FROM memory_consent_proposals WHERE id=$5 AND expires_at>clock_timestamp() AND subject_id=src.sender_id)
+		err = q.row(ctx, `SELECT m.content,(SELECT display_digest FROM memory_consent_proposals WHERE id=$5) FROM memories m`+boundConsentFacts+`
+ AND EXISTS(SELECT 1 FROM memory_consent_proposals p WHERE p.id=$5 AND p.expires_at>clock_timestamp() AND p.subject_id=src.sender_id AND p.source_group_id=c.target_id)
  AND COALESCE((SELECT enabled AND store_messages FROM scope_policies WHERE bot_id=$1 AND scope_type='group' AND scope_id IN(c.target_id,0) ORDER BY scope_id DESC LIMIT 1),false)
  AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text((SELECT target_groups FROM memory_consent_proposals WHERE id=$5)) target
  WHERE NOT EXISTS(SELECT 1 FROM qq_groups WHERE bot_id=$1 AND group_id=target.value::bigint)) FOR SHARE OF m,src`, bot, p.MemoryID, p.FactVersion, conversation, p.ID).scan(&content, &digest)
@@ -344,7 +364,8 @@ func (r *Repo) ConsentPrompt(ctx context.Context, bot int64, id string, jobID in
 		return p, "", err
 	}
 	var content, digest string
-	err = r.pool.QueryRow(ctx, `SELECT m.content,(SELECT display_digest FROM memory_consent_proposals WHERE id=$5) FROM memories m`+consentFacts+` AND c.id=$4 AND src.id=(SELECT source_message_id FROM memory_consent_proposals WHERE id=$5)`, bot, p.MemoryID, p.FactVersion, p.SourceConversationID, id).Scan(&content, &digest)
+	err = r.pool.QueryRow(ctx, `SELECT m.content,(SELECT display_digest FROM memory_consent_proposals WHERE id=$5) FROM memories m`+boundConsentFacts+`
+ AND EXISTS(SELECT 1 FROM memory_consent_proposals p WHERE p.id=$5 AND p.status='pending' AND p.expires_at>clock_timestamp() AND p.subject_id=src.sender_id AND p.source_group_id=c.target_id)`, bot, p.MemoryID, p.FactVersion, p.SourceConversationID, id).Scan(&content, &digest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, "", contracts.ErrConsentConflict
 	}
@@ -358,10 +379,12 @@ func (r *Repo) ConsentPrompt(ctx context.Context, bot int64, id string, jobID in
 	return p, text, nil
 }
 
-// invalidateStaleConsent closes every authorization for a superseded fact version.
-// invalidateStaleConsent 关闭失效事实版本的所有授权。
 func invalidateStaleConsent(ctx context.Context, tx *db.Tx, id string) error {
-	_, err := tx.Exec(ctx, `UPDATE memory_consent_proposals p SET status='invalidated',state_version=state_version+1 WHERE p.memory_id=$1 AND p.status IN ('confirmed','pending') AND NOT EXISTS(SELECT 1 FROM memories m WHERE m.memory_id=p.memory_id AND m.bot_id=p.bot_id AND m.authorization_version=p.fact_version AND m.source_message_id=p.source_message_id)`, id)
+	_, err := tx.Exec(ctx, `UPDATE memory_consent_proposals p SET status='invalidated',state_version=state_version+1
+ WHERE p.memory_id=$1 AND p.status IN ('confirmed','pending') AND NOT EXISTS(
+ SELECT 1 FROM memories m`+consentSourceJoin("p.source_message_id")+`
+ WHERE m.memory_id=p.memory_id AND m.bot_id=p.bot_id AND m.authorization_version=p.fact_version
+ AND src.sender_id=p.subject_id AND c.id=p.source_conversation_id AND c.target_id=p.source_group_id AND `+consentSourceValid+`)`, id)
 	if err != nil {
 		return err
 	}
@@ -430,7 +453,8 @@ func (g ConsentSendGate) ValidateConsentSend(ctx context.Context, tx *db.Tx, bot
 		return err
 	}
 	var content string
-	err = tx.QueryRow(ctx, `SELECT m.content FROM memories m`+consentFacts+` AND c.id=$4 AND c.target_id=$5 AND src.id=$6 AND EXISTS (SELECT 1 FROM memory_consent_proposals p WHERE p.id=$7 AND p.expires_at>clock_timestamp() AND p.subject_id=src.sender_id) FOR SHARE OF m,src`, botID, memoryID, version, conversation, group, original, proposal).Scan(&content)
+	err = tx.QueryRow(ctx, `SELECT m.content FROM memories m`+consentSourceJoin("$6")+`
+ WHERE m.bot_id=$1 AND m.memory_id=$2::uuid AND m.authorization_version=$3 AND c.id=$4 AND c.target_id=$5 AND `+consentSourceValid+` AND EXISTS (SELECT 1 FROM memory_consent_proposals p WHERE p.id=$7 AND p.expires_at>clock_timestamp() AND p.subject_id=src.sender_id) FOR SHARE OF m,src`, botID, memoryID, version, conversation, group, original, proposal).Scan(&content)
 	if errors.Is(err, sql.ErrNoRows) {
 		return outbounddomain.ErrConsentSendDenied
 	}

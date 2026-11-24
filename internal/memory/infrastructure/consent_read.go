@@ -35,16 +35,11 @@ func validConsentRead(in domain.SearchRequest) bool {
 var verifiedConsent = `
  FROM memory_consent_grants g
  JOIN memory_consent_proposals p ON p.id=g.proposal_id AND p.bot_id=g.bot_id AND p.memory_id=g.memory_id AND p.fact_version=g.fact_version AND p.subject_id=g.subject_id AND p.status='confirmed'
- JOIN memories m ON m.memory_id=g.memory_id AND m.bot_id=g.bot_id AND m.authorization_version=g.fact_version AND m.status='active' AND m.approved_by<>''
- JOIN messages src ON src.id=p.source_message_id AND src.id=m.source_message_id AND src.bot_id=p.bot_id AND src.conversation_id=p.source_conversation_id AND src.sender_id=p.subject_id AND src.sender_id=m.source_sender_id AND src.direction='incoming' AND src.control_kind='' AND src.platform_message_id<>0
- JOIN conversations source_conv ON source_conv.id=src.conversation_id AND source_conv.bot_id=p.bot_id AND source_conv.kind='group' AND source_conv.target_id=p.source_group_id
+ JOIN memories m ON m.memory_id=g.memory_id AND m.bot_id=g.bot_id AND m.authorization_version=g.fact_version` + consentSourceJoin("p.source_message_id") + `
  JOIN messages confirmed ON confirmed.id=g.confirmation_message_id AND confirmed.bot_id=p.bot_id AND confirmed.conversation_id=p.source_conversation_id AND confirmed.sender_id=p.subject_id AND confirmed.direction='incoming' AND confirmed.control_kind='memory_consent_command' AND confirmed.platform_message_id<>0
  JOIN memory_consent_events event ON event.proposal_id=p.id AND event.bot_id=p.bot_id AND event.conversation_id=p.source_conversation_id AND event.platform_message_id=confirmed.platform_message_id AND event.outcome='confirmed'` + consentDelivery + `
- WHERE g.revoked_at IS NULL AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp()) AND p.subject_id<>p.bot_id
- AND (m.fact_key IS NULL OR ` + FactSupportsMessage("m", "src.id") + `)
- AND m.subject_type='user' AND m.subject_id=p.subject_id::text AND p.source_group_id<>g.target_group_id
- AND p.target_groups @> jsonb_build_array(g.target_group_id)
- AND ((m.visibility='group' AND m.owner_key=source_conv.target_id::text) OR (m.visibility='conversation' AND m.owner_key=source_conv.id::text))`
+ WHERE g.revoked_at IS NULL AND src.sender_id=p.subject_id AND c.id=p.source_conversation_id AND c.target_id=p.source_group_id
+ AND p.source_group_id<>g.target_group_id AND p.target_groups @> jsonb_build_array(g.target_group_id) AND ` + consentSourceValid
 
 func (r *Repo) consentRead(ctx context.Context, in domain.SearchRequest, id string, keywords []domain.QueryTerm) ([]domain.Memory, error) {
 	if !validConsentRead(in) {

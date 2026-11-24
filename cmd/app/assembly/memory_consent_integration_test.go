@@ -1860,6 +1860,236 @@ func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 		finish(j)
 		t.Log("real PostgreSQL plus loopback HTTPS: authorized=1, alternate pool committed revoke after TLS handshake=0")
 	}
+	t.Run("multi_source_binding", func(t *testing.T) {
+		exec(`UPDATE system_settings SET payload=$1,version=version+1 WHERE id=1`, payload)
+		publish := func(group int64, allow bool) {
+			t.Helper()
+			policy := scopedomain.Default(scopedomain.ScopeGroup, group)
+			policy.Enabled, policy.StoreMessages, policy.AllowMemoryRead = true, true, true
+			policy.AllowMemoryWrite, policy.ReplyMode, policy.MinReplyIntervalMS = allow, scopedomain.ModeAlwaysReply, 1
+			if err := scopes.Upsert(ctx, bot, policy); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(func() {
+			for _, group := range []int64{groupA, groupC} {
+				if _, err := pool.Exec(ctx, `DELETE FROM scope_policies WHERE bot_id=$1 AND scope_type='group' AND scope_id=$2`, bot, group); err != nil {
+					t.Errorf("remove archived source fixture policy: %v", err)
+				}
+			}
+		})
+		publish(groupA, true)
+		publish(groupC, true)
+		sourceRepo, err := conversationinfra.NewRepo(pool, conversationinfra.WithMemoryAuthorizationStamper(members))
+		if err != nil {
+			t.Fatal(err)
+		}
+		const sourceText = "我最喜欢的茶是雾芽乌龙"
+		fact, ok := memorydomain.FactFromContent(sourceText)
+		if !ok {
+			t.Fatal("invalid fixture fact")
+		}
+		archive := func(platform, sender, group int64) conversationdomain.IngestResult {
+			t.Helper()
+			result, err := sourceRepo.Ingest(ctx, conversationdomain.IngestInput{BotID: bot, Kind: conversationdomain.KindGroup, TargetID: group, PlatformMessageID: platform, SenderID: sender, Text: sourceText, Segments: []obdomain.Segment{obdomain.Text(sourceText)}, ArchiveOnly: true})
+			if err != nil || result.MessageID <= 0 {
+				t.Fatalf("archive=%+v err=%v", result, err)
+			}
+			return result
+		}
+		wrongPerson := archive(-96010, other, groupA)
+		wrongGroup := archive(-96011, person, groupC)
+		oldGeneration := archive(-96012, person, groupA)
+		publish(groupA, false)
+		publish(groupA, true)
+		backupB := archive(-96013, person, groupA)
+		backupC := archive(-96014, person, groupA)
+		primary := archive(-96015, person, groupA)
+		generation, allowed, err := members.ResolveMemoryAuthorization(ctx, bot, scopedomain.ScopeGroup, groupA)
+		if err != nil || !allowed || generation <= 0 {
+			t.Fatalf("generation=%d allowed=%v err=%v", generation, allowed, err)
+		}
+		record := memorydomain.Memory{BotID: bot, Visibility: memorydomain.VisibilityGroup, OwnerKey: fmt.Sprint(groupA), SourceMessageID: primary.MessageID, SourceSenderID: person, SubjectType: memorydomain.SubjectUser, SubjectID: fmt.Sprint(person), Content: fact.Content(), Status: memorydomain.StatusActive, Origin: memorydomain.OriginExtraction, ApprovedBy: "fixture"}
+		id, err = memoryRepo.Insert(ctx, record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedContent = record.Content
+		key := fact.Key(record, memorydomain.ExtractionScope{BotID: bot, ConversationID: primary.ConversationID, ScopeType: "group", ScopeID: groupA, AuthorizationEventID: generation})
+		exec(`UPDATE memories SET fact_key=$2 WHERE memory_id=$1`, id, key)
+		attach := func(sources ...conversationdomain.IngestResult) {
+			t.Helper()
+			for _, source := range sources {
+				exec(`INSERT INTO memory_fact_sources(id,memory_id,message_id,authorization_event_id) SELECT gen_random_uuid(),$1,id,memory_authorization_event_id FROM messages WHERE id=$2`, id, source.MessageID)
+			}
+		}
+		attach(backupC, wrongPerson, primary, wrongGroup, oldGeneration, backupB)
+		bound := func(p memorycontracts.ConsentProposal, source int64) {
+			t.Helper()
+			var actual int64
+			if err := pool.QueryRow(ctx, `SELECT source_message_id FROM memory_consent_proposals WHERE id=$1`, p.ID).Scan(&actual); err != nil || actual != source {
+				t.Fatalf("bound=%d want=%d err=%v", actual, source, err)
+			}
+		}
+		counts := func(want int) {
+			t.Helper()
+			var proposals, prompts int
+			if err := pool.QueryRow(ctx, `SELECT count(*),(SELECT count(*) FROM message_jobs j JOIN memory_consent_proposals p ON p.id=j.consent_proposal_id WHERE p.memory_id=$1) FROM memory_consent_proposals WHERE memory_id=$1`, id).Scan(&proposals, &prompts); err != nil || proposals != want || prompts != want {
+				t.Fatalf("proposals=%d prompts=%d want=%d err=%v", proposals, prompts, want, err)
+			}
+		}
+		expire := func(source int64) {
+			t.Helper()
+			exec(`UPDATE memory_fact_sources SET expires_at=clock_timestamp()-interval '1 second' WHERE memory_id=$1 AND message_id=$2`, id, source)
+		}
+		checkRead := func(group, sender, platform int64, want int) {
+			t.Helper()
+			job := jobFor(group, sender, platform)
+			result, err := mem.Recall(memorycontracts.WithReplyJob(ctx, job.ID, job.ClaimToken), memorycontracts.RecallRequest{BotID: bot, Kind: "group", TargetID: group, ConversationID: job.ConversationID, Query: "雾芽乌龙", SubjectType: "user", SubjectID: fmt.Sprint(sender), Limit: 5})
+			if err != nil || len(result.Items) != want || (want == 1 && result.Items[0].Memory.ID != id) {
+				t.Fatalf("group=%d sender=%d got=%+v want=%d err=%v", group, sender, result, want, err)
+			}
+			finish(job)
+		}
+		wireStart := len(wire.actions)
+		requestStart := actual.Load()
+		first := create("multi-primary", 1, groupB, groupB)
+		bound(first, primary.MessageID)
+		deliver(claimOne(convRepo, first.ID))
+		first = read(first)
+		confirm(firstIngress, first, -96016)
+		checkRead(groupB, person, -96017, 1)
+		unconfirmed := create("multi-expire-before-confirm", 1, groupB, groupB)
+		bound(unconfirmed, primary.MessageID)
+		deliver(claimOne(convRepo, unconfirmed.ID))
+		unconfirmed = read(unconfirmed)
+		pending := create("multi-expire-before-prompt", 1, groupB, groupB)
+		bound(pending, primary.MessageID)
+		expire(primary.MessageID)
+		before := len(wire.actions)
+		deliver(claimOne(convRepo, pending.ID))
+		if len(wire.actions) != before || len(read(first).ActiveGroups) != 0 {
+			t.Fatal("expired primary remained authorizing")
+		}
+		checkRead(groupB, person, -96018, 0)
+		checkRead(groupA, person, -96019, 1)
+		if retry := create("multi-primary", 1, groupB, groupB); retry.ID != first.ID || retry.Status != "confirmed" || len(retry.ActiveGroups) != 0 {
+			t.Fatalf("same key changed expired proposal: %+v", retry)
+		}
+		api(http.MethodPost, createPath, body("multi-primary", 1, groupB, groupD), true, 409)
+		counts(3)
+		start := make(chan struct{})
+		type createResult struct {
+			proposal memorycontracts.ConsentProposal
+			err      error
+		}
+		created := make(chan createResult, 2)
+		input := memorycontracts.CreateConsent{BotID: bot, MemoryID: id, FactVersion: 1, TargetGroups: []int64{groupB, groupB}, MaxPromptRunes: 4500, IdempotencyKey: "multi-backup"}
+		for _, repo := range []*memoryinfra.Repo{memoryRepo, memory2} {
+			go func(repo *memoryinfra.Repo) {
+				<-start
+				proposal, err := repo.CreateConsent(ctx, input)
+				created <- createResult{proposal, err}
+			}(repo)
+		}
+		close(start)
+		one, two := <-created, <-created
+		if one.err != nil || two.err != nil || one.proposal.ID != two.proposal.ID || one.proposal.ID == first.ID {
+			t.Fatalf("concurrent same-key create: %+v %+v", one, two)
+		}
+		backup := one.proposal
+		bound(backup, backupB.MessageID)
+		counts(4)
+		deliver(claimOne(convRepo, backup.ID))
+		backup = read(backup)
+		if backup.PlatformMessageID == 0 || backup.PlatformMessageID == first.PlatformMessageID || len(wire.actions) != before+1 {
+			t.Fatalf("backup prompt receipt=%d calls=%d", backup.PlatformMessageID, len(wire.actions)-before)
+		}
+		confirm(firstIngress, unconfirmed, -96020)
+		if expired := read(unconfirmed); expired.Status != "pending" || len(expired.ActiveGroups) != 0 {
+			t.Fatalf("expired bound source accepted confirmation: %+v", expired)
+		}
+		if updated := read(backup); updated.Status != "pending" || len(updated.ActiveGroups) != 0 {
+			t.Fatalf("old prompt confirmed new proposal: %+v", updated)
+		}
+		checkRead(groupB, person, -96021, 0)
+		confirm(firstIngress, backup, -96022)
+		confirm(secondIngress, backup, -96022)
+		backup = read(backup)
+		if fmt.Sprint(backup.ActiveGroups) != fmt.Sprint([]int64{groupB}) {
+			t.Fatalf("backup grants=%+v", backup)
+		}
+		var events int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM memory_consent_events WHERE proposal_id=$1 AND outcome='confirmed'`, backup.ID).Scan(&events); err != nil || events != 1 {
+			t.Fatalf("confirmed events=%d err=%v", events, err)
+		}
+		exec(`DELETE FROM memory_fact_sources WHERE memory_id=$1 AND message_id IN ($2,$3,$4)`, id, wrongPerson.MessageID, wrongGroup.MessageID, oldGeneration.MessageID)
+		current, found, err := memoryRepo.Get(ctx, id)
+		if err != nil || !found || current.SourceMessageID != primary.MessageID {
+			t.Fatalf("primary source changed: %v %v", found, err)
+		}
+		if err := memoryRepo.Update(ctx, current); err != nil {
+			t.Fatal(err)
+		}
+		bound(backup, backupB.MessageID)
+		if got := read(backup); got.Status != "confirmed" || len(got.ActiveGroups) != 1 {
+			t.Fatalf("valid second source was invalidated: %+v", got)
+		}
+		checkRead(groupB, person, -96023, 1)
+		checkRead(groupB, other, -96024, 0)
+		checkRead(groupD, person, -96025, 0)
+		job := jobFor(groupB, person, -96026)
+		active := memorycontracts.WithConsentDestination(tracked(job), validate)
+		wireInput.Messages[0].Content = expectedContent
+		if _, err := actualRuntime.Run(active, wireInput); err != nil || actual.Load() != requestStart+1 {
+			t.Fatalf("valid backup model calls=%d err=%v", actual.Load()-requestStart, err)
+		}
+		if err := explicit(active, job, ledger, "multi-valid", "备用来源已确认", outbounddomain.Limits{MaxMessages: 1}); err != nil || len(wire.actions) != before+2 {
+			t.Fatalf("valid backup OneBot calls=%d err=%v", len(wire.actions)-before-1, err)
+		}
+		delivered, err := outbound.ListByJob(ctx, job.ID)
+		if err != nil || len(delivered) != 1 || delivered[0].Status != outbounddomain.StatusSent || delivered[0].PlatformMessageID == 0 {
+			t.Fatalf("valid backup delivery ledger=%+v err=%v", delivered, err)
+		}
+		finish(job)
+		job = jobFor(groupB, person, -96027)
+		prepared := memorycontracts.WithConsentDestination(tracked(job), validate)
+		if err := explicit(prepared, job, firstLedger, "multi-expired", "备用来源派发检查", outbounddomain.Limits{MaxMessages: 1}); !errors.Is(err, interrupted) {
+			t.Fatalf("prepare delivery: %v", err)
+		}
+		expire(backupB.MessageID)
+		if _, err := actualRuntime.Run(prepared, wireInput); !errors.Is(err, memorycontracts.ErrReadChanged) || actual.Load() != requestStart+1 {
+			t.Fatalf("expired bound source model calls=%d err=%v", actual.Load()-requestStart-1, err)
+		}
+		if err := outbound.MarkSending(prepared, old.ID, job.ClaimToken); !errors.Is(err, outbounddomain.ErrConsentSendDenied) || len(wire.actions) != before+2 {
+			t.Fatalf("expired bound source send err=%v calls=%d", err, len(wire.actions)-before-2)
+		}
+		if err := ledger.Cancel(ctx, old.ID, job.ClaimToken); err != nil {
+			t.Fatal(err)
+		}
+		finish(job)
+		checkRead(groupB, person, -96028, 0)
+		checkRead(groupA, person, -96029, 1)
+		backup = read(backup)
+		if len(backup.ActiveGroups) != 0 {
+			t.Fatalf("expired backup still listed: %+v", backup)
+		}
+		api(http.MethodPost, createPath+"/"+backup.ID+"/revoke", fmt.Sprintf(`{"expected_state_version":%d,"target_group_id":%d}`, backup.StateVersion, groupB), true, 200)
+		attach(wrongPerson, wrongGroup, oldGeneration)
+		last := create("multi-last-valid", 1, groupB, groupB)
+		bound(last, backupC.MessageID)
+		publish(groupA, false)
+		publish(groupA, true)
+		deliver(claimOne(convRepo, last.ID))
+		if len(wire.actions) != before+2 {
+			t.Fatal("old authorization generation produced a prompt after regrant")
+		}
+		api(http.MethodPost, createPath, body("multi-no-valid", 1, groupB, groupB), true, 409)
+		counts(5)
+		checkRead(groupB, person, -96030, 0)
+		checkRead(groupA, person, -96031, 0)
+		t.Logf("primary preferred over earlier backups; first eligible ID chosen; 5 proposals/5 jobs; 3 prompt receipts, 1 derived receipt, 1 allowed model request; stale prompt/model/send increments 0/0/0; simulated OneBot actions=%d", len(wire.actions)-wireStart)
+	})
 	t.Logf("total OneBot actions=%d, actual generation requests=%d", len(wire.actions), modelCount)
 }
 
