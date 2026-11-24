@@ -120,7 +120,7 @@ func (r *Repo) cancelOfflineContinuation(ctx context.Context, id, claim string, 
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockScopedDelivery(ctx, tx, id, claim); err != nil {
+	if err := r.lockScopedDelivery(ctx, tx, id, claim); err != nil {
 		return err
 	}
 	var job int64

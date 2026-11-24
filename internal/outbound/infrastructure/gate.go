@@ -11,7 +11,6 @@ import (
 
 	ordering "github.com/HappyLadySauceM/Nagi/internal/conversation/contracts"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
-	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	"github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 	plugins "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
@@ -44,7 +43,7 @@ func (r *Repo) markSending(ctx context.Context, id, claim string) error {
 	if err != nil {
 		return err
 	}
-	scope, err := lockScopedDeliveryConversations(ctx, tx, id, proposals...)
+	scope, err := r.lockScopedDeliveryConversations(ctx, tx, id, proposals...)
 	if err != nil {
 		return err
 	}
@@ -95,6 +94,9 @@ func (r *Repo) markSending(ctx context.Context, id, claim string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if scope.hasMemoryReads && (scope.control || r.authorize == nil || r.memoryReads == nil) {
+		return domain.ErrConsentSendDenied
 	}
 	if scope.control || r.authorize == nil {
 		if !continued {
@@ -463,19 +465,23 @@ func (r *Repo) currentSendingPolicy(ctx context.Context, tx *db.Tx, scope delive
 		if !src.AllowMemoryRead {
 			return nil, limits, nil
 		}
-		valid, err := validMemoryDependencies(ctx, tx, scope, d.memoryDependencies, src.AllowHistoryRead)
+		if r.memoryReads == nil {
+			return nil, limits, domain.ErrConsentSendDenied
+		}
+		var refs []memory.ReadDependency
+		if err := json.Unmarshal(d.memoryDependencies, &refs); err != nil {
+			return nil, limits, err
+		}
+		valid, err := r.memoryReads.ValidateDeliveryReads(ctx, tx, memory.DeliveryScope{
+			BotID: scope.botID, Kind: scope.sourceKind, TargetID: scope.sourceTarget,
+			ConversationID: scope.sourceID, AllowHistoryRead: src.AllowHistoryRead,
+		}, refs)
 		if err != nil || !valid {
 			return nil, limits, err
 		}
 		source.Capabilities[":memory"] = src.generations[":memory"]
-		var refs []struct {
-			Source int64 `json:"source_message_id"`
-		}
-		if err := json.Unmarshal(d.memoryDependencies, &refs); err != nil {
-			return nil, limits, err
-		}
 		for _, ref := range refs {
-			if ref.Source != 0 {
+			if ref.SourceMessageID != 0 {
 				source.Capabilities[":history"] = src.generations[":history"]
 				break
 			}
@@ -613,29 +619,6 @@ func resumableText(payload string) bool {
 		}
 	}
 	return true
-}
-
-// validMemoryDependencies reads the delivered context versions under the account mutation and policy locks.
-// validMemoryDependencies 在账号变更锁和作用域锁内核对投递实际使用的记忆版本。
-func validMemoryDependencies(ctx context.Context, tx *db.Tx, scope deliveryPolicyScope, raw []byte, historyAllowed bool) (bool, error) {
-	var valid bool
-	err := tx.QueryRow(ctx, `SELECT NOT EXISTS (
- SELECT 1 FROM jsonb_to_recordset($1::jsonb) ref(id uuid,updated_at timestamptz,source_message_id bigint)
- WHERE NOT EXISTS (
- SELECT 1 FROM memories m LEFT JOIN messages source ON source.id=m.source_message_id
- WHERE m.memory_id=ref.id AND m.bot_id=$2 AND m.updated_at=ref.updated_at AND m.status='active'
- AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp())
- AND ((m.visibility=$3 AND m.owner_key=$4::bigint::text)
-   OR (m.visibility='conversation' AND m.owner_key=$5::uuid::text)
-   OR (m.visibility='bot_shared' AND m.approved_by<>'' AND source.conversation_id=$5::uuid
-       AND source.bot_id=$2 AND source.direction='incoming' AND source.sender_id>0 AND source.sender_id<>$2
-       AND (m.source_sender_id IS NULL OR source.sender_id=m.source_sender_id)
-       AND ($3<>'private_user' OR source.sender_id=$4::bigint)))
- AND (m.fact_key IS NULL OR (m.approved_by<>'' AND `+memoryinfra.FactSupportPredicate("m")+`))
- AND (ref.source_message_id IS NULL OR ($6 AND ((m.fact_key IS NULL AND source.id=ref.source_message_id AND source.bot_id=$2 AND source.conversation_id=$5::uuid)
- OR (m.fact_key IS NOT NULL AND `+memoryinfra.FactSupportsMessage("m", "ref.source_message_id")+`))))
- ))`, raw, scope.botID, map[string]string{"group": "group", "private": "private_user"}[scope.sourceKind], scope.sourceTarget, scope.sourceID, historyAllowed).Scan(&valid)
-	return valid, err
 }
 
 func consentMarker(payload string) (bool, string, error) {

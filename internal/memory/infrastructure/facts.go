@@ -3,14 +3,17 @@ package infrastructure
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	memoryapp "github.com/HappyLadySauceM/Nagi/internal/memory/application"
+	"github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/memory/domain"
 	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
@@ -122,6 +125,26 @@ func sourceMatchesFactScope(memory domain.Memory, scope domain.ExtractionScope, 
 	return memory.SubjectType == domain.SubjectUser && memory.SubjectID == strconv.FormatInt(sender, 10) && memory.VisibleTo(scope.ScopeType, scope.ScopeID, scope.ConversationID)
 }
 
+func sourceMatchesExtractionScope(memory domain.Memory, scope domain.ExtractionScope, sender int64) bool {
+	if sender <= 0 || memory.SourceSenderID != sender || !memory.VisibleTo(scope.ScopeType, scope.ScopeID, scope.ConversationID) {
+		return false
+	}
+	switch memory.SubjectType {
+	case domain.SubjectUser:
+		return memory.SubjectID == strconv.FormatInt(sender, 10)
+	case domain.SubjectGroup:
+		return scope.ScopeType == "group" && memory.SubjectID == strconv.FormatInt(scope.ScopeID, 10)
+	}
+	return false
+}
+
+func unverifiedFactCandidate(memory *domain.Memory) {
+	memory.SubjectType = domain.SubjectUnknown
+	memory.SubjectID = domain.ExtractionUnknownSubjectID(memory.SourceMessageID, memory.SourceSenderID)
+	memory.Content = "待核对来源"
+	memory.ReviewReason = "evidence_insufficient"
+}
+
 func (r *Repo) finalizeFactCandidate(ctx context.Context, tx *db.Tx, batch domain.ExtractionBatch, memory *domain.Memory) (handled bool, created bool, suppressed bool, err error) {
 	if memory.FactProposal == nil {
 		return false, false, false, nil
@@ -130,13 +153,21 @@ func (r *Repo) finalizeFactCandidate(ctx context.Context, tx *db.Tx, batch domai
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, false, false, err
 	}
-	fact, verified := domain.FactFromEvidence(text, *memory.FactProposal)
-	if !verified || err != nil || scope != batch.Scope || !sourceMatchesFactScope(*memory, scope, sender) || memory.ReviewReason != "" {
-		memory.SubjectType = domain.SubjectUnknown
-		memory.SubjectID = domain.ExtractionUnknownSubjectID(memory.SourceMessageID, memory.SourceSenderID)
-		memory.Content = "待核对来源"
-		memory.DedupeKey = domain.ComputeDedupeKey(memory.BotID, memory.Visibility, memory.OwnerKey, memory.SubjectType, memory.SubjectID, memory.Content)
-		memory.ReviewReason = "evidence_insufficient"
+	if err != nil || scope != batch.Scope || !sourceMatchesExtractionScope(*memory, scope, sender) || memory.ReviewReason != "" {
+		unverifiedFactCandidate(memory)
+		return false, false, false, nil
+	}
+	proposal := *memory.FactProposal
+	fact, supported := domain.FactFromEvidence(text, proposal)
+	if memory.SubjectType != domain.SubjectUser || !supported {
+		evidence := strings.TrimSpace(proposal.Evidence)
+		if evidence == "" {
+			evidence = memory.Content
+		}
+		if (memory.SubjectType == domain.SubjectUser && domain.SupportsFactPredicate(proposal.Predicate)) ||
+			evidence != memory.Content || !domain.DirectFactEvidence(text, evidence, memory.SubjectType) {
+			unverifiedFactCandidate(memory)
+		}
 		return false, false, false, nil
 	}
 	memory.Content = fact.Content()
@@ -194,7 +225,7 @@ func validateFactMutation(ctx context.Context, tx *db.Tx, memory *domain.Memory,
 			return memoryapp.ErrFactEvidenceRequired
 		}
 	} else {
-		if memory.SourceMessageID <= 0 || memory.SubjectType != domain.SubjectUser {
+		if memory.SourceMessageID <= 0 || previous.ReviewReason != "" {
 			return memoryapp.ErrFactEvidenceRequired
 		}
 		scope, sender, text, expires, err := factSourceState(ctx, tx, memory.BotID, memory.SourceMessageID)
@@ -204,7 +235,7 @@ func validateFactMutation(ctx context.Context, tx *db.Tx, memory *domain.Memory,
 		if err != nil {
 			return err
 		}
-		if !sourceMatchesFactScope(*memory, scope, sender) {
+		if !sourceMatchesExtractionScope(*memory, scope, sender) {
 			return memoryapp.ErrFactEvidenceRequired
 		}
 		if err := scopeinfra.LockMemoryAuthorization(ctx, tx, memory.BotID, scope.ScopeType, scope.ScopeID); err != nil {
@@ -217,8 +248,15 @@ func validateFactMutation(ctx context.Context, tx *db.Tx, memory *domain.Memory,
 		if !authorized || event != scope.AuthorizationEventID {
 			return memoryapp.ErrFactEvidenceRequired
 		}
-		fact, verified := domain.FactFromContent(memory.Content)
-		if !verified || !domain.FactSupportedBy(fact, text) {
+		fact, structured := domain.FactFromContent(memory.Content)
+		if memory.SubjectType != domain.SubjectUser || !structured {
+			if !domain.DirectFactEvidence(text, previous.Content, memory.SubjectType) &&
+				(previous.Status != domain.StatusActive || !domain.HasDirectFactEvidence(text, memory.SubjectType)) {
+				return memoryapp.ErrFactEvidenceRequired
+			}
+			return checkExactFactCollision(ctx, tx, *memory, except)
+		}
+		if !domain.FactSupportedBy(fact, text) {
 			return memoryapp.ErrFactEvidenceRequired
 		}
 		memory.FactKey = fact.Key(*memory, scope)
@@ -235,6 +273,25 @@ func validateFactMutation(ctx context.Context, tx *db.Tx, memory *domain.Memory,
 		}
 	}
 	return checkFactCollision(ctx, tx, *memory, except)
+}
+
+func checkExactFactCollision(ctx context.Context, tx *db.Tx, memory domain.Memory, except string) error {
+	if memory.DedupeKey == "" {
+		return nil
+	}
+	var id, status string
+	err := tx.QueryRow(ctx, `SELECT memory_id::text,status FROM memories WHERE dedupe_key=$1
+ AND memory_id::text<>$2 AND memory_id::text<>$3 AND status IN ('active','candidate')`, memory.DedupeKey, memory.ID, except).Scan(&id, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if status != string(domain.StatusActive) {
+		id = ""
+	}
+	return &memoryapp.FactConflict{ExistingID: id}
 }
 
 func lockFactScope(ctx context.Context, tx *db.Tx, memory domain.Memory) (domain.ExtractionScope, error) {
@@ -315,4 +372,44 @@ func checkFactCollision(ctx context.Context, tx *db.Tx, memory domain.Memory, ex
 		}
 	}
 	return nil
+}
+
+func (r *Repo) LockDeliveryReads(ctx context.Context, tx contracts.DeliveryTransaction, botID int64) error {
+	return LockMemoryMutation(ctx, tx, botID)
+}
+
+func (r *Repo) ValidateDeliveryReads(ctx context.Context, tx contracts.DeliveryTransaction, scope contracts.DeliveryScope, reads []contracts.ReadDependency) (bool, error) {
+	visibility := string(domain.VisibilityGroup)
+	switch scope.Kind {
+	case "group":
+	case "private":
+		visibility = string(domain.VisibilityPrivateUser)
+	default:
+		return false, nil
+	}
+	if tx == nil || scope.BotID <= 0 || scope.TargetID <= 0 || len(reads) == 0 {
+		return false, nil
+	}
+	raw, err := json.Marshal(reads)
+	if err != nil {
+		return false, err
+	}
+	var valid bool
+	err = tx.QueryRowContext(ctx, `SELECT NOT EXISTS (
+ SELECT 1 FROM jsonb_to_recordset($1::jsonb) ref(id uuid,updated_at timestamptz,source_message_id bigint)
+ WHERE NOT EXISTS (
+ SELECT 1 FROM memories m LEFT JOIN messages source ON source.id=m.source_message_id
+ WHERE m.memory_id=ref.id AND m.bot_id=$2 AND m.updated_at=ref.updated_at AND m.status='active'
+ AND (m.expires_at IS NULL OR m.expires_at>clock_timestamp())
+ AND ((m.visibility=$3 AND m.owner_key=$4::bigint::text)
+   OR (m.visibility='conversation' AND m.owner_key=$5::uuid::text)
+   OR (m.visibility='bot_shared' AND m.approved_by<>'' AND source.conversation_id=$5::uuid
+       AND source.bot_id=$2 AND source.direction='incoming' AND source.sender_id>0 AND source.sender_id<>$2
+       AND (m.source_sender_id IS NULL OR source.sender_id=m.source_sender_id)
+       AND ($3<>'private_user' OR source.sender_id=$4::bigint)))
+ AND (m.fact_key IS NULL OR (m.approved_by<>'' AND `+FactSupportPredicate("m")+`))
+ AND (ref.source_message_id IS NULL OR ($6 AND ((m.fact_key IS NULL AND source.id=ref.source_message_id AND source.bot_id=$2 AND source.conversation_id=$5::uuid)
+ OR (m.fact_key IS NOT NULL AND `+FactSupportsMessage("m", "ref.source_message_id")+`))))
+ ))`, raw, scope.BotID, visibility, scope.TargetID, scope.ConversationID, scope.AllowHistoryRead).Scan(&valid)
+	return valid, err
 }

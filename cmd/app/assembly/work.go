@@ -504,6 +504,7 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		if consentErr != nil {
 			return nil, consentErr
 		}
+		outboundRepo.SetDeliveryReadValidator(consentRepo)
 		outboundRepo.SetConsentGate(memoryinfra.ConsentSendGate{Enabled: cfg.Memory.CrossGroupConsentWrite, ReadEnabled: cfg.Memory.CrossGroupConsentRead})
 		consentProcessor := consentPromptProcessor(cfg.Memory.CrossGroupConsentWrite, consentRepo, registry, rt.Scope, ledger, policiesRepo, settingsProvider)
 		resume := func(ctx context.Context) (bool, error) {

@@ -43,23 +43,70 @@ var factForms = []factSyntax{
 
 var ambiguousFactMarkers = []string{"的话", "如果", "假如", "实际上", "其实不", "不喜欢", "不是", "可能", "也许", "听说", "开玩笑", "玩笑", "误会", "还是", "或者", "但是", "不过", "他叫", "她叫", "你叫", "他说", "她说", "你说", "不叫", "以前", "曾经", "改叫", "别叫", "并非", "转述", "哈哈", "假扮"}
 
-func FactsFromSource(source string) []Fact {
+var directUserFact = regexp.MustCompile(`(?i)^(?:我(?:的|住|是|有|在|来自|就读|毕业|出生|擅长|爱|喜欢|习惯|学|从事|养|用|每|通常|一直|会|担任|负责|希望|计划|常|不吃|不能吃|对)|I(?:\s+(?:am|live|work|study|have|like|love|prefer|use|usually|always|teach|volunteer|collect|speak|play|own|run|write|read|need)\s+|['’](?:m|ve)\s+)|my\s+\S+\s+)\S`)
+var directGroupFact = regexp.MustCompile(`(?i)^(?:(?:本群|这个群|我们群|咱们群)\s*|(?:this|our)\s+group\s+)\S`)
+var ambiguousEnglishFact = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:if|maybe|perhaps|might|suppose|supposedly|joking|kidding|said|says|heard|apparently|allegedly|pretend|or|but|used to|not|never)(?:$|[^a-z])`)
+var uncertainStart = regexp.MustCompile(`(?i)^(?:我(?:想问|听到|听人说|不确定|猜|觉得|认为|能否|可否|可不可以|是不是|是否|怎么|想知道|记得)|I\s+(?:wonder|guess|think|am\s+not|ask)\b|(?:what|why|when|where|who|how|is|are|do|does|can|could|should|would)\b)`)
+
+func directFactClauses(source string) []string {
 	for _, marker := range ambiguousFactMarkers {
 		if strings.Contains(source, marker) {
 			return nil
 		}
 	}
-	if strings.ContainsAny(source, "?？“”‘’\"「」『』\n\r@") {
+	if strings.ContainsAny(source, "?？“”‘\"「」『』\n\r@") || ambiguousEnglishFact.MatchString(source) {
 		return nil
 	}
-	clauses := strings.FieldsFunc(source, func(r rune) bool { return strings.ContainsRune("，,。；;！!", r) })
-	if len(clauses) == 0 || len(clauses) > 4 {
+	clauses := strings.FieldsFunc(source, func(r rune) bool {
+		return strings.ContainsRune("，,。；;！!", r)
+	})
+	if len(clauses) > 4 {
 		return nil
 	}
+	for i, clause := range clauses {
+		clauses[i] = strings.TrimSuffix(strings.TrimSpace(clause), ".")
+		if uncertainStart.MatchString(clauses[i]) || strings.HasSuffix(clauses[i], "吗") || strings.HasSuffix(clauses[i], "么") || strings.Contains(clauses[i], "告诉我") {
+			return nil
+		}
+	}
+	return clauses
+}
+
+func DirectFactEvidence(source, evidence string, subject SubjectType) bool {
+	var form *regexp.Regexp
+	switch subject {
+	case SubjectUser:
+		form = directUserFact
+	case SubjectGroup:
+		form = directGroupFact
+	default:
+		return false
+	}
+	match := directFactClauses(evidence)
+	if len(match) != 1 || !form.MatchString(match[0]) || subject == SubjectUser && directGroupFact.MatchString(match[0]) {
+		return false
+	}
+	return slices.Contains(directFactClauses(source), match[0])
+}
+
+func HasDirectFactEvidence(source string, subject SubjectType) bool {
+	for _, clause := range directFactClauses(source) {
+		if DirectFactEvidence(source, clause, subject) {
+			return true
+		}
+	}
+	return false
+}
+
+func FactsFromSource(source string) []Fact {
+	clauses := directFactClauses(source)
 	facts := make([]Fact, 0, len(clauses))
 	for _, clause := range clauses {
-		fact, ok := parseFactClause(strings.TrimSpace(clause))
+		fact, ok := parseFactClause(clause)
 		if !ok {
+			if directUserFact.MatchString(clause) || directGroupFact.MatchString(clause) {
+				continue
+			}
 			return nil
 		}
 		for _, existing := range facts {
@@ -78,19 +125,26 @@ func FactFromEvidence(source string, proposal FactProposal) (Fact, bool) {
 		return Fact{}, false
 	}
 	if proposal == (FactProposal{}) {
-		if len(facts) == 1 {
+		if len(facts) == 1 && len(directFactClauses(source)) == 1 {
 			return facts[0], true
 		}
 		return Fact{}, false
 	}
 	clause := strings.TrimSpace(proposal.Evidence)
-	for _, candidate := range strings.FieldsFunc(source, func(r rune) bool { return strings.ContainsRune("，,。；;！!", r) }) {
-		if strings.TrimSpace(candidate) == clause {
-			fact, ok := parseFactClause(clause)
-			return fact, ok && fact.Predicate == proposal.Predicate && fact.Value == normalizeFactValue(proposal.Value)
+	if !slices.Contains(directFactClauses(source), clause) {
+		return Fact{}, false
+	}
+	fact, ok := parseFactClause(clause)
+	return fact, ok && slices.Contains(facts, fact) && fact.Predicate == proposal.Predicate && fact.Value == normalizeFactValue(proposal.Value)
+}
+
+func SupportsFactPredicate(predicate string) bool {
+	for _, form := range factForms {
+		if form.predicate == predicate {
+			return true
 		}
 	}
-	return Fact{}, false
+	return false
 }
 
 func FactSupportedBy(fact Fact, text string) bool {

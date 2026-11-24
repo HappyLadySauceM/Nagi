@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	memory "github.com/HappyLadySauceM/Nagi/internal/memory/contracts"
-	memoryinfra "github.com/HappyLadySauceM/Nagi/internal/memory/infrastructure"
 	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/ent"
 	eo "github.com/HappyLadySauceM/Nagi/pkg/db/ent/agentoutboundmessage"
@@ -29,6 +28,7 @@ type Repo struct {
 	pool        *db.Pool
 	authorize   gatePermissions
 	consentGate ConsentGate
+	memoryReads memory.DeliveryReadValidator
 }
 
 // ConsentGate locks consent state and validates a control dispatch inside MarkSending.
@@ -37,6 +37,10 @@ type ConsentGate interface {
 	LockConsentSend(context.Context, *db.Tx, int64) error
 	ValidateConsentSend(context.Context, *db.Tx, int64, string) error
 	ValidateConsentReply(context.Context, *db.Tx, int64, string, []memory.ConsentRead) error
+}
+
+func (r *Repo) SetDeliveryReadValidator(validator memory.DeliveryReadValidator) {
+	r.memoryReads = validator
 }
 
 func (r *Repo) SetConsentGate(gate ConsentGate) { r.consentGate = gate }
@@ -112,6 +116,9 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 	if err != nil {
 		return domain.Record{}, err
 	}
+	if len(localReads) > 0 && (r.memoryReads == nil || r.authorize == nil) {
+		return domain.Record{}, domain.ErrConsentSendDenied
+	}
 	derived := len(reads) != 0
 	control := in.ToolCallID == "memory_consent_prompt"
 	if marker, digest, err := consentMarker(in.Payload); err != nil || marker != derived || (derived && (control || in.ToolCallID == "" || digest != memory.ConsentReadDigest(reads))) {
@@ -138,7 +145,7 @@ func (r *Repo) Reserve(ctx context.Context, in domain.ReserveInput) (domain.Reco
 			return domain.Record{}, err
 		}
 	} else if len(localReads) > 0 {
-		if err := memoryinfra.LockMemoryMutation(ctx, tx, in.BotID); err != nil {
+		if err := r.memoryReads.LockDeliveryReads(ctx, tx, in.BotID); err != nil {
 			return domain.Record{}, err
 		}
 	}
@@ -553,7 +560,7 @@ func (r *Repo) Settle(ctx context.Context, id string, outcome application.Outcom
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := lockScopedDeliveryConversations(ctx, tx, id); err != nil {
+	if _, err := r.lockScopedDeliveryConversations(ctx, tx, id); err != nil {
 		return err
 	}
 	if outcome.Status == domain.StatusSent && outcome.PlatformMessageID != 0 {

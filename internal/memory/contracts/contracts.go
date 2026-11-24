@@ -5,6 +5,7 @@ package contracts
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -253,6 +254,24 @@ type ReadDependency struct {
 	ID              string    `json:"id"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	SourceMessageID int64     `json:"source_message_id,omitempty"`
+}
+
+type DeliveryTransaction interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+type DeliveryScope struct {
+	BotID            int64
+	Kind             string
+	TargetID         int64
+	ConversationID   string
+	AllowHistoryRead bool
+}
+
+type DeliveryReadValidator interface {
+	LockDeliveryReads(context.Context, DeliveryTransaction, int64) error
+	ValidateDeliveryReads(context.Context, DeliveryTransaction, DeliveryScope, []ReadDependency) (bool, error)
 }
 
 // ReadDependencies returns a snapshot of the disclosed memory versions.
