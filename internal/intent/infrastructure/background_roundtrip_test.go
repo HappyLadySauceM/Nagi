@@ -15,7 +15,7 @@ func TestPublishedIntentRoleRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := intentapp.NewPromptService(repo, nil)
+	svc := intentapp.NewPromptService(repo, nil, PromptCodec{})
 	ctx := context.Background()
 	const bot, other = 938611, 938612
 	t.Cleanup(func() {
@@ -82,5 +82,21 @@ func TestPublishedIntentRoleRoundTrip(t *testing.T) {
 	}
 	if role, _ := live(bot, "group", 1); role == nil || role.Identity != "" || len(role.GroupConventions) != 1 {
 		t.Fatalf("rollback mismatched layer: %+v", role)
+	}
+}
+
+func TestParsePromptContentForWithVariablesAllowsExtra(t *testing.T) {
+	p := domain.BuiltinPromptFor(domain.PromptKindChatReply, domain.PromptProviderOpenAI)
+	p.OpenAI.SystemPrompt = "你好 {{user_name}}"
+	content := domain.PromptContentJSON(p)
+	if _, err := (PromptCodec{}).Decode(domain.PromptKindChatReply, domain.PromptProviderOpenAI, content, nil); err == nil {
+		t.Fatal("stored content with custom variable accepted without extra")
+	}
+	parsed, err := (PromptCodec{}).Decode(domain.PromptKindChatReply, domain.PromptProviderOpenAI, content, []string{"user_name"})
+	if err != nil {
+		t.Fatalf("parse with extra: %v", err)
+	}
+	if parsed.OpenAI.SystemPrompt != p.OpenAI.SystemPrompt {
+		t.Fatalf("parsed = %+v", parsed.OpenAI)
 	}
 }

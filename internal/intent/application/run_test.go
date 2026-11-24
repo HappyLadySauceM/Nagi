@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	"testing"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
@@ -42,7 +43,7 @@ func (*fakePromptRepo) Publish(context.Context, int64) error        { return nil
 func (*fakePromptRepo) Rollback(context.Context, string, int) error { return nil }
 
 func TestPromptServiceFallsBackToBuiltinWithoutLocalVersion(t *testing.T) {
-	service := NewPromptService(&fakePromptRepo{}, testLogger())
+	service := NewPromptService(&fakePromptRepo{}, testLogger(), intentinfra.PromptCodec{})
 	got := service.Resolve(context.Background(), domain.PromptProviderJev)
 	if got.Source != domain.PromptSourceBuiltin || got.Version != 1 || got.SystemOne == nil {
 		t.Fatalf("fallback prompt = %+v", got)
@@ -61,7 +62,7 @@ func TestPromptServiceUsesPublishedLocalVersion(t *testing.T) {
 			Version: 3, Status: domain.PromptStatusPublished, Source: domain.PromptSourceLocal,
 			Hash: builtin.Hash, Content: domain.PromptContentJSON(builtin),
 		},
-	}, testLogger())
+	}, testLogger(), intentinfra.PromptCodec{})
 	got := service.Resolve(context.Background(), domain.PromptProviderJev)
 	if got.Source != domain.PromptSourceLocal || got.Version != 3 || got.Name != "local prompt" {
 		t.Fatalf("local prompt = %+v", got)
@@ -76,7 +77,7 @@ func TestPromptServiceFallsBackOnInvalidLocalContent(t *testing.T) {
 			Version: 2, Status: domain.PromptStatusPublished, Source: domain.PromptSourceLocal,
 			Content: json.RawMessage(`{"Provider":"jev"}`),
 		},
-	}, testLogger())
+	}, testLogger(), intentinfra.PromptCodec{})
 	got := service.Resolve(context.Background(), domain.PromptProviderJev)
 	if got.Source != domain.PromptSourceBuiltin || got.FallbackReason != "invalid_local_prompt" {
 		t.Fatalf("invalid fallback = %+v", got)
@@ -84,7 +85,7 @@ func TestPromptServiceFallsBackOnInvalidLocalContent(t *testing.T) {
 }
 
 func TestPromptServiceFallsBackOnRepositoryError(t *testing.T) {
-	service := NewPromptService(&fakePromptRepo{activeErr: errors.New("db down")}, testLogger())
+	service := NewPromptService(&fakePromptRepo{activeErr: errors.New("db down")}, testLogger(), intentinfra.PromptCodec{})
 	got := service.Resolve(context.Background(), domain.PromptProviderJev)
 	if got.Source != domain.PromptSourceBuiltin || got.FallbackReason != "prompt_store_error" {
 		t.Fatalf("error fallback = %+v", got)

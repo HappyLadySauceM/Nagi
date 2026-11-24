@@ -102,7 +102,7 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 	final := builtin
 	layers := []domain.PromptLayer{{Layer: domain.PromptLayerAccountDefault, VersionID: 0, Version: 1, Source: domain.PromptSourceBuiltin, Hash: builtin.Hash, Editable: false, Content: domain.PromptContentJSON(builtin)}}
 	if found {
-		parsed, parseErr := domain.ParsePromptContentForWithVariables(kind, provider, account.Content, withContentVariables(extra, account.Content))
+		parsed, parseErr := s.decoder.Decode(kind, provider, account.Content, s.withContentVariables(extra, account.Content))
 		if parseErr != nil {
 			s.logger.Warn("invalid account prompt; using builtin", "error", parseErr, "prompt_id", promptID, "version", account.Version)
 			builtin.FallbackReason = "invalid_local_prompt"
@@ -142,11 +142,11 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 			s.logger.Warn("load scope supplement failed; continuing without supplement", "error", err, "prompt_id", promptID, "scope_type", targetType)
 			final.FallbackReason = "scope_supplement_error"
 		} else if found {
-			supplementPrompt, parseErr := domain.ParsePromptContentForWithVariables(kind, provider, supplement.Content, withContentVariables(extra, supplement.Content))
+			supplementPrompt, parseErr := s.decoder.Decode(kind, provider, supplement.Content, s.withContentVariables(extra, supplement.Content))
 			// Merge only needs to tolerate variables already present in stored
 			// content; save-time validation stays strict.
 			// 合并只需容忍已存储内容里既有的变量；保存时校验仍严格。
-			mergeExtra := withContentVariables(withContentVariables(extra, account.Content), supplement.Content)
+			mergeExtra := s.withContentVariables(s.withContentVariables(extra, account.Content), supplement.Content)
 			// ParsePromptContentFor validates full content, so supplements are
 			// parsed leniently through their own schema first.
 			applied := false
@@ -161,7 +161,7 @@ func (s *PromptService) resolveFor(ctx context.Context, promptID, kind, provider
 					s.logger.Warn("invalid scope supplement; ignoring", "error", mergeErr, "prompt_id", promptID)
 				}
 			} else {
-				lenient, lenientErr := decodePromptSupplement(kind, provider, supplement.Content, extra)
+				lenient, lenientErr := s.decodeStoredSupplement(kind, provider, supplement.Content, extra)
 				if lenientErr != nil {
 					s.logger.Warn("invalid scope supplement; ignoring", "error", lenientErr, "prompt_id", promptID)
 				} else {
@@ -225,11 +225,11 @@ func copyPromptVariables(variables map[string]string) map[string]string {
 // variable was retired; save-time validation stays strict.
 // withContentVariables 合并 extra 与已存储内容中出现的变量名，
 // 使已发布模板在自定义变量被删除后仍可解析；保存时校验仍保持严格。
-func withContentVariables(extra []string, content json.RawMessage) []string {
+func (s *PromptService) withContentVariables(extra []string, content json.RawMessage) []string {
 	if len(content) == 0 {
 		return extra
 	}
-	refs := promptContentVariableRefs(content)
+	refs := s.decoder.VariableReferences(content)
 	if len(refs) == 0 {
 		return extra
 	}
@@ -293,21 +293,8 @@ func fillRuntimePromptVariables(variables map[string]string, botID int64, target
 	return variables
 }
 
-func decodePromptSupplement(kind, provider string, content json.RawMessage, extra []string) (domain.Prompt, error) {
-	var raw struct {
-		Provider      string
-		SystemOne     *domain.SystemOnePrompt
-		OpenAI        *domain.OpenAIPrompt
-		IntentContext *domain.PromptIntentContextWire `json:"intent_context"`
-	}
-	if err := json.Unmarshal(content, &raw); err != nil {
-		return domain.Prompt{}, fmt.Errorf("invalid supplement content: %w", err)
-	}
-	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: raw.SystemOne, OpenAI: raw.OpenAI, IntentContext: raw.IntentContext.Value()}
-	if err := domain.ValidatePromptSupplementWithVariables(kind, provider, &p, withContentVariables(extra, content)); err != nil {
-		return domain.Prompt{}, err
-	}
-	return p, nil
+func (s *PromptService) decodeStoredSupplement(kind, provider string, content []byte, extra []string) (domain.Prompt, error) {
+	return s.decoder.DecodeSupplement(kind, provider, content, s.withContentVariables(extra, content), false)
 }
 
 // ListAll returns every stored prompt version for the unified admin API.
@@ -435,7 +422,7 @@ func (s *PromptService) validateSupplementAgainstAccount(ctx context.Context, pr
 	if rec, found, err := repo.ActiveLayer(ctx, domain.PromptKey{PromptID: promptID, Kind: kind, Provider: provider, BotID: botID, ScopeType: domain.PromptScopeAccount}); err != nil {
 		return err
 	} else if found {
-		parsed, parseErr := parseStoredPrompt(kind, provider, rec.Content, extra)
+		parsed, parseErr := s.parseStoredPrompt(kind, provider, rec.Content, extra)
 		if parseErr != nil {
 			return parseErr
 		}
@@ -460,7 +447,7 @@ func (s *PromptService) resolveDraftBase(ctx context.Context, promptID, kind, pr
 		if rec, found, err := repo.ActiveLayer(ctx, key); err != nil {
 			return domain.Prompt{}, err
 		} else if found {
-			return parseStoredPrompt(kind, provider, rec.Content, extra)
+			return s.parseStoredPrompt(kind, provider, rec.Content, extra)
 		}
 		if scopeType == domain.PromptScopeAccount {
 			return domain.BuiltinPromptFor(kind, provider), nil
@@ -479,7 +466,7 @@ func (s *PromptService) resolveDraftBase(ctx context.Context, promptID, kind, pr
 		if !found {
 			return domain.Prompt{}, fmt.Errorf("intent: active prompt version not found")
 		}
-		return parseStoredPrompt(kind, provider, rec.Content, extra)
+		return s.parseStoredPrompt(kind, provider, rec.Content, extra)
 	case "empty":
 		if scopeType == domain.PromptScopeAccount {
 			return domain.Prompt{}, fmt.Errorf("intent: empty base is only available for scope supplements")
@@ -496,18 +483,18 @@ func (s *PromptService) resolveDraftBase(ctx context.Context, promptID, kind, pr
 		if rec.PromptID != promptID || rec.Kind != kind || rec.Provider != provider || rec.BotID != botID || rec.ScopeType != scopeType {
 			return domain.Prompt{}, fmt.Errorf("intent: base version belongs to another prompt layer")
 		}
-		return parseStoredPrompt(kind, provider, rec.Content, extra)
+		return s.parseStoredPrompt(kind, provider, rec.Content, extra)
 	default:
 		return domain.Prompt{}, fmt.Errorf("intent: unsupported draft base")
 	}
 }
 
-func parseStoredPrompt(kind, provider string, content json.RawMessage, extra []string) (domain.Prompt, error) {
-	parsed, err := domain.ParsePromptContentForWithVariables(kind, provider, content, withContentVariables(extra, content))
+func (s *PromptService) parseStoredPrompt(kind, provider string, content json.RawMessage, extra []string) (domain.Prompt, error) {
+	parsed, err := s.decoder.Decode(kind, provider, content, s.withContentVariables(extra, content))
 	if err == nil {
 		return parsed, nil
 	}
-	return decodePromptSupplement(kind, provider, content, extra)
+	return s.decodeStoredSupplement(kind, provider, content, extra)
 }
 
 func emptySupplement(kind, provider string) domain.Prompt {
@@ -574,10 +561,10 @@ func (s *PromptService) VersionPrompt(ctx context.Context, id int64, kind, provi
 		return domain.Prompt{}, err
 	}
 	extra := s.customVariableNames()
-	p, parseErr := domain.ParsePromptContentForWithVariables(kind, provider, rec.Content, withContentVariables(extra, rec.Content))
+	p, parseErr := s.decoder.Decode(kind, provider, rec.Content, s.withContentVariables(extra, rec.Content))
 	if parseErr != nil {
 		// Supplements are validated leniently.
-		p, err = decodePromptSupplement(kind, provider, rec.Content, extra)
+		p, err = s.decodeStoredSupplement(kind, provider, rec.Content, extra)
 		if err != nil {
 			return domain.Prompt{}, err
 		}
@@ -639,9 +626,9 @@ func (s *PromptService) ImportRemoteVersion(ctx context.Context, key domain.Prom
 	}
 	var prompt domain.Prompt
 	if key.ScopeType == domain.PromptScopeAccount {
-		prompt, err = domain.ParsePromptContentForWithVariables(key.Kind, key.Provider, raw, extra)
+		prompt, err = s.decoder.Decode(key.Kind, key.Provider, raw, extra)
 	} else {
-		prompt, err = decodePromptSupplement(key.Kind, key.Provider, raw, extra)
+		prompt, err = s.decodeStoredSupplement(key.Kind, key.Provider, raw, extra)
 	}
 	if err != nil {
 		return domain.PromptRecord{}, fmt.Errorf("%w: invalid managed prompt content", domain.ErrPromptRemoteInvalid)

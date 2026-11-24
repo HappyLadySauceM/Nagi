@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	"log/slog"
 	"strings"
 	"sync"
@@ -158,7 +159,7 @@ func remotePromptForTest(t *testing.T, version int) domain.RemotePrompt {
 }
 
 func TestPromptSyncStatusWithoutRemoteUsesBuiltin(t *testing.T) {
-	svc := NewPromptService(&promptSyncRepo{}, slog.Default())
+	svc := NewPromptService(&promptSyncRepo{}, slog.Default(), intentinfra.PromptCodec{})
 	status, err := svc.SyncStatus(context.Background(), "", "")
 	if err != nil {
 		t.Fatalf("status: %v", err)
@@ -174,7 +175,7 @@ func TestPromptSyncStatusWithoutRemoteUsesBuiltin(t *testing.T) {
 func TestPromptSyncRemoteCreatesCandidateWithoutActivating(t *testing.T) {
 	repo := &promptSyncRepo{}
 	remote := &fakeRemotePrompts{configured: true, remote: remotePromptForTest(t, 3)}
-	svc := NewPromptService(repo, slog.Default(), remote)
+	svc := NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{}, remote)
 	result, err := svc.SyncRemote(context.Background(), domain.BuiltinPromptID, domain.PromptProviderJev, 3, "")
 	if err != nil {
 		t.Fatalf("sync: %v", err)
@@ -202,7 +203,7 @@ func TestPromptSyncRemoteRejectsInvalidContent(t *testing.T) {
 	remote := &fakeRemotePrompts{configured: true, remote: domain.RemotePrompt{
 		Name: domain.BuiltinPromptID, Version: 2, Prompt: json.RawMessage(`"plain text"`),
 	}}
-	svc := NewPromptService(repo, slog.Default(), remote)
+	svc := NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{}, remote)
 	if _, err := svc.SyncRemote(context.Background(), domain.BuiltinPromptID, domain.PromptProviderJev, 2, ""); !errors.Is(err, domain.ErrPromptRemoteInvalid) {
 		t.Fatalf("err = %v, want invalid", err)
 	}
@@ -214,7 +215,7 @@ func TestPromptSyncRemoteRejectsInvalidContent(t *testing.T) {
 func TestPromptSyncRemoteSameVersionIsIdempotent(t *testing.T) {
 	repo := &promptSyncRepo{}
 	remote := &fakeRemotePrompts{configured: true, remote: remotePromptForTest(t, 3)}
-	svc := NewPromptService(repo, slog.Default(), remote)
+	svc := NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{}, remote)
 	if _, err := svc.SyncRemote(context.Background(), domain.BuiltinPromptID, domain.PromptProviderJev, 3, ""); err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -233,7 +234,7 @@ func TestPromptSyncRemoteSameVersionIsIdempotent(t *testing.T) {
 func TestPromptSyncRemoteVersionConflict(t *testing.T) {
 	repo := &promptSyncRepo{}
 	remote := &fakeRemotePrompts{configured: true, remote: remotePromptForTest(t, 3)}
-	svc := NewPromptService(repo, slog.Default(), remote)
+	svc := NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{}, remote)
 	if _, err := svc.SyncRemote(context.Background(), domain.BuiltinPromptID, domain.PromptProviderJev, 3, ""); err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -254,7 +255,7 @@ func TestPromptSyncRemoteRejectsNameMismatch(t *testing.T) {
 	remote := &fakeRemotePrompts{configured: true, remote: domain.RemotePrompt{
 		Name: "other.prompt", Version: 2, Prompt: domain.PromptContentJSON(domain.BuiltinPrompt(domain.PromptProviderJev)),
 	}}
-	svc := NewPromptService(repo, slog.Default(), remote)
+	svc := NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{}, remote)
 	if _, err := svc.SyncRemote(context.Background(), domain.BuiltinPromptID, domain.PromptProviderJev, 2, ""); !errors.Is(err, domain.ErrPromptRemoteInvalid) {
 		t.Fatalf("err = %v, want invalid", err)
 	}
@@ -310,7 +311,8 @@ func (*layeredPromptRepo) RestoreBuiltin(context.Context, domain.PromptKey) (int
 func TestWithContentVariablesMergesContentRefs(t *testing.T) {
 	// extra 与内容中出现的变量名取并集并去重；空内容原样返回 extra。
 	content := json.RawMessage(`{"OpenAI":{"SystemPrompt":"hi {{foo}} {{bar}}"}}`)
-	got := withContentVariables([]string{"foo", "baz"}, content)
+	service := NewPromptService(nil, nil, intentinfra.PromptCodec{})
+	got := service.withContentVariables([]string{"foo", "baz"}, content)
 	seen := make(map[string]bool, len(got))
 	for _, name := range got {
 		seen[name] = true
@@ -323,7 +325,7 @@ func TestWithContentVariablesMergesContentRefs(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("merged = %v, want 3 unique names", got)
 	}
-	if pass := withContentVariables([]string{"x"}, nil); len(pass) != 1 || pass[0] != "x" {
+	if pass := service.withContentVariables([]string{"x"}, nil); len(pass) != 1 || pass[0] != "x" {
 		t.Fatalf("nil content = %v, want [x]", pass)
 	}
 }
@@ -338,7 +340,7 @@ func TestResolveForKeepsStoredPromptAfterCustomVariableRetired(t *testing.T) {
 		BotID: 1, ScopeType: domain.PromptScopeAccount, Version: 2, Status: domain.PromptStatusPublished,
 		Source: domain.PromptSourceLocal, Hash: published.Hash, Content: domain.PromptContentJSON(published),
 	}}}
-	service := NewPromptService(repo, testLogger())
+	service := NewPromptService(repo, testLogger(), intentinfra.PromptCodec{})
 	// 当前没有自定义变量：user_name 视为已删除。
 	service.SetCustomVariables(func() map[string]string { return nil })
 
@@ -369,7 +371,7 @@ func TestResolveForFillsRuntimeBotAndTargetIDs(t *testing.T) {
 		BotID: 7, ScopeType: domain.PromptScopeAccount, Version: 2, Status: domain.PromptStatusPublished,
 		Source: domain.PromptSourceLocal, Hash: published.Hash, Content: domain.PromptContentJSON(published),
 	}}}
-	service := NewPromptService(repo, testLogger())
+	service := NewPromptService(repo, testLogger(), intentinfra.PromptCodec{})
 	service.SetCustomVariables(func() map[string]string { return nil })
 
 	got := service.ResolveFor(context.Background(), domain.PromptIDChatReply, domain.PromptKindChatReply,
@@ -390,7 +392,7 @@ func TestResolveForFillsRuntimeBotAndTargetIDs(t *testing.T) {
 func TestResolveForStillRejectsUnknownVariableOnSave(t *testing.T) {
 	// 保存路径（CreateDraftFor）仍严格：未配置的变量必须被拒。
 	repo := &layeredPromptRepo{}
-	service := NewPromptService(repo, testLogger())
+	service := NewPromptService(repo, testLogger(), intentinfra.PromptCodec{})
 	service.SetCustomVariables(func() map[string]string { return nil })
 	p := domain.BuiltinPromptFor(domain.PromptKindChatReply, domain.PromptProviderOpenAI)
 	p.OpenAI.SystemPrompt = "你好 {{user_name}}"

@@ -5,13 +5,11 @@
 package application
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -44,12 +42,19 @@ type RemotePromptClient interface {
 	Fetch(ctx context.Context, name string, version int, label string) (domain.RemotePrompt, error)
 }
 
+type PromptContentDecoder interface {
+	Decode(kind, provider string, raw []byte, extra []string) (domain.Prompt, error)
+	DecodeSupplement(kind, provider string, raw []byte, extra []string, strict bool) (domain.Prompt, error)
+	VariableReferences(raw []byte) []string
+}
+
 // PromptService resolves runtime prompts and manages local versions.
 // PromptService 解析运行时 Prompt 并管理本地版本。
 type PromptService struct {
-	repo   PromptRepository
-	remote RemotePromptClient
-	logger *slog.Logger
+	decoder PromptContentDecoder
+	repo    PromptRepository
+	remote  RemotePromptClient
+	logger  *slog.Logger
 
 	// customVariables yields the live user-defined prompt variables; nil means
 	// none are configured. customVariables 提供实时用户自定义 Prompt 变量；
@@ -72,11 +77,11 @@ type promptSyncAttempt struct {
 	succeeded bool
 }
 
-func NewPromptService(repo PromptRepository, logger *slog.Logger, remote ...RemotePromptClient) *PromptService {
+func NewPromptService(repo PromptRepository, logger *slog.Logger, decoder PromptContentDecoder, remote ...RemotePromptClient) *PromptService {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	svc := &PromptService{repo: repo, logger: logger, attempts: make(map[string]promptSyncAttempt)}
+	svc := &PromptService{repo: repo, logger: logger, decoder: decoder, attempts: make(map[string]promptSyncAttempt)}
 	if len(remote) > 0 {
 		svc.remote = remote[0]
 	}
@@ -470,75 +475,6 @@ func validatePromptForProvider(provider string, content domain.Prompt) error {
 		return fmt.Errorf("intent: unsupported prompt provider")
 	}
 }
-
-// DecodePromptRequest parses a provider-specific intent prompt from admin JSON.
-// DecodePromptRequest 从管理 JSON 解析提供方专属意图 Prompt。
-func DecodePromptRequest(provider string, raw json.RawMessage) (domain.Prompt, error) {
-	return domain.ParsePromptContentFor(domain.PromptKindIntentParticipation, provider, raw)
-}
-
-// DecodePromptRequestFor parses one kind/provider prompt from admin JSON. It
-// defers variable-name checking to the draft service, which knows the live
-// custom variables; structure and provider shape are still validated here.
-// DecodePromptRequestFor 从管理 JSON 解析指定 kind/provider 的 Prompt；
-// 变量名检查延后到草稿服务（它掌握实时自定义变量），此处仍校验结构与提供方形态。
-func DecodePromptRequestFor(kind, provider string, raw json.RawMessage) (domain.Prompt, error) {
-	return domain.ParsePromptContentForWithVariables(kind, provider, raw, promptContentVariableRefs(raw))
-}
-
-// DecodePromptSupplementRequestFor parses additive-only group/private supplement content.
-// DecodePromptSupplementRequestFor 解析仅追加的群聊/私聊类型补充层内容。
-func DecodePromptSupplementRequestFor(kind, provider string, raw json.RawMessage) (domain.Prompt, error) {
-	var payload struct {
-		Provider      string
-		SystemOne     *domain.SystemOnePrompt
-		OpenAI        *domain.OpenAIPrompt
-		IntentContext *domain.PromptIntentContextWire `json:"intent_context"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		return domain.Prompt{}, err
-	}
-	if payload.Provider != "" && payload.Provider != provider {
-		return domain.Prompt{}, fmt.Errorf("intent: invalid prompt: provider mismatch")
-	}
-	p := domain.Prompt{Kind: kind, Provider: provider, SystemOne: payload.SystemOne, OpenAI: payload.OpenAI, IntentContext: payload.IntentContext.Value()}
-	if err := domain.ValidatePromptSupplementWithVariables(kind, provider, &p, promptContentVariableRefs(raw)); err != nil {
-		return domain.Prompt{}, err
-	}
-	return p, nil
-}
-
-// promptContentVariableRefs extracts the variable names referenced in raw admin
-// JSON so a decode does not reject custom variables before the service can
-// check them against the live custom variable set.
-// promptContentVariableRefs 提取管理 JSON 中引用的变量名，
-// 使解码不会在服务按实时自定义变量集复核之前误拒自定义变量。
-func promptContentVariableRefs(raw []byte) []string {
-	matches := promptVariableRefPattern.FindAllSubmatch(raw, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(matches))
-	names := make([]string, 0, len(matches))
-	for _, match := range matches {
-		name := strings.TrimSpace(string(match[1]))
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		names = append(names, name)
-	}
-	return names
-}
-
-// promptVariableRefPattern matches one {{variable}} reference inside admin JSON.
-// promptVariableRefPattern 匹配管理 JSON 中的一个 {{variable}} 引用。
-var promptVariableRefPattern = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
 
 var ErrPromptStoreUnavailable = errors.New("intent: prompt store unavailable")
 

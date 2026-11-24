@@ -361,9 +361,9 @@ func (h *Handler) CreateUnifiedPromptDraft(w http.ResponseWriter, r *http.Reques
 		var parsed intentdomain.Prompt
 		var err error
 		if scopeType == intentdomain.PromptScopeAccount {
-			parsed, err = intentapp.DecodePromptRequestFor(kind, provider, body.Content)
+			parsed, err = decodeManagedPrompt(kind, provider, body.Content)
 		} else {
-			parsed, err = intentapp.DecodePromptSupplementRequestFor(kind, provider, body.Content)
+			parsed, err = decodeManagedSupplement(kind, provider, body.Content)
 		}
 		if err != nil {
 			common.WriteFailure(w, http.StatusUnprocessableEntity, "Prompt 内容不合法")
@@ -412,9 +412,9 @@ func (h *Handler) UpdateUnifiedPromptDraft(w http.ResponseWriter, r *http.Reques
 	}
 	var content intentdomain.Prompt
 	if rec.ScopeType == intentdomain.PromptScopeAccount {
-		content, err = intentapp.DecodePromptRequestFor(rec.Kind, rec.Provider, body.Content)
+		content, err = decodeManagedPrompt(rec.Kind, rec.Provider, body.Content)
 	} else {
-		content, err = intentapp.DecodePromptSupplementRequestFor(rec.Kind, rec.Provider, body.Content)
+		content, err = decodeManagedSupplement(rec.Kind, rec.Provider, body.Content)
 	}
 	if err != nil {
 		common.WriteFailure(w, http.StatusUnprocessableEntity, "Prompt 内容不合法")
@@ -1175,4 +1175,14 @@ func intFromAny(value any) int64 {
 
 func domainNameForKind(kind string) string {
 	return "内置 Prompt"
+}
+
+func decodeManagedPrompt(kind, provider string, raw []byte) (intentdomain.Prompt, error) {
+	codec := intentinfra.PromptCodec{}
+	return codec.Decode(kind, provider, raw, codec.VariableReferences(raw))
+}
+
+func decodeManagedSupplement(kind, provider string, raw []byte) (intentdomain.Prompt, error) {
+	codec := intentinfra.PromptCodec{}
+	return codec.DecodeSupplement(kind, provider, raw, codec.VariableReferences(raw), true)
 }

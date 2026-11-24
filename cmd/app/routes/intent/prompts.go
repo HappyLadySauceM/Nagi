@@ -161,7 +161,7 @@ func (h *Handler) CreatePromptDraft(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "name、provider 与 content 均为必填")
 		return
 	}
-	content, err := intentapp.DecodePromptRequest(body.Provider, body.Content)
+	content, err := (intentinfra.PromptCodec{}).Decode(intentdomain.PromptKindIntentParticipation, body.Provider, body.Content, nil)
 	if err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "Prompt 内容不合法")
 		return
@@ -205,7 +205,7 @@ func (h *Handler) UpdatePromptDraft(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, http.StatusBadRequest, "content 为必填")
 		return
 	}
-	content, err := intentapp.DecodePromptRequest(rec.Provider, body.Content)
+	content, err := (intentinfra.PromptCodec{}).Decode(intentdomain.PromptKindIntentParticipation, rec.Provider, body.Content, nil)
 	if err != nil {
 		common.WriteFailure(w, http.StatusBadRequest, "Prompt 内容不合法")
 		return

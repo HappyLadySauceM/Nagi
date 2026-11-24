@@ -35,7 +35,7 @@ func promptHTTPFixture(t *testing.T) (*http.ServeMux, *intentinfra.PromptsRepo, 
 		t.Fatalf("publish v1: %v", err)
 	}
 	mux := http.NewServeMux()
-	NewHandler(&svc.ServiceContext{Prompts: intentapp.NewPromptService(repo, slog.Default())}).Register(mux)
+	NewHandler(&svc.ServiceContext{Prompts: intentapp.NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{})}).Register(mux)
 	return mux, repo, promptID
 }
 
@@ -128,7 +128,7 @@ func promptMuxWithRemote(t *testing.T, remote *fakePromptRemote) (*http.ServeMux
 	}
 	promptID := domain.BuiltinPromptID + ".http.sync." + time.Now().Format("150405.000000000")
 	mux := http.NewServeMux()
-	NewHandler(&svc.ServiceContext{Prompts: intentapp.NewPromptService(repo, slog.Default(), remote)}).Register(mux)
+	NewHandler(&svc.ServiceContext{Prompts: intentapp.NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{}, remote)}).Register(mux)
 	return mux, repo, promptID
 }
 

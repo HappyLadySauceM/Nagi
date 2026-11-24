@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"bytes"
 	"encoding/json"
 	"slices"
 	"sort"
@@ -193,19 +192,6 @@ func validatePromptIntentContextContent(x *PromptIntentContext) error {
 		}
 	}
 	return nil
-}
-
-type PromptIntentContextWire struct {
-	Identity         string   `json:"identity"`
-	Responsibilities []string `json:"responsibilities"`
-	GroupConventions []string `json:"group_conventions"`
-}
-
-func (w *PromptIntentContextWire) Value() *PromptIntentContext {
-	if w == nil {
-		return nil
-	}
-	return &PromptIntentContext{Identity: w.Identity, Responsibilities: w.Responsibilities, GroupConventions: w.GroupConventions}
 }
 
 // ValidatePromptForKind checks the editable content against the fixed server
@@ -468,50 +454,6 @@ func promptVariableNames(text string) ([]string, error) {
 func hasPromptPlaceholder(text string) bool {
 	_, err := promptVariableNames(text)
 	return err != nil || strings.Contains(text, "{{")
-}
-
-// ParsePromptContentFor parses stored content for one prompt kind.
-// ParsePromptContentFor 解析某个 kind 的已存储内容。
-func ParsePromptContentFor(kind, provider string, content json.RawMessage) (Prompt, error) {
-	return ParsePromptContentForWithVariables(kind, provider, content, nil)
-}
-
-// ParsePromptContentForWithVariables is ParsePromptContentFor plus extra custom
-// variable names allowed in the stored template.
-// ParsePromptContentForWithVariables 在 ParsePromptContentFor 基础上，
-// 允许已存储模板引用额外的自定义变量名。
-func ParsePromptContentForWithVariables(kind, provider string, content json.RawMessage, extra []string) (Prompt, error) {
-	var raw struct {
-		Provider      string
-		SystemOne     *SystemOnePrompt
-		OpenAI        *OpenAIPrompt
-		IntentContext *PromptIntentContextWire `json:"intent_context"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&raw); err != nil {
-		return Prompt{}, errInvalidPrompt("invalid prompt content")
-	}
-	if raw.Provider != "" && raw.Provider != provider {
-		return Prompt{}, errInvalidPrompt("prompt provider mismatch")
-	}
-	if provider == PromptProviderJev && raw.SystemOne == nil {
-		var direct SystemOnePrompt
-		if err := json.Unmarshal(content, &direct); err == nil && len(direct.Questions) > 0 {
-			raw.SystemOne = &direct
-		}
-	}
-	if provider == PromptProviderOpenAI && raw.OpenAI == nil {
-		var direct OpenAIPrompt
-		if err := json.Unmarshal(content, &direct); err == nil && (direct.SystemPrompt != "" || direct.UserTemplate != "") {
-			raw.OpenAI = &direct
-		}
-	}
-	p := Prompt{Kind: kind, Provider: provider, SystemOne: raw.SystemOne, OpenAI: raw.OpenAI, IntentContext: raw.IntentContext.Value()}
-	if err := ValidatePromptForKindWithVariables(kind, provider, &p, extra); err != nil {
-		return Prompt{}, err
-	}
-	return p, nil
 }
 
 // MergePromptContent composes account default and group/private supplement.

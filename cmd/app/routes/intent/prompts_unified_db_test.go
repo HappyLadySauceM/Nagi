@@ -28,7 +28,7 @@ func unifiedPromptFixture(t *testing.T) *http.ServeMux {
 		t.Fatalf("new prompt repo: %v", err)
 	}
 	mux := http.NewServeMux()
-	NewHandler(&svc.ServiceContext{Prompts: intentapp.NewPromptService(repo, slog.Default())}).Register(mux)
+	NewHandler(&svc.ServiceContext{Prompts: intentapp.NewPromptService(repo, slog.Default(), intentinfra.PromptCodec{})}).Register(mux)
 	return mux
 }
 

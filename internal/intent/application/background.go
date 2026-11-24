@@ -67,9 +67,9 @@ func (s *PromptService) FrozenIntentRole(ctx context.Context, in domain.Input, r
 		}
 		var p domain.Prompt
 		if ref.Scope == domain.PromptScopeAccount {
-			p, err = domain.ParsePromptContentForWithVariables(row.Kind, row.Provider, row.Content, withContentVariables(s.customVariableNames(), row.Content))
+			p, err = s.decoder.Decode(row.Kind, row.Provider, row.Content, s.withContentVariables(s.customVariableNames(), row.Content))
 		} else {
-			p, err = decodePromptSupplement(row.Kind, row.Provider, row.Content, s.customVariableNames())
+			p, err = s.decodeStoredSupplement(row.Kind, row.Provider, row.Content, s.customVariableNames())
 		}
 		if err != nil || domain.ValidatePromptIntentContext(row.Kind, row.ScopeType, p.IntentContext) != nil {
 			return nil, false
