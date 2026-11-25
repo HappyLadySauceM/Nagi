@@ -8,19 +8,18 @@ import (
 	"strings"
 	"time"
 
-	conversationapp "github.com/HappyLadySauceM/Nagi/internal/conversation/application"
-	conversation "github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
+	conversation "github.com/HappyLadySauceM/Nagi/internal/conversation/contracts"
 	pluginsapp "github.com/HappyLadySauceM/Nagi/internal/plugins/application"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
 type historyProvider struct {
-	search *conversationapp.HistorySearch
+	search conversation.HistoryReader
 }
 
 // NewHistoryProvider exposes search for the current authorized conversation.
 // NewHistoryProvider 暴露当前已授权会话的历史检索。
-func NewHistoryProvider(search *conversationapp.HistorySearch) contracts.ToolProvider {
+func NewHistoryProvider(search conversation.HistoryReader) contracts.ToolProvider {
 	return historyProvider{search: search}
 }
 
@@ -52,20 +51,19 @@ func (historyProvider) Close(context.Context) error { return nil }
 func (p historyProvider) invoke(ctx context.Context, arguments string, descriptor contracts.ToolDescriptor) (string, error) {
 	scope, ok := pluginsapp.ScopeFrom(ctx)
 	if !ok || !scope.AllowHistoryRead || scope.AuthorizeHistory == nil || scope.Reauthorize == nil {
-		return "", fmt.Errorf("history search is not authorized")
+		return "", pluginsapp.Denied("history search is not authorized")
 	}
 	query, err := historyArguments(arguments)
 	if err != nil {
 		return "", err
 	}
 	if err := scope.AuthorizeHistory(ctx); err != nil {
-		return "", err
+		return "", pluginsapp.Denied("history search authorization denied")
 	}
-	messages, err := p.search.Search(ctx, scope.BotID, scope.TargetID, scope.JobID, conversation.Kind(scope.Kind), query)
+	query.BotID, query.TargetID, query.JobID = scope.BotID, scope.TargetID, scope.JobID
+	query.ConversationID, query.Kind = scope.ConversationID, scope.Kind
+	messages, err := p.search.Search(ctx, query)
 	if err != nil {
-		return "", err
-	}
-	if err := scope.Reauthorize(ctx, descriptor); err != nil {
 		return "", err
 	}
 	type hit struct {
@@ -76,7 +74,7 @@ func (p historyProvider) invoke(ctx context.Context, arguments string, descripto
 	}
 	hits := make([]hit, 0, len(messages))
 	for _, message := range messages {
-		text := conversationapp.SearchableMessageText(message)
+		text := message.Text
 		if text == "" {
 			continue
 		}
@@ -87,19 +85,25 @@ func (p historyProvider) invoke(ctx context.Context, arguments string, descripto
 		})
 	}
 	body, err := json.Marshal(hits)
-	return string(body), err
+	if err != nil {
+		return "", err
+	}
+	if err := scope.Reauthorize(ctx, descriptor); err != nil {
+		return "", pluginsapp.Denied("history search authorization denied")
+	}
+	return string(body), ctx.Err()
 }
 
-func historyArguments(arguments string) (conversation.HistorySearch, error) {
+func historyArguments(arguments string) (conversation.HistoryRequest, error) {
 	var input struct {
 		Query    string `json:"query"`
 		SenderID string `json:"sender_id"`
 		Since    string `json:"since"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &input); err != nil {
-		return conversation.HistorySearch{}, fmt.Errorf("历史查询参数无效")
+		return conversation.HistoryRequest{}, fmt.Errorf("历史查询参数无效")
 	}
-	query := conversation.HistorySearch{Query: strings.TrimSpace(input.Query), Limit: 5}
+	query := conversation.HistoryRequest{Query: strings.TrimSpace(input.Query), Limit: 5}
 	if input.SenderID != "" {
 		id, err := strconv.ParseInt(input.SenderID, 10, 64)
 		if err != nil || id <= 0 {

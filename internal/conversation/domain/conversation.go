@@ -137,17 +137,6 @@ type RecoveryPolicy struct {
 	RetryBackoff time.Duration
 }
 
-// HistoryDocument is the normalized, conversation-bound search projection.
-// HistoryDocument 是绑定会话的规范化搜索投影。
-type HistoryDocument struct {
-	ID             int64     `json:"-"`
-	BotID          int64     `json:"bot_id"`
-	ConversationID string    `json:"conversation_id"`
-	SenderID       int64     `json:"sender_id"`
-	CreatedAt      time.Time `json:"created_at"`
-	Text           string    `json:"text"`
-}
-
 // HistorySearch describes an authorized search bounded by the triggering message.
 // HistorySearch 描述已授权的检索，范围截至触发本轮的消息。
 type HistorySearch struct {
@@ -159,12 +148,4 @@ type HistorySearch struct {
 	SenderID       int64
 	Query          string
 	Limit          int
-}
-
-// IndexedMessage carries the scope needed to authorize its search projection.
-// IndexedMessage 携带搜索投影所需的作用域信息。
-type IndexedMessage struct {
-	Message  Message
-	Kind     Kind
-	TargetID int64
 }

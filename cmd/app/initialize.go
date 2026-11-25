@@ -260,16 +260,6 @@ func Run(ctx context.Context, opts options.Options) error {
 		}()
 	}
 
-	if rt.HistorySearch != nil {
-		loops.Add(1)
-		go func() {
-			defer loops.Done()
-			if err := rt.HistorySearch.Run(runCtx); err != nil {
-				logger.Error("history search worker exited with error", "error", err)
-			}
-		}()
-	}
-
 	var runErr error
 	select {
 	case err := <-apiErrs:
