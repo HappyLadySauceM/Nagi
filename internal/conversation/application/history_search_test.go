@@ -3,126 +3,90 @@ package application
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/HappyLadySauceM/Nagi/internal/conversation/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/conversation/domain"
-	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
-	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 )
 
-type indexTestSource struct {
+type searchFixture struct {
 	ingress *domain.JobIngress
-	batch   []domain.IndexedMessage
-	query   domain.HistorySearch
+	search  func(context.Context, domain.HistorySearch) ([]contracts.HistoryHit, error)
 }
 
-func (s *indexTestSource) JobIngress(context.Context, int64, int64) (*domain.JobIngress, error) {
+func (s searchFixture) JobIngress(_ context.Context, bot, job int64) (*domain.JobIngress, error) {
+	if bot != 1 || job != 40 {
+		return nil, nil
+	}
 	return s.ingress, nil
 }
 
-func (s *indexTestSource) HistoryIndexBatch(context.Context, int64, int) ([]domain.IndexedMessage, error) {
-	return s.batch, nil
+func (s searchFixture) SearchHistory(ctx context.Context, query domain.HistorySearch) ([]contracts.HistoryHit, error) {
+	return s.search(ctx, query)
 }
 
-func (s *indexTestSource) HistoryMessages(_ context.Context, query domain.HistorySearch, ids []int64) ([]domain.Message, error) {
-	s.query = query
-	return []domain.Message{{ID: ids[0], Text: "接口文档在群文件"}}, nil
-}
+type searchPolicy map[int64]bool
 
-type testHistoryIndex struct {
-	bulkErr error
-	docs    []domain.HistoryDocument
-	deleted []int64
-	onQuery func()
-}
-
-func (*testHistoryIndex) Ensure(context.Context) error { return nil }
-
-func (i *testHistoryIndex) Index(_ context.Context, docs []domain.HistoryDocument, deleted []int64) error {
-	i.docs, i.deleted = docs, deleted
-	return i.bulkErr
-}
-
-func (i *testHistoryIndex) Search(context.Context, domain.HistorySearch) ([]int64, error) {
-	if i.onQuery != nil {
-		i.onQuery()
-	}
-	return []int64{10}, nil
-}
-
-func (*testHistoryIndex) DeleteBefore(context.Context, time.Time) error { return nil }
-
-type historyTestScopes map[int64]bool
-
-func (s historyTestScopes) Resolve(_ context.Context, _ int64, _ scopedomain.ScopeType, id int64) (scopedomain.Policy, error) {
+func (s searchPolicy) Resolve(_ context.Context, _ int64, _ scopedomain.ScopeType, id int64) (scopedomain.Policy, error) {
 	return scopedomain.Policy{Enabled: true, StoreMessages: true, AllowHistoryRead: s[id]}, nil
 }
 
-func TestHistorySearchRechecksGrantAndExactJobScope(t *testing.T) {
+func TestHistorySearchBindsJobAndRechecksGrants(t *testing.T) {
 	now := time.Now().UTC()
-	source := &indexTestSource{ingress: &domain.JobIngress{
-		Kind: domain.KindGroup, TargetID: 8,
-		Message: domain.Message{ID: 20, ConversationID: "group-a", CreatedAt: now},
-	}}
-	scopes := historyTestScopes{8: true, 9: true}
-	index := &testHistoryIndex{}
-	service := NewHistorySearch(source, index, scopes, func() int { return 0 }, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	ctx := context.Background()
-	query := domain.HistorySearch{Query: "接口文档", Limit: 5}
-	if rows, err := service.Search(ctx, 1, 9, 40, domain.KindGroup, query); err != nil || len(rows) != 0 {
-		t.Fatalf("another conversation's job qualified: %v %v", rows, err)
+	policy := searchPolicy{8: true, 9: true}
+	source := searchFixture{ingress: &domain.JobIngress{Kind: domain.KindGroup, TargetID: 8,
+		Message: domain.Message{ID: 20, ConversationID: "group-a", CreatedAt: now}},
 	}
-	index.onQuery = func() { scopes[8] = false }
-	if rows, err := service.Search(ctx, 1, 8, 40, domain.KindGroup, query); err != nil || len(rows) != 0 {
-		t.Fatalf("revoked search returned rows: %v %v", rows, err)
+	calls, days := 0, 30
+	action := func() {}
+	source.search = func(ctx context.Context, query domain.HistorySearch) ([]contracts.HistoryHit, error) {
+		calls++
+		if query.BotID != 1 || query.ConversationID != "group-a" || query.BeforeID != 20 || !query.Before.Equal(now) || query.After.Before(now.AddDate(0, 0, -30)) || query.After.After(now.AddDate(0, 0, -29)) || query.SenderID != 77 {
+			t.Fatalf("wrong search bounds: %+v", query)
+		}
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > historyQueryTimeout {
+			t.Fatalf("missing query deadline: %v", deadline)
+		}
+		action()
+		return []contracts.HistoryHit{{ID: 10, CreatedAt: now.Add(-48 * time.Hour), Text: "蓝棚"}}, nil
 	}
-	index.onQuery = nil
-	scopes[8] = true
-	rows, err := service.Search(ctx, 1, 8, 40, domain.KindGroup, query)
-	if err != nil || len(rows) != 1 || source.query.BotID != 1 || source.query.ConversationID != "group-a" ||
-		source.query.BeforeID != 20 || !source.query.Before.Equal(now) {
-		t.Fatalf("rows=%v query=%+v err=%v", rows, source.query, err)
+	service := NewHistorySearch(source, policy, func() int { return days })
+	correct := contracts.HistoryRequest{BotID: 1, TargetID: 8, JobID: 40, Kind: "group", ConversationID: "group-a", Query: "蓝棚", Limit: 5, SenderID: 77}
+	wrong := correct
+	wrong.TargetID = 9
+	if r, err := service.Search(t.Context(), wrong); len(r) != 0 || err != nil {
+		t.Fatalf("wrong scope: %v %v", r, err)
 	}
-}
-
-func TestHistoryReconcileRetriesWithoutSkippingRows(t *testing.T) {
-	source := &indexTestSource{batch: []domain.IndexedMessage{
-		{Kind: domain.KindGroup, TargetID: 8, Message: domain.Message{ID: 12, ConversationID: "a", Text: "群文件"}},
-		{Kind: domain.KindGroup, TargetID: 9, Message: domain.Message{ID: 13, ConversationID: "b", Text: "禁止读取"}},
-	}}
-	index := &testHistoryIndex{bulkErr: errors.New("temporary bulk rejection")}
-	service := NewHistorySearch(source, index, historyTestScopes{8: true}, func() int { return 0 }, nil)
-	if cursor, err := service.reconcileBatch(context.Background(), 11, 2); err == nil || cursor != 11 {
-		t.Fatalf("failed batch advanced cursor = %d, err = %v", cursor, err)
+	wrong = correct
+	wrong.ConversationID = "group-b"
+	if r, err := service.Search(t.Context(), wrong); len(r) != 0 || err != nil {
+		t.Fatalf("wrong conversation: %v %v", r, err)
 	}
-	index.bulkErr = nil
-	cursor, err := service.reconcileBatch(context.Background(), 11, 2)
-	if err != nil || cursor != 13 || len(index.docs) != 1 || index.docs[0].ID != 12 ||
-		len(index.deleted) != 1 || index.deleted[0] != 13 {
-		t.Fatalf("cursor=%d docs=%+v deleted=%v err=%v", cursor, index.docs, index.deleted, err)
+	policy[8] = false
+	if r, err := service.Search(t.Context(), correct); len(r) != 0 || err != nil || calls != 0 {
+		t.Fatalf("pre-read denial: %v %v calls=%d", r, err, calls)
 	}
-}
-
-func TestSearchableMessageTextKeepsSavedTranscriptAndOmitsMediaFields(t *testing.T) {
-	message := domain.Message{
-		Text: "[CQ:image,url=https://example.test/private-image]\n[语音转写] 文档在群文件",
-		Segments: []ob.Segment{
-			{Type: ob.SegImage, Data: map[string]string{"url": "https://example.test/private-image"}},
-			{Type: ob.SegRecord, Data: map[string]string{media.TranscriptMarker: "true"}},
-		},
+	policy[8] = true
+	action = func() { policy[8] = false }
+	if r, err := service.Search(t.Context(), correct); len(r) != 0 || err != nil || calls != 1 {
+		t.Fatalf("post-read denial: %v %v calls=%d", r, err, calls)
 	}
-	if got := SearchableMessageText(message); got != "[语音转写] 文档在群文件" {
-		t.Fatalf("searchable text = %q", got)
+	policy[8] = true
+	action = func() { days = 1 }
+	if r, err := service.Search(t.Context(), correct); len(r) != 0 || err != nil {
+		t.Fatalf("shortened retention: %v %v", r, err)
 	}
-	original := "[语音转写] " + strings.Repeat("甲", 2200)
-	message.Text = original + "\n[语音转写] 实际转写"
-	message.Segments = append([]ob.Segment{ob.Text(original)}, message.Segments...)
-	if got := SearchableMessageText(message); !strings.HasSuffix(got, "实际转写") || strings.Count(got, "甲") != 2200 {
-		t.Fatal("original text displaced the saved transcript")
+	days = 30
+	action = func() {}
+	if r, err := service.Search(t.Context(), correct); len(r) != 1 || err != nil {
+		t.Fatalf("authorized hit: %v %v", r, err)
+	}
+	failed := NewHistorySearch(searchFixture{ingress: source.ingress, search: func(context.Context, domain.HistorySearch) ([]contracts.HistoryHit, error) {
+		return nil, context.DeadlineExceeded
+	}}, policy, func() int { return days })
+	if r, err := failed.Search(t.Context(), correct); len(r) != 0 || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("query failure: %v %v", r, err)
 	}
 }
