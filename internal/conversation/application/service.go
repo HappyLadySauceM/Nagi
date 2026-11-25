@@ -106,6 +106,16 @@ func (s *Service) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ing
 
 // RecentMessages returns the newest messages of one conversation, oldest first.
 // RecentMessages 返回一个会话最近的消息，按时间正序。
+func (s *Service) RecentGroupMessagesBefore(ctx context.Context, botID int64, conversationID string, rowID int64, window time.Duration, limit int) ([]domain.Message, error) {
+	repo, ok := s.repo.(interface {
+		RecentGroupMessagesBefore(context.Context, int64, string, int64, time.Duration, int) ([]domain.Message, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("conversation: anchored group history unavailable")
+	}
+	return repo.RecentGroupMessagesBefore(ctx, botID, conversationID, rowID, window, limit)
+}
+
 func (s *Service) RecentMessages(ctx context.Context, conversationID string, limit int) ([]domain.Message, error) {
 	if limit <= 0 {
 		limit = 30

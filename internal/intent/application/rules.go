@@ -87,7 +87,7 @@ func EvaluateReplyPolicy(in domain.Input, rule domain.RuleResult, semantic domai
 		return domain.FinalDecision{Decision: domain.DecisionDefer, ReasonCode: rule.ReasonCode}
 	}
 	if in.CallAddressingRequired() {
-		if addressesOther(in) && !in.MentionsBot() {
+		if in.GroupContext == nil && addressesOther(in) && !in.MentionsBot() {
 			return withScores(domain.DecisionSilent, "addressed_to_other", decisionScores(semantic))
 		}
 		if !in.MentionsBot() {

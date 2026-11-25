@@ -443,7 +443,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task)) {
 			readHistory = false
 		}
-		if topics != nil && len(topics.Candidates) != 0 {
+		if task.Message.RowID == 0 && topics != nil && len(topics.Candidates) != 0 {
 			readHistory = false
 		}
 	}
@@ -455,6 +455,11 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		return err
 	}
 	in := domain.Input{Task: task, CallIdentity: identity, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
+	if task.Kind == "group" && task.Message.RowID > 0 {
+		var truncated bool
+		in.Recent, truncated = recentGroupMessages(in, true)
+		in.GroupContext = buildGroupContext(in, truncated)
+	}
 	var cooldown domain.CooldownEvent
 	rule, rulesetVersion, set := d.applyRules(ctx, in, &cooldown)
 	if err := step(3, "rules", contracts.LiveDecisionFacts{RuleID: cooldown.RuleID, Branch: cooldown.Branch, ThresholdMS: cooldown.ThresholdMS, ElapsedMS: cooldown.ElapsedMS}); err != nil {
@@ -485,6 +490,11 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 		modelReturned = true
 	}
+	if semantic.BackgroundFailure == "background_history_denied" {
+		in = withoutDecisionHistory(in)
+		rule, rulesetVersion, _ = d.applyRules(ctx, in, &cooldown)
+		semantic = discardSemantic(in, rule, semantic, semantic.BackgroundFailure)
+	}
 	startFailed := semantic.FailureCode == auditcontracts.ModelMediaStartFailureCode
 	errOrStartFailure := func(err error) error {
 		if startFailed {
@@ -513,7 +523,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		}
 		decision.Snapshot = &domain.DecisionSnapshot{
 			Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-			Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+			Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: snapshotRecent(in), GroupContext: in.GroupContext, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
 			Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
 		}
 
@@ -573,6 +583,10 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 			return decisionPersistenceError{cause: err}
 		}
 		if reason != "" {
+			if reason == "background_history_denied" {
+				in = withoutDecisionHistory(in)
+				rule, rulesetVersion, _ = d.applyRules(ctx, in, &cooldown)
+			}
 			semantic = discardSemantic(in, rule, semantic, reason)
 			if err := commitDecision(); err != nil {
 				return err
@@ -683,7 +697,17 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	degraded := false
 	if policy.AllowHistoryRead && readHistory && d.history != nil {
 		var err error
-		history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, historyLimit)
+		if task.Kind == "group" && task.Message.RowID > 0 {
+			if reader, ok := d.history.(interface {
+				RecentGroupIntentMessages(context.Context, domain.Task, time.Duration, int) ([]domain.Message, error)
+			}); ok {
+				history, err = reader.RecentGroupIntentMessages(ctx, task, domain.GroupWindow, groupScanLimit)
+			} else {
+				err = fmt.Errorf("intent: anchored history unavailable")
+			}
+		} else {
+			history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, historyLimit)
+		}
 		if err != nil {
 			// Degrade to current-message-only instead of failing the job.
 			// 降级为仅使用当前消息，而不是让任务失败。
@@ -823,6 +847,11 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		"LatencyMS":            latency,
 	}
 	semanticDetail["CallAddressing"] = callAddressingAudit(in, semantic)
+	if in.GroupContext != nil {
+		steps[1].Detail["GroupContext"] = groupRecentAudit(in.GroupContext)
+		semanticDetail["ExpectedResponder"] = semantic.ExpectedResponder
+		semanticDetail["DiscussedSubject"] = semantic.DiscussedSubject
+	}
 	if !asked {
 		semanticDetail["SkipReason"] = semanticSkipReason(rule)
 		if semantic.CallFailureCode == "name_unavailable" {

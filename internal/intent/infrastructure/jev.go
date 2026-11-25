@@ -110,7 +110,7 @@ func recordSystemOneQuestions(span trace.Span, wireQuestions map[string]jevQuest
 func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error) {
 	specs := questionSpecsFor(in)
 	var topicKeys map[string]string
-	if topics := domain.TopicQuestions(in.Topics); len(topics) != 0 {
+	if topics := domain.TopicQuestions(in.Topics, in.GroupContext != nil); len(topics) != 0 {
 		specs = maps.Clone(specs)
 		topicKeys = make(map[string]string, len(topics))
 		for key, question := range topics {
@@ -136,6 +136,12 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 			callKey += "_"
 		}
 		wireQuestions[callKey] = jevQuestion{Type: callQuestion.Type, Instructions: callQuestion.Instructions, Criteria: callQuestion.Criteria}
+	}
+	participants := groupParticipants(in)
+	responderKey, subjectKey := "", ""
+	if in.GroupContext != nil {
+		responderKey = addGroupQuestion(wireQuestions, "nagi_expected_responder", responderQuestion(participants))
+		subjectKey = addGroupQuestion(wireQuestions, "nagi_discussed_subject", subjectQuestion(participants))
 	}
 	if span := trace.SpanFromContext(ctx); span.IsRecording() {
 		prompt := in.Prompt
@@ -219,6 +225,11 @@ func (c *JevClient) Decide(ctx context.Context, in domain.Input) (domain.Semanti
 	answer.Usage = attempt.Usage
 	if askCall {
 		answer.CallAddressing, answer.CallFailureCode = decodeCallAddressing(parsed.Answers[callKey])
+	}
+	if in.GroupContext != nil {
+		answer.ExpectedResponder = decodeGroupChoice(parsed.Answers[responderKey], responderQuestion(participants))
+		answer.DiscussedSubject = decodeGroupChoice(parsed.Answers[subjectKey], subjectQuestion(participants))
+		settleGroupAddressing(in, &answer)
 	}
 	hasCall := askCall && answer.CallAddressing != domain.CallUnknown
 	if in.FixedBackground {
@@ -336,7 +347,12 @@ func (c *JevClient) buildState(in domain.Input) (map[string]any, media.ModelMedi
 		state["awaited_request"] = semanticText(in.AwaitedRequest.Text)
 	}
 	addCallIdentityState(state, in, c.cfg.BotName)
-	if in.Policy.AllowHistoryRead {
+	if in.GroupContext != nil {
+		delete(state, "recent_messages")
+		delete(state, "awaited_request")
+		delete(state, "current_message")
+		addGroupState(state, in)
+	} else if in.Policy.AllowHistoryRead {
 		addTopicState(state, in.Topics)
 	}
 	if in.Task.Kind == "group" {

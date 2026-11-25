@@ -87,10 +87,13 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 	values := make([]float64, 4)
 	var intentScore float64
 	var callResult domain.CallAddressing
+	var responder, subject string
+	participants := groupParticipants(in)
+	responderSpec, subjectSpec := responderQuestion(participants), subjectQuestion(participants)
 	var requests atomic.Int32
 	usage := &semanticUsageCounter{}
 	callQuestion, askCall := in.CallQuestion()
-	if askCall && in.CallIdentity != nil {
+	if in.GroupContext != nil || askCall && in.CallIdentity != nil {
 		if !strings.Contains(userTemplate, "{{state}}") {
 			userTemplate += "\n{{state}}"
 		}
@@ -105,7 +108,7 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 	var mu sync.Mutex
 	var first error
 	var startFailed bool
-	if askCall && in.CallIdentity != nil {
+	if in.GroupContext != nil || askCall && in.CallIdentity != nil {
 		configuredTemplate = userTemplate
 	}
 	score := func(i int, q string, labels []string) ([]float64, error) {
@@ -132,6 +135,15 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 			labels = []string{"A", "B", "C"}
 			q = callQuestion.Instructions + " A=" + callQuestion.Criteria["yes"] + " B=" + callQuestion.Criteria["no"] + " C=" + callQuestion.Criteria["uncertain"]
 		}
+		var groupKeys []string
+		if in.GroupContext != nil {
+			switch i {
+			case 2:
+				q, labels, groupKeys = groupQuestionLabels(responderSpec)
+			case 3:
+				q, labels, groupKeys = groupQuestionLabels(subjectSpec)
+			}
+		}
 		probs, err := score(i, q, labels)
 		mu.Lock()
 		defer mu.Unlock()
@@ -142,6 +154,18 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 			}
 			if dispatch != nil || startFailed {
 				stop()
+			}
+			return
+		}
+		if len(groupKeys) > 0 {
+			chosen := strongestGroupChoice(probs, groupKeys)
+			if i == 2 {
+				responder = chosen
+				if chosen != "bot" && chosen != "uncertain" && chosen != "group" {
+					values[i] = 1
+				}
+			} else {
+				subject = chosen
 			}
 			return
 		}
@@ -189,11 +213,15 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 		return domain.SemanticAnswer{ExternalRequests: int(requests.Load()), Usage: usage.value()}, first
 	}
 	answer := domain.SemanticAnswer{Available: true, CallAddressing: callResult, DirectedToBot: values[0], ContinuesBotThread: values[1], AddressedToOther: values[2], AppropriateToJoin: values[3], Scores: map[string]float64{"intent": intentScore}}
+	if in.GroupContext != nil {
+		answer.ExpectedResponder, answer.DiscussedSubject = responder, subject
+		settleGroupAddressing(in, &answer)
+	}
 	if first != nil {
 		answer.FailureCode = "decision_questions_degraded"
 	}
 	if in.Topics != nil && len(in.Topics.Candidates) > 0 {
-		if err := scoreTopic(in.Topics, &answer, func(q string, labels []string) ([]float64, error) { return score(5, q, labels) }); err != nil && (errors.Is(err, audit.ErrModelMediaStart) || in.FixedBackground || dispatch != nil) {
+		if err := scoreTopic(in.Topics, &answer, func(q string, labels []string) ([]float64, error) { return score(5, q, labels) }, in.GroupContext != nil); err != nil && (errors.Is(err, audit.ErrModelMediaStart) || in.FixedBackground || dispatch != nil) {
 			return domain.SemanticAnswer{ExternalRequests: int(requests.Load()), Usage: usage.value()}, err
 		}
 	}
@@ -202,13 +230,19 @@ func (c *LocalClient) decide(ctx context.Context, in domain.Input, dispatch func
 	return answer, nil
 }
 
-func scoreTopic(topics *domain.TopicContext, answer *domain.SemanticAnswer, score func(string, []string) ([]float64, error)) error {
+func scoreTopic(topics *domain.TopicContext, answer *domain.SemanticAnswer, score func(string, []string) ([]float64, error), shared bool) error {
 	actions := []string{domain.TopicFollowUp, domain.TopicContribution, domain.TopicLeave, domain.TopicClose}
 	labels := []string{"A"}
 	question := strings.Builder{}
 	question.WriteString("选择当前消息的话题和行为。A=新话题、不明确或对另一群友说话。只在有明确证据时归入话题。行为如下：")
+	followUp := "追问机器人"
+	if shared {
+		question.Reset()
+		question.WriteString("依据 group_context 和条目的 sources 判断当前发言延续哪一题及其作用。独立于谁应回答。A=新话题、无关或证据不足。")
+		followUp = "追问同一问题"
+	}
 	for i := range topics.Candidates {
-		for action, description := range []string{"追问机器人", "补充有效信息", "仅自己退出", "结束整个话题"} {
+		for action, description := range []string{followUp, "补充有效信息", "仅自己退出", "结束整个话题"} {
 			key := string(rune('B' + i*len(actions) + action))
 			labels = append(labels, key)
 			fmt.Fprintf(&question, " %s=%s的%s。", key, domain.TopicQuestionKey(i), description)
@@ -248,10 +282,14 @@ func localState(in domain.Input, botName string) (string, media.ModelMediaAttemp
 	current, shape := renderIntentMessage(in.Task, false)
 	payload := map[string]any{"channel": in.Task.Kind, "message": current, "recent": recent}
 	addCallIdentityState(payload, in, botName)
-	if in.Policy.AllowHistoryRead && in.AwaitedRequest != nil {
-		payload["awaited_request"] = semanticText(in.AwaitedRequest.Text)
-	}
-	if in.Policy.AllowHistoryRead {
+	if in.GroupContext != nil {
+		delete(payload, "recent")
+		delete(payload, "message")
+		addGroupState(payload, in)
+	} else if in.Policy.AllowHistoryRead {
+		if in.AwaitedRequest != nil {
+			payload["awaited_request"] = semanticText(in.AwaitedRequest.Text)
+		}
 		addTopicState(payload, in.Topics)
 	}
 	if in.Task.Kind == "group" {

@@ -220,6 +220,9 @@ func replyHistory(in domain.Input, reason string) []domain.Message {
 	if len(quoted) != 0 {
 		return quoted
 	}
+	if in.GroupContext != nil {
+		return nil
+	}
 	if reason == "active_thread_continuation" {
 		for i := len(history) - 1; i >= 0; i-- {
 			if history[i].IsBot {

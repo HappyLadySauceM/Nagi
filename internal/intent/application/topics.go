@@ -145,7 +145,7 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 		}
 	}
 	directed := rule.Explicit || rule.ForceReply || semantic.CallAddressing == domain.CallYes || decision.ReasonCode == "awaited_content_received"
-	if addressesOther(in) && !in.MentionsBot() && !rule.AlwaysReply {
+	if in.GroupContext == nil && addressesOther(in) && !in.MentionsBot() && !rule.AlwaysReply {
 		return withScores(domain.DecisionSilent, "addressed_to_other", decisionScores(semantic))
 	}
 	if candidate != nil && candidate.Active {
@@ -159,6 +159,10 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 				ExpiresAt: candidate.ExpiresAt}
 			return decision
 		case domain.TopicFollowUp, domain.TopicContribution:
+			if in.GroupContext != nil && decision.ReasonCode == "addressed_to_other" {
+				decision.Topic = &domain.TopicChange{ID: candidate.ID, Action: action, Source: source, ExpiresAt: topicExpiry(in)}
+				return decision
+			}
 			if decision.Decision == domain.DecisionReply || semantic.CallAddressing == "" && decision.Decision == domain.DecisionSilent && decision.ReasonCode != "addressed_to_other" {
 				if !directed {
 					decision = withScores(domain.DecisionReply, "active_thread_continuation", decisionScores(semantic))

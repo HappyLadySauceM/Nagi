@@ -41,6 +41,7 @@ type SnapshotInput struct {
 	AwaitedRequest       *Message      `json:",omitempty"`
 	Topics               *TopicContext `json:",omitempty"`
 	TopicChange          *TopicChange  `json:",omitempty"`
+	GroupContext         *GroupContext `json:",omitempty"`
 	HistoryWindowSkipped bool          `json:",omitempty"`
 	Activity             BotActivity
 	Policy               scopedomain.Policy
