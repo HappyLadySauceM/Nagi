@@ -378,7 +378,7 @@ func (r *Repo) routeClaim(ctx context.Context, claim domain.TopicRouteClaim) err
  )`, claim.MessageID, source, !validReference && image && body == "").Scan(&candidates, &earlierUndecided); err != nil {
 		return err
 	}
-	if !validReference && (body == "" && !image || addressedBot && isDirectQuestion(body)) || addressedElsewhere || !candidates && !earlierUndecided {
+	if !validReference && (body == "" && !image || addressedBot && (isDirectQuestion(body) || announcesTopicMaterial(body))) || addressedElsewhere || !candidates && !earlierUndecided {
 		return concludeTopicRoute(ctx, tx, claim, "unrelated", 0, "")
 	}
 	// No deterministic evidence can distinguish these candidates. Leave the original deadline in force.
@@ -456,6 +456,28 @@ func matchesRequestedMaterial(request, body string, image bool) bool {
 					return strings.TrimSpace(strings.TrimLeft(rest, ":：")) != ""
 				}
 			}
+		}
+	}
+	return false
+}
+
+func announcesTopicMaterial(body string) bool {
+	if !strings.Contains(body, "发") {
+		return false
+	}
+	var future bool
+	for _, marker := range []string{"下面", "接下来", "等会", "待会", "稍后", "接着"} {
+		if strings.Contains(body, marker) {
+			future = true
+			break
+		}
+	}
+	if !future {
+		return false
+	}
+	for _, marker := range []string{"图片", "截图", "发图", "张图", "文字", "文本", "日志", "代码"} {
+		if strings.Contains(body, marker) {
+			return true
 		}
 	}
 	return false
