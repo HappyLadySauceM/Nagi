@@ -135,6 +135,7 @@ func TestIngressSkipsOwnMessages(t *testing.T) {
 // resolved into ingest nor persisted (privacy red line).
 // TestIngressDropsUnauthorizedContent 验证未启用的作用域不进入入库（隐私红线）。
 func TestIngressDropsUnauthorizedContent(t *testing.T) {
+	recorder := recordingProvider(t)
 	auth := &fakeAuthorizer{policies: map[string]scopedomain.Policy{
 		scopedomainScopeKey(100, "group", 700): {Enabled: false},
 	}}
@@ -144,8 +145,8 @@ func TestIngressDropsUnauthorizedContent(t *testing.T) {
 	if err := h.Handle(context.Background(), 100, groupEvent(200, 100)); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if len(ingest.inputs) != 0 {
-		t.Fatalf("unauthorized content must not be ingested: %+v", ingest.inputs)
+	if len(recorder.Started()) != 0 || len(ingest.inputs) != 0 {
+		t.Fatalf("unauthorized event created %d spans and %d ingests", len(recorder.Started()), len(ingest.inputs))
 	}
 }
 

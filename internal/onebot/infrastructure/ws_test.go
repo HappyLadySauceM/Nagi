@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
@@ -21,7 +22,7 @@ import (
 type recordedSinks struct {
 	mu        sync.Mutex
 	responses []string
-	events    []obdomain.Event
+	events    []obcontracts.EventFrame
 }
 
 func (r *recordedSinks) HandleResponse(echo string, payload json.RawMessage) {
@@ -30,16 +31,16 @@ func (r *recordedSinks) HandleResponse(echo string, payload json.RawMessage) {
 	r.responses = append(r.responses, echo)
 }
 
-func (r *recordedSinks) HandleEvent(event obdomain.Event) {
+func (r *recordedSinks) HandleEventFrame(event obcontracts.EventFrame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.events = append(r.events, event)
 }
 
-func (r *recordedSinks) snapshot() (responses []string, events []obdomain.Event) {
+func (r *recordedSinks) snapshot() (responses []string, events []obcontracts.EventFrame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]string(nil), r.responses...), append([]obdomain.Event(nil), r.events...)
+	return append([]string(nil), r.responses...), append([]obcontracts.EventFrame(nil), r.events...)
 }
 
 func waitFor(t *testing.T, cond func() bool) {
@@ -138,7 +139,7 @@ func TestTransportRoutesResponsesAndEvents(t *testing.T) {
 	if len(responses) != 1 || responses[0] != "echo-1" {
 		t.Fatalf("responses = %v", responses)
 	}
-	if len(events) != 1 || events[0].SelfID != 10000 {
+	if len(events) != 1 || events[0].Route.SelfID != 10000 {
 		t.Fatalf("events = %+v", events)
 	}
 	cancel()
@@ -168,4 +169,29 @@ func TestTransportReconnectsAfterDrop(t *testing.T) {
 		t.Fatalf("expected at least 2 connections, got %d", upgrades.Load())
 	}
 	cancel()
+}
+
+func TestMessageAndFileFramesDeferContentDecoding(t *testing.T) {
+	sinks := &recordedSinks{}
+	tr := NewTransport(Options{}, nil)
+	tr.Attach(sinks, sinks)
+	tr.routeFrame([]byte(`{"post_type":"message","message_type":"group","self_id":21,"group_id":22,"user_id":23,"message_id":24,"raw_message":"text","message":"[CQ:at,qq=21] text"}`))
+	tr.routeFrame([]byte(`{"post_type":"notice","notice_type":"group_upload","self_id":21,"group_id":22,"user_id":23,"file":{"id":"synthetic"}}`))
+	_, frames := sinks.snapshot()
+	if len(frames) != 2 {
+		t.Fatalf("received %d frames", len(frames))
+	}
+	for _, frame := range frames {
+		if frame.Route.GroupID != 22 || frame.Route.UserID != 23 || frame.Route.SelfID != 21 || frame.Route.MessageID != 0 || frame.Route.RawMessage != "" || len(frame.Route.Segments) != 0 || frame.Route.Extra["file"] != nil || frame.Decode == nil {
+			t.Fatalf("unexpected route %+v", frame.Route)
+		}
+	}
+	msg, err := frames[0].Decode()
+	if err != nil || msg.MessageID != 24 || len(msg.Segments) != 2 {
+		t.Fatalf("message %+v, error %v", msg, err)
+	}
+	notice, err := frames[1].Decode()
+	if err != nil || notice.NoticeType() != obdomain.NoticeGroupUpload || notice.Extra["file"] == nil {
+		t.Fatalf("notice %+v, error %v", notice, err)
+	}
 }

@@ -67,6 +67,53 @@ func (h *Ingress) EnableFileNotices() {
 // Handle 解析作用域并入库已授权消息。未授权内容在任何持久化或遥测之前被丢弃；
 // 数据库故障按关闭处理。
 func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain.Event) error {
+	botID := int64(bot)
+	if botID <= 0 {
+		return nil
+	}
+	archiveOnly := !event.IsMessage()
+	var scopeType scopedomain.ScopeType
+	var targetID int64
+	if archiveOnly {
+		if !h.fileNotices || !isFileNotice(event) || event.UserID <= 0 || int64(event.UserID) == botID {
+			return nil
+		}
+		if event.GroupID > 0 {
+			scopeType, targetID = scopedomain.ScopeGroup, int64(event.GroupID)
+		} else if event.NoticeType() == "offline_file" {
+			scopeType, targetID = scopedomain.ScopePrivate, int64(event.UserID)
+		} else {
+			return nil
+		}
+	} else {
+		if int64(event.Sender.ID) == botID {
+			return nil
+		}
+		switch event.Type {
+		case obdomain.TypeGroup:
+			scopeType, targetID = scopedomain.ScopeGroup, int64(event.GroupID)
+		case obdomain.TypePrivate:
+			scopeType, targetID = scopedomain.ScopePrivate, int64(event.UserID)
+		}
+	}
+	if targetID <= 0 {
+		return nil
+	}
+	policy, err := h.scopes.Resolve(ctx, botID, scopeType, targetID)
+	if err != nil {
+		h.logger.Warn("ingress scope lookup failed")
+		return nil
+	}
+	if !policy.Enabled {
+		return nil
+	}
+	if archiveOnly {
+		var ok bool
+		event, ok = fileNoticeMessage(event)
+		if !ok {
+			return nil
+		}
+	}
 	// No message content is recorded on spans, only ids and kinds.
 	// span 只记录 ID 与类型，不记录消息内容。
 	ctx = observability.WithTraceName(ctx, "nagi.message.receive")
@@ -85,40 +132,6 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		"segments":   len(event.Segments),
 	})
 
-	archiveOnly := !event.IsMessage()
-	if archiveOnly {
-		if !h.fileNotices {
-			return nil
-		}
-		var ok bool
-		event, ok = fileNoticeMessage(event)
-		if !ok {
-			return nil
-		}
-	}
-	botID := int64(bot)
-	if botID <= 0 {
-		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
-			"dropped": "missing_account",
-		})
-		return nil
-	}
-	if int64(event.Sender.ID) == botID {
-		// Ignore the bot's own outgoing messages echoed back as events.
-		// 忽略以事件形式回传的机器人自身消息。
-		observability.RecordObservation(span, "langfuse.observation.output", map[string]any{
-			"dropped": "own_message",
-		})
-		return nil
-	}
-
-	var scopeType scopedomain.ScopeType
-	var targetID int64
-	if event.InGroup() {
-		scopeType, targetID = scopedomain.ScopeGroup, int64(event.GroupID)
-	} else {
-		scopeType, targetID = scopedomain.ScopePrivate, int64(event.UserID)
-	}
 	// Account, sender and target are known before persistence, so they are
 	// attached here and ride the context into the scope/persist children. The
 	// session id only exists after the row is written and stays on the root.
@@ -128,18 +141,9 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 	ctx = observability.WithIdentity(ctx, identity)
 	observability.SetIdentity(span, identity)
 
-	scopeCtx, scopeSpan := tracer().Start(ctx, "nagi.ingress.scope")
+	_, scopeSpan := tracer().Start(ctx, "nagi.ingress.scope")
 	scopeSpan.SetAttributes(attribute.String("nagi.scope_type", string(scopeType)))
 	observability.SetIdentity(scopeSpan, identity)
-	policy, err := h.scopes.Resolve(scopeCtx, botID, scopeType, targetID)
-	if err != nil {
-		// Fail closed: without a policy decision nothing is stored or processed.
-		// 关闭式失败：没有策略判定就不存储、不处理。
-		scopeSpan.RecordError(err)
-		scopeSpan.End()
-		h.logger.Warn("ai ingress scope resolve failed", "error", err, "bot_id", botID)
-		return nil
-	}
 	scopeSpan.SetAttributes(
 		attribute.Bool("nagi.scope_enabled", policy.Enabled),
 		attribute.Bool("nagi.scope_store_messages", policy.StoreMessages),
@@ -150,7 +154,7 @@ func (h *Ingress) Handle(ctx context.Context, bot obdomain.BotID, event obdomain
 		"reply_mode":     string(policy.ReplyMode),
 	})
 	scopeSpan.End()
-	if !policy.Enabled || !policy.StoreMessages {
+	if !policy.StoreMessages {
 		if counter, ok := h.ingest.(interface{ CountBlockedIngress(int64) }); ok {
 			counter.CountBlockedIngress(botID)
 		}

@@ -111,10 +111,15 @@ type API interface {
 	Maintenance
 }
 
+type EventFrame struct {
+	Route  domain.Event
+	Decode func() (domain.Event, error)
+}
+
 // EventSource is the stable event-reading interface for business contexts.
 // EventSource 是业务上下文读取 OneBot 事件的稳定接口。
 type EventSource interface {
-	Events() <-chan domain.Event
+	Events() <-chan EventFrame
 	Connected() bool
 }
 

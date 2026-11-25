@@ -18,7 +18,7 @@
 | Go 1.26+ | `go.mod` 声明最低 1.26.0，本地可用更高补丁版（当前用 1.27.x 构建） |
 | SnowLuma | 已登录目标 QQ 账号，并在 WebUI 中配置 OneBot v11 **正向 WS 服务端** |
 | Docker + Compose | `docker compose up -d` 启动 PostgreSQL 17 业务库、保留的 PostgreSQL 16 与 Langfuse 全栈 |
-| PostgreSQL 17（业务库，可选） | 未配置 DSN 时机器人仍可运行，但只有 echo 与状态接口 |
+| PostgreSQL 17（业务库，可选） | 未配置 DSN 时仍可连接 OneBot 并提供状态接口，群聊和私聊入站默认拒绝 |
 
 ## 快速开始
 

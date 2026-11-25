@@ -55,7 +55,7 @@ type ClientService struct {
 	pendingMu sync.Mutex
 	pending   map[string]chan callResult
 
-	events chan domain.Event
+	events chan contracts.EventFrame
 }
 
 // NewClientService binds the service to a transport.
@@ -69,7 +69,7 @@ func NewClientService(transport Transport, callTimeout time.Duration, logger *sl
 		callTimeout: callTimeout,
 		logger:      logger,
 		pending:     make(map[string]chan callResult),
-		events:      make(chan domain.Event, eventBuffer),
+		events:      make(chan contracts.EventFrame, eventBuffer),
 	}
 }
 
@@ -183,6 +183,11 @@ func (s *ClientService) HandleResponse(echo string, payload json.RawMessage) {
 // HandleEvent implements EventSink.
 // HandleEvent 实现 EventSink：记录自身账号与最近心跳，并发布事件。
 func (s *ClientService) HandleEvent(event domain.Event) {
+	s.HandleEventFrame(contracts.EventFrame{Route: event})
+}
+
+func (s *ClientService) HandleEventFrame(frame contracts.EventFrame) {
+	event := frame.Route
 	if event.SelfID != 0 {
 		if err := s.BindIdentity(event.SelfID); err != nil {
 			// A connection that changes identity mid-flight would mix two accounts'
@@ -205,7 +210,7 @@ func (s *ClientService) HandleEvent(event domain.Event) {
 		return
 	}
 	select {
-	case s.events <- event:
+	case s.events <- frame:
 	default:
 		s.logger.Warn("onebot: event channel full, event dropped", "post_type", string(event.Post))
 	}
@@ -213,7 +218,7 @@ func (s *ClientService) HandleEvent(event domain.Event) {
 
 // Events implements contracts.EventSource.
 // Events 实现 contracts.EventSource 的事件读取。
-func (s *ClientService) Events() <-chan domain.Event { return s.events }
+func (s *ClientService) Events() <-chan contracts.EventFrame { return s.events }
 
 // Connected implements contracts.EventSource.
 // Connected 实现 contracts.EventSource 的连接状态查询。

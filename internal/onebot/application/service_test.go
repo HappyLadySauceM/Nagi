@@ -174,8 +174,8 @@ func TestHandleEventPublishesAndRecordsSelfID(t *testing.T) {
 	svc.HandleEvent(domain.Event{SelfID: 10000, Post: domain.PostMeta})
 	select {
 	case event := <-svc.Events():
-		if event.SelfID != 10000 {
-			t.Fatalf("self id = %d", event.SelfID)
+		if event.Route.SelfID != 10000 {
+			t.Fatalf("self id = %d", event.Route.SelfID)
 		}
 	default:
 		t.Fatal("event not published")

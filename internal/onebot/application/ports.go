@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
+
 	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
@@ -32,5 +34,5 @@ type ResponseSink interface {
 // EventSink receives parsed protocol events.
 // EventSink 接收已解析的事件帧。
 type EventSink interface {
-	HandleEvent(event domain.Event)
+	HandleEventFrame(frame contracts.EventFrame)
 }
