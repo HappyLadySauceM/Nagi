@@ -57,7 +57,7 @@ func (b IntentBackground) CheckScope(ctx context.Context, in intentdomain.Input)
 	if err != nil || ctx.Err() != nil || !policy.Enabled || policy.ReplyMode == "observe_only" {
 		return "background_scope_denied"
 	}
-	if in.Policy.AllowHistoryRead && !policy.AllowHistoryRead && (len(in.Recent) > 0 || in.AwaitedRequest != nil || in.Topics != nil) {
+	if in.Policy.AllowHistoryRead && !policy.AllowHistoryRead && (len(in.Recent) > 0 || in.AwaitedRequest != nil || in.Topics != nil || in.GroupContext != nil && len(in.GroupContext.Messages) > 0) {
 		return "background_history_denied"
 	}
 	if policy.ReplyMode == "mention_only" || policy.ReplyMode == "always_reply" {

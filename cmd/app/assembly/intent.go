@@ -59,6 +59,14 @@ type historyReader struct {
 // 供引用判定与冷却规则使用。
 func (h historyReader) RecentIntentMessages(ctx context.Context, conversationID string, limit int) ([]intentdomain.Message, error) {
 	msgs, err := h.svc.RecentMessages(ctx, conversationID, limit)
+	return intentHistory(msgs, err)
+}
+
+func (h historyReader) RecentGroupIntentMessages(ctx context.Context, task intentdomain.Task, window time.Duration, limit int) ([]intentdomain.Message, error) {
+	return intentHistory(h.svc.RecentGroupMessagesBefore(ctx, task.BotID, task.ConversationID, task.Message.RowID, task.Message.CreatedAt, window, limit))
+}
+
+func intentHistory(msgs []conversationdomain.Message, err error) ([]intentdomain.Message, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +76,7 @@ func (h historyReader) RecentIntentMessages(ctx context.Context, conversationID 
 			continue
 		}
 		out = append(out, intentdomain.Message{
+			RowID:     m.ID,
 			Segments:  m.Segments,
 			MessageID: m.PlatformMessageID,
 			SenderID:  m.SenderID,
@@ -131,6 +140,7 @@ func (p intentProcessor) Process(ctx context.Context, job conversationdomain.Job
 		TargetID:       job.TargetID,
 		ConversationID: job.ConversationID,
 		Message: intentdomain.Message{
+			RowID:     job.Message.ID,
 			MessageID: job.Message.PlatformMessageID,
 			SenderID:  job.Message.SenderID,
 			Text:      job.Message.Text,

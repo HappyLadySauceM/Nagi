@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -321,7 +322,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 				return nil
 			}
 			snapshot := decision.Snapshot.Input
-			in := domain.Input{Task: task, Policy: policy, Topics: snapshot.Topics}
+			in := domain.Input{Task: task, Policy: policy, Topics: snapshot.Topics, GroupContext: snapshot.GroupContext}
 			history, err := d.recoveredReplyHistory(ctx, in, decision, runtime)
 			if err != nil {
 				return decisionPersistenceError{cause: err}
@@ -346,6 +347,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 				}
 			}
 			task.Message.Text = text
+			task.Segments = markTranscribedSegments(task.Segments)
 		} else if err != nil {
 			if errors.Is(err, media.ErrArchiveFailed) {
 				return err
@@ -415,56 +417,22 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 			return journal.AppendDecisionStep(writeCtx, task, runID, sequence, kind, facts)
 		})
 	}
-	var awaited *domain.Message
-	if task.Kind == "group" && policy.AllowHistoryRead && eligibleSupplement(task) {
-		if reader, ok := d.recorder.(AwaitedContentReader); ok {
-			var err error
-			awaited, err = reader.AwaitedRequest(ctx, task)
-			if err != nil {
-				return fmt.Errorf("intent: load awaited request: %w", err)
-			}
-		}
-	}
-	identity := d.currentCallIdentity(ctx, task.BotID)
-	early := domain.Input{Task: task, CallIdentity: identity, Policy: policy, AwaitedRequest: awaited}
-	topics, err := d.loadTopics(ctx, early, runtime)
-	if err != nil {
-		return fmt.Errorf("intent: load topics: %w", err)
-	}
-	readHistory := true
-	if task.Kind == "group" {
-		quoted := false
-		for _, segment := range task.Segments {
-			if segment.Type == obdomain.SegReply {
-				quoted = true
-				break
-			}
-		}
-		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task)) {
-			readHistory = false
-		}
-		if topics != nil && len(topics.Candidates) != 0 {
-			readHistory = false
-		}
-	}
-	history, activity, historyDegraded, err := d.loadContext(ctx, task, policy, readHistory)
+	in, historyDegraded, err := d.prepareDecisionInput(ctx, domain.Input{Task: task, Policy: policy, Now: time.Now()}, runtime)
 	if err != nil {
 		return err
 	}
-	if err := step(2, "context", contracts.LiveDecisionFacts{HistorySkipped: !readHistory, HistoryDegraded: historyDegraded}); err != nil {
+	if err := step(2, "context", contracts.LiveDecisionFacts{HistorySkipped: in.HistoryWindowSkipped, HistoryDegraded: historyDegraded}); err != nil {
 		return err
 	}
-	in := domain.Input{Task: task, CallIdentity: identity, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
 	var cooldown domain.CooldownEvent
 	rule, rulesetVersion, set := d.applyRules(ctx, in, &cooldown)
 	if err := step(3, "rules", contracts.LiveDecisionFacts{RuleID: cooldown.RuleID, Branch: cooldown.Branch, ThresholdMS: cooldown.ThresholdMS, ElapsedMS: cooldown.ElapsedMS}); err != nil {
 		return err
 	}
 
-	prompt := ScoreParticipationPrompt(d.participationPrompt(ctx, task, runtime, set, in.CallNameVariable()))
-	prompt = withCallQuestionLayer(in, rule, prompt)
-	prompt.ConversationID = task.ConversationID
-	in.Prompt = prompt
+	wording := d.participationPrompt(ctx, task, runtime, set, in.CallNameVariable())
+	wording.ConversationID = task.ConversationID
+	in.Prompt = withCallQuestionLayer(in, rule, ScoreParticipationPrompt(wording))
 	var pictures *media.PictureSummary
 	if reader, ok := d.recorder.(interface {
 		DecisionPictures(context.Context, int64, int64) (media.PictureSummary, error)
@@ -484,6 +452,15 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		}
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 		modelReturned = true
+	}
+	if semantic.BackgroundFailure == "background_history_denied" {
+		in, rule, semantic, latency = d.decideWithoutHistory(ctx, in, runtime, semantic, latency, func(current domain.Input) (domain.RuleResult, domain.Prompt) {
+			next, version, selected := d.applyRules(ctx, current, &cooldown)
+			rulesetVersion = version
+			prompt := d.participationPrompt(ctx, task, runtime, selected, current.CallNameVariable())
+			prompt.ConversationID = task.ConversationID
+			return next, prompt
+		})
 	}
 	startFailed := semantic.FailureCode == auditcontracts.ModelMediaStartFailureCode
 	errOrStartFailure := func(err error) error {
@@ -513,8 +490,8 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 		}
 		decision.Snapshot = &domain.DecisionSnapshot{
 			Version: domain.SnapshotVersion, FlowVersion: domain.FlowVersion, RunID: runID,
-			Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: in.Recent, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
-			Semantic: semantic, Prompt: prompt, Rule: rule, RulesetVersion: rulesetVersion,
+			Input:    domain.SnapshotInput{Pictures: pictures, WorkerAuditRunID: auditcontracts.RunID(ctx), MediaEvidenceVersion: media.ModelMediaVersion, IntentAsked: asked, GenerationEligible: decision.Decision == domain.DecisionReply && d.executor != nil && runtime.AIEnabled, Task: in.Task, CallIdentity: in.CallIdentity, Recent: snapshotRecent(in), GroupContext: in.GroupContext, AwaitedRequest: in.AwaitedRequest, Topics: topicWithoutHistorySegments(in.Topics), TopicChange: decision.Topic, HistoryWindowSkipped: in.HistoryWindowSkipped, Activity: in.Activity, Policy: in.Policy, Now: in.Now},
+			Semantic: semantic, Prompt: in.Prompt, Rule: rule, RulesetVersion: rulesetVersion,
 		}
 
 		// The durable decision record remains the source used by evaluation. Mirror
@@ -573,6 +550,10 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 			return decisionPersistenceError{cause: err}
 		}
 		if reason != "" {
+			if reason == "background_history_denied" {
+				in = withoutDecisionHistory(in)
+				rule, rulesetVersion, _ = d.applyRules(ctx, in, &cooldown)
+			}
 			semantic = discardSemantic(in, rule, semantic, reason)
 			if err := commitDecision(); err != nil {
 				return err
@@ -661,6 +642,45 @@ func (d *Decider) executeDecidedReply(ctx context.Context, task domain.Task, in 
 	return nil
 }
 
+func (d *Decider) prepareDecisionInput(ctx context.Context, in domain.Input, runtime RuntimeConfig) (domain.Input, bool, error) {
+	task := in.Task
+	in.CallIdentity = d.currentCallIdentity(ctx, task.BotID)
+	if task.Kind == "group" && task.JobID != 0 && in.Policy.AllowHistoryRead && eligibleSupplement(task) {
+		if reader, ok := d.recorder.(AwaitedContentReader); ok {
+			var err error
+			in.AwaitedRequest, err = reader.AwaitedRequest(ctx, task)
+			if err != nil {
+				return in, false, fmt.Errorf("intent: load awaited request: %w", err)
+			}
+		}
+	}
+	topics, err := d.loadTopics(ctx, in, runtime)
+	if err != nil {
+		return in, false, fmt.Errorf("intent: load topics: %w", err)
+	}
+	in.Topics = topics
+	if task.Kind == "group" {
+		quoted := slices.ContainsFunc(task.Segments, func(segment obdomain.Segment) bool { return segment.Type == obdomain.SegReply })
+		in.HistoryWindowSkipped = awaitingReply(in) || !quoted && in.MentionsBot() && !refersToEarlierDiscussion(task)
+		if task.JobID != 0 && task.Message.RowID == 0 && hasTopicCandidates(in) {
+			in.HistoryWindowSkipped = true
+		}
+	}
+	var degraded bool
+	if task.ConversationID != "" {
+		in.Recent, in.Activity, degraded, err = d.loadContext(ctx, task, in.Policy, !in.HistoryWindowSkipped)
+	} else {
+		in.Recent = nil
+		in.Activity = domain.BotActivity{Known: true}
+	}
+	if task.Kind == "group" && (task.Message.RowID > 0 || task.JobID == 0 && !task.Message.CreatedAt.IsZero()) {
+		var truncated bool
+		in.Recent, truncated = recentGroupMessages(in, true)
+		in.GroupContext = buildGroupContext(in, truncated)
+	}
+	return in, degraded, err
+}
+
 // loadContext reads the authorized history and the rate-rule metadata inside
 // one span; the span exists even when history reads are unauthorized.
 // loadContext 在单个 span 内读取授权历史与频率规则元数据；
@@ -683,7 +703,17 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	degraded := false
 	if policy.AllowHistoryRead && readHistory && d.history != nil {
 		var err error
-		history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, historyLimit)
+		if task.Kind == "group" && (task.Message.RowID > 0 || task.JobID == 0 && !task.Message.CreatedAt.IsZero()) {
+			if reader, ok := d.history.(interface {
+				RecentGroupIntentMessages(context.Context, domain.Task, time.Duration, int) ([]domain.Message, error)
+			}); ok {
+				history, err = reader.RecentGroupIntentMessages(ctx, task, domain.GroupWindow, groupScanLimit)
+			} else {
+				err = fmt.Errorf("intent: anchored history unavailable")
+			}
+		} else {
+			history, err = d.history.RecentIntentMessages(ctx, task.ConversationID, historyLimit)
+		}
 		if err != nil {
 			// Degrade to current-message-only instead of failing the job.
 			// 降级为仅使用当前消息，而不是让任务失败。
@@ -823,6 +853,11 @@ func decisionSteps(in domain.Input, rule domain.RuleResult,
 		"LatencyMS":            latency,
 	}
 	semanticDetail["CallAddressing"] = callAddressingAudit(in, semantic)
+	if in.GroupContext != nil {
+		steps[1].Detail["GroupContext"] = groupRecentAudit(in.GroupContext)
+		semanticDetail["ExpectedResponder"] = semantic.ExpectedResponder
+		semanticDetail["DiscussedSubject"] = semantic.DiscussedSubject
+	}
 	if !asked {
 		semanticDetail["SkipReason"] = semanticSkipReason(rule)
 		if semantic.CallFailureCode == "name_unavailable" {
@@ -1180,6 +1215,25 @@ func discardSemantic(in domain.Input, rule domain.RuleResult, answer domain.Sema
 	return out
 }
 
+func (d *Decider) decideWithoutHistory(ctx context.Context, in domain.Input, runtime RuntimeConfig, prior domain.SemanticAnswer, latency int64, prepare func(domain.Input) (domain.RuleResult, domain.Prompt)) (domain.Input, domain.RuleResult, domain.SemanticAnswer, int64) {
+	in = withoutDecisionHistory(in)
+	policy, err := d.scopes.Resolve(ctx, in.Task.BotID, scopedomain.ScopeType(in.Task.Kind), in.Task.TargetID)
+	if err == nil {
+		in.Policy = policy
+	} else {
+		in.Policy.Enabled = false
+	}
+	in.Policy.AllowHistoryRead = false
+	in.Policy.AllowMemoryRead = false
+	rule, wording := prepare(in)
+	in.Prompt = withCallQuestionLayer(in, rule, ScoreParticipationPrompt(wording))
+	if err == nil && ctx.Err() == nil && !in.FixedBackground && !policy.AllowHistoryRead && prior.ExternalRequests == 0 && prior.UnknownRequests == 0 && shouldAskSemantic(in, rule) {
+		answer, elapsed := d.decideSemantic(ctx, in, runtime, rule)
+		return in, rule, answer, latency + elapsed
+	}
+	return in, rule, discardSemantic(in, rule, prior, prior.BackgroundFailure), latency
+}
+
 func (d *Decider) decideSemantic(ctx context.Context, in domain.Input, runtime RuntimeConfig, rule domain.RuleResult) (domain.SemanticAnswer, int64) {
 	ctx, span := tracer().Start(ctx, "nagi.intent.jev")
 	defer span.End()
@@ -1308,17 +1362,45 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 	var latency int64
 	called := full && d.semantic != nil && shouldAskSemantic(in, rule)
 	if called {
-		in.Prompt = withCallQuestionLayer(in, rule, ScoreParticipationPrompt(in.Prompt))
+		wording := in.Prompt
+		in.Prompt = withCallQuestionLayer(in, rule, ScoreParticipationPrompt(wording))
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
+		if semantic.BackgroundFailure == "background_history_denied" {
+			questions := rule.Questions
+			in, rule, semantic, latency = d.decideWithoutHistory(ctx, in, runtime, semantic, latency, func(current domain.Input) (domain.RuleResult, domain.Prompt) {
+				return simulationRules(current, questions), wording
+			})
+		}
+		if guard, ok := d.semantic.(semanticResultGuard); ok && semantic.Available && semantic.BackgroundEvidence != nil {
+			reason, err := guard.WithSemanticResult(ctx, in, semantic, func() error { return nil })
+			if err != nil && reason == "" {
+				reason = "semantic_response_unusable"
+			}
+			if reason != "" {
+				if reason == "background_history_denied" {
+					in = withoutDecisionHistory(in)
+					rule = simulationRules(in, rule.Questions)
+				}
+				semantic = discardSemantic(in, rule, semantic, reason)
+			}
+		}
 	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	return decision, decisionSteps(in, rule, semantic, decision, latency, called, false)
 }
 
+func simulationRules(in domain.Input, questions map[string]domain.PromptQuestion) domain.RuleResult {
+	var selected *domain.Ruleset
+	if questions != nil {
+		selected = &domain.Ruleset{Questions: questions}
+	}
+	rule, _ := EvaluateRuleChain(in, selected, nil)
+	return rule
+}
+
 // PrepareSimulation loads the same authorized context and activity as live decisions.
 // PrepareSimulation 加载与真实决策相同的已授权上下文及会话活动。
 func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domain.Input, error) {
-	in.CallIdentity = d.currentCallIdentity(ctx, in.Task.BotID)
 	locator, ok := d.activity.(interface {
 		ConversationIDForScope(context.Context, int64, string, int64) (string, error)
 	})
@@ -1330,16 +1412,12 @@ func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domai
 		return in, err
 	}
 	in.Task.ConversationID = id
-	if id == "" {
-		in.Recent = nil
-		in.Activity = domain.BotActivity{Known: true}
-		return in, nil
+	if in.Now.IsZero() {
+		in.Now = time.Now()
 	}
-	history, activity, _, err := d.loadContext(ctx, in.Task, in.Policy, true)
-	if err != nil {
-		return in, err
+	if in.Task.Message.CreatedAt.IsZero() {
+		in.Task.Message.CreatedAt = in.Now
 	}
-	in.Recent = history
-	in.Activity = activity
-	return in, nil
+	prepared, _, err := d.prepareDecisionInput(ctx, in, d.runtimeFor(ctx))
+	return prepared, err
 }

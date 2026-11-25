@@ -29,9 +29,9 @@ func registerTopicRoute(ctx context.Context, client *ent.Client, conversation uu
 	}
 	_, err := client.ExecContext(ctx, `INSERT INTO group_topic_route_candidates (id, conversation_id, route_id, topic_id, version)
  SELECT gen_random_uuid(), t.conversation_id, $1, t.id, t.version
- FROM group_topics t JOIN group_topic_routes r ON r.id=$1
- WHERE t.conversation_id=$2 AND NOT t.closed AND t.expires_at>r.deadline-make_interval(secs => $3)
- ORDER BY t.id`, message, conversation, topicRoutingDeadline.Seconds())
+ FROM group_topics t JOIN messages m ON m.id=$1 AND m.conversation_id=t.conversation_id
+ WHERE t.conversation_id=$2 AND NOT t.closed AND t.expires_at>m.created_at
+ ORDER BY t.id`, message, conversation)
 	return err
 }
 
@@ -84,12 +84,12 @@ func (r *Repo) ClaimTopicRoute(ctx context.Context, lease time.Duration) (*domai
 	// 本会话中更早的归属可能已推进候选版本，领取时重新取证。
 	if _, err := tx.Exec(ctx, `UPDATE group_topic_route_candidates p SET version=t.version
 	 FROM group_topics t WHERE p.route_id=$1 AND t.id=p.topic_id AND t.conversation_id=p.conversation_id
-	 AND NOT t.closed AND t.expires_at>clock_timestamp()`, claim.MessageID); err != nil {
+	 AND NOT t.closed AND t.expires_at>(SELECT created_at FROM messages WHERE id=p.route_id)`, claim.MessageID); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, `SELECT p.topic_id, p.version FROM group_topic_route_candidates p
 	 JOIN group_topics t ON t.id=p.topic_id AND t.conversation_id=p.conversation_id
-	 WHERE p.route_id=$1 AND NOT t.closed AND t.expires_at>clock_timestamp() ORDER BY p.topic_id`, claim.MessageID)
+	 WHERE p.route_id=$1 AND NOT t.closed AND t.expires_at>(SELECT created_at FROM messages WHERE id=p.route_id) ORDER BY p.topic_id`, claim.MessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (r *Repo) ResolveTopicRoute(ctx context.Context, claim domain.TopicRouteCla
 		err = tx.QueryRow(ctx, `SELECT t.version, t.expires_at, p.version
   FROM group_topics t JOIN group_topic_route_candidates p ON p.topic_id=t.id AND p.conversation_id=t.conversation_id
   WHERE t.conversation_id=$1 AND t.id=$2 AND p.route_id=$3 AND NOT t.closed
-  AND t.expires_at>clock_timestamp() FOR UPDATE OF t`, conversation, topicID, claim.MessageID).Scan(&version, &expiresAt, &expected)
+  AND t.expires_at>(SELECT created_at FROM messages WHERE id=p.route_id) FOR UPDATE OF t`, conversation, topicID, claim.MessageID).Scan(&version, &expiresAt, &expected)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return result, err
 		}
@@ -175,7 +175,7 @@ func (r *Repo) ResolveTopicRoute(ctx context.Context, claim domain.TopicRouteCla
 		result.Status = "stale"
 	case topicID == 0:
 		if err := tx.QueryRow(ctx, `INSERT INTO group_topics (id,conversation_id,version,expires_at)
-  SELECT j.id,$2,1,$3 FROM message_jobs j WHERE j.incoming_message_id=$1 AND $3 > clock_timestamp()
+  SELECT j.id,$2,1,$3 FROM message_jobs j WHERE j.incoming_message_id=$1
   RETURNING id,version`, id, conversation, resolution.ExpiresAt).Scan(&topicID, &version); err != nil {
 			return result, err
 		}
@@ -189,7 +189,7 @@ func (r *Repo) ResolveTopicRoute(ctx context.Context, claim domain.TopicRouteCla
 		}
 		result = domain.TopicRouteResult{Status: "resolved", TopicID: topicID, Version: version}
 	default:
-		if !resolution.ExpiresAt.IsZero() {
+		if action != domain.TopicRouteClose && resolution.ExpiresAt.After(expiresAt) {
 			expiresAt = resolution.ExpiresAt
 		}
 		if err := tx.QueryRow(ctx, `UPDATE group_topics SET version=version+1, closed=$3, expires_at=$4
@@ -299,7 +299,7 @@ func (r *Repo) routeClaim(ctx context.Context, claim domain.TopicRouteClaim) err
    SELECT DISTINCT i.topic_id,i.version=t.version AND q.direction='incoming' AND q.sender_id=$5 AS own_current FROM quoted q JOIN group_topic_inputs i ON i.conversation_id=$1
    AND i.route_id=CASE WHEN q.direction='incoming' THEN q.id ELSE q.outbound_source END
    JOIN group_topics t ON (t.id,t.conversation_id)=(i.topic_id,i.conversation_id)
-   WHERE NOT t.closed AND t.expires_at>clock_timestamp()
+   WHERE NOT t.closed AND t.expires_at>(SELECT created_at FROM messages WHERE id=$4)
   ) SELECT CASE WHEN count(*)=1 THEN min(topic_id) ELSE 0 END,
    EXISTS(SELECT 1 FROM referenced WHERE control_kind<>'') AND NOT EXISTS(SELECT 1 FROM referenced WHERE control_kind=''),
    (SELECT count(*)=1 FROM quoted) AND COALESCE(bool_and(own_current),false),
@@ -331,9 +331,9 @@ func (r *Repo) routeClaim(ctx context.Context, claim domain.TopicRouteClaim) err
   FROM group_topics t JOIN group_topic_inputs i ON (i.topic_id,i.conversation_id,i.version)=(t.id,t.conversation_id,t.version)
   JOIN messages previous ON previous.id=i.route_id AND previous.conversation_id=i.conversation_id
   JOIN messages current ON current.id=$2 AND current.conversation_id=t.conversation_id
-  WHERE t.conversation_id=$1 AND NOT t.closed AND t.expires_at>clock_timestamp()
+  WHERE t.conversation_id=$1 AND NOT t.closed AND t.expires_at>current.created_at
   AND i.action='waiting' AND previous.control_kind='' AND previous.sender_id=$3 AND previous.id<current.id
-  AND current.created_at<previous.created_at+interval '30 seconds'`, source, claim.MessageID, sender)
+  AND current.created_at>=previous.created_at AND current.created_at<previous.created_at+interval '30 seconds'`, source, claim.MessageID, sender)
 		if err != nil {
 			return err
 		}
@@ -367,7 +367,7 @@ func (r *Repo) routeClaim(ctx context.Context, claim domain.TopicRouteClaim) err
 	var candidates, earlierUndecided bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (
  SELECT 1 FROM group_topic_route_candidates p JOIN group_topics t ON (t.id,t.conversation_id)=(p.topic_id,p.conversation_id)
- WHERE p.route_id=$1 AND NOT t.closed AND t.expires_at>clock_timestamp()
+ WHERE p.route_id=$1 AND NOT t.closed AND t.expires_at>(SELECT created_at FROM messages WHERE id=p.route_id)
  AND (NOT $3 OR EXISTS(SELECT 1 FROM group_topic_inputs i JOIN message_jobs active ON active.incoming_message_id=i.route_id
  WHERE (i.topic_id,i.conversation_id)=(t.id,t.conversation_id) AND i.version<=t.version
  AND (active.status='processing' OR (active.status='pending' AND active.delivery_continuation))))
@@ -378,7 +378,7 @@ func (r *Repo) routeClaim(ctx context.Context, claim domain.TopicRouteClaim) err
  )`, claim.MessageID, source, !validReference && image && body == "").Scan(&candidates, &earlierUndecided); err != nil {
 		return err
 	}
-	if !validReference && (body == "" && !image || addressedBot && isDirectQuestion(body)) || addressedElsewhere || !candidates && !earlierUndecided {
+	if !validReference && (body == "" && !image || addressedBot && (isDirectQuestion(body) || announcesTopicMaterial(body))) || addressedElsewhere || !candidates && !earlierUndecided {
 		return concludeTopicRoute(ctx, tx, claim, "unrelated", 0, "")
 	}
 	// No deterministic evidence can distinguish these candidates. Leave the original deadline in force.
@@ -396,7 +396,10 @@ func concludeTopicRoute(ctx context.Context, tx *db.Tx, claim domain.TopicRouteC
 			}
 		}
 		if err := tx.QueryRow(ctx, `UPDATE group_topics SET version=version+1
-   WHERE id=$1 AND conversation_id=$2 AND version=$3 AND NOT closed AND expires_at>clock_timestamp() RETURNING version`, topicID, claim.ConversationID, expected).Scan(&version); errors.Is(err, sql.ErrNoRows) {
+   WHERE id=$1 AND conversation_id=$2 AND version=$3 AND NOT closed AND expires_at>(SELECT created_at FROM messages WHERE id=$4)
+   AND NOT EXISTS (SELECT 1 FROM group_topic_inputs i JOIN messages later ON later.id=i.route_id
+     JOIN messages current ON current.id=$4 WHERE i.topic_id=$1 AND i.conversation_id=$2
+     AND (later.created_at,later.id)>=(current.created_at,current.id)) RETURNING version`, topicID, claim.ConversationID, expected, claim.MessageID).Scan(&version); errors.Is(err, sql.ErrNoRows) {
 			return tx.Commit(ctx)
 		} else if err != nil {
 			return err
@@ -453,6 +456,28 @@ func matchesRequestedMaterial(request, body string, image bool) bool {
 					return strings.TrimSpace(strings.TrimLeft(rest, ":：")) != ""
 				}
 			}
+		}
+	}
+	return false
+}
+
+func announcesTopicMaterial(body string) bool {
+	if !strings.Contains(body, "发") {
+		return false
+	}
+	var future bool
+	for _, marker := range []string{"下面", "接下来", "等会", "待会", "稍后", "接着"} {
+		if strings.Contains(body, marker) {
+			future = true
+			break
+		}
+	}
+	if !future {
+		return false
+	}
+	for _, marker := range []string{"图片", "截图", "发图", "张图", "文字", "文本", "日志", "代码"} {
+		if strings.Contains(body, marker) {
+			return true
 		}
 	}
 	return false

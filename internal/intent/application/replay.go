@@ -48,7 +48,7 @@ type frozenBackgroundChecker interface {
 }
 
 func (d *Decider) fixedBackground(ctx context.Context, in *domain.Input, snapshot domain.DecisionSnapshot) string {
-	if !in.Policy.AllowHistoryRead && (len(snapshot.Input.Recent) > 0 || snapshot.Input.AwaitedRequest != nil || snapshot.Input.Topics != nil) {
+	if !in.Policy.AllowHistoryRead && (len(snapshot.Input.Recent) > 0 || snapshot.Input.AwaitedRequest != nil || snapshot.Input.Topics != nil || snapshot.Input.GroupContext != nil && len(snapshot.Input.GroupContext.Messages) > 0) {
 		return "background_history_denied"
 	}
 	if snapshot.Input.Topics != nil && in.Topics == nil {
@@ -69,7 +69,7 @@ func (d *Decider) fixedBackground(ctx context.Context, in *domain.Input, snapsho
 func frozenSemanticNeeded(snapshot domain.DecisionSnapshot) bool {
 	return shouldAskSemantic(domain.Input{
 		Task: snapshot.Input.Task, BotName: snapshot.Input.BotName, CallIdentity: snapshot.Input.CallIdentity,
-		Topics: snapshot.Input.Topics, Policy: snapshot.Input.Policy,
+		Topics: snapshot.Input.Topics, GroupContext: snapshot.Input.GroupContext, Policy: snapshot.Input.Policy,
 	}, snapshot.Rule)
 }
 
@@ -746,6 +746,7 @@ func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnaps
 		BotName:              snapshot.Input.BotName,
 		CallIdentity:         snapshot.Input.CallIdentity,
 		Recent:               snapshot.Input.Recent,
+		GroupContext:         snapshot.Input.GroupContext,
 		AwaitedRequest:       snapshot.Input.AwaitedRequest,
 		Topics:               snapshot.Input.Topics,
 		HistoryWindowSkipped: snapshot.Input.HistoryWindowSkipped,
@@ -755,7 +756,7 @@ func (d *Decider) replayInput(ctx context.Context, snapshot domain.DecisionSnaps
 		Prompt:               snapshot.Prompt,
 	}
 	if !policy.AllowHistoryRead {
-		in.Recent, in.AwaitedRequest = nil, nil
+		in = withoutDecisionHistory(in)
 	}
 	if !allowsTopicContinuation(in) {
 		in.Topics = nil

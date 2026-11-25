@@ -243,15 +243,14 @@ func (r *semanticRouter) Decide(ctx context.Context, in intentdomain.Input) (int
 		return intentdomain.SemanticAnswer{BackgroundFailure: reason}, nil
 	}
 	in.Background = projection
-	if !in.FixedBackground && evidence == nil {
+	if !in.FixedBackground && evidence == nil && in.GroupContext == nil {
 		answer, err := decider.Decide(ctx, in)
 		if answer.ExternalRequests > 0 {
 			answer.BackgroundEvidence = evidence
 		}
 		return answer, err
 	}
-	answer, err := r.dispatch(ctx, decider, in, dest, evidence)
-	return answer, err
+	return r.dispatch(ctx, decider, in, dest, evidence)
 }
 
 func (r *semanticRouter) resolveCurrent(ctx context.Context) (intentapp.SemanticDecider, settingscontracts.IntentDestination, error) {

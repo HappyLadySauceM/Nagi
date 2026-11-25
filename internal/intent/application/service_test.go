@@ -464,6 +464,68 @@ func TestSemanticSimulationNeverRecordsOrExecutesReply(t *testing.T) {
 	}
 }
 
+type semanticDecisionFunc func(context.Context, domain.Input) (domain.SemanticAnswer, error)
+
+func (f semanticDecisionFunc) Decide(ctx context.Context, in domain.Input) (domain.SemanticAnswer, error) {
+	return f(ctx, in)
+}
+
+func TestHistoryRevocationScoresCurrentOnlyBeforeAnyWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		sent, unknown   int
+		expired, closed bool
+		wantCalls       int
+	}{
+		{name: "unwritten", wantCalls: 2},
+		{name: "written", sent: 1, wantCalls: 1},
+		{name: "unresolved", unknown: 1, wantCalls: 1},
+		{name: "deadline", expired: true, wantCalls: 1},
+		{name: "disabled", closed: true, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInput(scopedomain.ModeIntentBased)
+			in.BotName = "FixtureBot"
+			in.Policy.AllowHistoryRead, in.Policy.AllowMemoryRead = true, true
+			in.GroupContext = buildGroupContext(in, false)
+			in.AwaitedRequest = &in.Recent[0]
+			revoked := in.Policy
+			revoked.AllowHistoryRead, revoked.Enabled = false, !tc.closed
+			scope := &fakeScopes{policies: map[string]scopedomain.Policy{keyOf(in.Task.BotID, in.Task.Kind, in.Task.TargetID): revoked}}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			originalDeadline, _ := ctx.Deadline()
+			calls := 0
+			sem := semanticDecisionFunc(func(callCtx context.Context, current domain.Input) (domain.SemanticAnswer, error) {
+				calls++
+				deadline, _ := callCtx.Deadline()
+				if !deadline.Equal(originalDeadline) {
+					t.Fatalf("deadline=%v want %v", deadline, originalDeadline)
+				}
+				if calls == 1 {
+					if tc.expired {
+						<-callCtx.Done()
+					}
+					return domain.SemanticAnswer{BackgroundFailure: "background_history_denied", ExternalRequests: tc.sent, UnknownRequests: tc.unknown}, ErrIntentBackgroundDenied
+				}
+				if current.Policy.AllowHistoryRead || current.Policy.AllowMemoryRead || len(current.Recent) != 0 || current.AwaitedRequest != nil || current.Topics != nil || len(current.GroupContext.Messages) != 0 || current.Task.Message.Text != in.Task.Message.Text || current.Task.Message.MessageID != in.Task.Message.MessageID {
+					t.Fatalf("retry used a different current message or retained history: %+v", current)
+				}
+				return domain.SemanticAnswer{Available: true, ExternalRequests: 1, CallAddressing: domain.CallYes}, nil
+			})
+			d := newDecider(t, Options{Scopes: scope, Semantic: sem, Recorder: &fakeRecorder{}, Thresholds: thresholds})
+			decision, steps := d.EvaluateSimulation(ctx, in, simulationRules(in, nil), true)
+			if calls != tc.wantCalls || (decision.Decision == domain.DecisionReply) != (tc.wantCalls == 2) {
+				t.Fatalf("calls=%d decision=%+v", calls, decision)
+			}
+			ctxStep := steps[1].Detail["GroupContext"].(map[string]any)
+			if len(ctxStep["Messages"].([]map[string]any)) != 0 {
+				t.Fatalf("visible history after revocation: %+v", ctxStep)
+			}
+		})
+	}
+}
+
 type simulationActivity struct{ fakeActivity }
 
 func (*simulationActivity) ConversationIDForScope(context.Context, int64, string, int64) (string, error) {

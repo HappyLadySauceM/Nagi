@@ -16,6 +16,51 @@ import (
 	plugins "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 )
 
+func TestDeliveryGateUsesConfirmedTopicExpiry(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		delta time.Duration
+	}{
+		{name: "before", delta: -time.Millisecond},
+		{name: "equal"},
+		{name: "after", delta: time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newLedgerFixture(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			origin := time.Now().UTC().Truncate(time.Millisecond).Add(-time.Hour)
+			initialExpiry := origin.Add(300 * time.Second)
+			expiry := origin.Add(40 * time.Second).Add(60 * time.Second)
+			var row int64
+			if err := f.pool.QueryRow(ctx, `UPDATE messages SET created_at=$2 WHERE id=(SELECT incoming_message_id FROM message_jobs WHERE id=$1) RETURNING id`, f.jobID, expiry.Add(tc.delta)).Scan(&row); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `INSERT INTO group_topics (id,conversation_id,version,expires_at) VALUES ($1,$2,1,$3)`, f.jobID, f.conversationID, initialExpiry); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `UPDATE group_topics SET version=2,expires_at=$2 WHERE id=$1`, f.jobID, expiry); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `INSERT INTO group_topic_inputs (id,conversation_id,topic_id,version,route_id,action) VALUES (gen_random_uuid(),$1,$2,2,$3,'follow_up')`, f.conversationID, f.jobID, row); err != nil {
+				t.Fatal(err)
+			}
+			record := f.reserve(t, "合成已排队回复", domain.Limits{})
+			err := f.repo.MarkSending(ctx, record.ID, f.claim)
+			if tc.delta < 0 {
+				if err != nil {
+					t.Fatalf("valid input failed the send gate: %v", err)
+				}
+			} else {
+				var stale *domain.GateError
+				if !errors.As(err, &stale) || stale.Reason != domain.GateStale {
+					t.Fatalf("expected stale topic at %s, got %v", tc.delta, err)
+				}
+			}
+		})
+	}
+}
+
 func TestContinuationOriginalSlot(t *testing.T) {
 	for _, scenario := range []string{"unrelated", "expired", "changed", "revoked", "budget", "memory_changed", "audio", "unknown", "already_sending", "before_handoff", "offline", "offline_before_write", "topic_expired"} {
 		t.Run(scenario, func(t *testing.T) {

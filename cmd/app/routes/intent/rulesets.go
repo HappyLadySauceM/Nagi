@@ -322,6 +322,12 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 		common.WriteFailure(w, 400, "invalid reply mode")
 		return
 	}
+	if body.Text != "" {
+		in.Task.Segments = []obdomain.Segment{obdomain.Text(body.Text)}
+	}
+	if body.Explicit {
+		in.Task.Segments = append([]obdomain.Segment{obdomain.At(obdomain.UserID(body.BotID))}, in.Task.Segments...)
+	}
 	if body.Mode == "semantic" {
 		if h.svcCtx.IntentSimulator == nil || h.svcCtx.Scope == nil {
 			common.WriteFailure(w, 503, "semantic simulation unavailable")
@@ -340,9 +346,6 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in = prepared
-	}
-	if body.Explicit {
-		in.Task.Segments = []obdomain.Segment{{Type: obdomain.SegAt, Data: map[string]string{"qq": strconv.FormatInt(body.BotID, 10)}}}
 	}
 	global, hasGlobal, err := h.svcCtx.Rulesets.Active(r.Context(), body.BotID, "group", 0)
 	if err != nil {

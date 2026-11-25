@@ -34,6 +34,18 @@ func NewRepo(pool *db.Pool) (*Repo, error) {
 	return &Repo{pool: pool}, nil
 }
 
+func (r *Repo) WithPolicyRead(ctx context.Context, botID int64, kind string, use func() error) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := contracts.LockPolicies(ctx, tx, false, contracts.PolicyLockKey{BotID: botID, Kind: kind}); err != nil {
+		return err
+	}
+	return use()
+}
+
 const policyColumns = `enabled, reply_mode, store_messages, allow_memory_write, allow_memory_read, allow_history_read,
 	min_reply_interval_ms, max_replies_per_hour, tool_permissions, version, max_messages_per_run, max_chars_per_message, max_total_chars_per_run, message_interval_ms`
 

@@ -151,7 +151,7 @@ func awaitingReply(in domain.Input) bool {
 		!eligibleSupplement(in.Task) {
 		return false
 	}
-	if at := in.Task.Message.CreatedAt; !at.IsZero() && !previous.CreatedAt.IsZero() && (at.Before(previous.CreatedAt) || at.Sub(previous.CreatedAt) > 30*time.Second) {
+	if at := in.Task.Message.CreatedAt; !at.IsZero() && !previous.CreatedAt.IsZero() && (at.Before(previous.CreatedAt) || at.Sub(previous.CreatedAt) >= 30*time.Second) {
 		return false
 	}
 	for _, segment := range in.Task.Segments {
@@ -219,6 +219,9 @@ func replyHistory(in domain.Input, reason string) []domain.Message {
 	}
 	if len(quoted) != 0 {
 		return quoted
+	}
+	if in.GroupContext != nil {
+		return nil
 	}
 	if reason == "active_thread_continuation" {
 		for i := len(history) - 1; i >= 0; i-- {
