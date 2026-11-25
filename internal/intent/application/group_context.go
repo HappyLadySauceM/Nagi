@@ -121,7 +121,8 @@ func buildGroupContext(in domain.Input, truncated bool) *domain.GroupContext {
 	seen := make(map[evidenceKey]int)
 	add := func(m domain.Message, source string) {
 		current := in.Task.Message
-		if (m.RowID > 0 && current.RowID > 0 && m.RowID >= current.RowID) || (!current.CreatedAt.IsZero() && m.CreatedAt.After(current.CreatedAt)) || (m.MessageID != 0 && !m.IsBot && m.MessageID == current.MessageID) {
+		lateConfirmedQuote := source == "quote" && m.IsBot && in.Topics.QuotedBot
+		if !lateConfirmedQuote && ((m.RowID > 0 && current.RowID > 0 && m.RowID >= current.RowID) || (!current.CreatedAt.IsZero() && m.CreatedAt.After(current.CreatedAt))) || (m.MessageID != 0 && !m.IsBot && m.MessageID == current.MessageID) {
 			return
 		}
 		key := evidenceKey{m.MessageID, m.RowID, m.IsBot}

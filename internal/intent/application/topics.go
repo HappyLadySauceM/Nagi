@@ -324,14 +324,15 @@ func topicReplyHistory(in domain.Input, decision domain.FinalDecision) []domain.
 				if decision.ReasonCode == "awaited_content_received" && len(candidate.History) == 0 {
 					break
 				}
-				if in.Topics.Reference != nil && len(in.Topics.Reference.Segments) > 0 {
+				if in.Topics.Reference != nil && in.Topics.QuotedID == candidate.ID {
 					history := slices.Clone(candidate.History)
 					for i := range history {
-						if history[i].MessageID == in.Topics.Reference.MessageID {
+						if history[i].RowID == in.Topics.Reference.RowID {
 							history[i] = *in.Topics.Reference
 							return history
 						}
 					}
+					return append(history, *in.Topics.Reference)
 				}
 				return candidate.History
 			}

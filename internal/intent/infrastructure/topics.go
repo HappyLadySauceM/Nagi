@@ -10,6 +10,23 @@ import (
 	outbound "github.com/HappyLadySauceM/Nagi/internal/outbound/domain"
 )
 
+const topicReferenceSQL = `reference AS (
+ SELECT COALESCE(o.job_id,j.id) AS job_id,p.id AS message_id,p.direction='outgoing' AS bot
+ FROM current c JOIN messages p ON p.conversation_id=c.conversation_id AND p.bot_id=c.bot_id
+  AND p.platform_message_id=NULLIF($4::bigint,0)
+ LEFT JOIN message_jobs j ON j.incoming_message_id=p.id
+ LEFT JOIN agent_outbound_messages o ON o.id=p.outbound_id AND o.conversation_id=c.conversation_id
+  AND o.bot_id=c.bot_id AND o.platform_message_id=p.platform_message_id AND o.status='sent'
+ LEFT JOIN message_jobs reply_job ON reply_job.id=o.job_id
+ LEFT JOIN messages origin ON origin.id=reply_job.incoming_message_id AND origin.conversation_id=c.conversation_id
+  AND origin.bot_id=c.bot_id AND origin.direction='incoming' AND origin.control_kind=''
+ WHERE p.control_kind='' AND (
+  (p.direction='incoming' AND (c.id IS NULL OR p.id<c.id) AND p.created_at<=c.created_at)
+  OR (p.direction='outgoing' AND p.sender_id=c.bot_id AND p.sent_status='sent' AND origin.id IS NOT NULL
+   AND (c.id IS NULL OR origin.id<c.id) AND origin.created_at<=c.created_at))
+ ORDER BY p.created_at DESC,p.id DESC LIMIT 1
+)`
+
 // Topics projects the latest completed decision per source message. The decision
 // transaction is the only writer, and confirmed outbound messages resolve
 // through their source job in the same conversation.
@@ -26,22 +43,7 @@ WITH current AS (
 	SELECT m.id, m.bot_id, m.conversation_id, m.created_at
 	FROM message_jobs j JOIN messages m ON m.id = j.incoming_message_id
 	WHERE j.id = $1 AND m.bot_id = $2 AND m.conversation_id = $3::uuid
-), reference AS (
-	SELECT COALESCE(o.job_id, j.id) AS job_id, p.id AS message_id, p.direction = 'outgoing' AS bot
-	FROM current c
-	JOIN messages p ON p.conversation_id = c.conversation_id AND p.bot_id = c.bot_id
-		AND p.platform_message_id = NULLIF($4::bigint, 0)
-	LEFT JOIN message_jobs j ON j.incoming_message_id = p.id
-	LEFT JOIN agent_outbound_messages o ON o.id = p.outbound_id AND o.conversation_id = c.conversation_id
-	LEFT JOIN message_jobs reply_job ON reply_job.id = o.job_id
-	LEFT JOIN messages origin ON origin.id = reply_job.incoming_message_id
-		AND origin.conversation_id = c.conversation_id AND origin.bot_id = c.bot_id
-	WHERE p.control_kind = '' AND p.id<c.id AND ((p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id))
-		OR (p.direction = 'outgoing' AND p.sent_status = 'sent' AND
-			(CASE WHEN origin.id IS NULL THEN (p.created_at, p.id) < (c.created_at, c.id)
-				ELSE (origin.created_at, origin.id) < (c.created_at, c.id) END)))
-	ORDER BY p.created_at DESC, p.id DESC LIMIT 1
-), quoted AS (
+), `+topicReferenceSQL+`, quoted AS (
 	SELECT x.bot, x.message_id, COALESCE((s.input->'TopicChange'->>'ID')::bigint, 0) AS topic_id
 	FROM reference x
 	LEFT JOIN LATERAL (
@@ -168,7 +170,10 @@ ORDER BY COALESCE(s.topic_id = (SELECT topic_id FROM quoted), false) DESC,
 // boundTopic loads the exact inputs seen by routing, including turns whose drafts never shipped.
 // boundTopic 加载归属版本的精确输入，包含旧稿未送达的回合。
 func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, reference int64, idleSeconds int) (*domain.TopicContext, error) {
-	rows, err := r.pool.Query(ctx, `WITH binding AS (
+	rows, err := r.pool.Query(ctx, `WITH current AS (
+ SELECT m.id,m.bot_id,m.conversation_id,m.created_at FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
+ WHERE j.id=$1 AND m.bot_id=$2 AND m.conversation_id=$3
+), `+topicReferenceSQL+`, binding AS (
  SELECT i.topic_id,i.version,i.conversation_id,i.route_id,m.created_at,t.expires_at,t.closed,t.version AS current_version
  FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
  JOIN group_topic_inputs i ON (i.route_id,i.conversation_id)=(m.id,m.conversation_id)
@@ -188,7 +193,12 @@ func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, refere
 ) SELECT b.topic_id,b.version,b.expires_at,NOT b.closed AND b.version=b.current_version AND b.expires_at>b.created_at,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('RowID',m.id,'MessageID',COALESCE(m.platform_message_id,0),'SenderID',m.sender_id,
  'Text',m.text_content,'Wire',m.segments,'CreatedAt',m.created_at,'IsBot',m.direction='outgoing') ORDER BY m.created_at,m.id) FROM related m),'[]'::jsonb)
- FROM binding b`, task.JobID, task.BotID, task.ConversationID)
+ , (SELECT jsonb_build_object('RowID',p.id,'MessageID',p.platform_message_id,'SenderID',p.sender_id,
+ 'Text',p.text_content,'Wire',p.segments,'CreatedAt',p.created_at,'IsBot',ref.bot)
+ FROM reference ref JOIN messages p ON p.id=ref.message_id),
+ COALESCE((SELECT i.topic_id FROM reference ref JOIN message_jobs j ON j.id=ref.job_id
+ JOIN group_topic_inputs i ON i.route_id=j.incoming_message_id AND i.conversation_id=b.conversation_id),0)
+ FROM binding b`, task.JobID, task.BotID, task.ConversationID, reference)
 	if err != nil {
 		return nil, err
 	}
@@ -198,8 +208,9 @@ func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, refere
 	}
 	var candidate domain.TopicCandidate
 	var version int64
-	var raw []byte
-	if err := rows.Scan(&candidate.ID, &version, &candidate.ExpiresAt, &candidate.Active, &raw); err != nil {
+	var raw, quoted []byte
+	var quotedTopic int64
+	if err := rows.Scan(&candidate.ID, &version, &candidate.ExpiresAt, &candidate.Active, &raw, &quoted, &quotedTopic); err != nil {
 		return nil, err
 	}
 	var history []struct {
@@ -216,12 +227,20 @@ func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, refere
 			return nil, err
 		}
 		candidate.History = append(candidate.History, entry.Message)
-		if reference != 0 && entry.MessageID == reference {
-			m := entry.Message
-			result.Reference = &m
-			result.QuotedID = candidate.ID
-			result.QuotedBot = m.IsBot
+	}
+	if len(quoted) != 0 {
+		var message struct {
+			domain.Message
+			Wire json.RawMessage
 		}
+		if err := json.Unmarshal(quoted, &message); err != nil {
+			return nil, err
+		}
+		message.Segments, err = ob.SegmentsFromWire(message.Wire)
+		if err != nil {
+			return nil, err
+		}
+		result.Reference, result.QuotedID, result.QuotedBot = &message.Message, quotedTopic, message.IsBot
 	}
 	result.Candidates = []domain.TopicCandidate{candidate}
 	return result, rows.Err()

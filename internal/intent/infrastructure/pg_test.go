@@ -793,3 +793,63 @@ func TestInboundLedgerIncludesUndecidedMessages(t *testing.T) {
 		t.Fatalf("other account lookup = %+v, error = %v", rows, err)
 	}
 }
+
+func TestTopicsResolveLateConfirmedOutboundQuote(t *testing.T) {
+	pool := dbtest.Open(t)
+	ctx := context.Background()
+	conv, _ := conversationinfra.NewRepo(pool)
+	repo, _ := NewDecisionsRepo(pool)
+	bot := time.Now().UnixNano()
+	ingest := func(group, id int64) conversationdomain.IngestResult {
+		t.Helper()
+		row, err := conv.Ingest(ctx, conversationdomain.IngestInput{BotID: bot, Kind: conversationdomain.KindGroup, TargetID: group, PlatformMessageID: id, SenderID: 10011, Text: "合成入站"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	origin := ingest(20001, 1)
+	foreign := ingest(20002, 1)
+	claim := dbtest.Claim(t, pool, origin.JobID)
+	change := &domain.TopicChange{ID: origin.JobID, Action: "opened", ExpiresAt: time.Now().Add(5 * time.Minute)}
+	if err := repo.Record(ctx, origin.JobID, domain.FinalDecision{Decision: domain.DecisionReply, Topic: change, Snapshot: &domain.DecisionSnapshot{Input: domain.SnapshotInput{TopicChange: change}}}, claim); err != nil {
+		t.Fatal(err)
+	}
+	current := ingest(20001, 2)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outbound := func(source conversationdomain.IngestResult, group, platform int64, ledgerStatus string) {
+		t.Helper()
+		exec(`WITH inserted AS (
+   INSERT INTO agent_outbound_messages(id,job_id,conversation_id,bot_id,sequence,text_content,status,target_kind,target_id,platform_message_id)
+   VALUES(gen_random_uuid(),$1,$2,$3,$4::bigint::int,'迟落库的回答',$5,'group',$6,$4) RETURNING id
+  ) INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id,text_content,sent_status,outbound_id)
+  SELECT $2,$3,'outgoing',$4,$3,'迟落库的回答',$5,id FROM inserted`, source.JobID, source.ConversationID, bot, platform, ledgerStatus, group)
+	}
+	outbound(origin, 20001, 9001, "sent")
+	outbound(origin, 20001, 9002, "unknown")
+	outbound(foreign, 20002, 9003, "sent")
+	outbound(foreign, 20002, 9001, "sent")
+	task := domain.Task{BotID: bot, Kind: "group", JobID: current.JobID, ConversationID: current.ConversationID}
+	check := func() {
+		t.Helper()
+		found, err := repo.Topics(ctx, task, 9001, 300)
+		if err != nil || found.QuotedID != origin.JobID || !found.QuotedBot || found.Reference == nil || found.Reference.RowID <= current.MessageID {
+			t.Fatalf("late quote=%+v err=%v", found, err)
+		}
+		for _, id := range []int64{9002, 9003} {
+			lost, err := repo.Topics(ctx, task, id, 300)
+			if err != nil || lost.Reference != nil {
+				t.Fatalf("reference %d=%+v err=%v", id, lost, err)
+			}
+		}
+	}
+	check()
+	exec(`UPDATE group_topics SET version=2 WHERE id=$1`, origin.JobID)
+	exec(`INSERT INTO group_topic_inputs(id,conversation_id,topic_id,version,route_id,action) VALUES(gen_random_uuid(),$1,$2,2,$3,'follow_up')`, origin.ConversationID, origin.JobID, current.MessageID)
+	check()
+}
