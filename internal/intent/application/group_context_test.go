@@ -55,3 +55,12 @@ func TestGroupEvidenceRetainsMentionPositionAndOmitsAttachments(t *testing.T) {
 		t.Fatalf("current=%+v", m)
 	}
 }
+
+func TestGroupEvidenceRetainsTranscriptionWithoutAudioReference(t *testing.T) {
+	segments := []ob.Segment{{Type: ob.SegRecord, Data: map[string]string{"file": "synthetic-audio"}}}
+	m := domain.Message{Segments: markTranscribedSegments(segments), Text: "[CQ:record,file=synthetic-audio]\n[语音转写] 这是语音内容"}
+	got := groupEvidence(m, time.Time{}, "recent")
+	if got.Text != "[语音]\n[语音转写] 这是语音内容" {
+		t.Fatalf("text=%q", got.Text)
+	}
+}

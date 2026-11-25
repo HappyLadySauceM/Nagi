@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/HappyLadySauceM/Nagi/internal/intent/domain"
+	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
@@ -69,6 +70,7 @@ func groupEvidence(m domain.Message, at time.Time, source string) domain.GroupEv
 		e.MillisecondsAgo = at.Sub(m.CreatedAt).Milliseconds()
 	}
 	var text strings.Builder
+	var transcribed bool
 	for _, part := range evidenceSegments(m) {
 		switch part.Type {
 		case ob.SegText:
@@ -86,8 +88,18 @@ func groupEvidence(m domain.Message, at time.Time, source string) domain.GroupEv
 			}
 		case ob.SegImage:
 			text.WriteString("[图片]")
+		case ob.SegRecord:
+			transcribed = transcribed || part.Data[media.TranscriptMarker] == "true"
+			text.WriteString("[语音]")
 		default:
 			text.WriteString("[附件]")
+		}
+	}
+	if transcribed {
+		_, transcript, found := strings.Cut(m.Text, "\n[语音转写] ")
+		if found {
+			text.WriteString("\n[语音转写] ")
+			text.WriteString(ob.PlainText(ob.ParseCQ(transcript)))
 		}
 	}
 	e.Text = text.String()
@@ -201,4 +213,19 @@ func groupRecentAudit(window *domain.GroupContext) map[string]any {
 		ids = append(ids, map[string]any{"MessageID": m.MessageID, "RowID": m.RowID, "MillisecondsAgo": m.MillisecondsAgo, "Sources": m.Sources, "Truncated": m.Truncated})
 	}
 	return map[string]any{"Version": window.Version, "Meter": window.Meter, "HistoryUnits": window.HistoryUnits, "HistoryLimit": window.HistoryLimit, "Truncated": window.Truncated, "Messages": ids}
+}
+
+func markTranscribedSegments(segments []ob.Segment) []ob.Segment {
+	segments = slices.Clone(segments)
+	for i, segment := range segments {
+		if segment.Type == ob.SegRecord {
+			segments[i].Data = map[string]string{media.TranscriptMarker: "true"}
+			for key, value := range segment.Data {
+				if key != media.TranscriptMarker {
+					segments[i].Data[key] = value
+				}
+			}
+		}
+	}
+	return segments
 }

@@ -346,6 +346,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 				}
 			}
 			task.Message.Text = text
+			task.Segments = markTranscribedSegments(task.Segments)
 		} else if err != nil {
 			if errors.Is(err, media.ErrArchiveFailed) {
 				return err
