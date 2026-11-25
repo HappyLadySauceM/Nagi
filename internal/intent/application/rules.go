@@ -292,7 +292,10 @@ func matchEntry(m domain.RuleMatch, in domain.Input) bool {
 // EvaluateRuleChain 为一条消息选择决策问题。指定会话规则完整替换全局规则，
 // 包括空问题列表。两者都没有时调用方继续使用五条默认问题。条件条目不再求值。
 func EvaluateRuleChain(in domain.Input, specific, global *domain.Ruleset) (domain.RuleResult, string) {
-	return applyDecisionQuestions(in, EvaluateRules(in), specific, global)
+	reason, _ := domain.EvaluateCooldownGate(in, hasTopicCandidates(in))
+	rule, version := applyDecisionQuestions(in, evaluateRules(in, reason), specific, global)
+	rule.NeedSemantic = rule.NeedSemantic || needsTopicSemantic(in, rule)
+	return rule, version
 }
 
 func applyDecisionQuestions(in domain.Input, rule domain.RuleResult, specific, global *domain.Ruleset) (domain.RuleResult, string) {

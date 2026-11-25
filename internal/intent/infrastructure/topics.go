@@ -33,16 +33,20 @@ const topicReferenceSQL = `reference AS (
 // Topics 从每条来源消息的最新已完成决策投影状态。由决策事务唯一写入，
 // 已确认发送的消息通过同一会话中对应的来源任务关联话题。
 func (r *DecisionsRepo) Topics(ctx context.Context, task domain.Task, reference int64, idleSeconds int) (*domain.TopicContext, error) {
-	result, err := r.boundTopic(ctx, task, reference, idleSeconds)
-	if err != nil || result != nil {
-		return result, err
+	if task.JobID != 0 {
+		result, err := r.boundTopic(ctx, task, reference, idleSeconds)
+		if err != nil || result != nil {
+			return result, err
+		}
 	}
-	result = &domain.TopicContext{IdleSeconds: idleSeconds}
+	result := &domain.TopicContext{IdleSeconds: idleSeconds}
 	rows, err := r.pool.Query(ctx, `
 WITH current AS (
 	SELECT m.id, m.bot_id, m.conversation_id, m.created_at
 	FROM message_jobs j JOIN messages m ON m.id = j.incoming_message_id
 	WHERE j.id = $1 AND m.bot_id = $2 AND m.conversation_id = $3::uuid
+ UNION ALL
+ SELECT NULL::bigint,$2,$3::uuid,$6::timestamptz WHERE $1=0
 ), `+topicReferenceSQL+`, quoted AS (
 	SELECT x.bot, x.message_id, COALESCE((s.input->'TopicChange'->>'ID')::bigint, 0) AS topic_id
 	FROM reference x
@@ -55,7 +59,7 @@ WITH current AS (
 		(s.input->'TopicChange'->>'ID')::bigint AS topic_id, s.input->'TopicChange' AS change
 	FROM current c
 	JOIN messages p ON p.conversation_id = c.conversation_id AND p.bot_id = c.bot_id
-		AND p.direction = 'incoming' AND p.control_kind = '' AND p.id<c.id AND (p.created_at, p.id) < (c.created_at, c.id)
+		AND p.direction = 'incoming' AND p.control_kind = '' AND ((c.id IS NULL AND p.created_at<c.created_at) OR (p.id<c.id AND p.created_at<=c.created_at))
 		AND p.created_at >= c.created_at - interval '1 hour'
 	JOIN message_jobs j ON j.incoming_message_id = p.id
 	JOIN LATERAL (SELECT id FROM intent_decisions WHERE job_id = j.id ORDER BY id DESC LIMIT 1) d ON true
@@ -113,7 +117,7 @@ LEFT JOIN LATERAL (
 			) recent
 			JOIN agent_outbound_messages o ON o.job_id = recent.job_id AND o.status = 'sent'
 			JOIN messages m ON m.outbound_id = o.id AND m.conversation_id = c.conversation_id
-			WHERE m.control_kind = '' AND (m.created_at, m.id) < (c.created_at, c.id)
+			WHERE m.control_kind='' AND ((c.id IS NULL AND m.created_at<c.created_at) OR (m.id<c.id AND m.created_at<=c.created_at))
 			ORDER BY m.created_at DESC, m.id DESC LIMIT 3
 		) outbound
 		UNION
@@ -122,7 +126,7 @@ LEFT JOIN LATERAL (
 	) p
 ) h ON s.topic_id IS NOT NULL
 ORDER BY COALESCE(s.topic_id = (SELECT topic_id FROM quoted), false) DESC,
-	s.created_at DESC NULLS LAST, s.topic_id DESC`, task.JobID, task.BotID, task.ConversationID, reference, domain.TopicMaxCandidates)
+	s.created_at DESC NULLS LAST, s.topic_id DESC`, task.JobID, task.BotID, task.ConversationID, reference, domain.TopicMaxCandidates, task.Message.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -416,50 +417,12 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 			return journal.AppendDecisionStep(writeCtx, task, runID, sequence, kind, facts)
 		})
 	}
-	var awaited *domain.Message
-	if task.Kind == "group" && policy.AllowHistoryRead && eligibleSupplement(task) {
-		if reader, ok := d.recorder.(AwaitedContentReader); ok {
-			var err error
-			awaited, err = reader.AwaitedRequest(ctx, task)
-			if err != nil {
-				return fmt.Errorf("intent: load awaited request: %w", err)
-			}
-		}
-	}
-	identity := d.currentCallIdentity(ctx, task.BotID)
-	early := domain.Input{Task: task, CallIdentity: identity, Policy: policy, AwaitedRequest: awaited}
-	topics, err := d.loadTopics(ctx, early, runtime)
-	if err != nil {
-		return fmt.Errorf("intent: load topics: %w", err)
-	}
-	readHistory := true
-	if task.Kind == "group" {
-		quoted := false
-		for _, segment := range task.Segments {
-			if segment.Type == obdomain.SegReply {
-				quoted = true
-				break
-			}
-		}
-		if awaitingReply(early) || !quoted && (early.MentionsBot() && !refersToEarlierDiscussion(task)) {
-			readHistory = false
-		}
-		if task.Message.RowID == 0 && topics != nil && len(topics.Candidates) != 0 {
-			readHistory = false
-		}
-	}
-	history, activity, historyDegraded, err := d.loadContext(ctx, task, policy, readHistory)
+	in, historyDegraded, err := d.prepareDecisionInput(ctx, domain.Input{Task: task, Policy: policy, Now: time.Now()}, runtime)
 	if err != nil {
 		return err
 	}
-	if err := step(2, "context", contracts.LiveDecisionFacts{HistorySkipped: !readHistory, HistoryDegraded: historyDegraded}); err != nil {
+	if err := step(2, "context", contracts.LiveDecisionFacts{HistorySkipped: in.HistoryWindowSkipped, HistoryDegraded: historyDegraded}); err != nil {
 		return err
-	}
-	in := domain.Input{Task: task, CallIdentity: identity, Recent: history, AwaitedRequest: awaited, Topics: topics, HistoryWindowSkipped: !readHistory, Activity: activity, Policy: policy, Now: time.Now()}
-	if task.Kind == "group" && task.Message.RowID > 0 {
-		var truncated bool
-		in.Recent, truncated = recentGroupMessages(in, true)
-		in.GroupContext = buildGroupContext(in, truncated)
 	}
 	var cooldown domain.CooldownEvent
 	rule, rulesetVersion, set := d.applyRules(ctx, in, &cooldown)
@@ -676,6 +639,45 @@ func (d *Decider) executeDecidedReply(ctx context.Context, task domain.Task, in 
 	return nil
 }
 
+func (d *Decider) prepareDecisionInput(ctx context.Context, in domain.Input, runtime RuntimeConfig) (domain.Input, bool, error) {
+	task := in.Task
+	in.CallIdentity = d.currentCallIdentity(ctx, task.BotID)
+	if task.Kind == "group" && task.JobID != 0 && in.Policy.AllowHistoryRead && eligibleSupplement(task) {
+		if reader, ok := d.recorder.(AwaitedContentReader); ok {
+			var err error
+			in.AwaitedRequest, err = reader.AwaitedRequest(ctx, task)
+			if err != nil {
+				return in, false, fmt.Errorf("intent: load awaited request: %w", err)
+			}
+		}
+	}
+	topics, err := d.loadTopics(ctx, in, runtime)
+	if err != nil {
+		return in, false, fmt.Errorf("intent: load topics: %w", err)
+	}
+	in.Topics = topics
+	if task.Kind == "group" {
+		quoted := slices.ContainsFunc(task.Segments, func(segment obdomain.Segment) bool { return segment.Type == obdomain.SegReply })
+		in.HistoryWindowSkipped = awaitingReply(in) || !quoted && in.MentionsBot() && !refersToEarlierDiscussion(task)
+		if task.JobID != 0 && task.Message.RowID == 0 && hasTopicCandidates(in) {
+			in.HistoryWindowSkipped = true
+		}
+	}
+	var degraded bool
+	if task.ConversationID != "" {
+		in.Recent, in.Activity, degraded, err = d.loadContext(ctx, task, in.Policy, !in.HistoryWindowSkipped)
+	} else {
+		in.Recent = nil
+		in.Activity = domain.BotActivity{Known: true}
+	}
+	if task.Kind == "group" && (task.Message.RowID > 0 || task.JobID == 0 && !task.Message.CreatedAt.IsZero()) {
+		var truncated bool
+		in.Recent, truncated = recentGroupMessages(in, true)
+		in.GroupContext = buildGroupContext(in, truncated)
+	}
+	return in, degraded, err
+}
+
 // loadContext reads the authorized history and the rate-rule metadata inside
 // one span; the span exists even when history reads are unauthorized.
 // loadContext 在单个 span 内读取授权历史与频率规则元数据；
@@ -698,7 +700,7 @@ func (d *Decider) loadContext(ctx context.Context, task domain.Task, policy scop
 	degraded := false
 	if policy.AllowHistoryRead && readHistory && d.history != nil {
 		var err error
-		if task.Kind == "group" && task.Message.RowID > 0 {
+		if task.Kind == "group" && (task.Message.RowID > 0 || task.JobID == 0 && !task.Message.CreatedAt.IsZero()) {
 			if reader, ok := d.history.(interface {
 				RecentGroupIntentMessages(context.Context, domain.Task, time.Duration, int) ([]domain.Message, error)
 			}); ok {
@@ -1341,6 +1343,11 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 		in.Prompt = withCallQuestionLayer(in, rule, ScoreParticipationPrompt(in.Prompt))
 		semantic, latency = d.decideSemantic(ctx, in, runtime, rule)
 	}
+	if semantic.BackgroundFailure == "background_history_denied" {
+		in = withoutDecisionHistory(in)
+		rule = EvaluateRules(in)
+		semantic = discardSemantic(in, rule, semantic, semantic.BackgroundFailure)
+	}
 	decision := d.applyPolicy(ctx, in, rule, semantic, latency, runtime)
 	return decision, decisionSteps(in, rule, semantic, decision, latency, called, false)
 }
@@ -1348,7 +1355,6 @@ func (d *Decider) EvaluateSimulation(ctx context.Context, in domain.Input, rule 
 // PrepareSimulation loads the same authorized context and activity as live decisions.
 // PrepareSimulation 加载与真实决策相同的已授权上下文及会话活动。
 func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domain.Input, error) {
-	in.CallIdentity = d.currentCallIdentity(ctx, in.Task.BotID)
 	locator, ok := d.activity.(interface {
 		ConversationIDForScope(context.Context, int64, string, int64) (string, error)
 	})
@@ -1360,16 +1366,12 @@ func (d *Decider) PrepareSimulation(ctx context.Context, in domain.Input) (domai
 		return in, err
 	}
 	in.Task.ConversationID = id
-	if id == "" {
-		in.Recent = nil
-		in.Activity = domain.BotActivity{Known: true}
-		return in, nil
+	if in.Now.IsZero() {
+		in.Now = time.Now()
 	}
-	history, activity, _, err := d.loadContext(ctx, in.Task, in.Policy, true)
-	if err != nil {
-		return in, err
+	if in.Task.Message.CreatedAt.IsZero() {
+		in.Task.Message.CreatedAt = in.Now
 	}
-	in.Recent = history
-	in.Activity = activity
-	return in, nil
+	prepared, _, err := d.prepareDecisionInput(ctx, in, d.runtimeFor(ctx))
+	return prepared, err
 }

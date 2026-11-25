@@ -104,14 +104,14 @@ func (s *Service) Ingest(ctx context.Context, in domain.IngestInput) (domain.Ing
 	return result, nil
 }
 
-func (s *Service) RecentGroupMessagesBefore(ctx context.Context, botID int64, conversationID string, rowID int64, window time.Duration, limit int) ([]domain.Message, error) {
+func (s *Service) RecentGroupMessagesBefore(ctx context.Context, botID int64, conversationID string, rowID int64, at time.Time, window time.Duration, limit int) ([]domain.Message, error) {
 	repo, ok := s.repo.(interface {
-		RecentGroupMessagesBefore(context.Context, int64, string, int64, time.Duration, int) ([]domain.Message, error)
+		RecentGroupMessagesBefore(context.Context, int64, string, int64, time.Time, time.Duration, int) ([]domain.Message, error)
 	})
 	if !ok {
 		return nil, fmt.Errorf("conversation: anchored group history unavailable")
 	}
-	return repo.RecentGroupMessagesBefore(ctx, botID, conversationID, rowID, window, limit)
+	return repo.RecentGroupMessagesBefore(ctx, botID, conversationID, rowID, at, window, limit)
 }
 
 // RecentMessages returns the newest messages of one conversation, oldest first.

@@ -214,20 +214,24 @@ func (r *Repo) RecentMessages(ctx context.Context, conversationID string, limit 
 	return recentMessages(ctx, query, limit)
 }
 
-func (r *Repo) RecentGroupMessagesBefore(ctx context.Context, botID int64, conversationID string, rowID int64, window time.Duration, limit int) ([]domain.Message, error) {
+func (r *Repo) RecentGroupMessagesBefore(ctx context.Context, botID int64, conversationID string, rowID int64, at time.Time, window time.Duration, limit int) ([]domain.Message, error) {
 	id, err := uuid.Parse(conversationID)
 	if err != nil {
 		return nil, err
 	}
-	anchor, err := r.pool.Client.Message.Query().Where(em.ID(rowID), em.BotID(botID), em.ConversationID(id), em.DirectionEQ(string(domain.Incoming))).Only(ctx)
-	if err != nil {
-		return nil, err
-	}
 	query := r.pool.Client.Message.Query().Where(em.ConversationID(id), em.BotID(botID), em.ControlKindEQ(""),
-		em.CreatedAtGTE(anchor.CreatedAt.Add(-window)), em.IDLT(anchor.ID),
-		em.Or(em.DirectionEQ(string(domain.Incoming)), em.SentStatusEQ("sent")),
-		em.CreatedAtLTE(anchor.CreatedAt))
-	return recentMessages(ctx, query, limit)
+		em.Or(em.DirectionEQ(string(domain.Incoming)), em.SentStatusEQ("sent")))
+	if rowID > 0 {
+		anchor, err := r.pool.Client.Message.Query().Where(em.ID(rowID), em.BotID(botID), em.ConversationID(id), em.DirectionEQ(string(domain.Incoming))).Only(ctx)
+		if err != nil {
+			return nil, err
+		}
+		at = anchor.CreatedAt
+		query.Where(em.IDLT(anchor.ID), em.CreatedAtLTE(at))
+	} else {
+		query.Where(em.CreatedAtLT(at))
+	}
+	return recentMessages(ctx, query.Where(em.CreatedAtGTE(at.Add(-window))), limit)
 }
 
 func recentMessages(ctx context.Context, query *ent.MessageQuery, limit int) ([]domain.Message, error) {

@@ -63,7 +63,7 @@ func (h historyReader) RecentIntentMessages(ctx context.Context, conversationID 
 }
 
 func (h historyReader) RecentGroupIntentMessages(ctx context.Context, task intentdomain.Task, window time.Duration, limit int) ([]intentdomain.Message, error) {
-	return intentHistory(h.svc.RecentGroupMessagesBefore(ctx, task.BotID, task.ConversationID, task.Message.RowID, window, limit))
+	return intentHistory(h.svc.RecentGroupMessagesBefore(ctx, task.BotID, task.ConversationID, task.Message.RowID, task.Message.CreatedAt, window, limit))
 }
 
 func intentHistory(msgs []conversationdomain.Message, err error) ([]intentdomain.Message, error) {
