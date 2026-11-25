@@ -36,7 +36,7 @@ WITH current AS (
 	LEFT JOIN message_jobs reply_job ON reply_job.id = o.job_id
 	LEFT JOIN messages origin ON origin.id = reply_job.incoming_message_id
 		AND origin.conversation_id = c.conversation_id AND origin.bot_id = c.bot_id
-	WHERE p.control_kind = '' AND ((p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id))
+	WHERE p.control_kind = '' AND p.id<c.id AND ((p.direction = 'incoming' AND (p.created_at, p.id) < (c.created_at, c.id))
 		OR (p.direction = 'outgoing' AND p.sent_status = 'sent' AND
 			(CASE WHEN origin.id IS NULL THEN (p.created_at, p.id) < (c.created_at, c.id)
 				ELSE (origin.created_at, origin.id) < (c.created_at, c.id) END)))
@@ -53,7 +53,7 @@ WITH current AS (
 		(s.input->'TopicChange'->>'ID')::bigint AS topic_id, s.input->'TopicChange' AS change
 	FROM current c
 	JOIN messages p ON p.conversation_id = c.conversation_id AND p.bot_id = c.bot_id
-		AND p.direction = 'incoming' AND p.control_kind = '' AND (p.created_at, p.id) < (c.created_at, c.id)
+		AND p.direction = 'incoming' AND p.control_kind = '' AND p.id<c.id AND (p.created_at, p.id) < (c.created_at, c.id)
 		AND p.created_at >= c.created_at - interval '1 hour'
 	JOIN message_jobs j ON j.incoming_message_id = p.id
 	JOIN LATERAL (SELECT id FROM intent_decisions WHERE job_id = j.id ORDER BY id DESC LIMIT 1) d ON true
@@ -82,15 +82,15 @@ WITH current AS (
 SELECT COALESCE((SELECT topic_id FROM quoted), 0), COALESCE((SELECT bot FROM quoted), false),
 	COALESCE(s.topic_id, 0), COALESCE(s.active, false), COALESCE(s.waiting, false), s.expiry,
 	COALESCE(h.messages, '[]'::jsonb),
-	(SELECT jsonb_build_object('MessageID', p.platform_message_id, 'SenderID', p.sender_id,
+	(SELECT jsonb_build_object('RowID', p.id, 'MessageID', p.platform_message_id, 'SenderID', p.sender_id,
 		'Text', p.text_content, 'CreatedAt', p.created_at, 'IsBot', q.bot, 'Wire', p.segments)
 		FROM quoted q JOIN messages p ON p.id = q.message_id)
 FROM current c LEFT JOIN selected s ON true
 LEFT JOIN LATERAL (
 	SELECT jsonb_agg(jsonb_build_object(
-		'MessageID', COALESCE(p.platform_message_id, 0), 'SenderID', p.sender_id,
+		'RowID', p.id, 'MessageID', COALESCE(p.platform_message_id, 0), 'SenderID', p.sender_id,
 		'IsBot', p.direction = 'outgoing', 'CreatedAt', p.created_at,
-		'Text', left(regexp_replace(p.text_content, '[[]CQ:[^]]*[]]', ' [附件] ', 'g'), 500)
+		'Text', p.text_content, 'Wire', p.segments
 	) ORDER BY p.created_at, p.id) AS messages
 	FROM (
 		SELECT m.* FROM (
@@ -146,8 +146,19 @@ ORDER BY COALESCE(s.topic_id = (SELECT topic_id FROM quoted), false) DESC,
 			continue
 		}
 		candidate.ExpiresAt = expiry.Time
-		if err := json.Unmarshal(history, &candidate.History); err != nil {
+		var entries []struct {
+			domain.Message
+			Wire json.RawMessage
+		}
+		if err := json.Unmarshal(history, &entries); err != nil {
 			return nil, err
+		}
+		for _, entry := range entries {
+			entry.Segments, err = ob.SegmentsFromWire(entry.Wire)
+			if err != nil {
+				return nil, err
+			}
+			candidate.History = append(candidate.History, entry.Message)
 		}
 		result.Candidates = append(result.Candidates, candidate)
 	}
@@ -158,7 +169,7 @@ ORDER BY COALESCE(s.topic_id = (SELECT topic_id FROM quoted), false) DESC,
 // boundTopic 加载归属版本的精确输入，包含旧稿未送达的回合。
 func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, reference int64, idleSeconds int) (*domain.TopicContext, error) {
 	rows, err := r.pool.Query(ctx, `WITH binding AS (
- SELECT i.topic_id,i.version,i.conversation_id,i.route_id,t.expires_at,t.closed,t.version AS current_version
+ SELECT i.topic_id,i.version,i.conversation_id,i.route_id,m.created_at,t.expires_at,t.closed,t.version AS current_version
  FROM message_jobs j JOIN messages m ON m.id=j.incoming_message_id
  JOIN group_topic_inputs i ON (i.route_id,i.conversation_id)=(m.id,m.conversation_id)
  JOIN group_topics t ON (t.id,t.conversation_id)=(i.topic_id,i.conversation_id)
@@ -166,7 +177,7 @@ func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, refere
 ), related AS (
  SELECT m.id,m.platform_message_id,m.sender_id,m.text_content,m.segments,m.created_at,m.direction
  FROM binding b JOIN group_topic_inputs i ON (i.topic_id,i.conversation_id)=(b.topic_id,b.conversation_id) AND i.version<b.version
- JOIN messages m ON (m.id,m.conversation_id)=(i.route_id,b.conversation_id) AND m.bot_id=$2 AND m.direction='incoming' AND m.control_kind=''
+ JOIN messages m ON (m.id,m.conversation_id)=(i.route_id,b.conversation_id) AND m.bot_id=$2 AND m.direction='incoming' AND m.control_kind='' AND m.id<b.route_id AND m.created_at<=b.created_at
  UNION ALL
  SELECT m.id,m.platform_message_id,m.sender_id,m.text_content,m.segments,m.created_at,m.direction
  FROM binding b JOIN group_topic_inputs i ON (i.topic_id,i.conversation_id)=(b.topic_id,b.conversation_id) AND i.version<b.version
@@ -174,8 +185,8 @@ func (r *DecisionsRepo) boundTopic(ctx context.Context, task domain.Task, refere
  JOIN messages m ON m.outbound_id=o.id AND m.conversation_id=b.conversation_id AND m.bot_id=$2 AND m.sent_status='sent' AND m.control_kind=''
  CROSS JOIN LATERAL (SELECT created_at FROM messages WHERE id=b.route_id) current
  WHERE (m.created_at,m.id)<(current.created_at,b.route_id)
-) SELECT b.topic_id,b.version,b.expires_at,NOT b.closed AND b.version=b.current_version AND b.expires_at>clock_timestamp(),
- COALESCE((SELECT jsonb_agg(jsonb_build_object('MessageID',COALESCE(m.platform_message_id,0),'SenderID',m.sender_id,
+) SELECT b.topic_id,b.version,b.expires_at,NOT b.closed AND b.version=b.current_version AND b.expires_at>b.created_at,
+ COALESCE((SELECT jsonb_agg(jsonb_build_object('RowID',m.id,'MessageID',COALESCE(m.platform_message_id,0),'SenderID',m.sender_id,
  'Text',m.text_content,'Wire',m.segments,'CreatedAt',m.created_at,'IsBot',m.direction='outgoing') ORDER BY m.created_at,m.id) FROM related m),'[]'::jsonb)
  FROM binding b`, task.JobID, task.BotID, task.ConversationID)
 	if err != nil {
@@ -223,9 +234,10 @@ func (r *DecisionsRepo) CheckTopicGeneration(ctx context.Context, task domain.Ta
 	err := r.pool.QueryRow(ctx, `SELECT EXISTS(
  SELECT 1 FROM message_jobs j JOIN group_topic_inputs i ON i.route_id=j.incoming_message_id
  JOIN group_topics t ON (t.id,t.conversation_id)=(i.topic_id,i.conversation_id)
+ JOIN messages m ON m.id=i.route_id
  WHERE j.id=$1 AND j.claim_token=$2 AND j.status='processing' AND j.lease_expires_at>clock_timestamp()
  AND i.conversation_id=$3 AND i.topic_id=$4 AND ($5=0 OR i.version=$5)
- AND t.version=i.version AND NOT t.closed AND t.expires_at>clock_timestamp())`, task.JobID, task.ClaimToken, task.ConversationID, topic, expectedVersion).Scan(&valid)
+ AND t.version=i.version AND NOT t.closed AND t.expires_at>m.created_at)`, task.JobID, task.ClaimToken, task.ConversationID, topic, expectedVersion).Scan(&valid)
 	if err != nil {
 		return err
 	}

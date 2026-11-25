@@ -21,6 +21,10 @@ type Authorizer interface {
 	Resolve(ctx context.Context, botID int64, scopeType domain.ScopeType, scopeID int64) (domain.Policy, error)
 }
 
+type PolicyReadFence interface {
+	WithPolicyRead(context.Context, int64, string, func() error) error
+}
+
 func ResolveConversation(ctx context.Context, reader Authorizer, botID int64, kind string, targetID int64) (domain.Policy, error) {
 	return reader.Resolve(ctx, botID, domain.ScopeType(kind), targetID)
 }

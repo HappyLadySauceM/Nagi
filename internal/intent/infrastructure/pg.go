@@ -500,14 +500,14 @@ func decisionModel(v *ent.IntentDecision) (contracts.DecisionRecord, error) {
 // AwaitedRequest 查找该账号、会话和发送者最新且未接续的等待。
 func (r *DecisionsRepo) AwaitedRequest(ctx context.Context, task domain.Task) (*domain.Message, error) {
 	rows, err := r.pool.Query(ctx, `
-	SELECT COALESCE(previous.platform_message_id, 0), previous.sender_id, previous.text_content, previous.created_at
+	SELECT previous.id, COALESCE(previous.platform_message_id, 0), previous.sender_id, previous.text_content, previous.created_at
 	FROM message_jobs current_job
 	JOIN messages current ON current.id = current_job.incoming_message_id
 	JOIN messages previous ON previous.conversation_id = current.conversation_id
 		AND previous.bot_id = current.bot_id AND previous.sender_id = current.sender_id
 		AND previous.direction = 'incoming'
 		AND (previous.created_at, previous.id) < (current.created_at, current.id)
-		AND previous.created_at >= current.created_at - interval '30 seconds'
+		AND previous.created_at > current.created_at - interval '30 seconds'
 	JOIN message_jobs previous_job ON previous_job.incoming_message_id = previous.id
 	JOIN LATERAL (
 		SELECT decision, reason_code FROM intent_decisions
@@ -541,7 +541,7 @@ func (r *DecisionsRepo) AwaitedRequest(ctx context.Context, task domain.Task) (*
 		return nil, rows.Err()
 	}
 	var message domain.Message
-	if err := rows.Scan(&message.MessageID, &message.SenderID, &message.Text, &message.CreatedAt); err != nil {
+	if err := rows.Scan(&message.RowID, &message.MessageID, &message.SenderID, &message.Text, &message.CreatedAt); err != nil {
 		return nil, err
 	}
 	return &message, nil
@@ -608,29 +608,41 @@ func nullableConversation(id string) any {
 // persistTopicChange 在生成前登记不可变的输入版本。
 func persistTopicChange(ctx context.Context, client *ent.Client, conversation string, jobID int64, topic *domain.TopicChange) error {
 	action := topic.Action
+	reopening := action == "reopened"
 	opening := action == "opened" || action == "waiting"
 	if action == "reopened" {
 		action = "follow_up"
 	}
 	if _, err := client.ExecContext(ctx, `WITH origin AS (
- SELECT r.id FROM message_jobs j JOIN group_topic_routes r ON r.id=j.incoming_message_id AND r.conversation_id=$1
+ SELECT r.id,m.created_at FROM message_jobs j JOIN group_topic_routes r ON r.id=j.incoming_message_id AND r.conversation_id=$1
+ JOIN messages m ON m.id=r.id
  WHERE j.id=$2 AND NOT EXISTS (SELECT 1 FROM group_topic_inputs i WHERE i.route_id=r.id)
  ), created AS (
  INSERT INTO group_topics (id,conversation_id,version,expires_at)
- SELECT $3,$1,1,$4 FROM origin WHERE $6 AND $4>clock_timestamp()
+ SELECT $3,$1,1,$4 FROM origin WHERE $6 AND $4>origin.created_at
  ON CONFLICT(id) DO NOTHING RETURNING id,version
  ), advanced AS (
- UPDATE group_topics t SET version=t.version+1,expires_at=$4,closed=($5='close')
+ UPDATE group_topics t SET version=t.version+1,
+ expires_at=CASE WHEN $5 IN ('follow_up','contribution') THEN GREATEST(t.expires_at,$4) ELSE t.expires_at END,
+ closed=($5='close')
  FROM origin WHERE NOT $6 AND t.id=$3 AND t.conversation_id=$1
+ AND ($7 OR (NOT t.closed AND t.expires_at>origin.created_at))
+ AND NOT EXISTS (SELECT 1 FROM group_topic_inputs i JOIN messages m ON m.id=i.route_id
+ WHERE i.topic_id=t.id AND i.conversation_id=t.conversation_id AND (m.created_at,m.id)>=(origin.created_at,origin.id))
  RETURNING t.id,t.version
  ) INSERT INTO group_topic_inputs (id,conversation_id,topic_id,version,route_id,action)
  SELECT gen_random_uuid(),$1,changed.id,changed.version,origin.id,$5 FROM origin CROSS JOIN (
  SELECT * FROM created UNION ALL SELECT * FROM advanced
- ) changed`, conversation, jobID, topic.ID, topic.ExpiresAt, action, opening); err != nil {
+ ) changed`, conversation, jobID, topic.ID, topic.ExpiresAt, action, opening, reopening); err != nil {
 		return err
 	}
-	if _, err := client.ExecContext(ctx, `UPDATE group_topics t SET closed=true FROM group_topic_inputs i JOIN message_jobs j ON j.incoming_message_id=i.route_id
- WHERE j.id=$2 AND t.conversation_id=$1 AND (t.id,t.version)=(i.topic_id,i.version) AND $3='close'`, conversation, jobID, action); err != nil {
+	if _, err := client.ExecContext(ctx, `UPDATE group_topics t
+ SET closed=t.closed OR $3='close',
+ expires_at=CASE WHEN $3 IN ('follow_up','contribution') THEN GREATEST(t.expires_at,$5) ELSE t.expires_at END
+ FROM group_topic_inputs i JOIN message_jobs j ON j.incoming_message_id=i.route_id JOIN messages m ON m.id=i.route_id
+ WHERE j.id=$2 AND t.conversation_id=$1 AND t.id=$4 AND (t.id,t.version)=(i.topic_id,i.version)
+ AND t.expires_at>m.created_at AND NOT EXISTS (SELECT 1 FROM group_topic_inputs older JOIN messages later ON later.id=older.route_id
+ WHERE older.topic_id=t.id AND older.conversation_id=t.conversation_id AND older.version<i.version AND (later.created_at,later.id)>=(m.created_at,m.id))`, conversation, jobID, action, topic.ID, topic.ExpiresAt); err != nil {
 		return err
 	}
 	_, err := client.ExecContext(ctx, `INSERT INTO group_topic_route_candidates (id,conversation_id,route_id,topic_id,version)
@@ -638,6 +650,7 @@ func persistTopicChange(ctx context.Context, client *ent.Client, conversation st
  FROM group_topic_inputs i JOIN message_jobs j ON j.incoming_message_id=i.route_id
  JOIN group_topics t ON (t.id,t.conversation_id,t.version)=(i.topic_id,i.conversation_id,i.version)
  JOIN group_topic_routes r ON r.conversation_id=t.conversation_id AND r.id>i.route_id
+ JOIN messages m ON m.id=r.id AND m.conversation_id=t.conversation_id AND m.created_at<t.expires_at
  WHERE j.id=$2 AND t.conversation_id=$1 AND NOT t.closed AND r.status IN ('pending','routing','expired','unavailable')
  ON CONFLICT (route_id,topic_id) DO NOTHING`, conversation, jobID)
 	return err

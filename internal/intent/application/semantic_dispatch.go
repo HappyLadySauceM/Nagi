@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
+
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentdomain "github.com/HappyLadySauceM/Nagi/internal/intent/domain"
 	settingscontracts "github.com/HappyLadySauceM/Nagi/internal/settings/contracts"
@@ -121,10 +123,27 @@ func (b IntentBackground) Dispatch(ctx context.Context, in intentdomain.Input, d
 					}
 					return reason, nil
 				}
-				if fence == nil {
-					return "", write()
+				dispatch := func() (string, error) {
+					if fence == nil {
+						return "", write()
+					}
+					return fence.WithIntentDisclosure(writeCtx, in.Task.BotID, in.Task.TargetID, dest, withMemory, revision, write)
 				}
-				reason, err := fence.WithIntentDisclosure(writeCtx, in.Task.BotID, in.Task.TargetID, dest, withMemory, revision, write)
+				var reason string
+				var err error
+				if policyFence, ok := b.Scopes.(scopecontracts.PolicyReadFence); ok && in.GroupContext != nil && in.Policy.AllowHistoryRead {
+					err = policyFence.WithPolicyRead(writeCtx, in.Task.BotID, in.Task.Kind, func() error {
+						reason = b.CheckScope(writeCtx, in)
+						if reason != "" {
+							return nil
+						}
+						var dispatchErr error
+						reason, dispatchErr = dispatch()
+						return dispatchErr
+					})
+				} else {
+					reason, err = dispatch()
+				}
 				stopRun(reason)
 				return reason, err
 			},

@@ -151,7 +151,7 @@ func awaitingReply(in domain.Input) bool {
 		!eligibleSupplement(in.Task) {
 		return false
 	}
-	if at := in.Task.Message.CreatedAt; !at.IsZero() && !previous.CreatedAt.IsZero() && (at.Before(previous.CreatedAt) || at.Sub(previous.CreatedAt) > 30*time.Second) {
+	if at := in.Task.Message.CreatedAt; !at.IsZero() && !previous.CreatedAt.IsZero() && (at.Before(previous.CreatedAt) || at.Sub(previous.CreatedAt) >= 30*time.Second) {
 		return false
 	}
 	for _, segment := range in.Task.Segments {

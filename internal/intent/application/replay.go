@@ -48,7 +48,7 @@ type frozenBackgroundChecker interface {
 }
 
 func (d *Decider) fixedBackground(ctx context.Context, in *domain.Input, snapshot domain.DecisionSnapshot) string {
-	if !in.Policy.AllowHistoryRead && (len(snapshot.Input.Recent) > 0 || snapshot.Input.AwaitedRequest != nil || snapshot.Input.Topics != nil) {
+	if !in.Policy.AllowHistoryRead && (len(snapshot.Input.Recent) > 0 || snapshot.Input.AwaitedRequest != nil || snapshot.Input.Topics != nil || snapshot.Input.GroupContext != nil && len(snapshot.Input.GroupContext.Messages) > 0) {
 		return "background_history_denied"
 	}
 	if snapshot.Input.Topics != nil && in.Topics == nil {

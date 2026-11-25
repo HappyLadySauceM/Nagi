@@ -86,6 +86,16 @@ func NewService(repo Repository) (*Service, error) {
 	return &Service{repo: repo}, nil
 }
 
+func (s *Service) WithPolicyRead(ctx context.Context, botID int64, kind string, use func() error) error {
+	repo, ok := s.repo.(interface {
+		WithPolicyRead(context.Context, int64, string, func() error) error
+	})
+	if !ok {
+		return fmt.Errorf("scope: policy fence unavailable")
+	}
+	return repo.WithPolicyRead(ctx, botID, kind, use)
+}
+
 // Resolve returns the effective policy of one scope. Unknown or disabled scopes
 // resolve to the safe default; lower layers can only narrow, never widen, permissions.
 // Resolve 返回单个作用域的生效策略。未知或未配置的作用域解析为安全默认；

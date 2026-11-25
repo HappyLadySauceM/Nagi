@@ -234,11 +234,13 @@ func scoreTopic(topics *domain.TopicContext, answer *domain.SemanticAnswer, scor
 	actions := []string{domain.TopicFollowUp, domain.TopicContribution, domain.TopicLeave, domain.TopicClose}
 	labels := []string{"A"}
 	question := strings.Builder{}
-	question.WriteString("选择当前消息的话题和行为。A=新话题、不明确或对另一群友说话。只在有明确证据时归入话题。行为如下：")
+	if shared {
+		question.WriteString("依据 group_context 和条目的 sources 判断当前发言延续哪一题及其作用。独立于谁应回答。 A=新话题、无关或证据不足。")
+	} else {
+		question.WriteString("选择当前消息的话题和行为。A=新话题、不明确或对另一群友说话。只在有明确证据时归入话题。行为如下：")
+	}
 	followUp := "追问机器人"
 	if shared {
-		question.Reset()
-		question.WriteString("依据 group_context 和条目的 sources 判断当前发言延续哪一题及其作用。独立于谁应回答。A=新话题、无关或证据不足。")
 		followUp = "追问同一问题"
 	}
 	for i := range topics.Candidates {

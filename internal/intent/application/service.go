@@ -321,7 +321,7 @@ func (d *Decider) ProcessTask(ctx context.Context, task domain.Task) (runErr err
 				return nil
 			}
 			snapshot := decision.Snapshot.Input
-			in := domain.Input{Task: task, Policy: policy, Topics: snapshot.Topics}
+			in := domain.Input{Task: task, Policy: policy, Topics: snapshot.Topics, GroupContext: snapshot.GroupContext}
 			history, err := d.recoveredReplyHistory(ctx, in, decision, runtime)
 			if err != nil {
 				return decisionPersistenceError{cause: err}

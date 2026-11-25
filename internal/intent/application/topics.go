@@ -144,6 +144,9 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 			}
 		}
 	}
+	if in.GroupContext != nil && source == "semantic" && action != domain.TopicFollowUp && action != domain.TopicContribution && action != domain.TopicLeave && action != domain.TopicClose {
+		candidate, source = nil, ""
+	}
 	directed := rule.Explicit || rule.ForceReply || semantic.CallAddressing == domain.CallYes || decision.ReasonCode == "awaited_content_received"
 	if in.GroupContext == nil && addressesOther(in) && !in.MentionsBot() && !rule.AlwaysReply {
 		return withScores(domain.DecisionSilent, "addressed_to_other", decisionScores(semantic))
@@ -189,7 +192,7 @@ func evaluateTopicDecision(in domain.Input, rule domain.RuleResult, semantic dom
 			return silent("topic_version_stale")
 		}
 		if decision.Decision == domain.DecisionReply {
-			decision.Topic = &domain.TopicChange{ID: candidate.ID, Action: domain.TopicFollowUp, Source: "routing", ExpiresAt: candidate.ExpiresAt}
+			decision.Topic = &domain.TopicChange{ID: candidate.ID, Action: domain.TopicFollowUp, Source: "routing", ExpiresAt: topicExpiry(in)}
 		}
 		return decision
 	}
@@ -243,15 +246,17 @@ func addressesOther(in domain.Input) bool {
 // topicWithoutHistorySegments keeps executable attachment references out of decision snapshots.
 // topicWithoutHistorySegments 从决策快照中移除可执行的历史附件引用。
 func topicWithoutHistorySegments(topics *domain.TopicContext) *domain.TopicContext {
-	if topics == nil || topics.BoundID == 0 {
-		return topics
+	if topics == nil {
+		return nil
 	}
 	copy := *topics
 	copy.Candidates = slices.Clone(topics.Candidates)
 	for i := range copy.Candidates {
 		copy.Candidates[i].History = slices.Clone(copy.Candidates[i].History)
 		for j := range copy.Candidates[i].History {
-			copy.Candidates[i].History[j].Segments = nil
+			m := &copy.Candidates[i].History[j]
+			m.Text = groupEvidence(*m, m.CreatedAt, "topic").Text
+			m.Segments = nil
 		}
 	}
 	if topics.Reference != nil {
@@ -267,6 +272,15 @@ func (d *Decider) recoveredReplyHistory(ctx context.Context, in domain.Input, de
 		return nil, nil
 	}
 	original := decision.Snapshot.Input
+	if original.GroupContext != nil && decision.Topic != nil {
+		in.AwaitedRequest = original.AwaitedRequest
+		fresh, err := d.loadTopics(ctx, in, runtime)
+		if err != nil || fresh == nil || fresh.BoundID != decision.Topic.ID || original.Topics != nil && original.Topics.BoundVersion != 0 && fresh.BoundVersion != original.Topics.BoundVersion {
+			return nil, err
+		}
+		in.Topics = fresh
+		return topicReplyHistory(in, decision), nil
+	}
 	if original.Topics != nil && original.Topics.BoundID != 0 {
 		fresh, err := d.loadTopics(ctx, in, runtime)
 		if err != nil || fresh == nil || fresh.BoundID != original.Topics.BoundID || fresh.BoundVersion != original.Topics.BoundVersion {

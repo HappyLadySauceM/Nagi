@@ -284,7 +284,7 @@ func lockDeliveryTopic(ctx context.Context, tx *db.Tx, id string, scope delivery
 	if decidedTopic != 0 && decidedTopic != d.topic {
 		return d, domain.GateStale, nil
 	}
-	err = tx.QueryRow(ctx, `SELECT version,NOT closed AND expires_at>clock_timestamp() FROM group_topics WHERE id=$1 AND conversation_id=$2 FOR UPDATE`, d.topic, scope.sourceID).Scan(&current, &active)
+	err = tx.QueryRow(ctx, `SELECT version,NOT closed AND expires_at>(SELECT created_at FROM messages WHERE id=$3) FROM group_topics WHERE id=$1 AND conversation_id=$2 FOR UPDATE`, d.topic, scope.sourceID, d.input).Scan(&current, &active)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && (!active || current != d.version) {
 		return d, domain.GateStale, nil
 	}
