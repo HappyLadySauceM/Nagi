@@ -68,10 +68,14 @@ WITH current AS (
 	SELECT DISTINCT ON (topic_id) topic_id, created_at, change
 	FROM events ORDER BY topic_id, created_at DESC, message_id DESC
 ), candidates AS (
-	SELECT l.topic_id, l.created_at, (l.change->>'ExpiresAt')::timestamptz AS expiry,
-		COALESCE((l.change->>'Waiting')::boolean, false) AS waiting,
-		l.change->>'Action' <> 'close' AND (l.change->>'ExpiresAt')::timestamptz > c.created_at AS active
+	SELECT l.topic_id,l.created_at,COALESCE(t.expires_at,(l.change->>'ExpiresAt')::timestamptz) AS expiry,
+		COALESCE((l.change->>'Waiting')::boolean,false) AS waiting,
+		NOT COALESCE(t.closed,l.change->>'Action'='close') AND COALESCE(t.expires_at,(l.change->>'ExpiresAt')::timestamptz)>c.created_at AS active
 	FROM latest l CROSS JOIN current c
+	LEFT JOIN group_topics t ON t.id=l.topic_id AND t.conversation_id=c.conversation_id AND EXISTS (
+		SELECT 1 FROM group_topic_inputs i JOIN messages m ON m.id=i.route_id
+		WHERE (i.topic_id,i.conversation_id,i.version)=(t.id,t.conversation_id,t.version)
+		AND (c.id IS NULL OR m.id<c.id) AND m.created_at<=c.created_at)
 	UNION ALL
 	SELECT q.topic_id, NULL, NULL, false, false FROM quoted q
 	WHERE q.topic_id <> 0 AND NOT EXISTS (SELECT 1 FROM latest l WHERE l.topic_id = q.topic_id)

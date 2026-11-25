@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestTopicExpiryUsesItsConfirmedEventTime(t *testing.T) {
 		}
 		return row
 	}
-	save := func(row conversation.IngestResult, topic int64, action string, event time.Time) {
+	save := func(row conversation.IngestResult, topic int64, action string, event time.Time, idle time.Duration) {
 		t.Helper()
 		claim := dbtest.Claim(t, pool, row.JobID)
 		change := &domain.TopicChange{ID: topic, Action: action, ExpiresAt: event.Add(idle)}
@@ -46,13 +47,13 @@ func TestTopicExpiryUsesItsConfirmedEventTime(t *testing.T) {
 		}
 	}
 	a := ingest(at)
-	save(a, a.JobID, "opened", at)
+	save(a, a.JobID, "opened", at, idle)
 	b := ingest(at.Add(10 * time.Second))
-	save(b, b.JobID, "opened", at.Add(10*time.Second))
+	save(b, b.JobID, "opened", at.Add(10*time.Second), idle)
 	bt := at.Add(time.Minute)
-	save(ingest(bt), b.JobID, domain.TopicContribution, bt)
+	save(ingest(bt), b.JobID, domain.TopicContribution, bt, idle)
 	old := at.Add(5 * time.Second)
-	save(ingest(old), b.JobID, domain.TopicFollowUp, old)
+	save(ingest(old), b.JobID, domain.TopicFollowUp, old, idle)
 	duplicate, err := conv.Ingest(ctx, in)
 	if err != nil || !duplicate.Duplicate {
 		t.Fatalf("replay=%+v err=%v", duplicate, err)
@@ -93,7 +94,43 @@ func TestTopicExpiryUsesItsConfirmedEventTime(t *testing.T) {
 	if err != nil || topics.QuotedID != a.JobID || len(topics.Candidates) != 2 || topics.Candidates[0].Active {
 		t.Fatalf("expired quote=%+v err=%v", topics, err)
 	}
-	save(query, a.JobID, "reopened", at.Add(idle+2*time.Millisecond))
+	save(query, a.JobID, "reopened", at.Add(idle+2*time.Millisecond), idle)
 	checkExpiry(a.JobID, at.Add(2*idle+2*time.Millisecond), 2)
 	checkExpiry(b.JobID, bt.Add(idle), 2)
+	short := ingest(at.Add(8 * time.Minute))
+	shortAt := at.Add(8 * time.Minute)
+	save(short, short.JobID, "opened", shortAt, idle)
+	followAt := shortAt.Add(40 * time.Second)
+	follow := ingest(followAt)
+	save(follow, short.JobID, domain.TopicFollowUp, followAt, time.Minute)
+	expires := shortAt.Add(100 * time.Second)
+	checkExpiry(short.JobID, expires, 2)
+	var snapshot []byte
+	if err := pool.QueryRow(ctx, `SELECT s.input FROM intent_decision_snapshots s JOIN intent_decisions d ON d.id=s.decision_id WHERE d.job_id=$1`, follow.JobID).Scan(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var input domain.SnapshotInput
+	if err := json.Unmarshal(snapshot, &input); err != nil || input.TopicChange == nil || !input.TopicChange.ExpiresAt.Equal(expires) {
+		t.Fatalf("snapshot=%+v err=%v", input.TopicChange, err)
+	}
+	late := ingest(shortAt.Add(10 * time.Second))
+	save(late, short.JobID, domain.TopicFollowUp, shortAt.Add(10*time.Second), idle)
+	if duplicate, err := conv.Ingest(ctx, in); err != nil || !duplicate.Duplicate {
+		t.Fatalf("duplicate=%+v err=%v", duplicate, err)
+	}
+	checkExpiry(short.JobID, expires, 2)
+	for _, delta := range []time.Duration{-time.Millisecond, 0, time.Millisecond} {
+		row := ingest(expires.Add(delta))
+		current, err := repo.Topics(ctx, domain.Task{BotID: bot, JobID: row.JobID, ConversationID: row.ConversationID}, 0, 60)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := slices.ContainsFunc(current.Candidates, func(c domain.TopicCandidate) bool {
+			return c.ID == short.JobID && c.Active && c.ExpiresAt.Equal(expires)
+		})
+		if found != (delta < 0) {
+			t.Fatalf("shortened boundary %v, candidates=%+v", delta, current.Candidates)
+		}
+	}
+
 }

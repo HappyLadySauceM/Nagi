@@ -12,6 +12,7 @@ import (
 	j "github.com/HappyLadySauceM/Nagi/pkg/db/ent/messagejob"
 
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,6 +98,26 @@ func (r *DecisionsRepo) record(ctx context.Context, jobID int64, decision domain
 	if decision.Topic != nil && decision.Topic.Action != "personal_exit" {
 		if err := persistTopicChange(ctx, client, id, jobID, decision.Topic); err != nil {
 			return err
+		}
+		if decision.Snapshot != nil {
+			var expiry sql.NullTime
+			var current bool
+			if err := scanLive(ctx, client, `SELECT t.expires_at,EXISTS (
+ SELECT 1 FROM group_topic_inputs i JOIN message_jobs j ON j.incoming_message_id=i.route_id
+ WHERE j.id=$2 AND (i.topic_id,i.conversation_id,i.version)=(t.id,t.conversation_id,t.version))
+ FROM (SELECT 1) anchor LEFT JOIN group_topics t ON t.id=$3 AND t.conversation_id=$1`,
+				[]any{id, jobID, decision.Topic.ID}, &expiry, &current); err != nil {
+				return err
+			}
+			snapshot := *decision.Snapshot
+			if current {
+				change := *decision.Topic
+				change.ExpiresAt = expiry.Time
+				snapshot.Input.TopicChange = &change
+			} else if expiry.Valid {
+				snapshot.Input.TopicChange = nil
+			}
+			decision.Snapshot = &snapshot
 		}
 	}
 	rows, err = client.QueryContext(ctx, `SELECT id FROM message_jobs WHERE id=$1 AND status='processing' AND claim_token=$2::uuid AND lease_expires_at>clock_timestamp() FOR UPDATE`, jobID, claim[0])
@@ -623,7 +644,7 @@ func persistTopicChange(ctx context.Context, client *ent.Client, conversation st
  ON CONFLICT(id) DO NOTHING RETURNING id,version
  ), advanced AS (
  UPDATE group_topics t SET version=t.version+1,
- expires_at=CASE WHEN $5 IN ('follow_up','contribution') THEN GREATEST(t.expires_at,$4) ELSE t.expires_at END,
+ expires_at=CASE WHEN $5 IN ('follow_up','contribution') THEN $4 ELSE t.expires_at END,
  closed=($5='close')
  FROM origin WHERE NOT $6 AND t.id=$3 AND t.conversation_id=$1
  AND ($7 OR (NOT t.closed AND t.expires_at>origin.created_at))
@@ -638,10 +659,13 @@ func persistTopicChange(ctx context.Context, client *ent.Client, conversation st
 	}
 	if _, err := client.ExecContext(ctx, `UPDATE group_topics t
  SET closed=t.closed OR $3='close',
- expires_at=CASE WHEN $3 IN ('follow_up','contribution') THEN GREATEST(t.expires_at,$5) ELSE t.expires_at END
+ expires_at=CASE WHEN $3 IN ('follow_up','contribution') THEN $5 ELSE t.expires_at END
  FROM group_topic_inputs i JOIN message_jobs j ON j.incoming_message_id=i.route_id JOIN messages m ON m.id=i.route_id
  WHERE j.id=$2 AND t.conversation_id=$1 AND t.id=$4 AND (t.id,t.version)=(i.topic_id,i.version)
- AND t.expires_at>m.created_at AND NOT EXISTS (SELECT 1 FROM group_topic_inputs older JOIN messages later ON later.id=older.route_id
+ AND t.expires_at>m.created_at AND NOT EXISTS (
+ SELECT 1 FROM intent_decisions d JOIN intent_decision_snapshots s ON s.decision_id=d.id
+ WHERE d.job_id=$2 AND s.input->'TopicChange'->>'ID'=$4::bigint::text
+ ) AND NOT EXISTS (SELECT 1 FROM group_topic_inputs older JOIN messages later ON later.id=older.route_id
  WHERE older.topic_id=t.id AND older.conversation_id=t.conversation_id AND older.version<i.version AND (later.created_at,later.id)>=(m.created_at,m.id))`, conversation, jobID, action, topic.ID, topic.ExpiresAt); err != nil {
 		return err
 	}
