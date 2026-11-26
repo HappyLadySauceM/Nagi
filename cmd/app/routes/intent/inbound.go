@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/HappyLadySauceM/Nagi/cmd/app/middleware"
 	"github.com/HappyLadySauceM/Nagi/cmd/app/types/common"
 	v1 "github.com/HappyLadySauceM/Nagi/cmd/app/types/v1"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
@@ -157,6 +158,10 @@ func (h *Handler) attachInboundMedia(ctx context.Context, ingress *v1.MessageIng
 
 func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if middleware.ActorFrom(r.Context()) != "admin" {
+		common.WriteFailure(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	botID, botErr := strconv.ParseInt(r.URL.Query().Get("bot_id"), 10, 64)
 	messageID, msgErr := strconv.ParseInt(r.PathValue("message_id"), 10, 64)
 	attachmentID, idErr := uuid.Parse(r.PathValue("attachment_id"))
@@ -165,7 +170,7 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	archive := h.svcCtx.InboundArchive
-	if archive == nil || !h.auditSourceAllowed(r.Context(), botID, "", messageID) {
+	if archive == nil || !h.attachmentSourceAllowed(r.Context(), botID, messageID) {
 		common.WriteFailure(w, http.StatusNotFound, "attachment not found")
 		return
 	}
@@ -186,7 +191,7 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer body.Close()
-	if !h.auditSourceAllowed(ctx, botID, "", messageID) {
+	if !h.attachmentSourceAllowed(ctx, botID, messageID) {
 		common.WriteFailure(w, http.StatusNotFound, "attachment not found")
 		return
 	}
@@ -201,6 +206,15 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(w, body); err != nil {
 		h.svcCtx.Logger.Warn("inbound attachment response interrupted")
 	}
+}
+
+func (h *Handler) attachmentSourceAllowed(ctx context.Context, botID, messageID int64) bool {
+	repo, ok := h.svcCtx.Decisions.(intentcontracts.LiveDecisionReader)
+	if !ok || !h.accountAuditAllowed(ctx, botID) {
+		return false
+	}
+	allowed, err := repo.DecisionSourceAccess(ctx, botID, "", messageID)
+	return err == nil && allowed
 }
 
 func (h *Handler) BackfillAttachments(w http.ResponseWriter, r *http.Request) {
