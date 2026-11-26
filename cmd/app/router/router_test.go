@@ -11,11 +11,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/HappyLadySauceM/Nagi/cmd/app/svc"
+	intentapp "github.com/HappyLadySauceM/Nagi/internal/intent/application"
 	intentcontracts "github.com/HappyLadySauceM/Nagi/internal/intent/contracts"
 	intentinfra "github.com/HappyLadySauceM/Nagi/internal/intent/infrastructure"
 	mediacontracts "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
@@ -204,4 +206,149 @@ func TestInboundAttachmentAuthorization(t *testing.T) {
 		}
 		t.Run("history revoked after opening", func(t *testing.T) { check(t, handler, token, baseBot, group, http.StatusNotFound, 1) })
 	})
+}
+
+func TestReplayHistoryPreservesSignedMessageIDs(t *testing.T) {
+	pool := dbtest.Open(t)
+	ctx := context.Background()
+	svcCtx := testContext()
+	const token = "isolated-replay-fixture"
+	svcCtx.Config.Server.AdminToken = token
+	svcCtx.Config.Server.TrustedDecisionAudit = true
+	svcCtx.Accounts = svc.NewAccounts()
+	bot := time.Now().UnixMicro()
+	client := obapp.NewClientService(nil, time.Second, svcCtx.Logger)
+	if err := client.BindIdentity(obdomain.BotID(bot)); err != nil {
+		t.Fatal(err)
+	}
+	if err := svcCtx.Accounts.Add(svc.NewAccountConnection("fixture", bot, client)); err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := intentinfra.NewDecisionsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluations, err := intentinfra.NewReplayEvaluationsRepo(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svcCtx.Decisions = decisions
+	svcCtx.IntentReplayer = intentapp.NewReplayService(nil, nil, nil, evaluations)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	key := func(query string, args ...any) int64 {
+		t.Helper()
+		var id int64
+		if err := pool.QueryRow(ctx, query, args...).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	conv, other, otherBot := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	exec(`INSERT INTO bot_accounts(bot_id,nickname) VALUES ($1,'fixture'),($2,'fixture')`, bot, bot+1)
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM message_jobs WHERE incoming_message_id IN (SELECT id FROM messages WHERE bot_id IN ($1,$2))`, bot, bot+1); err != nil {
+			t.Error(err)
+		}
+		for _, table := range []string{"intent_replay_evaluations", "messages", "conversations", "scope_policies", "bot_accounts"} {
+			if _, err := pool.Exec(ctx, "DELETE FROM "+table+" WHERE bot_id IN ($1,$2)", bot, bot+1); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	exec(`INSERT INTO conversations(id,bot_id,kind,target_id) VALUES ($1,$4,'group',100),($2,$4,'group',101),($3,$5,'group',102)`, conv, other, otherBot, bot, bot+1)
+	exec(`INSERT INTO scope_policies(bot_id,scope_type,scope_id,enabled,store_messages,allow_history_read)
+		VALUES ($1,'group',100,true,true,true),($1,'group',101,true,true,true),($2,'group',102,true,true,true)`, bot, bot+1)
+	const current int64 = -9223372036854775808
+	incoming := key(`INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id)
+		VALUES ($1,$2,'incoming',$3,10) RETURNING id`, conv, bot, current)
+	exec(`INSERT INTO messages(conversation_id,bot_id,direction,platform_message_id,sender_id)
+		VALUES ($1,$4,'incoming',7,10),($1,$4,'incoming',-7,10),($1,$4,'incoming',0,10),($2,$4,'incoming',-8,10),($3,$5,'incoming',-9,10)`, conv, other, otherBot, bot, bot+1)
+	job := key(`INSERT INTO message_jobs(incoming_message_id,status) VALUES ($1,'done') RETURNING id`, incoming)
+	decision := key(`INSERT INTO intent_decisions(job_id,provider,decision,reason_code) VALUES ($1,'fixture','silent','fixture') RETURNING id`, job)
+	exec(`INSERT INTO intent_decision_steps(decision_id,step_index,phase,node_id) VALUES ($1,0,'context','context')`, decision)
+	setSnapshot := func(topic int64) {
+		t.Helper()
+		exec(`INSERT INTO intent_decision_snapshots(decision_id,snapshot_version,input,rule)
+		 VALUES ($1,'intent-decision-snapshot-v1',jsonb_build_object(
+		 'Task',jsonb_build_object('Message',jsonb_build_object('MessageID',$2::bigint)),
+		 'Recent',jsonb_build_array(jsonb_build_object('MessageID',7),jsonb_build_object('MessageID',-7)),
+		 'Topics',jsonb_build_object('Candidates',jsonb_build_array(jsonb_build_object('History',jsonb_build_array(jsonb_build_object('MessageID',$3::bigint)))))),
+		 '{"NeedSemantic":false}') ON CONFLICT(decision_id) DO UPDATE SET input=excluded.input`, decision, current, topic)
+	}
+	handler := New(svcCtx, svcCtx.Logger)
+	get := func(path string, expected int) json.RawMessage {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != expected {
+			t.Fatalf("status=%d want=%d: %s", rec.Code, expected, rec.Body.String())
+		}
+		var body struct{ Data json.RawMessage }
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		return body.Data
+	}
+	list := func(status, items int) {
+		t.Helper()
+		data := get(fmt.Sprintf("/api/v1/intent/replay-evaluations?decision_id=%d", decision), status)
+		if status != http.StatusOK {
+			return
+		}
+		var body struct{ Items []json.RawMessage }
+		if err := json.Unmarshal(data, &body); err != nil || body.Items == nil || len(body.Items) != items {
+			t.Fatalf("saved evaluations: want %d, got %s (%v)", items, data, err)
+		}
+	}
+	detail := func(want []int64) {
+		t.Helper()
+		data := get(fmt.Sprintf("/api/v1/intent/decisions/%d", decision), http.StatusOK)
+		var body struct {
+			Run struct {
+				Nodes []struct {
+					NodeID string
+					Detail struct{ Messages []struct{ MessageID int64 } }
+				}
+			}
+		}
+		if err := json.Unmarshal(data, &body); err != nil {
+			t.Fatal(err)
+		}
+		var ids []int64
+		for _, node := range body.Run.Nodes {
+			if node.NodeID == "context" {
+				for _, message := range node.Detail.Messages {
+					ids = append(ids, message.MessageID)
+				}
+			}
+		}
+		if !slices.Equal(ids, want) {
+			t.Fatalf("detail message IDs=%v want=%v", ids, want)
+		}
+	}
+	setSnapshot(-7)
+	list(http.StatusOK, 0)
+	detail([]int64{7, -7, current})
+	exec(`INSERT INTO intent_replay_evaluations(bot_id,decision_id,mode,name) VALUES ($1,$2,'recalculate','fixture')`, bot, decision)
+	list(http.StatusOK, 1)
+	setSnapshot(0)
+	list(http.StatusNotFound, 0)
+	setSnapshot(-8)
+	list(http.StatusNotFound, 0)
+	setSnapshot(-9)
+	list(http.StatusNotFound, 0)
+	setSnapshot(-7)
+	exec(`DELETE FROM messages WHERE bot_id=$1 AND conversation_id=$2 AND platform_message_id=-7`, bot, conv)
+	list(http.StatusNotFound, 0)
+	detail([]int64{7, current})
+	exec(`UPDATE scope_policies SET allow_history_read=false WHERE bot_id=$1`, bot)
+	list(http.StatusNotFound, 0)
+	detail(nil)
 }
