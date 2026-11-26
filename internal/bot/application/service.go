@@ -12,7 +12,9 @@ import (
 
 	botcontracts "github.com/HappyLadySauceM/Nagi/internal/bot/contracts"
 	botdomain "github.com/HappyLadySauceM/Nagi/internal/bot/domain"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 )
 
 // Dispatcher consumes events and routes them to handlers.
@@ -21,6 +23,7 @@ type Dispatcher struct {
 	src    EventSource
 	self   SelfIDReader
 	logger *slog.Logger
+	scopes scopecontracts.Authorizer
 
 	mu       sync.RWMutex
 	handlers []botcontracts.Handler
@@ -32,11 +35,37 @@ type Dispatcher struct {
 // identity. self may be nil; events then must carry their own self_id.
 // NewDispatcher 将分发器绑定到单条连接的事件源与身份；self 可为 nil，
 // 此时事件必须自带 self_id。
-func NewDispatcher(src EventSource, self SelfIDReader, logger *slog.Logger) *Dispatcher {
+func NewDispatcher(src EventSource, self SelfIDReader, scopes scopecontracts.Authorizer, logger *slog.Logger) *Dispatcher {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Dispatcher{src: src, self: self, logger: logger}
+	return &Dispatcher{src: src, self: self, scopes: scopes, logger: logger}
+}
+
+func (d *Dispatcher) admits(ctx context.Context, botID domain.BotID, route domain.Event) bool {
+	var kind string
+	var target int64
+	switch {
+	case route.IsMessage() && route.Type == domain.TypeGroup,
+		(route.NoticeType() == domain.NoticeGroupUpload || route.NoticeType() == "offline_file") && route.GroupID > 0:
+		kind, target = "group", int64(route.GroupID)
+	case route.IsMessage() && route.Type == domain.TypePrivate,
+		route.NoticeType() == "offline_file":
+		kind, target = "private", int64(route.UserID)
+	case route.IsMessage(), route.NoticeType() == domain.NoticeGroupUpload:
+		return false
+	default:
+		return true
+	}
+	if d.scopes == nil || botID <= 0 || target <= 0 {
+		return false
+	}
+	policy, err := scopecontracts.ResolveConversation(ctx, d.scopes, int64(botID), kind, target)
+	if err != nil {
+		d.logger.Warn("ingress scope lookup failed")
+		return false
+	}
+	return policy.Enabled
 }
 
 // accountOf resolves the originating account: the event's self_id wins because
@@ -94,19 +123,20 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case event, ok := <-events:
+		case frame, ok := <-events:
 			if !ok {
 				d.logger.Info("bot: event channel closed, dispatcher exiting")
 				return nil
 			}
-			d.dispatch(ctx, event)
+			d.dispatch(ctx, frame)
 		}
 	}
 }
 
 // dispatch matches handlers via the pure policy and invokes each in isolation.
 // dispatch 经纯策略匹配处理器，并逐个隔离调用。
-func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) {
+func (d *Dispatcher) dispatch(ctx context.Context, frame obcontracts.EventFrame) {
+	event := frame.Route
 	botID, known := d.accountOf(event)
 	if !known {
 		// Without an account identity the event cannot be isolated safely.
@@ -115,6 +145,18 @@ func (d *Dispatcher) dispatch(ctx context.Context, event domain.Event) {
 			"post_type", string(event.Post),
 			"message_type", string(event.Type))
 		return
+	}
+
+	if !d.admits(ctx, botID, event) {
+		return
+	}
+	if frame.Decode != nil {
+		var err error
+		event, err = frame.Decode()
+		if err != nil {
+			d.logger.Warn("onebot: event parse failed")
+			return
+		}
 	}
 
 	d.mu.RLock()

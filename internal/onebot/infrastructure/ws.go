@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	obapp "github.com/HappyLadySauceM/Nagi/internal/onebot/application"
+	obcontracts "github.com/HappyLadySauceM/Nagi/internal/onebot/contracts"
 	obdomain "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
 )
 
@@ -217,8 +218,9 @@ func isTimeoutError(err error) bool {
 // routeFrame 解复用帧：携带 echo 的动作响应与协议事件。
 func (t *Transport) routeFrame(data []byte) {
 	var probe struct {
-		Echo     string `json:"echo"`
-		PostType string `json:"post_type"`
+		wireRoute
+		Echo       string `json:"echo"`
+		NoticeType string `json:"notice_type"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
 		t.logger.Debug("onebot: ignore unparsable frame", "error", err)
@@ -228,12 +230,24 @@ func (t *Transport) routeFrame(data []byte) {
 	case probe.Echo != "":
 		t.responses.HandleResponse(probe.Echo, json.RawMessage(data))
 	case probe.PostType != "":
+		route := probe.wireRoute.event()
+		if route.IsMessage() || route.Post == obdomain.PostNotice &&
+			(probe.NoticeType == string(obdomain.NoticeGroupUpload) || probe.NoticeType == "offline_file") {
+			if !route.IsMessage() {
+				route.Extra = map[string]any{"notice_type": probe.NoticeType}
+			}
+			t.events.HandleEventFrame(obcontracts.EventFrame{
+				Route:  route,
+				Decode: func() (obdomain.Event, error) { return mapEvent(data) },
+			})
+			return
+		}
 		event, err := mapEvent(data)
 		if err != nil {
 			t.logger.Warn("onebot: event parse failed", "error", err)
 			return
 		}
-		t.events.HandleEvent(event)
+		t.events.HandleEventFrame(obcontracts.EventFrame{Route: event})
 	default:
 		t.logger.Debug("onebot: ignore unknown frame")
 	}
@@ -285,18 +299,29 @@ func encodeSegments(segments []obdomain.Segment) []map[string]any {
 	return obdomain.WireSegments(segments)
 }
 
+type wireRoute struct {
+	SelfID      int64  `json:"self_id"`
+	PostType    string `json:"post_type"`
+	MessageType string `json:"message_type"`
+	UserID      int64  `json:"user_id"`
+	GroupID     int64  `json:"group_id"`
+}
+
+func (r wireRoute) event() obdomain.Event {
+	return obdomain.Event{
+		SelfID: obdomain.BotID(r.SelfID), Post: obdomain.PostType(r.PostType), Type: obdomain.MessageType(r.MessageType),
+		UserID: obdomain.UserID(r.UserID), GroupID: obdomain.GroupID(r.GroupID),
+	}
+}
+
 type wireEvent struct {
-	Time        int64           `json:"time"`
-	SelfID      int64           `json:"self_id"`
-	PostType    string          `json:"post_type"`
-	MessageType string          `json:"message_type"`
-	SubType     string          `json:"sub_type"`
-	MessageID   int64           `json:"message_id"`
-	UserID      int64           `json:"user_id"`
-	GroupID     int64           `json:"group_id"`
-	RawMessage  string          `json:"raw_message"`
-	Message     json.RawMessage `json:"message"`
-	Sender      *wireSender     `json:"sender"`
+	wireRoute
+	Time       int64           `json:"time"`
+	SubType    string          `json:"sub_type"`
+	MessageID  int64           `json:"message_id"`
+	RawMessage string          `json:"raw_message"`
+	Message    json.RawMessage `json:"message"`
+	Sender     *wireSender     `json:"sender"`
 }
 
 type wireSender struct {
@@ -312,17 +337,11 @@ func mapEvent(data []byte) (obdomain.Event, error) {
 	if err := json.Unmarshal(data, &row); err != nil {
 		return obdomain.Event{}, err
 	}
-	event := obdomain.Event{
-		Time:       row.Time,
-		SelfID:     obdomain.BotID(row.SelfID),
-		Post:       obdomain.PostType(row.PostType),
-		Type:       obdomain.MessageType(row.MessageType),
-		SubType:    row.SubType,
-		MessageID:  obdomain.MessageID(row.MessageID),
-		UserID:     obdomain.UserID(row.UserID),
-		GroupID:    obdomain.GroupID(row.GroupID),
-		RawMessage: row.RawMessage,
-	}
+	event := row.wireRoute.event()
+	event.Time = row.Time
+	event.SubType = row.SubType
+	event.MessageID = obdomain.MessageID(row.MessageID)
+	event.RawMessage = row.RawMessage
 	if row.Sender != nil {
 		event.Sender = obdomain.Sender{
 			ID:       obdomain.UserID(row.Sender.UserID),

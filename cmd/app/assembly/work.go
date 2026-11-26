@@ -51,6 +51,7 @@ import (
 	pluginscontracts "github.com/HappyLadySauceM/Nagi/internal/plugins/contracts"
 	"github.com/HappyLadySauceM/Nagi/internal/plugins/infrastructure/builtin"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
+	scopecontracts "github.com/HappyLadySauceM/Nagi/internal/scope/contracts"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	scopeinfra "github.com/HappyLadySauceM/Nagi/internal/scope/infrastructure"
 	settingsapp "github.com/HappyLadySauceM/Nagi/internal/settings/application"
@@ -163,7 +164,6 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 		}, connLogger)
 		client := obapp.NewClientService(transport, cfg.Onebot.CallTimeout.D(), connLogger)
 		transport.Attach(client, client)
-		dispatcher := botapp.NewDispatcher(client, client, connLogger)
 		connection := svc.NewAccountConnection(endpoint.URL, endpoint.ExpectQQ, client)
 		if err := registry.Add(connection); err != nil {
 			return nil, err
@@ -173,7 +173,6 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 			ExpectedQQ: endpoint.ExpectQQ,
 			Transport:  transport,
 			Client:     client,
-			Dispatcher: dispatcher,
 			Connection: connection,
 		})
 	}
@@ -568,7 +567,12 @@ func Assemble(cfg *config.Config, logger *slog.Logger, pool *db.Pool, provider *
 	// Every connection shares the same handler set; the dispatcher supplies the
 	// account identity so handlers never infer it from global state.
 	// 所有连接共享同一套处理器；账号身份由分发器提供，处理器不推断全局状态。
+	var authorizer scopecontracts.Authorizer
+	if rt.Scope != nil {
+		authorizer = rt.Scope
+	}
 	for _, account := range accounts {
+		account.Dispatcher = botapp.NewDispatcher(account.Client, account.Client, authorizer, logger)
 		for _, handler := range handlers {
 			if err := account.Dispatcher.Register(handler); err != nil {
 				return nil, fmt.Errorf("register handler %s on %s: %w", handler.Name(), account.Endpoint, err)
