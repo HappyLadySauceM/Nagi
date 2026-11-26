@@ -7,12 +7,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/callbacks"
 	"time"
 
 	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/HappyLadySauceM/Nagi/internal/observability"
 	"github.com/HappyLadySauceM/Nagi/pkg/version"
@@ -23,15 +28,11 @@ import (
 // LangfuseConfig 配置回调。BaseURL 是 Langfuse 主机地址；
 // handler 自行拼接 OTLP 路径。
 type LangfuseConfig struct {
-	BaseURL     string
-	PublicKey   string
-	SecretKey   string
-	Environment string
-	Timeout     time.Duration
-	// RedactContent replaces every exported string value with a marker; used
-	// when raw content export is disabled so spans keep their shape and metrics.
-	// RedactContent 把每个导出的字符串值替换为标记；正文导出关闭时使用，
-	// 使 span 仍保留结构与指标。
+	BaseURL       string
+	PublicKey     string
+	SecretKey     string
+	Environment   string
+	Timeout       time.Duration
 	RedactContent bool
 }
 
@@ -43,7 +44,7 @@ const redactedValue = `{"redacted":true}`
 // returns nil when telemetry is unavailable so the reply path keeps working.
 // NewLangfuseHandler 在共享 Provider 上构建回调。遥测不可用时返回 nil，
 // 回复链路照常工作。
-func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, cfg LangfuseConfig) (*langfusecb.CallbackHandler, error) {
+func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, cfg LangfuseConfig) (*LangfuseHandler, error) {
 	if provider == nil {
 		return nil, nil
 	}
@@ -82,7 +83,7 @@ func NewLangfuseHandler(ctx context.Context, provider *sdktrace.TracerProvider, 
 	if err != nil {
 		return nil, fmt.Errorf("agent: build langfuse callback: %w", err)
 	}
-	return handler, nil
+	return &LangfuseHandler{CallbackHandler: handler, redactContent: cfg.RedactContent}, nil
 }
 
 // privateCallbackContext preserves cancellation while hiding its potentially private cause.
@@ -91,6 +92,73 @@ type privateCallbackContext struct{ context.Context }
 
 func (c privateCallbackContext) Value(key any) any {
 	return context.WithoutCancel(c.Context).Value(key)
+}
+
+type LangfuseHandler struct {
+	*langfusecb.CallbackHandler
+	redactContent bool
+}
+
+func (h *LangfuseHandler) OnStart(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
+	ctx = h.CallbackHandler.OnStart(ctx, info, input)
+	if h.redactContent && isChatGeneration(info) {
+		if in := model.ConvCallbackInput(input); in != nil && in.Config != nil {
+			setGenerationModel(trace.SpanFromContext(ctx), in.Config.Model)
+		}
+	}
+	return ctx
+}
+
+func (h *LangfuseHandler) OnEnd(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
+	if isChatGeneration(info) {
+		output = h.generationOutput(trace.SpanFromContext(ctx), output)
+	}
+	return h.CallbackHandler.OnEnd(ctx, info, output)
+}
+
+func (h *LangfuseHandler) OnEndWithStreamOutput(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[callbacks.CallbackOutput]) context.Context {
+	if isChatGeneration(info) && output != nil {
+		span := trace.SpanFromContext(ctx)
+		output = schema.StreamReaderWithConvert(output, func(chunk callbacks.CallbackOutput) (callbacks.CallbackOutput, error) {
+			return h.generationOutput(span, chunk), nil
+		})
+	}
+	return h.CallbackHandler.OnEndWithStreamOutput(ctx, info, output)
+}
+
+func isChatGeneration(info *callbacks.RunInfo) bool {
+	return info != nil && info.Component == components.ComponentOfChatModel
+}
+
+func setGenerationModel(span trace.Span, name string) {
+	if name != "" {
+		span.SetAttributes(attribute.String("langfuse.observation.model.name", observability.RedactString(name)))
+	}
+}
+
+func (h *LangfuseHandler) generationOutput(span trace.Span, output callbacks.CallbackOutput) callbacks.CallbackOutput {
+	out := model.ConvCallbackOutput(output)
+	if out == nil {
+		return output
+	}
+	var total int
+	if out.TokenUsage != nil {
+		total = out.TokenUsage.TotalTokens
+	} else if out.Message != nil && out.Message.ResponseMeta != nil && out.Message.ResponseMeta.Usage != nil {
+		total = out.Message.ResponseMeta.Usage.TotalTokens
+	}
+	if total > 0 {
+		span.SetAttributes(attribute.Int("gen_ai.usage.total_tokens", total))
+	}
+	if !h.redactContent || out.Config == nil || out.Config.Model == "" {
+		return output
+	}
+	config := *out.Config
+	setGenerationModel(span, config.Model)
+	config.Model = ""
+	withRedactedContent := *out
+	withRedactedContent.Config = &config
+	return &withRedactedContent
 }
 
 type privateErrorHandler struct{ callbacks.Handler }

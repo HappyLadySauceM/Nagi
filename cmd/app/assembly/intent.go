@@ -17,8 +17,6 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	langfusecb "github.com/cloudwego/eino-ext/callbacks/langfuse/v2"
-
 	svc "github.com/HappyLadySauceM/Nagi/cmd/app/svc"
 	agentapp "github.com/HappyLadySauceM/Nagi/internal/agent/application"
 	agentcontracts "github.com/HappyLadySauceM/Nagi/internal/agent/contracts"
@@ -339,7 +337,7 @@ func buildToolsResolver(settings *settingsapp.Provider, registry *pluginsapp.Reg
 // buildLangfuseCallback 在遥测开启时接入 Eino 回调。
 // 即使正文导出关闭，模型与工具 span 仍属于 trace：此时回调脱敏取值，
 // 而不是整体消失。
-func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sdktrace.TracerProvider) *langfusecb.CallbackHandler {
+func buildLangfuseCallback(cfg *config.Config, logger *slog.Logger, provider *sdktrace.TracerProvider) *einoinfra.LangfuseHandler {
 	// Generation may be switched on later from the console, so the callback is
 	// wired whenever telemetry is on; an idle callback costs nothing.
 	// 生成模型可能稍后在控制台开启，因此只要遥测开启就接入回调；
@@ -379,7 +377,7 @@ func buildReplyExecutor(cfg *config.Config, logger *slog.Logger, pool *db.Pool,
 	mediaService media.MessageReader,
 	attachments *conversationinfra.Repo,
 	scope *scopeapp.Service, conv *conversationapp.Service, memory memorycontracts.Reader, senders agentapp.SenderResolver,
-	handler *langfusecb.CallbackHandler, sensitiveHandler *langfusecb.CallbackHandler, ledger *outboundapp.Coordinator,
+	handler *einoinfra.LangfuseHandler, sensitiveHandler *einoinfra.LangfuseHandler, ledger *outboundapp.Coordinator,
 	limits func(ctx context.Context, botID int64, kind string, targetID int64) outbounddomain.Limits,
 	tools func(ctx context.Context, req agentcontracts.Request) []tool.BaseTool,
 ) (intentcontracts.ReplyExecutor, error) {
