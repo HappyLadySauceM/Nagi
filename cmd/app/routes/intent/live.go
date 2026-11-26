@@ -302,7 +302,7 @@ func (h *Handler) allowedHistorySources(ctx context.Context, record contracts.De
 	}
 	ids := make([]int64, 0, len(messages))
 	for _, message := range messages {
-		if id, ok := message["MessageID"].(int64); ok && id > 0 {
+		if id, ok := message["MessageID"].(int64); ok && id != 0 {
 			ids = append(ids, id)
 		}
 	}
