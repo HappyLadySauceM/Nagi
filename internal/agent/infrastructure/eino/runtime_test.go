@@ -17,6 +17,7 @@ import (
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/tool"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"net"
@@ -378,6 +379,125 @@ func TestSensitiveRuntimeFailureKeepsSafeGenerationTrace(t *testing.T) {
 	}
 	if !generation {
 		t.Fatal("generation observation missing")
+	}
+}
+
+func TestGenerationTelemetryPreservesModelAndUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		stream, redact, usage bool
+	}{
+		{"ordinary", false, false, true},
+		{"redacted", false, true, true},
+		{"streamed", true, true, true},
+		{"unknown", false, true, false},
+		{"streamed_unknown", true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			t.Cleanup(func() { _ = provider.Shutdown(ctx) })
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				var req struct {
+					Model         string `json:"model"`
+					Stream        bool   `json:"stream"`
+					StreamOptions struct {
+						IncludeUsage bool `json:"include_usage"`
+					} `json:"stream_options"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Model != "fixture-model" || req.Stream != tc.stream || (tc.stream && !req.StreamOptions.IncludeUsage) {
+					t.Errorf("unexpected model request: %+v, %v", req, err)
+					http.Error(w, "unexpected fixture request", http.StatusBadRequest)
+					return
+				}
+				const usage = `"usage":{"prompt_tokens":17,"completion_tokens":3,"total_tokens":20,"prompt_tokens_details":{"cached_tokens":6},"completion_tokens_details":{"reasoning_tokens":1}}`
+				if tc.stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(w, "data: {\"id\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"fixture-reply\"}}]}\n\n")
+					fmt.Fprint(w, "data: {\"id\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+					if tc.usage {
+						fmt.Fprintf(w, "data: {\"id\":\"fixture\",\"choices\":[],%s}\n\n", usage)
+					}
+					fmt.Fprint(w, "data: [DONE]\n\n")
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"id":"fixture","choices":[{"index":0,"message":{"role":"assistant","content":"fixture-reply"},"finish_reason":"stop"}]`)
+				if tc.usage {
+					fmt.Fprintf(w, ",%s", usage)
+				}
+				fmt.Fprint(w, "}")
+			}))
+			t.Cleanup(server.Close)
+			h, err := NewLangfuseHandler(ctx, provider, LangfuseConfig{BaseURL: server.URL, PublicKey: "fixture", SecretKey: "fixture", RedactContent: tc.redact})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var handler callbacks.Handler = h
+			if tc.redact {
+				handler = privateErrorHandler{h}
+			}
+			r, err := NewRuntime(ctx, Config{BaseURL: server.URL, APIKey: "fixture", Model: "fixture-model"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			info := &callbacks.RunInfo{Name: "fixture generation", Component: components.ComponentOfChatModel}
+			ctx = callbacks.InitCallbacks(ctx, info, handler)
+			in := []*schema.Message{schema.UserMessage("fixture-prompt")}
+			var msg *schema.Message
+			if tc.stream {
+				stream, err := r.model.Stream(ctx, in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				msg, err = drainStream(stream)
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				msg, err = r.model.Generate(ctx, in)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if msg == nil || msg.Content != "fixture-reply" || calls.Load() != 1 {
+				t.Fatalf("unexpected reply or calls: %v, %d", msg, calls.Load())
+			}
+			flushCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			if err := h.Shutdown(flushCtx); err != nil {
+				t.Fatal(err)
+			}
+			spans := recorder.Ended()
+			if len(spans) != 1 {
+				t.Fatalf("expected one model span, got %d", len(spans))
+			}
+			attrs := map[attribute.Key]attribute.Value{}
+			for _, a := range spans[0].Attributes() {
+				attrs[a.Key] = a.Value
+			}
+			if attrs["langfuse.observation.type"].AsString() != "generation" || attrs["langfuse.observation.model.name"].AsString() != "fixture-model" {
+				t.Fatalf("generation attributes = %v", attrs)
+			}
+			for key, want := range map[attribute.Key]int64{
+				"gen_ai.usage.input_tokens": 17, "gen_ai.usage.output_tokens": 3, "gen_ai.usage.total_tokens": 20,
+				"gen_ai.usage.cache_read.input_tokens": 6, "gen_ai.usage.reasoning.output_tokens": 1,
+			} {
+				if value, exists := attrs[key]; exists != tc.usage || exists && value.AsInt64() != want {
+					t.Errorf("usage %s = %v (exists %v), want %d (exists %v)", key, value, exists, want, tc.usage)
+				}
+			}
+			if tc.redact {
+				for _, key := range []attribute.Key{"langfuse.observation.input", "langfuse.observation.output"} {
+					if attrs[key].AsString() != redactedValue {
+						t.Errorf("%s was not redacted", key)
+					}
+				}
+			}
+		})
 	}
 }
 
