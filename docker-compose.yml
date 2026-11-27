@@ -1,100 +1,28 @@
-# 本地开发基础设施：PostgreSQL(pgvector) + Langfuse 自托管全栈。
-# postgres 只绑定本机回环，langfuse-web 监听所有网卡；minio 的 S3 API 发布到主机供媒体回放，
-# clickhouse / redis 仅在 compose 内网互通。所有默认口令都是本地开发值，可通过同名环境变量覆盖。
-# Local development infrastructure: PostgreSQL(pgvector) plus the full self-hosted
-# Langfuse stack. Postgres binds loopback only, langfuse-web listens on all
-# interfaces, minio publishes its S3 API for media replay, and the rest stay internal.
-
-x-langfuse-env: &langfuse-env
-  DATABASE_URL: postgresql://nagi:nagi-local@postgres:5432/langfuse
-  NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3010}
-  NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-nagi-local-nextauth-secret}
-  SALT: ${LANGFUSE_SALT:-nagi-local-salt}
-  # 必须为 64 位十六进制；更换后已加密数据无法解密
-  ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
-  TELEMETRY_ENABLED: "false"
-  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
-  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
-  CLICKHOUSE_URL: http://clickhouse:8123
-  CLICKHOUSE_USER: clickhouse
-  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
-  CLICKHOUSE_CLUSTER_ENABLED: "false"
-  REDIS_HOST: redis
-  REDIS_PORT: "6379"
-  REDIS_AUTH: ${REDIS_PASSWORD:-nagi-local-redis}
-  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
-  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
-  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
-  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
-  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
-  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
-  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
-  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
-  # MinIO 的 S3 API 发布到主机 9000 供预签名媒体回放；Langfuse 容器内部仍走服务名。
-  # The MinIO S3 API is published on host port 9000 for presigned media replay;
-  # containers keep using the service name internally.
-  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
-  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+# 本地集成测试与开发基础设施：PostgreSQL 18.6 + Redis + MinIO。
+# 业务库默认 nagi_v2（端口 5434）；db-init 幂等创建集成测试库 nagi_test。
+# Local stack for integration tests and dev: Postgres 18.6, Redis, MinIO on loopback where noted.
 
 services:
-  postgres17:
-    image: postgres:17
-    container_name: nagi-postgres17
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: nagi
-      POSTGRES_PASSWORD: nagi-local
-      POSTGRES_DB: nagi_ent
-    ports:
-      - "127.0.0.1:5434:5432"
-    volumes:
-      - nagi-pg17data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nagi -d nagi_ent"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  db17-init:
-    image: postgres:17
-    depends_on:
-      postgres17:
-        condition: service_healthy
-    environment:
-      PGPASSWORD: nagi-local
-    entrypoint: ["sh", "-c"]
-    command:
-      - |
-        psql -h postgres17 -U nagi -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='nagi_ent_test'" | grep -q 1 \
-          || createdb -h postgres17 -U nagi nagi_ent_test
-    restart: "no"
-
   postgres:
-    image: pgvector/pgvector:pg16
+    image: postgres:18.6
     container_name: nagi-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: nagi
       POSTGRES_PASSWORD: nagi-local
-      POSTGRES_DB: nagi
+      POSTGRES_DB: nagi_v2
     ports:
-      # 主机侧使用 5433，避免与本机默认 postgres 冲突
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - nagi-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nagi -d nagi"]
+      test: ["CMD-SHELL", "pg_isready -U nagi -d nagi_v2"]
       interval: 5s
       timeout: 3s
       retries: 20
 
-  # 现有数据卷不会重跑 docker-entrypoint-initdb.d，因此用一次性服务幂等建库。
   db-init:
-    image: pgvector/pgvector:pg16
+    image: postgres:18.6
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,28 +31,9 @@ services:
     entrypoint: ["sh", "-c"]
     command:
       - |
-        for db in langfuse; do
-          psql -h postgres -U nagi -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 \
-            || createdb -h postgres -U nagi "$$db";
-        done
+        psql -h postgres -U nagi -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='nagi_test'" | grep -q 1 \
+          || createdb -h postgres -U nagi nagi_test
     restart: "no"
-
-  clickhouse:
-    image: clickhouse/clickhouse-server:25.12
-    restart: unless-stopped
-    environment:
-      CLICKHOUSE_DB: default
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
-    volumes:
-      - langfuse-clickhouse-data:/var/lib/clickhouse
-      - langfuse-clickhouse-logs:/var/log/clickhouse-server
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 1s
 
   redis:
     image: redis:7
@@ -133,9 +42,9 @@ services:
       --requirepass ${REDIS_PASSWORD:-nagi-local-redis}
       --maxmemory-policy noeviction
     volumes:
-      - langfuse-redis-data:/data
+      - nagi-redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a nagi-local-redis ping | grep -q PONG"]
       interval: 3s
       timeout: 10s
       retries: 10
@@ -144,17 +53,15 @@ services:
     image: cgr.dev/chainguard/minio
     restart: unless-stopped
     entrypoint: sh
-    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    command: -c 'mkdir -p /data/minio && minio server --address ":9000" --console-address ":9001" /data'
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
-      # 新版 MinIO 以服务级配置处理 CORS；仅允许当前 Langfuse 入口读取预签名媒体。
-      MINIO_API_CORS_ALLOW_ORIGIN: ${LANGFUSE_EXTERNAL_MEDIA_ORIGIN:-http://100.100.100.4:3010}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${NAGI_MEDIA_CORS_ORIGIN:-http://127.0.0.1:5173}
     volumes:
-      - langfuse-minio-data:/data
+      - nagi-minio-data:/data
     ports:
-      # 仅暴露 S3 API，供 Langfuse 浏览器端读取预签名媒体；9001 管理台保持内网。
-      - "0.0.0.0:9000:9000"
+      - "127.0.0.1:9000:9000"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 1s
@@ -162,7 +69,6 @@ services:
       retries: 5
       start_period: 1s
 
-  # 初始化独立审计 bucket、最小权限用户及供 Langfuse 前端播放的精确 CORS 规则。
   minio-init:
     image: cgr.dev/chainguard/minio
     depends_on:
@@ -173,9 +79,6 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
       NAGI_MEDIA_ACCESS_KEY: ${NAGI_MEDIA_ACCESS_KEY:-nagi-audit-writer}
       NAGI_MEDIA_SECRET_KEY: ${NAGI_MEDIA_SECRET_KEY:-nagi-audit-local-secret}
-      LANGFUSE_MEDIA_ACCESS_KEY: ${LANGFUSE_MEDIA_ACCESS_KEY:-langfuse-audit-reader}
-      LANGFUSE_MEDIA_SECRET_KEY: ${LANGFUSE_MEDIA_SECRET_KEY:-langfuse-audit-local-secret}
-      LANGFUSE_EXTERNAL_MEDIA_ORIGIN: ${LANGFUSE_EXTERNAL_MEDIA_ORIGIN:-http://100.100.100.4:3010}
     entrypoint:
       - sh
       - -ec
@@ -184,66 +87,13 @@ services:
         mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing local/nagi-audit
         printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::nagi-audit/nagi/*"]},{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::nagi-audit"],"Condition":{"StringLike":{"s3:prefix":["nagi/*"]}}}]}' >/tmp/nagi-audit-write.json
-        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::nagi-audit/nagi/*"]},{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::nagi-audit"],"Condition":{"StringLike":{"s3:prefix":["nagi/*"]}}}]}' >/tmp/nagi-audit-read.json
         mc admin policy create local nagi-audit-write /tmp/nagi-audit-write.json || true
-        mc admin policy create local nagi-audit-read /tmp/nagi-audit-read.json || true
         mc admin user add local "$${NAGI_MEDIA_ACCESS_KEY}" "$${NAGI_MEDIA_SECRET_KEY}" || true
-        mc admin user add local "$${LANGFUSE_MEDIA_ACCESS_KEY}" "$${LANGFUSE_MEDIA_SECRET_KEY}" || true
         mc admin policy attach local nagi-audit-write --user "$${NAGI_MEDIA_ACCESS_KEY}"
-        mc admin policy attach local nagi-audit-read --user "$${LANGFUSE_MEDIA_ACCESS_KEY}"
     command: []
     restart: "no"
 
-  langfuse-worker:
-    image: docker.langfuse.com/langfuse/langfuse-worker:4
-    restart: unless-stopped
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
-      clickhouse:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-    environment: *langfuse-env
-
-  langfuse-web:
-    image: docker.langfuse.com/langfuse/langfuse:4
-    restart: unless-stopped
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
-      clickhouse:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-    ports:
-      # 3000 已被 SnowLuma 的 HTTP OneBot 占用；监听所有网卡便于局域网访问
-      - "0.0.0.0:3010:3000"
-    environment:
-      <<: *langfuse-env
-      # 首次启动自动创建组织、项目与 API Key，本地开发免手工初始化
-      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-nagi}
-      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-Nagi Local}
-      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-nagi}
-      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-Nagi}
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-pk-lf-nagi-local}
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-sk-lf-nagi-local}
-      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@nagi.local}
-      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-admin}
-      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-nagi-local-2026}
-
 volumes:
-  nagi-pg17data:
   nagi-pgdata:
-  langfuse-clickhouse-data:
-  langfuse-clickhouse-logs:
-  langfuse-redis-data:
-  langfuse-minio-data:
+  nagi-redis-data:
+  nagi-minio-data:
