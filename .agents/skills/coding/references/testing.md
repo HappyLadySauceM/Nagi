@@ -98,9 +98,9 @@ Application 单测 **不替代** Repository 真库测：Fake 只验证编排与�
 | HTTP API | routes、middleware | `httptest` | — |
 
 合并与发布前：**`just verify` + `just verify-repo`** 均应通过；CI **`verify` workflow** 另跑
-**`just verify-security`**。FFmpeg/Ark 等见 `just verify-integration`。镜像构建仅在 **`main`** 上由
-`verify` 成功后的 `workflow_run` 触发 **`build-images`**（构建 job 内会再跑一轮相同门禁后再编译）；
-非 `main` 分支不跑构建 CI。
+**`just verify-security`**。FFmpeg/Ark 等见 `just verify-integration`。**`main` push** 在同一
+`verify` workflow 内串联 `verify` → `compile` → `release`；手动重打镜像用 **`build-images`**
+（仅 `workflow_dispatch`，不跑校验）。PR 与非 `main` 分支不构建镜像。
 
 ## 验证与撤销
 

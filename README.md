@@ -347,16 +347,14 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   `GOTOOLCHAIN=auto` 与 `go.mod`（1.27.4）对齐。另含 Node 24.22.1、pnpm 12.14.0 等。
   在新节点加入 builder 池前准备同版本的目录和缓存。升级时先在各节点安装由 root 管理的新版本目录，
   用相同 Ubuntu 底镜以 UID 1001 验证，再更新 ARC 和 workflow 的挂载路径。
-- CI 拆为两条 workflow：**[`verify`](.github/workflows/verify.yml)**（PR / `main` push）与
-  **[`build-images`](.github/workflows/build-images.yml)**（仅 `main`）。特性分支与 PR **只跑 verify**；
-  `build-images` 在编译发布前会再跑一轮与 `verify` 相同的门禁（`workflow_run` 链路与手动 `workflow_dispatch`），
-  不在 CI 内构建或试打包镜像；Dockerfile 问题请在本地 `docker build` 或 merge 后观察 `main` 构建。
+- CI：**[`verify`](.github/workflows/verify.yml)** 负责 PR 与 `main` push 的门禁；**`main` push** 在同一 run
+  内继续 `compile` → `release`（编译产物与镜像发布）。**[`build-images`](.github/workflows/build-images.yml)**
+  仅 `workflow_dispatch`，用于在 `main` 上跳过校验、手工重打镜像。特性分支与 PR **只跑** `verify` job。
 - PR 校验复用宿主机 `/opt/arc-runner/nagi/cache/verify` 的 Go 模块、Go 编译缓存和 pnpm store；
-  `main` 上使用作业内临时缓存。镜像流水线在 `verify` 于 `main` **成功结束后**由 `workflow_run` 触发
-  `build-images`（也可在 `main` 上手动 `workflow_dispatch`）。
+  `main` 上使用作业内临时缓存。
 - Go 门禁：`just verify`、`just verify-repo`、`just verify-security`（`NAGI_CI_TEST_DSN` → CNPG `nagi_test`）。
-- **分支保护**应把必需检查绑在 **`verify` workflow** 的 `verify` job；`build-images` 不要求挡住 PR 合并。
-- `main` 上 `build-images` **每次**编译 `web/dist` 与 API 二进制并上传 artifact，再经 Dockerfile
+- **分支保护**应把必需检查绑在 **`verify` workflow** 的 `verify` job；`compile`/`release` 不挡 PR 合并。
+- `main` 上 `compile` **每次**产出 `web/dist` 与 API 二进制并上传 artifact，再经 Dockerfile
   `package-only` 发布两端镜像；BuildKit 检查 API 版本与 nginx 配置。PR **不**按路径缩量，固定全量跑 `verify`。
 - 镜像先发布到 GHCR 的公开容器包。流水线核对包的仓库关联、标签、摘要和匿名访问，并在运行摘要列出版本链接。
   待发布的镜像按摘要同步到 Zot 后签名，再发布供 Image Updater 使用的标签。
