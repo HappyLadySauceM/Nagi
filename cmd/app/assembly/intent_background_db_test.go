@@ -251,9 +251,10 @@ func TestFixedIntentRejectsWholeResponseViolations(t *testing.T) {
 				in.FixedBackground = true
 				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "not_allowed"}
 				out, err := router.Decide(context.Background(), in)
-				if err == nil || requests.Load() < 1 || requests.Load() > 2 ||
+				if requests.Load() < 1 || requests.Load() > 2 ||
 					out.ExternalRequests < 1 || out.ExternalRequests > 2 ||
-					len(out.Attempts) != out.ExternalRequests || out.Usage.InputResponses != 0 {
+					len(out.Attempts) != out.ExternalRequests || out.Usage.InputResponses != 0 ||
+					out.Available || (err == nil && out.BackgroundFailure == "") {
 					t.Fatalf("requests=%d result=%+v err=%v", requests.Load(), out, err)
 				}
 				for i := range out.Attempts {

@@ -60,7 +60,7 @@ func TestHAP52MemoryVisibilityAtGeneration(t *testing.T) {
 	service.SetReadPolicies(scopes)
 	const bot, otherBot int64 = 982502, 982503
 	const groupA, groupB, groupC int64 = 982511, 982512, 982513
-	if _, err := pool.Exec(ctx, `INSERT INTO bot_accounts(bot_id,nickname) VALUES ($1,'gold-a'),($2,'gold-b')`, bot, otherBot); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO bot_accounts(bot_id,nickname) VALUES ($1,'gold-a'),($2,'gold-b') ON CONFLICT DO NOTHING`, bot, otherBot); err != nil {
 		t.Fatal(err)
 	}
 	type scopeKey struct {
