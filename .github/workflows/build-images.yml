@@ -17,7 +17,7 @@ permissions:
 env:
   ZOT: zot.infra-registry.svc.cluster.local:5000
   CGO_ENABLED: "0"
-  GOTOOLCHAIN: auto
+  GOTOOLCHAIN: local
   GOPROXY: https://goproxy.cn,direct
   NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
   DOCKER_BUILD_RECORD_UPLOAD: "false"

@@ -15,7 +15,7 @@
 
 | 依赖 | 说明 |
 | --- | --- |
-| Go 1.27.4+ | `go.mod` 要求 1.27.4；CI/本地可用 `GOTOOLCHAIN=auto` 拉取补丁工具链 |
+| Go 1.27.4+ | `go.mod` 要求 1.27.4；CI 节点 `/opt/arc-runner/nagi/toolchains/v1` 须挂载 **Go 1.27.4**，`GOTOOLCHAIN=local` |
 | SnowLuma | 已登录目标 QQ 账号，并在 WebUI 中配置 OneBot v11 **正向 WS 服务端** |
 | Docker + Compose | `just test-infra-up` 或 `docker compose up -d` 启动 PostgreSQL **18.6**、Redis、MinIO |
 | PostgreSQL（可选） | 未配置 DSN 时仍可连接 OneBot 并提供状态接口，群聊和私聊入站默认拒绝 |
@@ -343,8 +343,8 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   注意本地示例用 Docker Hub 的对应镜像替代 Zot 基础镜像（如 `golang:1.27-alpine` 对应
   `infrastructure/golang:1.27`），产物不保证与 CI 逐字节一致。
 - CI 在 Zot 的 Ubuntu 24.04 底镜中运行，从 ARC 节点的 `/opt/arc-runner/nagi/toolchains/v1` 只读挂载工具。
-  节点工具链建议 Go **1.27.4**（`go.mod` 与 `verify-security` 标准库修复）；workflow 使用 `GOTOOLCHAIN=auto`
-  在补丁未装齐时可自动拉取。另含 Node 24.22.1、pnpm 12.14.0、just 1.59.0 等。
+  节点工具链须含 Go **1.27.4**（自 1.27.3 升级，满足 `go.mod` 与 `verify-security`）；workflow 固定
+  `GOTOOLCHAIN=local`，不在 CI 内下载工具链。另含 Node 24.22.1、pnpm 12.14.0、just 1.59.0 等。
   在新节点加入 builder 池前准备同版本的目录和缓存。升级时先在各节点安装由 root 管理的新版本目录，
   用相同 Ubuntu 底镜以 UID 1001 验证，再更新 ARC 和 workflow 的挂载路径。
 - CI 拆为两条 workflow：**[`verify`](.github/workflows/verify.yml)**（PR / `main` push）与
