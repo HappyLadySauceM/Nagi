@@ -15,14 +15,22 @@
 用户当前明确要求决定任务范围。技能用于约束实现质量与改动范围，不构成增加功能、
 修改无关文件或扩大执行权限的授权。
 
-每次完成编码相关任务后，执行 `just verify`（依次运行 `go mod tidy`、`go vet ./...`、
-`go test ./...`、`go fmt ./...`；未安装 just 时直接依次运行这四条命令）。
+每次完成编码相关任务后执行 **`just verify`**（Fast Tier：无 PostgreSQL）。改 **Repository / 迁移**
+时追加 **`just verify-repo`**（真库 integration，PR/CI 必需）。带 `dbtest.Open` 的文件为
+`//go:build integration`；Application 用 `internal/testsupport` Fake，**不**用 Fake 代替仓储真库测。
+FFmpeg/Ark/真实模型见 `just verify-integration`。详见
+[测试金字塔](.agents/skills/coding/references/testing.md#测试金字塔nagi-版)与
+[外部依赖分类](.agents/skills/coding/references/testing.md#外部依赖分类)。
 
 需要本地后端和前端时执行 `just run`（后台启动两者，compose 未启动时先拉起；PID 与日志写入
 `.run/`；后端默认 `127.0.0.1:5080`，前端默认 `127.0.0.1:5173`）。本次任务用 `just run` 拉起、
 且不再需要时，执行 `just exit` 停止。启动前已经在跑的服务不要停。
 
 ## 功能模块完成后验证并提交
+
+**`git push` 之前**（含更新已有 PR）：凡改动 `*.go`、`go.mod`、`go.sum` 或影响 Go 构建的文件，必须先在本机通过
+**`just verify`**；改仓储/SQL 时追加 **`just verify-repo`**；与 CI 一致时再跑 **`just verify-security`**。
+未跑上述检查不得推送。
 
 一个功能模块的实现和必要验证完成后，核对差异只包含这个模块，再按 git 技能提交到当前任务分支。
 用户明确说先不要提交时，只报告检查结果。

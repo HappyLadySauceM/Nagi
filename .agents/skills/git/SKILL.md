@@ -55,6 +55,8 @@ description: 在 Nagi 仓库提交、改写提交（amend/rebase/squash/cherry-p
 - 格式化、重命名与行为改动分开提交，便于核对实际行为变化。
 - 不提交调试输出、临时文件、生成物、密钥、本地配置或 WIP 中间态。
 - 功能改动提交前完成 [功能交付验证](../coding/references/testing.md#功能交付验证)。
+- **`git push` 前**（Go 相关 diff）：本地已通过 `just verify`；改仓储/SQL 另跑 `just verify-repo`；
+  与 `verify` workflow 对齐时跑 `just verify-security`。未通过不得推送。
 
 ## 分支与 PR
 

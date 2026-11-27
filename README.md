@@ -15,24 +15,23 @@
 
 | 依赖 | 说明 |
 | --- | --- |
-| Go 1.26+ | `go.mod` 声明最低 1.26.0，本地可用更高补丁版（当前用 1.27.x 构建） |
+| Go 1.27.4+ | `go.mod` 要求 1.27.4；CI 使用 `GOTOOLCHAIN=auto` 按需拉取补丁工具链 |
 | SnowLuma | 已登录目标 QQ 账号，并在 WebUI 中配置 OneBot v11 **正向 WS 服务端** |
-| Docker + Compose | `docker compose up -d` 启动 PostgreSQL 17 业务库、保留的 PostgreSQL 16 与 Langfuse 全栈 |
-| PostgreSQL 17（业务库，可选） | 未配置 DSN 时仍可连接 OneBot 并提供状态接口，群聊和私聊入站默认拒绝 |
+| Docker + Compose | `just test-infra-up` 或 `docker compose up -d` 启动 PostgreSQL **18.6**、Redis、MinIO |
+| PostgreSQL（可选） | 未配置 DSN 时仍可连接 OneBot 并提供状态接口，群聊和私聊入站默认拒绝 |
 
 ## 快速开始
 
 ```bash
-# 1. 启动基础设施：PostgreSQL(pgvector) + Langfuse 全栈
-#    首次拉取较慢；db-init 创建 langfuse，db17-init 创建隔离的 nagi_ent_test 库
-docker compose up -d
+# 1. 启动基础设施：PostgreSQL 18.6 + Redis + MinIO（db-init 幂等创建 nagi_test）
+just test-infra-up
 
 # 2. 生成本地配置（已 gitignore）
 just init-config
 
 # 3. 填写 configs/config.yaml（所有值都直接写在这个文件里）
 #    onebot.endpoints[]：每项一个 SnowLuma OneBot 实例，含 access-token；账号身份启动后自动识别
-#    database.dsn：postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent?sslmode=disable
+#    database.dsn：postgres://nagi:nagi-local@127.0.0.1:5434/nagi_v2?sslmode=disable
 #    ai.api-key：LLM 密钥（ai.enabled=true 时必填）
 #    intent.api-key：Jev 密钥（留空则降级为仅响应 @/引用）
 #    observability.{base-url,public-key,secret-key}：Langfuse 地址与项目凭据
@@ -161,9 +160,8 @@ curl -s -X PUT "http://$BOT/api/v1/scopes/group/123456789?bot_id=10001" \
 
 ## Langfuse 追踪
 
-`docker compose up -d` 会在 <http://127.0.0.1:3010> 拉起 Langfuse，并自动创建组织、项目与 API Key
-（默认 `pk-lf-nagi-local` / `sk-lf-nagi-local`；登录账号 `admin@nagi.local`，密码
-`nagi-local-2026`，可用 `LANGFUSE_INIT_*` 覆盖）。开启导出只需在 `configs/config.yaml` 填写：
+本地 `docker compose` 仅包含 PostgreSQL、Redis、MinIO；Langfuse 需使用自有实例（云或自建）。
+在 `configs/config.yaml` 填写项目凭据后即可开启导出，例如：
 
 ```yaml
 observability:
@@ -279,37 +277,37 @@ ASR 通过 WebSocket 上传服务器持有的音频，TTS 通过 HTTP 合成，�
 
 ## 本地开发环境
 
-`scripts/dev-env.sh` 封装本地 compose 的初始化、状态与清理（也可用 `just` 调用）：
-
 | 命令 | 作用 |
 | --- | --- |
-| `just dev-init` | `docker compose up -d` 并等待 PostgreSQL 就绪；`configs/config.yaml` 缺失时从示例生成，写入随机 `user-id-secret`、`environment: local`，并开启正文与原始 QQ 导出（仅限本地） |
-| `just run` | 后台启动后端与前端（compose 未启动时先拉起）；PID 与日志写入 `.run/` |
-| `just exit` | 停止 `just run` 启动的后端与前端（也可用 `scripts/dev-env.sh stop`） |
-| `just dev-status` | 查看业务表行数、任务状态、ClickHouse 追踪计数与运行中的进程 |
-| `just dev-clean` | 清理开发数据；默认 dry-run，只打印计划 |
-
-`just dev-clean --yes` 会清空 `messages`、`message_jobs`、`conversations`、`intent_decisions`、`memories`、
-`admin_audit_logs`，以及 ClickHouse 的 `events_core/events_full/observations*/traces/scores/analytics_*`
-和 Redis 中的 OTel ingestion 队列；默认保留 `scope_policies`、`bot_accounts`、目录缓存、`schema_migrations`
-与 Langfuse 的登录/API Key。`--with-scopes` 额外清空作用域与目录缓存（回到默认拒绝）；
-`--reset-volumes` 执行 `docker compose down -v`，连 Langfuse 登录与 API Key 一起重建。
-加 `--force` 时先停止后端与前端，清理完成后自动重新启动；不加时若服务仍在运行则拒绝并提示先 `just exit`。
-前端只管理 `web/` 的 `pnpm dev`（默认 127.0.0.1:5173），不安装依赖、不构建产物。
+| `just test-infra-up` | `docker compose up -d postgres db-init redis minio minio-init --wait` |
+| `just test-infra-down` | 停止 compose 栈 |
+| `just dev-init` | `test-infra-up` + `init-config` |
+| `just run` | 拉起 compose 后后台启动后端与前端；PID 与日志在 `.run/` |
+| `just exit` | 停止 `just run` 启动的后端与前端 |
 
 ## 验证
 
 ```bash
-just verify   # go mod tidy + vet + test + fmt
-
-# 数据库集成测试必须指向独立测试库（db17-init 已创建 nagi_ent_test）
-NAGI_TEST_DSN="postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent_test?sslmode=disable" go test ./...
+just verify              # Fast Tier：Application/Handler，不连 PostgreSQL
+just verify-repo         # Repository Tier：本地自动 test-infra-up；CI 用 CNPG nagi_test
+just verify-integration  # Live：全量 integration，含 FFmpeg/Ark/真实模型（可 Skip）
+just verify-race         # 全仓 -race（耗时，并发改动时按需）
+just verify-cover        # 覆盖率报告（基线用，非硬性门槛）
+just verify-security     # govulncheck
 ```
 
-> 迁移往返测试会 `drop` 所有表。绝不把 `NAGI_TEST_DSN` 指向 `nagi` 库——跑一次就会清空会话、
-> 消息、作用域与记忆数据。
+本地 `verify-repo`（未设 `NAGI_TEST_DSN` 时会自动 `just test-infra-up` 并连 `nagi_test`）：
 
-并发相关改动建议追加 `go test -race ./...`。
+```bash
+just verify-repo
+```
+
+CI 使用仓库 secret **`NAGI_CI_TEST_DSN`**，形如
+`postgresql://<user>:<pass>@postgresql-rw.dev-cnpg.svc:5432/nagi_test?sslmode=disable`（读写端点，库 **`nagi_test`**，不在 workflow 内起 PG 容器）。
+
+> 迁移往返测试会 `drop` 测试库表。集成测试请只用 `nagi_test`；业务库为 `nagi_v2`。
+
+细节见 [.agents/skills/coding/references/testing.md](.agents/skills/coding/references/testing.md#测试金字塔nagi-版)。
 
 ## 目录结构
 
@@ -345,14 +343,20 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   注意本地示例用 Docker Hub 的对应镜像替代 Zot 基础镜像（如 `golang:1.27-alpine` 对应
   `infrastructure/golang:1.27`），产物不保证与 CI 逐字节一致。
 - CI 在 Zot 的 Ubuntu 24.04 底镜中运行，从 ARC 节点的 `/opt/arc-runner/nagi/toolchains/v1` 只读挂载工具。
-  节点工具链包含 Go 1.27.3、Node 24.22.1、pnpm 12.14.0、just 1.59.0、Git、FFmpeg、CA 和发布命令。
+  节点挂载 `/opt/arc-runner/nagi/toolchains/v1` 提供 just/pnpm 等；Go 版本由 workflow 的
+  `GOTOOLCHAIN=auto` 与 `go.mod`（1.27.4）对齐。另含 Node 24.22.1、pnpm 12.14.0 等。
   在新节点加入 builder 池前准备同版本的目录和缓存。升级时先在各节点安装由 root 管理的新版本目录，
   用相同 Ubuntu 底镜以 UID 1001 验证，再更新 ARC 和 workflow 的挂载路径。
-- PR 校验复用宿主机 `/opt/arc-runner/nagi/cache/verify` 的 Go 模块、Go 编译缓存和 pnpm store。
-  `main` 校验使用作业内临时缓存，按改动生成 `web/dist` 或 API 二进制。发布作业从当前运行下载这些产物并交给
-  Dockerfile 的 `package-only` 目标。BuildKit 在打包时检查 API 版本和 nginx 配置。
-- `verify` 是 `main` 的必需检查。PR 和 `main` 都按改动校验，测试文件仅触发校验。
-  仓库内 PR 改动镜像或流水线配置时会试打包。仅流水线改动的 `main` 推送运行校验，手动运行可发布两端。
+- CI 拆为两条 workflow：**[`verify`](.github/workflows/verify.yml)**（PR / `main` push）与
+  **[`build-images`](.github/workflows/build-images.yml)**（仅 `main`）。特性分支与 PR **只跑 verify**，
+  不在 CI 内构建或试打包镜像；Dockerfile 问题请在本地 `docker build` 或 merge 后观察 `main` 构建。
+- PR 校验复用宿主机 `/opt/arc-runner/nagi/cache/verify` 的 Go 模块、Go 编译缓存和 pnpm store；
+  `main` 上使用作业内临时缓存。镜像流水线在 `verify` 于 `main` **成功结束后**由 `workflow_run` 触发
+  `build-images`（也可在 `main` 上手动 `workflow_dispatch`）。
+- Go 门禁：`just verify`、`just verify-repo`、`just verify-security`（`NAGI_CI_TEST_DSN` → CNPG `nagi_test`）。
+- **分支保护**应把必需检查绑在 **`verify` workflow** 的 `verify` job；`build-images` 不要求挡住 PR 合并。
+- `main` 上 `build-images` **每次**编译 `web/dist` 与 API 二进制并上传 artifact，再经 Dockerfile
+  `package-only` 发布两端镜像；BuildKit 检查 API 版本与 nginx 配置。PR **不**按路径缩量，固定全量跑 `verify`。
 - 镜像先发布到 GHCR 的公开容器包。流水线核对包的仓库关联、标签、摘要和匿名访问，并在运行摘要列出版本链接。
   待发布的镜像按摘要同步到 Zot 后签名，再发布供 Image Updater 使用的标签。
 - 签名只打在 Zot 的镜像引用上（`cosign sign .../zot...@digest`），ghcr 上的同 digest 副本没有签名，
@@ -376,11 +380,11 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
 
 ```bash
 go generate ./pkg/db
-python3 scripts/database.py check
-python3 scripts/database.py generate --name add_example_field
-python3 scripts/database.py validate
-python3 scripts/database.py lint
-python3 scripts/database.py diff
+python3 pkg/db/tooling/database.py check
+python3 pkg/db/tooling/database.py generate --name add_example_field
+python3 pkg/db/tooling/database.py validate
+python3 pkg/db/tooling/database.py lint
+python3 pkg/db/tooling/database.py diff
 ```
 
 生成命令只写 up/down 和校验文件，不连接业务运行库；Atlas dev database 固定为独立的
@@ -393,7 +397,7 @@ DROP、重命名、类型收窄、非空要求及数据修复。`lint` 现在运
 评审后使用错误信息给出的 `--reviewed-up 文件名:SHA256` 显式指定该版本；文件内容变化后
 原标记失效。该参数只记录调用者明确评审的内容，不代表工具验证了评审人身份。
 down SQL 是人工回滚材料，参与摘要校验和测试库往返，不作为日常 up 的自动安全放行依据。
-修改已生成但尚未交付的 SQL 后，执行 `python3 scripts/database.py hash` 更新校验文件。
+修改已生成但尚未交付的 SQL 后，执行 `python3 pkg/db/tooling/database.py hash` 更新校验文件。
 `atlas.sum` 校验 up 链，`checksums.json` 补充校验 up/down 全部 SQL。
 
 表、字段、外键、CHECK、常规和可表达的部分索引由 Ent schema 维护。
@@ -404,9 +408,9 @@ SQL 所有者、完整定义、精确排除项和专项校验。数据修复由�
 首次初始化本地**空的**新库：
 
 ```bash
-docker compose up -d postgres17 db17-init
-# 先校验、评审初始 SQL；仅对空 nagi_ent 执行一次。
-docker exec -i nagi-postgres17 psql -U nagi -d nagi_ent -v ON_ERROR_STOP=1 -1 \
+just test-infra-up
+# 先校验、评审初始 SQL；仅对空 nagi_v2 执行一次。
+docker exec -i nagi-postgres psql -U nagi -d nagi_v2 -v ON_ERROR_STOP=1 -1 \
   < pkg/db/migrations/nagi/20261031051405_initial.up.sql
 ```
 
@@ -416,7 +420,7 @@ docker exec -i nagi-postgres17 psql -U nagi -d nagi_ent -v ON_ERROR_STOP=1 -1 \
 初始 down 会删除业务数据，需明确评审并以备份作为数据恢复来源。
 
 本次使用新库切换，不迁移旧数据。停旧入口与 worker，等待在途发送结束并人工核对 unknown 后，
-将新版本 DSN 改为 PG17 的 `nagi_ent`；旧 PG16 数据卷保留，旧 pending 任务不再消费。
+将 `database.dsn` 指向 compose 的 `nagi_v2`（`127.0.0.1:5434`）；集成测试使用 `nagi_test`。
 新库开始接收数据或发送消息后，回退必须停机核对两库状态，禁止直接启动旧库消费冻结任务。
 应用启动日志中的 `migration_version` 是已检查的版本，不表示应用执行了迁移。
 
