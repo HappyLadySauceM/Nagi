@@ -1,3 +1,5 @@
+//go:build integration
+
 package infrastructure
 
 import (
@@ -7,7 +9,6 @@ import (
 	audit "github.com/HappyLadySauceM/Nagi/internal/audit/contracts"
 	auditdomain "github.com/HappyLadySauceM/Nagi/internal/audit/domain"
 	auditpg "github.com/HappyLadySauceM/Nagi/internal/audit/infrastructure"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -20,11 +21,7 @@ import (
 
 func TestClaimsSerializeConversationAcrossPools(t *testing.T) {
 	pool := dbtest.Open(t)
-	dsn := os.Getenv("NAGI_TEST_DSN")
-	if dsn == "" {
-		t.Skip("explicit isolated NAGI_TEST_DSN required for second-pool test")
-	}
-	other, err := db.Connect(context.Background(), dsn, 4)
+	other, err := db.Connect(context.Background(), dbtest.DSN(t), 4)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,3 +1,5 @@
+//go:build integration
+
 package infrastructure
 
 import (
@@ -10,17 +12,6 @@ import (
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	"github.com/HappyLadySauceM/Nagi/pkg/config"
 )
-
-type staticModelResolver struct {
-	profile models.Profile
-	apiKey  string
-}
-
-func (r staticModelResolver) ResolveModel(context.Context, string, int64, string, int64) (models.Resolved, error) {
-	return models.Resolved{Profile: r.profile, APIKey: r.apiKey}, nil
-}
-
-func (r staticModelResolver) BilibiliCredential(context.Context) (string, error) { return "", nil }
 
 // realModelExtractorFromConfig builds the real model extractor from NAGI_CONFIG.
 // The caller must gate the test on NAGI_REAL_MODEL and keep credentials out of logs.

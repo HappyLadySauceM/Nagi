@@ -1,3 +1,5 @@
+//go:build integration
+
 package assembly
 
 import (
@@ -123,11 +125,7 @@ func (l consentInterruptLedger) Reserve(ctx context.Context, req outboundapp.Req
 func TestHAP52BConsentEntryAndDisclosure(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.Open(t)
-	dsn := os.Getenv("NAGI_TEST_DSN")
-	if !strings.Contains(dsn, "_test?") {
-		t.Skip("requires explicit isolated test DSN for second pool")
-	}
-	second, err := db.Connect(ctx, dsn, 4)
+	second, err := db.Connect(ctx, dbtest.DSN(t), 4)
 	if err != nil {
 		t.Fatal(err)
 	}

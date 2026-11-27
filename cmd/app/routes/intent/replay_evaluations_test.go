@@ -1,3 +1,5 @@
+//go:build integration
+
 // HTTP tests for replay evaluation routes and mandatory confirmation.
 // 回放评估路由与强制确认的 HTTP 测试。
 package intent

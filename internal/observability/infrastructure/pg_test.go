@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration test for the stats repository, gated by NAGI_TEST_DSN.
 // 统计仓库的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure

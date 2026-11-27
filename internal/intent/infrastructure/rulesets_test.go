@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration tests for ruleset question persistence, gated by NAGI_TEST_DSN.
 // 规则集问题集持久化的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure

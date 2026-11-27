@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration tests for the PostgreSQL delivery ledger, gated by NAGI_TEST_DSN.
 // PostgreSQL 投递台账的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure

@@ -1,3 +1,5 @@
+//go:build integration
+
 // Tests for the decision log endpoints.
 // 决策记录接口的测试。
 package intent

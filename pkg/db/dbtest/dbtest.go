@@ -1,19 +1,14 @@
-// Package dbtest opens a migration-ready database for integration tests.
-// dbtest 包为集成测试打开已完成迁移的数据库。
-//
-// The integration suite drops and recreates every table, so the DSN is always
-// forced onto a "_test" database: the base DSN comes from NAGI_TEST_DSN or,
-// when that is empty, from `database.dsn` in the user config file. Even when the
-// base points at the live database (…/nagi), the tests run against …/nagi_test.
-// 集成测试会删除并重建全部表，因此 DSN 始终落到 "_test" 库：基准 DSN 取自
-// NAGI_TEST_DSN，未设置时取用户配置中的 database.dsn。即使基准指向正式库
-// （…/nagi），实际执行的也是 …/nagi_test。
+// Package dbtest helpers for Repository-tier PostgreSQL tests behind
+// `//go:build integration`, run via just verify-repo with NAGI_TEST_DSN.
+// Default `go test ./...` does not connect; application tests use testsupport fakes.
+// dbtest 包仅为带 `//go:build integration` 的旧式 PostgreSQL 集成测试提供辅助；
+// 默认 `go test ./...` 使用 internal/testsupport 的仓库 mock，不连接 DSN、
+// 配置或嵌入式数据库。
 package dbtest
 
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -22,21 +17,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"gopkg.in/yaml.v3"
 
 	"github.com/HappyLadySauceM/Nagi/pkg/db"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/migrations"
 )
 
-// defaultConfigPath is the config location relative to the repository root.
-// defaultConfigPath 是相对仓库根目录的默认配置路径。
-const defaultConfigPath = "configs/config.yaml"
-
 // Open connects to the derived test database, applies pending migrations and
-// registers cleanup. Tests skip when no base DSN can be resolved.
-// Open 连接派生出的测试库，应用未执行的迁移并注册清理；无法解析基准 DSN 时跳过。
+// registers cleanup. Default builds skip: repository behavior uses testsupport mocks.
+// Open 连接派生测试库并应用迁移。默认构建会跳过，仓储行为由 testsupport mock 覆盖。
 func Open(t *testing.T) *db.Pool {
 	t.Helper()
+	if os.Getenv("NAGI_TEST_USE_DB") == "" {
+		t.Skip("dbtest.Open disabled; use internal/testsupport repository mocks (set NAGI_TEST_USE_DB=1 only for legacy integration)")
+	}
 	dsn, skip, err := testDSN()
 	if err != nil {
 		t.Fatalf("dbtest: %v", err)
@@ -63,64 +58,36 @@ func Open(t *testing.T) *db.Pool {
 	return pool
 }
 
+// DSN returns the same derived integration DSN that Open would use.
+// DSN 返回与 Open 相同的派生集成测试 DSN。
+func DSN(t *testing.T) string {
+	t.Helper()
+	if os.Getenv("NAGI_TEST_USE_DB") == "" {
+		t.Skip("dbtest.DSN disabled; use testsupport mocks")
+	}
+	dsn, skip, err := testDSN()
+	if err != nil {
+		t.Fatalf("dbtest: %v", err)
+	}
+	if dsn == "" {
+		t.Skip(skip)
+	}
+	return dsn
+}
+
 // testDSN resolves the integration-test DSN. An empty DSN with a skip reason
 // means no base configuration is available; a non-nil error is fatal.
 // testDSN 解析集成测试 DSN：返回空 DSN 表示没有基准配置（跳过），返回错误表示致命问题。
 func testDSN() (dsn string, skipReason string, err error) {
-	if raw := strings.TrimSpace(os.Getenv("NAGI_TEST_DSN")); raw != "" {
-		derived, deriveErr := deriveTestDSN(raw)
-		if deriveErr != nil {
-			return "", "", deriveErr
-		}
-		return derived, "", nil
+	raw := strings.TrimSpace(os.Getenv("NAGI_TEST_DSN"))
+	if raw == "" {
+		return "", "NAGI_TEST_DSN required when NAGI_TEST_USE_DB=1", nil
 	}
-	path, found := findConfigFile()
-	if !found {
-		return "", "NAGI_TEST_DSN not set and " + defaultConfigPath +
-			" not found; skipping database integration test", nil
-	}
-	base, readErr := readConfigDSN(path)
-	if readErr != nil {
-		return "", "", readErr
-	}
-	if base == "" {
-		return "", path + " has no database.dsn; skipping database integration test", nil
-	}
-	derived, deriveErr := deriveTestDSN(base)
+	derived, deriveErr := deriveTestDSN(raw)
 	if deriveErr != nil {
 		return "", "", deriveErr
 	}
 	return derived, "", nil
-}
-
-// findConfigFile walks up from the working directory looking for the config file,
-// because `go test` runs each package with its own directory as the cwd.
-// NAGI_CONFIG overrides the location.
-// findConfigFile 从工作目录向上查找配置文件（go test 以包目录为 cwd）；
-// NAGI_CONFIG 可覆盖位置。
-func findConfigFile() (string, bool) {
-	if custom := strings.TrimSpace(os.Getenv("NAGI_CONFIG")); custom != "" {
-		if _, err := os.Stat(custom); err == nil {
-			return custom, true
-		}
-		return "", false
-	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", false
-	}
-	for depth := 0; depth < 6; depth++ {
-		candidate := filepath.Join(dir, defaultConfigPath)
-		if _, statErr := os.Stat(candidate); statErr == nil {
-			return candidate, true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "", false
 }
 
 // readConfigDSN reads only `database.dsn`, so unrelated config validation never

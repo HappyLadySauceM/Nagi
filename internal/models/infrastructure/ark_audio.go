@@ -26,8 +26,9 @@ const arkAudioLimit = 25 << 20
 // ArkAudio implements the Agent Plan HTTP synthesis and binary WebSocket recognition protocols.
 // ArkAudio 实现 Agent Plan HTTP 合成及二进制 WebSocket 识别协议。
 type ArkAudio struct {
-	Client *http.Client
-	Dialer *websocket.Dialer
+	Client  *http.Client
+	Dialer  *websocket.Dialer
+	PCMFrom func(context.Context, []byte) ([]byte, error)
 }
 
 type audioBuffer struct {
@@ -177,19 +178,39 @@ func parseArkFrame(frame []byte) (string, bool, error) {
 	return result.Result.Text, flags&2 != 0, nil
 }
 
+func pcmFromAudio(ctx context.Context, audio []byte) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-v", "error", "-i", "pipe:0", "-f", "s16le", "-ar", "16000", "-ac", "1", "pipe:1")
+	cmd.Stdin = bytes.NewReader(audio)
+	pcm := &audioBuffer{limit: 8 << 20}
+	cmd.Stdout = pcm
+	if cmd.Run() != nil || pcm.Len() == 0 {
+		return nil, fmt.Errorf("语音识别音频转码失败或过大")
+	}
+	return pcm.Bytes(), nil
+}
+
+func (a ArkAudio) transcribePCM(ctx context.Context, audio []byte) ([]byte, error) {
+	if a.PCMFrom != nil {
+		return a.PCMFrom(ctx, audio)
+	}
+	return pcmFromAudio(ctx, audio)
+}
+
 func (a ArkAudio) Transcribe(ctx context.Context, m models.Resolved, audio []byte) (string, error) {
 	if len(audio) == 0 || len(audio) > arkAudioLimit {
 		return "", fmt.Errorf("待识别音频为空或过大")
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-v", "error", "-i", "pipe:0", "-f", "s16le", "-ar", "16000", "-ac", "1", "pipe:1")
-	cmd.Stdin = bytes.NewReader(audio)
-	pcm := &audioBuffer{limit: 8 << 20}
-	cmd.Stdout = pcm
-	if cmd.Run() != nil || pcm.Len() == 0 {
+	data, err := a.transcribePCM(ctx, audio)
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 8<<20 {
 		return "", fmt.Errorf("语音识别音频转码失败或过大")
 	}
+	pcm := &audioBuffer{limit: 8 << 20}
+	_, _ = pcm.Write(data)
 	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
 	if a.Dialer != nil {
 		dialer = *a.Dialer
