@@ -348,7 +348,8 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   在新节点加入 builder 池前准备同版本的目录和缓存。升级时先在各节点安装由 root 管理的新版本目录，
   用相同 Ubuntu 底镜以 UID 1001 验证，再更新 ARC 和 workflow 的挂载路径。
 - CI 拆为两条 workflow：**[`verify`](.github/workflows/verify.yml)**（PR / `main` push）与
-  **[`build-images`](.github/workflows/build-images.yml)**（仅 `main`）。特性分支与 PR **只跑 verify**，
+  **[`build-images`](.github/workflows/build-images.yml)**（仅 `main`）。特性分支与 PR **只跑 verify**；
+  `build-images` 在编译发布前会再跑一轮与 `verify` 相同的门禁（`workflow_run` 链路与手动 `workflow_dispatch`），
   不在 CI 内构建或试打包镜像；Dockerfile 问题请在本地 `docker build` 或 merge 后观察 `main` 构建。
 - PR 校验复用宿主机 `/opt/arc-runner/nagi/cache/verify` 的 Go 模块、Go 编译缓存和 pnpm store；
   `main` 上使用作业内临时缓存。镜像流水线在 `verify` 于 `main` **成功结束后**由 `workflow_run` 触发

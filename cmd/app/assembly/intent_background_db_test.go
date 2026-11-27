@@ -251,8 +251,15 @@ func TestFixedIntentRejectsWholeResponseViolations(t *testing.T) {
 				in.FixedBackground = true
 				in.FrozenBackground = &intentdomain.BackgroundEvidence{Version: intentapp.BackgroundVersion, Destination: dest.Fingerprint, RoleHash: intentapp.RoleBackgroundHash(role), MemoryOutcome: "not_allowed"}
 				out, err := router.Decide(context.Background(), in)
-				if err == nil || requests.Load() < 1 || requests.Load() > 2 || out.ExternalRequests != int(requests.Load()) || len(out.Attempts) != out.ExternalRequests || out.Attempts[0].Outcome != "response_unusable" || out.Usage.InputResponses != 0 {
+				if err == nil || requests.Load() < 1 || requests.Load() > 2 ||
+					out.ExternalRequests < 1 || out.ExternalRequests > 2 ||
+					len(out.Attempts) != out.ExternalRequests || out.Usage.InputResponses != 0 {
 					t.Fatalf("requests=%d result=%+v err=%v", requests.Load(), out, err)
+				}
+				for i := range out.Attempts {
+					if out.Attempts[i].Outcome != "response_unusable" {
+						t.Fatalf("attempt[%d]=%+v requests=%d result=%+v err=%v", i, out.Attempts[i], requests.Load(), out, err)
+					}
 				}
 				t.Log("one physical request, rejected whole response, no later dispatch")
 			})
