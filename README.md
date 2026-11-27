@@ -347,13 +347,14 @@ configs/        config-example.yaml（config.yaml 为本地文件，已 gitignor
   `GOTOOLCHAIN=auto` 与 `go.mod`（1.27.4）对齐。另含 Node 24.22.1、pnpm 12.14.0 等。
   在新节点加入 builder 池前准备同版本的目录和缓存。升级时先在各节点安装由 root 管理的新版本目录，
   用相同 Ubuntu 底镜以 UID 1001 验证，再更新 ARC 和 workflow 的挂载路径。
-- CI：**[`verify`](.github/workflows/verify.yml)** 负责 PR 与 `main` push 的门禁；**`main` push** 在同一 run
-  内继续 `compile` → `release`（编译产物与镜像发布）。**[`build-images`](.github/workflows/build-images.yml)**
-  仅 `workflow_dispatch`，用于在 `main` 上跳过校验、手工重打镜像。特性分支与 PR **只跑** `verify` job。
+- CI 仅 **[`build-images`](.github/workflows/build-images.yml)**：PR / 特性分支只跑 **`verify` job**；
+  **`main` push** 在同一 run 内 **`verify` → `compile` → `release`**。`workflow_dispatch` 可选
+  **跳过门禁**（`skip_verify`）仅重打镜像。
 - PR 校验复用宿主机 `/opt/arc-runner/nagi/cache/verify` 的 Go 模块、Go 编译缓存和 pnpm store；
   `main` 上使用作业内临时缓存。
 - Go 门禁：`just verify`、`just verify-repo`、`just verify-security`（`NAGI_CI_TEST_DSN` → CNPG `nagi_test`）。
-- **分支保护**应把必需检查绑在 **`verify` workflow** 的 `verify` job；`compile`/`release` 不挡 PR 合并。
+- **分支保护**应把必需检查绑在 **`build-images` workflow** 的 **`verify` job**（PR 合并门槛）；
+  `compile`/`release` 不挡 PR 合并。若仍挂着已删除的 `verify` workflow 检查，请在规则里改绑。
 - `main` 上 `compile` **每次**产出 `web/dist` 与 API 二进制并上传 artifact，再经 Dockerfile
   `package-only` 发布两端镜像；BuildKit 检查 API 版本与 nginx 配置。PR **不**按路径缩量，固定全量跑 `verify`。
 - 镜像先发布到 GHCR 的公开容器包。流水线核对包的仓库关联、标签、摘要和匿名访问，并在运行摘要列出版本链接。
