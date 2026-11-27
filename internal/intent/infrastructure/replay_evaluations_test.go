@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration test for the replay evaluation repository, gated by NAGI_TEST_DSN.
 // 回放评估仓储的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure

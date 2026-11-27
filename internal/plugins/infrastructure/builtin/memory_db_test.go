@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration test for the memory tools against real PostgreSQL.
 // 记忆工具针对真实 PostgreSQL 的集成测试。
 package builtin

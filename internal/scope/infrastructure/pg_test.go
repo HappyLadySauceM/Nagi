@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration test for the scope policy repository, gated by NAGI_TEST_DSN.
 // 作用域策略仓库的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure

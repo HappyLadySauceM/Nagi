@@ -53,8 +53,12 @@ func TestHTTPTesterExercisesDeclaredCapabilities(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	tester := HTTPTester{
+		Client:      server.Client(),
+		ValidateMP3: func(context.Context, []byte) error { return nil },
+	}
 	for _, usage := range []string{"generation", "asr", "tts"} {
-		err := (HTTPTester{Client: server.Client()}).TestModel(context.Background(), models.Resolved{Profile: models.Profile{Usage: usage, BaseURL: server.URL, Model: "model", Thinking: true, ReasoningEffort: "high", Images: true, Tools: true, Voice: "voice"}, APIKey: "secret"})
+		err := tester.TestModel(context.Background(), models.Resolved{Profile: models.Profile{Usage: usage, BaseURL: server.URL, Model: "model", Thinking: true, ReasoningEffort: "high", Images: true, Tools: true, Voice: "voice"}, APIKey: "secret"})
 		if err != nil {
 			t.Fatal(usage, err)
 		}

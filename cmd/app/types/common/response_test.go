@@ -7,34 +7,66 @@ import (
 	"testing"
 )
 
-func TestWriteSuccessUsesEnvelopeWithHTTPStatus(t *testing.T) {
-	// 验证成功信封 code 与 HTTP 状态一致并携带数据。
-	rec := httptest.NewRecorder()
-	WriteSuccess(rec, map[string]string{"k": "v"})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
+// TestAPIEnvelopeShape verifies the admin API JSON envelope for success and failure paths.
+// TestAPIEnvelopeShape 验证管理 API 成功与失败路径的 JSON 信封形态。
+func TestAPIEnvelopeShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		write      func(http.ResponseWriter)
+		wantStatus int
+		wantCode   int
+		wantMsg    string
+		wantData   bool
+	}{
+		{
+			name: "success",
+			write: func(w http.ResponseWriter) {
+				WriteSuccess(w, map[string]int{"n": 1})
+			},
+			wantStatus: http.StatusOK,
+			wantCode:   http.StatusOK,
+			wantMsg:    "success",
+			wantData:   true,
+		},
+		{
+			name: "failure",
+			write: func(w http.ResponseWriter) {
+				WriteFailure(w, http.StatusBadRequest, "bad input")
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   http.StatusBadRequest,
+			wantMsg:    "bad input",
+		},
+		{
+			name: "unauthorized",
+			write: func(w http.ResponseWriter) {
+				WriteFailure(w, http.StatusUnauthorized, "unauthorized")
+			},
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   http.StatusUnauthorized,
+			wantMsg:    "unauthorized",
+		},
 	}
-	var got Envelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if got.Code != http.StatusOK || got.Message != "success" {
-		t.Fatalf("envelope = %+v", got)
-	}
-}
-
-func TestWriteFailureKeepsCodeAlignedWithStatus(t *testing.T) {
-	// 验证失败信封 code 与状态码一致且消息安全。
-	rec := httptest.NewRecorder()
-	WriteFailure(rec, http.StatusServiceUnavailable, "onebot connection not ready")
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	var got Envelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if got.Code != http.StatusServiceUnavailable || got.Message != "onebot connection not ready" {
-		t.Fatalf("envelope = %+v", got)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			tc.write(rec)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("http status=%d want=%d", rec.Code, tc.wantStatus)
+			}
+			var env Envelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatal(err)
+			}
+			if env.Code != tc.wantCode || env.Message != tc.wantMsg {
+				t.Fatalf("envelope=%+v", env)
+			}
+			if tc.wantData && env.Data == nil {
+				t.Fatal("expected data field")
+			}
+			if !tc.wantData && env.Data != nil {
+				t.Fatalf("unexpected data: %v", env.Data)
+			}
+		})
 	}
 }

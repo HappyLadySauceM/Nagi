@@ -1,3 +1,5 @@
+//go:build integration
+
 package infrastructure
 
 import (
@@ -7,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -18,29 +19,19 @@ import (
 	conversationinfra "github.com/HappyLadySauceM/Nagi/internal/conversation/infrastructure"
 	media "github.com/HappyLadySauceM/Nagi/internal/media/contracts"
 	ob "github.com/HappyLadySauceM/Nagi/internal/onebot/domain"
-	scope "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
 	"github.com/HappyLadySauceM/Nagi/pkg/db/dbtest"
 )
 
-type inboundArchiveAuth struct{ allowed bool }
-
-func (s *inboundArchiveAuth) Resolve(context.Context, int64, scope.ScopeType, int64) (scope.Policy, error) {
-	return scope.Policy{Enabled: s.allowed, StoreMessages: s.allowed}, nil
-}
-
 func TestInboundArchiveStoresOnceAndRevokesAccess(t *testing.T) {
-	endpoint := os.Getenv("NAGI_TEST_S3_ENDPOINT")
-	if endpoint == "" {
-		t.Skip("NAGI_TEST_S3_ENDPOINT not set")
-	}
+	s3, endpoint := newMemoryS3(t)
 	pool := dbtest.Open(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	auth := &inboundArchiveAuth{allowed: true}
 	bucket := "nagi-inbound-test-" + uuid.NewString()[:8]
 	archive, err := NewInboundArchive(pool, NewService(nil, nil, t.TempDir()), auth, InboundArchiveOptions{
-		Endpoint: endpoint, AccessKey: os.Getenv("NAGI_TEST_S3_ACCESS_KEY"), SecretKey: os.Getenv("NAGI_TEST_S3_SECRET_KEY"),
-		Bucket: bucket, MaxBytes: 512,
+		Endpoint: endpoint, AccessKey: "test", SecretKey: "test",
+		Bucket: bucket, MaxBytes: 512, Store: s3,
 	}, slog.Default())
 	if err != nil {
 		t.Fatal(err)

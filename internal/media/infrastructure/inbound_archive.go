@@ -33,6 +33,9 @@ import (
 type InboundArchiveOptions struct {
 	Endpoint, AccessKey, SecretKey, Bucket, Prefix string
 	MaxBytes                                       int64
+	// Store overrides the MinIO client (tests only).
+	// Store 覆盖 MinIO 客户端（仅测试）。
+	Store *minio.Client
 }
 
 type InboundArchive struct {
@@ -49,12 +52,15 @@ func NewInboundArchive(pool *db.Pool, media *Service, scopes scopecontracts.Auth
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("invalid inbound archive endpoint")
 	}
-	store, err := minio.New(u.Host, &minio.Options{
-		Creds: credentials.NewStaticV4(opts.AccessKey, opts.SecretKey, ""), Secure: u.Scheme == "https",
-		BucketLookup: minio.BucketLookupPath,
-	})
-	if err != nil {
-		return nil, err
+	store := opts.Store
+	if store == nil {
+		store, err = minio.New(u.Host, &minio.Options{
+			Creds: credentials.NewStaticV4(opts.AccessKey, opts.SecretKey, ""), Secure: u.Scheme == "https",
+			BucketLookup: minio.BucketLookupPath,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &InboundArchive{pool: pool, store: store, media: media, scopes: scopes, opts: opts, logger: logger}, nil
 }

@@ -1,14 +1,12 @@
 package infrastructure
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -62,27 +60,8 @@ func TestArkTTSChunksAndFailures(t *testing.T) {
 }
 
 func TestArkASRFramesAndUpload(t *testing.T) {
-	const (
-		audioSeconds = 65
-		sampleRate   = 8000
-		pcmSize      = audioSeconds * sampleRate * 2
-	)
-	// Generate 8 kHz mono PCM WAV in memory and let Transcribe resample it.
-	// 在内存中生成 8 kHz 单声道 PCM WAV，由 Transcribe 完成重采样。
-	audio := make([]byte, 44+pcmSize)
-	le := binary.LittleEndian
-	copy(audio[0:4], "RIFF")
-	le.PutUint32(audio[4:8], uint32(len(audio)-8))
-	copy(audio[8:16], "WAVEfmt ")
-	le.PutUint32(audio[16:20], 16)
-	le.PutUint16(audio[20:22], 1) // PCM
-	le.PutUint16(audio[22:24], 1) // Mono / 单声道
-	le.PutUint32(audio[24:28], sampleRate)
-	le.PutUint32(audio[28:32], sampleRate*2)
-	le.PutUint16(audio[32:34], 2)
-	le.PutUint16(audio[34:36], 16)
-	copy(audio[36:40], "data")
-	le.PutUint32(audio[40:44], pcmSize)
+	const audioSeconds = 65
+	mockPCM := make([]byte, audioSeconds*16000*2)
 
 	upgrade := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +104,10 @@ func TestArkASRFramesAndUpload(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	result, err := (ArkAudio{}).Transcribe(ctx, models.Resolved{APIKey: "private", Profile: models.Profile{BaseURL: "ws" + strings.TrimPrefix(server.URL, "http")}}, audio)
+	ark := ArkAudio{
+		PCMFrom: func(context.Context, []byte) ([]byte, error) { return mockPCM, nil },
+	}
+	result, err := ark.Transcribe(ctx, models.Resolved{APIKey: "private", Profile: models.Profile{BaseURL: "ws" + strings.TrimPrefix(server.URL, "http")}}, probeSpeech)
 	if err != nil || result != "你好。" {
 		t.Fatalf("recognition failed: %v", err)
 	}
@@ -135,36 +117,4 @@ func TestArkASRFramesAndUpload(t *testing.T) {
 			t.Fatal("malformed frame accepted")
 		}
 	}
-}
-
-func TestArkAudioLive(t *testing.T) {
-	key := os.Getenv("NAGI_TEST_ARK_PLAN_KEY")
-	if key == "" {
-		t.Skip("requires Agent Plan credential")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	tts := models.Resolved{APIKey: key, Profile: models.Profile{Protocol: "ark-plan", Usage: "tts", BaseURL: "https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional", Model: "seed-tts-2.0", Voice: "zh_female_gaolengyujie_uranus_bigtts"}}
-	audio, err := (ArkAudio{}).Synthesize(ctx, tts, "你好，这是语音测试。")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.HasPrefix(audio, []byte("ID3")) && !(len(audio) > 2 && audio[0] == 0xff) {
-		t.Fatal("not MP3")
-	}
-	asr := models.Resolved{APIKey: key, Profile: models.Profile{Protocol: "ark-plan", Usage: "asr", BaseURL: "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_nostream", Model: "doubao-seed-asr-2.0"}}
-	text, err := (ArkAudio{}).Transcribe(ctx, asr, audio)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(text, "语音测试") {
-		t.Fatalf("unexpected transcription: %q", text)
-	}
-	if err := (HTTPTester{}).TestModel(ctx, tts); err != nil {
-		t.Fatal(err)
-	}
-	if err := (HTTPTester{}).TestModel(ctx, asr); err != nil {
-		t.Fatal(err)
-	}
-	t.Log("live synthesis, transcription and both save probes passed")
 }

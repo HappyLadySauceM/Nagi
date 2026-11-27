@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration test for the conversation repository, gated by NAGI_TEST_DSN.
 // 会话仓库的集成测试，以 NAGI_TEST_DSN 为门控。
 package infrastructure

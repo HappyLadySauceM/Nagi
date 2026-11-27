@@ -18,6 +18,7 @@ import (
 	models "github.com/HappyLadySauceM/Nagi/internal/models/contracts"
 	scopeapp "github.com/HappyLadySauceM/Nagi/internal/scope/application"
 	scopedomain "github.com/HappyLadySauceM/Nagi/internal/scope/domain"
+	"github.com/HappyLadySauceM/Nagi/internal/testsupport"
 )
 
 // TestUnknownPermissions verifies that overrides outside the registered
@@ -76,39 +77,6 @@ func TestPolicyUpdateMemoryReadDefaultsOff(t *testing.T) {
 	}
 }
 
-// memScopeRepo is a minimal in-memory scope repository for HTTP tests.
-// memScopeRepo 是 HTTP 测试使用的最小内存作用域仓库。
-type memScopeRepo struct{ policies map[string]scopedomain.Policy }
-
-func (m *memScopeRepo) key(botID int64, scopeType scopedomain.ScopeType, scopeID int64) string {
-	return fmt.Sprintf("%d:%s:%d", botID, scopeType, scopeID)
-}
-
-func (m *memScopeRepo) Get(_ context.Context, botID int64, scopeType scopedomain.ScopeType, scopeID int64) (scopedomain.Policy, bool, error) {
-	policy, ok := m.policies[m.key(botID, scopeType, scopeID)]
-	return policy, ok, nil
-}
-
-func (m *memScopeRepo) List(context.Context, *int64) ([]scopedomain.Policy, error) {
-	out := make([]scopedomain.Policy, 0, len(m.policies))
-	for _, policy := range m.policies {
-		out = append(out, policy)
-	}
-	return out, nil
-}
-
-func (m *memScopeRepo) Upsert(_ context.Context, botID int64, policy scopedomain.Policy) error {
-	m.policies[m.key(botID, policy.ScopeType, policy.ScopeID)] = policy
-	return nil
-}
-
-func (m *memScopeRepo) Delete(_ context.Context, botID int64, scopeType scopedomain.ScopeType, scopeID int64) (bool, error) {
-	key := m.key(botID, scopeType, scopeID)
-	_, ok := m.policies[key]
-	delete(m.policies, key)
-	return ok, nil
-}
-
 func putScopeRequest(mux *http.ServeMux, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/scopes/private/1552089234?bot_id=1", bytes.NewBufferString(body))
@@ -153,7 +121,7 @@ func productionScopeService(t *testing.T, repo scopeapp.Repository) *scopeapp.Se
 }
 
 func TestPutFirstEnableReturnsOK(t *testing.T) {
-	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	repo := testsupport.NewScopeRepo()
 	scopeService := productionScopeService(t, repo)
 	mux := http.NewServeMux()
 	NewHandler(&svc.ServiceContext{Scope: scopeService}).Register(mux)
@@ -178,7 +146,7 @@ func TestPutFirstEnableReturnsOK(t *testing.T) {
 }
 
 func TestPutExplicitVoiceGrantWithoutModelRejected(t *testing.T) {
-	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	repo := testsupport.NewScopeRepo()
 	scopeService := productionScopeService(t, repo)
 	mux := http.NewServeMux()
 	NewHandler(&svc.ServiceContext{Scope: scopeService}).Register(mux)
@@ -190,7 +158,7 @@ func TestPutExplicitVoiceGrantWithoutModelRejected(t *testing.T) {
 }
 
 func TestPutRejectsInvalidPolicy(t *testing.T) {
-	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	repo := testsupport.NewScopeRepo()
 	scopeService, err := scopeapp.NewService(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +186,7 @@ func putGroupScopeRequest(mux *http.ServeMux, body string) *httptest.ResponseRec
 // TestPutGroupAdminCapabilityRequiresBotRole 验证 HTTP 契约：机器人为 member/未知角色时
 // 返回 400 bot_not_group_admin，admin 通过，旧别名落库为统一权限。
 func TestPutGroupAdminCapabilityRequiresBotRole(t *testing.T) {
-	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	repo := testsupport.NewScopeRepo()
 	scopeService, err := scopeapp.NewService(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -243,14 +211,17 @@ func TestPutGroupAdminCapabilityRequiresBotRole(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("admin status = %d: %s", rec.Code, rec.Body.String())
 	}
-	stored := repo.policies[repo.key(1, scopedomain.ScopeGroup, 700)]
+	stored, ok, err := repo.Get(context.Background(), 1, scopedomain.ScopeGroup, 700)
+	if err != nil || !ok {
+		t.Fatalf("get policy: ok=%v err=%v", ok, err)
+	}
 	if !stored.ToolPermissions["qq.group.admin.kick"] || stored.ToolPermissions["qq.api.set_group_kick"] {
 		t.Fatalf("stored override = %+v", stored.ToolPermissions)
 	}
 }
 
 func TestPutGroupAdminRoleUnavailableReturns503(t *testing.T) {
-	repo := &memScopeRepo{policies: map[string]scopedomain.Policy{}}
+	repo := testsupport.NewScopeRepo()
 	scopeService, err := scopeapp.NewService(repo)
 	if err != nil {
 		t.Fatal(err)

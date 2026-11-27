@@ -27,7 +27,10 @@ var probeMP3 []byte
 
 // HTTPTester probes OpenAI-compatible generation and audio endpoints.
 // HTTPTester 验证 OpenAI 兼容生成和音频端点。
-type HTTPTester struct{ Client *http.Client }
+type HTTPTester struct {
+	Client      *http.Client
+	ValidateMP3 func(context.Context, []byte) error
+}
 
 func (t HTTPTester) call(ctx context.Context, m models.Resolved, path, contentType string, body []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(m.Profile.BaseURL, "/")+path, bytes.NewReader(body))
@@ -126,6 +129,17 @@ func (t HTTPTester) chat(ctx context.Context, m models.Resolved, kind string) er
 	}
 	return nil
 }
+
+func validateSpeechMP3(ctx context.Context, audio []byte) error {
+	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-f", "mp3", "-i", "pipe:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0")
+	cmd.Stdin = bytes.NewReader(audio)
+	out, err := cmd.Output()
+	if err != nil || !strings.Contains(string(out), "audio") {
+		return fmt.Errorf("语音合成音频无法解码")
+	}
+	return nil
+}
+
 func (t HTTPTester) TestModel(ctx context.Context, m models.Resolved) error {
 	switch m.Profile.Usage {
 	case "generation":
@@ -173,13 +187,11 @@ func (t HTTPTester) TestModel(ctx context.Context, m models.Resolved) error {
 		if len(b) < 4 || !(string(b[:3]) == "ID3" || b[0] == 0xff && b[1]&0xe0 == 0xe0) {
 			return fmt.Errorf("语音合成未返回有效 MP3 音频")
 		}
-		cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-f", "mp3", "-i", "pipe:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0")
-		cmd.Stdin = bytes.NewReader(b)
-		out, err := cmd.Output()
-		if err != nil || !strings.Contains(string(out), "audio") {
-			return fmt.Errorf("语音合成音频无法解码")
+		validate := t.ValidateMP3
+		if validate == nil {
+			validate = validateSpeechMP3
 		}
-		return nil
+		return validate(ctx, b)
 	}
 	return fmt.Errorf("不支持的模型测试用途")
 }

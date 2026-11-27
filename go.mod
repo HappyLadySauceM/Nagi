@@ -4,6 +4,7 @@ go 1.27.4
 
 require (
 	entgo.io/ent v0.14.6
+	github.com/DATA-DOG/go-sqlmock v1.5.0
 	github.com/cloudwego/eino v0.9.22
 	github.com/cloudwego/eino-ext/callbacks/langfuse/v2 v2.0.2
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13

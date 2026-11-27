@@ -1,3 +1,5 @@
+//go:build integration
+
 // Integration test for the migration runner, gated by NAGI_TEST_DSN.
 // 迁移执行器的集成测试，以 NAGI_TEST_DSN 为门控。
 package db_test

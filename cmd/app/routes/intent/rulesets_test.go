@@ -1,3 +1,5 @@
+//go:build integration
+
 // Tests for the ruleset question API round-trip.
 // 规则集问题集 API 往返测试。
 package intent

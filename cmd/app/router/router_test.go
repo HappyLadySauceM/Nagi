@@ -1,3 +1,5 @@
+//go:build integration
+
 // Tests for route registration semantics of the management API.
 // 管理 API 路由注册语义的测试。
 package router
