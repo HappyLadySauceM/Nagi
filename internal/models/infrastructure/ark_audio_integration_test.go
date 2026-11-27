@@ -18,7 +18,7 @@ import (
 func TestArkAudioLive(t *testing.T) {
 	key := os.Getenv("NAGI_TEST_ARK_PLAN_KEY")
 	if key == "" {
-		t.Fatal("NAGI_TEST_ARK_PLAN_KEY is required for integration test")
+		t.Skip("NAGI_TEST_ARK_PLAN_KEY is required for live Ark audio integration test")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
