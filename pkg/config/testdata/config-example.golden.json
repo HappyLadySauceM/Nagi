@@ -21,7 +21,7 @@
     "history-limit": 30
   },
   "database": {
-    "dsn": "postgres://nagi:nagi-local@127.0.0.1:5434/nagi_ent?sslmode=disable",
+    "dsn": "postgres://nagi:nagi-local@127.0.0.1:5434/nagi_v2?sslmode=disable",
     "max-conns": 10
   },
   "echo": {

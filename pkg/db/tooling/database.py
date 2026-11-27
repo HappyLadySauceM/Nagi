@@ -14,7 +14,7 @@ import subprocess
 import sys
 from migration_safety import lint_files
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 DB = ROOT / 'pkg/db'
 DIR = DB / 'migrations/nagi'
 ATLAS_VERSION = 'v1.3.0'

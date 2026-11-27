@@ -201,23 +201,22 @@ gitignored 的 `configs/config.yaml`。假名密钥必须自行生成（`openssl
 
 ### 本地基础设施
 
-`docker compose up -d` 启动 PostgreSQL 17 业务库（主机端口 5434，库 `nagi_ent`），
-同时保留 PostgreSQL 16（端口 5433，旧库与 Langfuse）及 Langfuse 栈。
-`db17-init` 只创建隔离测试库 `nagi_ent_test`，不执行业务表迁移。
+`just test-infra-up`（或 `docker compose up -d`）启动 **PostgreSQL 18.6**（`127.0.0.1:5434`，
+库 `nagi_v2`）、Redis、MinIO；`db-init` 幂等创建集成测试库 `nagi_test`。CI 通过 secret
+`NAGI_CI_TEST_DSN` 连接 `postgresql-rw.dev-cnpg.svc:5432` 的 `nagi_test`，不在 workflow 内起 PG。
 
-`pkg/db/schema/nagi` 定义业务表；Ent client 与 repository 原子 SQL 共享一个有界
-`database/sql` pgx 连接池，默认 10、最多 12 个连接。领域层不依赖 Ent。
-`pkg/db/atlas.hcl` 绑定 `nagi` schema 与 golang-migrate 迁移目录，使用专用 PG17 临时库。
-SQL-only 清单为 `pkg/db/sql-only.json`，仅排除并单独校验迁移元数据表，不排除业务表。
+`pkg/db/schema/nagi` 定义业务表；Ent client 与 repository 原子 SQL 共享有界 pgx 连接池。
+`pkg/db/atlas.hcl` 绑定 `nagi` schema 与 golang-migrate 迁移目录。
+SQL-only 清单为 `pkg/db/sql-only.json`。
 
-应用启动只检查迁移版本，不执行 DDL 或 down。开发生成与校验通过 `scripts/database.py`，
-使用标准 Atlas CLI 免费能力，无需登录或 Pro。`lint` 为本地保守 SQL 检查，
-破坏性或未知 up 语句需按文件摘要显式人工评审；它不等同于 Atlas Pro 分析器。
-生产由有权限的平台人员在 Bytebase 执行评审通过的增量 up SQL。down 仅供明确评审后的人工回滚。
-详细命令、校验摘要及新库切换步骤见 README 的“数据库迁移”。测试必须使用隔离 PG17 库；
-迁移往返会删除测试表，禁止指向业务库。
+应用启动只检查迁移版本，不执行 DDL 或 down。生成与校验见 `pkg/db/tooling/database.py`。
+详细命令见 README「数据库迁移」。集成测试只用 `nagi_test`；迁移往返会删表。
 
 ## 验证
 
-`just verify`（或依次运行 `go mod tidy && go vet ./... && go test ./... && go fmt ./...`）。
-并发相关改动追加 `go test -race ./...`；数据库部分以 `NAGI_TEST_DSN` 启用集成测试。
+- **Fast Tier**：`just verify`（`go test ./...` 不含 integration tag，不连库）。
+- **Repository Tier**：`just verify-repo`（本地 `test-infra-up` + `nagi_test`；CI 用 `NAGI_CI_TEST_DSN`）。
+- **Live Tier**（可选）：`just verify-integration`（FFmpeg、Ark、真实模型）。
+- 并发改动可追加 `just verify-race`。
+
+详见 [testing.md](../.agents/skills/coding/references/testing.md#测试金字塔nagi-版)。
