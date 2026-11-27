@@ -28,6 +28,10 @@ FFmpeg/Ark/真实模型见 `just verify-integration`。详见
 
 ## 功能模块完成后验证并提交
 
+**`git push` 之前**（含更新已有 PR）：凡改动 `*.go`、`go.mod`、`go.sum` 或影响 Go 构建的文件，必须先在本机通过
+**`just verify`**；改仓储/SQL 时追加 **`just verify-repo`**；与 CI 一致时再跑 **`just verify-security`**。
+未跑上述检查不得推送。
+
 一个功能模块的实现和必要验证完成后，核对差异只包含这个模块，再按 git 技能提交到当前任务分支。
 用户明确说先不要提交时，只报告检查结果。
 

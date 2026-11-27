@@ -15,7 +15,7 @@ permissions:
 
 env:
   CGO_ENABLED: "0"
-  GOTOOLCHAIN: local
+  GOTOOLCHAIN: auto
   GOPROXY: https://goproxy.cn,direct
   NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
 
