@@ -1,13 +1,14 @@
 name: build-images
 
 on:
-  pull_request:
-  push:
+  workflow_run:
+    workflows: ["verify"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: build-images-${{ github.event.workflow_run.head_branch || github.ref_name }}
   queue: max
 
 permissions:
@@ -22,114 +23,20 @@ env:
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
-  changes:
-    runs-on: hls-standard
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
-    timeout-minutes: 5
-    outputs:
-      verify_api: ${{ steps.paths.outputs.verify_api }}
-      verify_web: ${{ steps.paths.outputs.verify_web }}
-      build_api: ${{ steps.paths.outputs.build_api }}
-      build_web: ${{ steps.paths.outputs.build_web }}
-      trial_api: ${{ steps.paths.outputs.trial_api }}
-      trial_web: ${{ steps.paths.outputs.trial_web }}
-    steps:
-      - uses: actions/checkout@v7
-        if: github.event_name != 'workflow_dispatch'
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: 判定校验与打包范围
-        id: paths
-        shell: bash
-        env:
-          BEFORE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          verify_api=false
-          verify_web=false
-          build_api=false
-          build_web=false
-          trial_api=false
-          trial_web=false
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            verify_api=true
-            verify_web=true
-            build_api=true
-            build_web=true
-          else
-            paths=$(mktemp)
-            trap 'unlink "$paths"' EXIT
-            git diff --name-only --no-renames -z "$BEFORE" "$GITHUB_SHA" > "$paths"
-            while IFS= read -r -d '' path; do
-              case "$path" in
-                .github/workflows/build-images.yml|.github/actions/nagi-verify/*|ci/package-images.sh)
-                  verify_api=true
-                  verify_web=true
-                  if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-                    trial_api=true
-                    trial_web=true
-                    build_web=true
-                  fi
-                  ;;
-                Dockerfile|.dockerignore)
-                  verify_api=true
-                  build_api=true
-                  trial_api=true
-                  ;;
-                web/Dockerfile|web/.dockerignore|web/nginx.conf)
-                  verify_web=true
-                  build_web=true
-                  trial_web=true
-                  ;;
-                internal/models/infrastructure/testdata/probe.*)
-                  verify_api=true
-                  if [[ "$GITHUB_EVENT_NAME" == push ]]; then build_api=true; fi
-                  ;;
-                *_test.go|cmd/*/testdata/*|internal/*/testdata/*|pkg/*/testdata/*|pkg/db/dbtest/*|Justfile|configs/config-example.yaml)
-                  verify_api=true
-                  ;;
-                README.md|web/README.md|docs/*)
-                  ;;
-                cmd/*|internal/*|pkg/*|go.mod|go.sum)
-                  verify_api=true
-                  if [[ "$GITHUB_EVENT_NAME" == push ]]; then build_api=true; fi
-                  ;;
-                web/src/test/*|web/*/__tests__/*|web/*/__mocks__/*|web/*.test.*|web/*.spec.*|web/vitest.config.*|web/eslint.config.*)
-                  verify_web=true
-                  ;;
-                web/*)
-                  verify_web=true
-                  build_web=true
-                  ;;
-              esac
-            done < "$paths"
-          fi
-          {
-            echo "verify_api=$verify_api"
-            echo "verify_web=$verify_web"
-            echo "build_api=$build_api"
-            echo "build_web=$build_web"
-            echo "trial_api=$trial_api"
-            echo "trial_web=$trial_web"
-          } >> "$GITHUB_OUTPUT"
-
-  verify:
-    needs: changes
-    if: always() && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+  compile:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: hls-builder
     timeout-minutes: 30
-    env:
-      NAGI_TEST_DSN: postgres://nagi:nagi-local@postgres:5432/nagi_test?sslmode=disable
-      TRIAL: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    outputs:
+      head_sha: ${{ steps.meta.outputs.head_sha }}
     container:
       image: &ubuntu zot.infra-registry.svc.cluster.local:5000/infrastructure/ubuntu:24.04@sha256:77eb101c607d6e3d4f5ad0c8a02c2136c689b98aba1f359e6502ba517e5c57ec
       credentials: &zot-pull
         username: ${{ secrets.ZOT_USERNAME }}
         password: ${{ secrets.ZOT_PASSWORD }}
-      options: >-
-        --user 1001:1001
-        ${{ github.event_name == 'pull_request' && '--volume /opt/arc-runner/nagi/cache/verify:/cache' || '' }}
-        ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (needs.changes.outputs.trial_api == 'true' || needs.changes.outputs.trial_web == 'true') && '--group-add 123' || '' }}
+      options: --user 1001:1001
       volumes: &toolchain
         - /opt/arc-runner/nagi/toolchains/v1:/opt/nagi-tools:ro
         - /opt/arc-runner/nagi/toolchains/v1/etc/passwd:/etc/passwd:ro
@@ -138,38 +45,20 @@ jobs:
         PATH: /opt/nagi-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         SSL_CERT_FILE: /opt/nagi-tools/etc/ca-certificates.crt
         NODE_EXTRA_CA_CERTS: /opt/nagi-tools/etc/ca-certificates.crt
-    services:
-      postgres:
-        image: ${{ needs.changes.outputs.verify_api == 'true' && 'zot.infra-registry.svc.cluster.local:5000/infrastructure/postgres:17' || '' }}
-        credentials: *zot-pull
-        env:
-          POSTGRES_USER: nagi
-          POSTGRES_PASSWORD: nagi-local
-          POSTGRES_DB: nagi_test
-        options: >-
-          --tmpfs /var/lib/postgresql/data:rw,size=512m
-          --health-cmd "pg_isready -h 127.0.0.1 -U nagi -d nagi_test -t 3"
-          --health-start-period 45s
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     defaults:
       run:
         shell: bash
     steps:
-      - name: 确认变更检测成功
-        env:
-          RESULT: ${{ needs.changes.result }}
-        run: test "$RESULT" = success
       - uses: actions/checkout@v7
-        if: needs.changes.outputs.verify_api == 'true' || needs.changes.outputs.verify_web == 'true'
         with:
           persist-credentials: false
-      - name: 准备校验目录
-        if: needs.changes.outputs.verify_api == 'true' || needs.changes.outputs.verify_web == 'true'
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: 记录构建 commit
+        id: meta
+        run: echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: 准备编译目录
         run: |
           cache="$RUNNER_TEMP/nagi-cache"
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then cache=/cache; fi
           mkdir -p "$cache"/{go/mod,go/build,pnpm/store,npm}
           {
             echo "GOMODCACHE=$cache/go/mod"
@@ -178,30 +67,9 @@ jobs:
             echo "NPM_CONFIG_CACHE=$cache/npm"
             echo "SHORT_SHA=$(git rev-parse HEAD | cut -c1-7)"
             echo "COMMIT_DATE=$(git log -1 --format=%cI)"
+            echo "HEAD_SHA=$(git rev-parse HEAD)"
           } >> "$GITHUB_ENV"
-      - name: Go 校验
-        if: needs.changes.outputs.verify_api == 'true'
-        run: |
-          just verify
-          git diff --exit-code
-      - name: Web 校验
-        if: needs.changes.outputs.verify_web == 'true'
-        working-directory: web
-        env:
-          BUILD_WEB: ${{ needs.changes.outputs.build_web }}
-        run: |
-          pnpm install --frozen-lockfile --store-dir "$PNPM_STORE"
-          pnpm lint
-          pnpm test
-          if [[ "$BUILD_WEB" != true ]]; then
-            pnpm typecheck
-          fi
-      - name: 构建 Web 产物
-        if: needs.changes.outputs.build_web == 'true'
-        working-directory: web
-        run: pnpm build
       - name: 编译 API 产物
-        if: (github.event_name != 'pull_request' && needs.changes.outputs.build_api == 'true') || (env.TRIAL == 'true' && needs.changes.outputs.trial_api == 'true')
         env:
           GOOS: linux
           GOARCH: amd64
@@ -211,51 +79,29 @@ jobs:
           go build -trimpath \
             -ldflags="-s -w -X $pkg.Version=0.1.0-dev+$SHORT_SHA -X $pkg.Commit=$SHORT_SHA -X $pkg.BuildDate=$COMMIT_DATE" \
             -o "$RUNNER_TEMP/nagi-api/nagi" ./cmd
-      - name: 试打包镜像
-        if: env.TRIAL == 'true' && (needs.changes.outputs.trial_api == 'true' || needs.changes.outputs.trial_web == 'true')
-        env:
-          API: ${{ needs.changes.outputs.trial_api }}
-          WEB: ${{ needs.changes.outputs.trial_web }}
+      - name: 构建 Web 产物
+        working-directory: web
         run: |
-          export DOCKER_CONFIG="$RUNNER_TEMP/nagi-docker"
-          mkdir -p "$DOCKER_CONFIG/cli-plugins"
-          ln -s /opt/nagi-tools/libexec/docker-buildx "$DOCKER_CONFIG/cli-plugins/docker-buildx"
-          trial_file=$(mktemp)
-          trap 'unlink "$trial_file"' EXIT
-          zot_pattern=${ZOT//./\\.}
-          if [[ "$API" == true ]]; then
-            sed "s|$zot_pattern/infrastructure/|docker.m.daocloud.io/library/|g" Dockerfile > "$trial_file"
-            docker buildx build --platform linux/amd64 --target package-only --output type=cacheonly \
-              --file "$trial_file" \
-              --build-arg "VERSION=0.1.0-dev+$SHORT_SHA" --build-arg "COMMIT=$SHORT_SHA" \
-              --build-context "nagi_artifacts=$RUNNER_TEMP/nagi-api" .
-          fi
-          if [[ "$WEB" == true ]]; then
-            sed "s|$zot_pattern/infrastructure/|docker.m.daocloud.io/library/|g" web/Dockerfile > "$trial_file"
-            docker buildx build --platform linux/amd64 --target package-only --output type=cacheonly \
-              --file "$trial_file" \
-              --build-context "nagi_artifacts=$PWD/web/dist" web
-          fi
+          pnpm install --frozen-lockfile --store-dir "$PNPM_STORE"
+          pnpm build
       - uses: actions/upload-artifact@v7
         name: 上传 API 产物
-        if: github.event_name != 'pull_request' && needs.changes.outputs.build_api == 'true'
         with:
-          name: nagi-api
+          name: nagi-api-${{ steps.meta.outputs.head_sha }}
           path: ${{ runner.temp }}/nagi-api/nagi
           if-no-files-found: error
           overwrite: true
       - uses: actions/upload-artifact@v7
         name: 上传 Web 产物
-        if: github.event_name != 'pull_request' && needs.changes.outputs.build_web == 'true'
         with:
-          name: nagi-web
+          name: nagi-web-${{ steps.meta.outputs.head_sha }}
           path: web/dist/
           if-no-files-found: error
           overwrite: true
 
   release:
-    needs: [changes, verify]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (needs.changes.outputs.build_api == 'true' || needs.changes.outputs.build_web == 'true')
+    needs: compile
+    if: always() && needs.compile.result == 'success'
     runs-on: hls-builder
     timeout-minutes: 30
     permissions:
@@ -274,6 +120,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          ref: ${{ needs.compile.outputs.head_sha }}
       - name: 准备发布目录
         run: |
           config="$RUNNER_TEMP/nagi-docker"
@@ -283,32 +130,24 @@ jobs:
             echo "DOCKER_CONFIG=$config"
             echo "NAGI_ARTIFACTS=$RUNNER_TEMP"
             echo "SHORT_SHA=$(git rev-parse HEAD | cut -c1-7)"
+            echo "HEAD_SHA=$(git rev-parse HEAD)"
             echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
           } >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         name: 下载 API 产物
-        if: needs.changes.outputs.build_api == 'true'
         with:
-          name: nagi-api
+          name: nagi-api-${{ needs.compile.outputs.head_sha }}
           path: ${{ runner.temp }}/nagi-api
       - uses: actions/download-artifact@v8
         name: 下载 Web 产物
-        if: needs.changes.outputs.build_web == 'true'
         with:
-          name: nagi-web
+          name: nagi-web-${{ needs.compile.outputs.head_sha }}
           path: ${{ runner.temp }}/nagi-web
       - name: 检查发布产物
-        env:
-          API: ${{ needs.changes.outputs.build_api }}
-          WEB: ${{ needs.changes.outputs.build_web }}
         run: |
-          if [[ "$API" == true ]]; then
-            test -s "$RUNNER_TEMP/nagi-api/nagi"
-            chmod +x "$RUNNER_TEMP/nagi-api/nagi"
-          fi
-          if [[ "$WEB" == true ]]; then
-            test -s "$RUNNER_TEMP/nagi-web/index.html"
-          fi
+          test -s "$RUNNER_TEMP/nagi-api/nagi"
+          chmod +x "$RUNNER_TEMP/nagi-api/nagi"
+          test -s "$RUNNER_TEMP/nagi-web/index.html"
       - uses: docker/login-action@v4
         with:
           registry: ${{ env.ZOT }}
@@ -327,7 +166,6 @@ jobs:
               insecure = true
       - name: 打包并推送 API 到 GHCR
         id: api
-        if: needs.changes.outputs.build_api == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -343,11 +181,10 @@ jobs:
             COMMIT=${{ env.SHORT_SHA }}
           labels: &labels |
             org.opencontainers.image.version=0.1.0-dev+${{ env.SHORT_SHA }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ env.HEAD_SHA }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
       - name: 打包并推送 Web 到 GHCR
         id: web
-        if: needs.changes.outputs.build_web == 'true'
         uses: docker/build-push-action@v7
         with:
           context: web
