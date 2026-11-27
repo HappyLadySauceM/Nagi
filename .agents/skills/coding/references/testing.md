@@ -97,10 +97,10 @@ Application 单测 **不替代** Repository 真库测：Fake 只验证编排与�
 | SnowLuma | `ws_test` | `httptest` | — |
 | HTTP API | routes、middleware | `httptest` | — |
 
-合并与发布前：**`just verify` + `just verify-repo`** 均应通过；CI **`verify` workflow** 另跑
-**`just verify-security`**。FFmpeg/Ark 等见 `just verify-integration`。**`main` push** 在同一
-`verify` workflow 内串联 `verify` → `compile` → `release`；手动重打镜像用 **`build-images`**
-（仅 `workflow_dispatch`，不跑校验）。PR 与非 `main` 分支不构建镜像。
+合并与发布前：**`just verify` + `just verify-repo`** 均应通过；CI **`build-images` workflow**
+的 `verify` job 另跑 **`just verify-security`**。FFmpeg/Ark 等见 `just verify-integration`。
+**`main` push** 在同一 workflow run 内 `verify` → `compile` → `release`；`workflow_dispatch`
+可勾选 `skip_verify` 仅重打镜像。PR 与非 `main` 分支不构建镜像。
 
 ## 验证与撤销
 

@@ -1,11 +1,18 @@
 name: build-images
 
-# 仅手动在 main 上重打镜像（跳过校验）；平时 push main 在 verify workflow 内 verify → compile → release。
-on:`  
+on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      skip_verify:
+        description: 仅 main：跳过门禁，只编译并发布镜像
+        type: boolean
+        default: false
 
 concurrency:
-  group: build-images-${{ github.ref_name }}
+  group: build-images-${{ github.ref }}
   queue: max
 
 permissions:
@@ -20,8 +27,73 @@ env:
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
+  verify:
+    if: >-
+      github.event_name != 'workflow_dispatch' || !inputs.skip_verify
+    runs-on: hls-builder
+    timeout-minutes: 45
+    container:
+      image: zot.infra-registry.svc.cluster.local:5000/infrastructure/ubuntu:24.04@sha256:77eb101c607d6e3d4f5ad0c8a02c2136c689b98aba1f359e6502ba517e5c57ec
+      credentials:
+        username: ${{ secrets.ZOT_USERNAME }}
+        password: ${{ secrets.ZOT_PASSWORD }}
+      options: >-
+        --user 1001:1001
+        ${{ github.event_name == 'pull_request' && '--volume /opt/arc-runner/nagi/cache/verify:/cache' || '' }}
+      volumes:
+        - /opt/arc-runner/nagi/toolchains/v1:/opt/nagi-tools:ro
+        - /opt/arc-runner/nagi/toolchains/v1/etc/passwd:/etc/passwd:ro
+        - /opt/arc-runner/nagi/toolchains/v1/etc/group:/etc/group:ro
+      env:
+        PATH: /opt/nagi-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        SSL_CERT_FILE: /opt/nagi-tools/etc/ca-certificates.crt
+        NODE_EXTRA_CA_CERTS: /opt/nagi-tools/etc/ca-certificates.crt
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 准备校验目录
+        run: |
+          cache="$RUNNER_TEMP/nagi-cache"
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then cache=/cache; fi
+          mkdir -p "$cache"/{go/mod,go/build,pnpm/store,npm}
+          {
+            echo "GOMODCACHE=$cache/go/mod"
+            echo "GOCACHE=$cache/go/build"
+            echo "PNPM_STORE=$cache/pnpm/store"
+            echo "NPM_CONFIG_CACHE=$cache/npm"
+          } >> "$GITHUB_ENV"
+      - name: Go 校验
+        env:
+          NAGI_TEST_USE_DB: "1"
+          NAGI_TEST_DSN: ${{ secrets.NAGI_CI_TEST_DSN }}
+        run: |
+          just verify
+          just verify-repo
+          just verify-security
+          git diff --exit-code
+      - name: Web 校验
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile --store-dir "$PNPM_STORE"
+          pnpm lint
+          pnpm test
+          pnpm typecheck
+          pnpm build
+
   compile:
-    if: github.ref == 'refs/heads/main'
+    needs: verify
+    if: >-
+      always() && !cancelled() && !contains(needs.*.result, 'failure') &&
+      github.ref == 'refs/heads/main' && (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch'
+      ) && (
+        needs.verify.result == 'success' || needs.verify.result == 'skipped'
+      )
     runs-on: hls-builder
     timeout-minutes: 30
     outputs:
@@ -95,7 +167,12 @@ jobs:
 
   release:
     needs: compile
-    if: always() && needs.compile.result == 'success'
+    if: >-
+      always() && needs.compile.result == 'success' &&
+      github.ref == 'refs/heads/main' && (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: hls-builder
     timeout-minutes: 30
     permissions:

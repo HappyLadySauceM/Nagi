@@ -78,7 +78,10 @@ func TestHAP52MemoryVisibilityAtGeneration(t *testing.T) {
 	}
 	for _, k := range []scopeKey{{bot, groupA, "group"}, {bot, groupB, "group"}, {bot, groupC, "group"}, {otherBot, groupA, "group"}, {bot, 10101, "private"}} {
 		var id string
-		if err := pool.QueryRow(ctx, `INSERT INTO conversations(id,bot_id,kind,target_id) VALUES(gen_random_uuid(),$1,$2,$3) RETURNING id::text`, k.bot, k.kind, k.target).Scan(&id); err != nil {
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO conversations(id,bot_id,kind,target_id) VALUES (gen_random_uuid(),$1,$2,$3)
+			ON CONFLICT (bot_id, kind, target_id) DO UPDATE SET id = conversations.id
+			RETURNING id::text`, k.bot, k.kind, k.target).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		conversations[k] = id
